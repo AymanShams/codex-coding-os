@@ -1,6 +1,6 @@
 # License
 
-Copyright (c) 2026 [copyright holder]
+Copyright (c) 2026 Ayman Shams
 
 ## Public License
 
