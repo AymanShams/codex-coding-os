@@ -1,0 +1,5 @@
+.private-terms.local.txt
+*.zip
+*.bak
+*.backup-*
+
