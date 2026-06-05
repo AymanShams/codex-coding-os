@@ -1,154 +1,104 @@
-$ErrorActionPreference = "Stop"
-
-$RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$Required = @(
-  "README.md",
-  "AGENTS.md",
-  "LICENSE.md",
-  "COMMERCIAL.md",
-  "NOTICE.md",
-  "THIRD_PARTY_SKILLS.md",
-  "codex-capabilities\default-skills-reference.md",
-  "codex-capabilities\plugins.manifest.json",
-  "codex-capabilities\tools.manifest.json",
-  "external-skills\manifest.json",
-  "docs\codex-plugins-mcps-hooks.md",
-  "docs\system-scope.md",
-  "docs\external-skills-installation.md",
-  "docs\full-skill-inventory.md",
-  "docs\pack-design.md",
-  "docs\component-classification.md",
-  "docs\publishing-checklist.md",
-  "templates\first-codex-prompt.md",
-  "templates\project-brief.md",
-  "templates\prd.md",
-  "templates\app-flow-doc.md",
-  "templates\tech-stack-doc.md",
-  "templates\frontend-guidelines.md",
-  "templates\backend-structure.md",
-  "templates\security-guidelines.md",
-  "templates\implementation-plan.md",
-  "templates\tdd.md",
-  "templates\repo-docs-template.md",
-  "templates\repo-AGENTS.md",
-  "templates\scoped-AGENTS.md",
-  "templates\handoff-note.md",
-  "templates\review-checklist.md",
-  "templates\validation-report.md",
-  "scripts\install.ps1",
-  "scripts\install-external-skills.ps1",
-  "scripts\uninstall.ps1",
-  "scripts\apply-external-skill-overlays.ps1",
-  "scripts\package.ps1",
-  "hooks\README.md"
+param(
+  [switch]$RequireExternalScanners
 )
 
+$ErrorActionPreference = "Stop"
+
+function Convert-PackPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $Path -replace "/", [System.IO.Path]::DirectorySeparatorChar
+}
+
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$ManifestPath = Join-Path $RepoRoot "pack.manifest.json"
 $Errors = @()
 
-foreach ($Path in $Required) {
-  $Full = Join-Path $RepoRoot $Path
+if (-not (Test-Path $ManifestPath)) {
+  Write-Output "Validation failed:"
+  Write-Output " - Missing pack.manifest.json"
+  exit 1
+}
+
+try {
+  $Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+} catch {
+  Write-Output "Validation failed:"
+  Write-Output " - pack.manifest.json is not valid JSON: $($_.Exception.Message)"
+  exit 1
+}
+
+foreach ($Path in $Manifest.required_files) {
+  $Full = Join-Path $RepoRoot (Convert-PackPath $Path)
   if (-not (Test-Path $Full)) {
     $Errors += "Missing required file: $Path"
   }
 }
 
-$RequiredSkills = @(
-  "codex-coding-os-master",
-  "catalogue-router",
-  "chat-export-capability-miner",
-  "ai-coding-discipline",
-  "new-project-documentation-system",
-  "technical-docs-pack",
-  "create-prd",
-  "product-strategy",
-  "customer-journey-map",
-  "working-backwards",
-  "wbs-artifact-planner",
-  "artifact-system-designer",
-  "artifact-validation-workflow",
-  "ssot-drafter",
-  "ssot-auditor",
-  "process-docs",
-  "support-docs",
-  "doc",
-  "pdf",
-  "evidence-checker",
-  "deep-critic",
-  "grill-me",
-  "grill-with-docs",
-  "pre-mortem",
-  "improve-codebase-architecture",
-  "react-best-practices",
-  "react-native-skills",
-  "composition-patterns",
-  "cli-creator",
-  "codex-design-artifacts",
-  "humanizer",
-  "storyscope-structural-audit",
-  "quality-improvement-problem-solving",
-  "quant-review",
-  "playwright",
-  "security-best-practices",
-  "security-threat-model",
-  "security-ownership-map",
-  "defensive-security-checklist",
-  "crisis-command-center",
-  "vercel-optimize",
-  "code-review-graph",
-  "vexor-cli",
-  "external-skill-overlay-pack"
-)
-
 $SkillRoot = Join-Path $RepoRoot ".agents\skills"
-foreach ($SkillName in $RequiredSkills) {
-  $SkillFile = Join-Path $SkillRoot "$SkillName\SKILL.md"
-  if (-not (Test-Path $SkillFile)) {
-    $Errors += "Missing bundled full skill: $SkillName"
+if (-not (Test-Path $SkillRoot)) {
+  $Errors += "Missing bundled skill root: .agents/skills"
+} else {
+  foreach ($Skill in $Manifest.bundled_skills) {
+    $SkillName = [string]$Skill.name
+    $SkillFile = Join-Path $SkillRoot "$SkillName\SKILL.md"
+    if (-not (Test-Path $SkillFile)) {
+      $Errors += "Missing bundled full skill: $SkillName"
+    }
   }
-}
 
-Get-ChildItem -Path $SkillRoot -Directory | ForEach-Object {
-  $SkillFile = Join-Path $_.FullName "SKILL.md"
-  if (-not (Test-Path $SkillFile)) {
-    $Errors += "Missing SKILL.md in $($_.FullName)"
-  } else {
-    $Text = Get-Content -Raw -Path $SkillFile
-    if ($Text -notmatch "(?s)^---.*name:.*description:.*---") {
-      $Errors += "Missing frontmatter fields in $SkillFile"
+  Get-ChildItem -Path $SkillRoot -Directory | ForEach-Object {
+    $SkillFile = Join-Path $_.FullName "SKILL.md"
+    if (-not (Test-Path $SkillFile)) {
+      $Errors += "Missing SKILL.md in $($_.FullName)"
+    } else {
+      $Text = Get-Content -Raw -LiteralPath $SkillFile
+      if ($Text -notmatch "(?s)^---.*name:.*description:.*---") {
+        $Errors += "Missing frontmatter fields in $SkillFile"
+      }
     }
   }
 }
 
-$Forbidden = @()
-$LocalExclusionPath = Join-Path $RepoRoot ".release-exclusions.local.txt"
-if (Test-Path $LocalExclusionPath) {
-  $Forbidden = Get-Content -Path $LocalExclusionPath | Where-Object {
-    $_.Trim().Length -gt 0 -and -not $_.Trim().StartsWith("#")
+$ExternalManifestPath = Join-Path $RepoRoot "external-skills\manifest.json"
+if (Test-Path $ExternalManifestPath) {
+  try {
+    $ExternalManifest = Get-Content -Raw -LiteralPath $ExternalManifestPath | ConvertFrom-Json
+    foreach ($Source in $ExternalManifest.sources) {
+      if (-not $Source.id) { $Errors += "External source missing id." }
+      if (-not $Source.repo) { $Errors += "External source missing repo: $($Source.id)" }
+      if (-not $Source.treatment) { $Errors += "External source missing treatment: $($Source.id)" }
+      if (-not $Source.license) { $Errors += "External source missing license metadata: $($Source.id)" }
+      if (-not $Source.reviewed_at) { $Errors += "External source missing reviewed_at: $($Source.id)" }
+      if ($null -eq $Source.pinned_commit) { $Errors += "External source missing pinned_commit field: $($Source.id)" }
+      if ($null -eq $Source.sha256) { $Errors += "External source missing sha256 field: $($Source.id)" }
+      if (-not $Source.pin_status) { $Errors += "External source missing pin_status: $($Source.id)" }
+      if ($Source.treatment -match "optional-install" -and [string]::IsNullOrWhiteSpace([string]$Source.pinned_commit)) {
+        if ($Source.pin_status -ne "required-before-repeatable-install") {
+          $Errors += "Installable external source without pinned_commit must set pin_status=required-before-repeatable-install: $($Source.id)"
+        }
+      }
+      if ($Source.treatment -eq "reference-only" -and $Source.pin_status -ne "reference-only-not-installed") {
+        $Errors += "Reference-only external source must set pin_status=reference-only-not-installed: $($Source.id)"
+      }
+    }
+  } catch {
+    $Errors += "external-skills/manifest.json is not valid JSON: $($_.Exception.Message)"
   }
 }
 
-foreach ($Term in $Forbidden) {
-  $Hits = Get-ChildItem -Path $RepoRoot -Recurse -File | Where-Object {
-    $_.FullName -notmatch "\\.git\\" -and $_.FullName -notmatch "\\node_modules\\"
-  } | Select-String -Pattern $Term -SimpleMatch
-  if ($Hits) {
-    $Errors += "Restricted release term found: $Term"
-  }
-}
-
-$SecretPatterns = @(
-  "sk-[A-Za-z0-9]{20,}",
-  "ghp_[A-Za-z0-9]{20,}",
-  "SUPABASE_SERVICE_ROLE_KEY\s*=",
-  "OPENAI_API_KEY\s*=\s*[^<\s]"
-)
-
-foreach ($Pattern in $SecretPatterns) {
-  $Hits = Get-ChildItem -Path $RepoRoot -Recurse -File | Where-Object {
-    $_.FullName -notmatch "\\.git\\" -and $_.FullName -notmatch "\\node_modules\\"
-  } | Select-String -Pattern $Pattern
-  if ($Hits) {
-    $Errors += "Possible secret pattern found: $Pattern"
+if ($Errors.Count -eq 0) {
+  $SafetyScript = Join-Path $RepoRoot "scripts\release-safety-scan.ps1"
+  if (Test-Path $SafetyScript) {
+    if ($RequireExternalScanners) {
+      & $SafetyScript -RepoRoot $RepoRoot -RequireExternalScanners
+    } else {
+      & $SafetyScript -RepoRoot $RepoRoot
+    }
+    if (-not $?) {
+      $Errors += "Release safety scan failed."
+    }
+  } else {
+    $Errors += "Missing release safety scan script."
   }
 }
 

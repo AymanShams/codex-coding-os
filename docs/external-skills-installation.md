@@ -37,12 +37,41 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 This clones the external source into `.external-sources/`, installs only the selected skill path when found, and applies this pack's overlay file.
 
+## External source review and pinning
+
+Every external source uses the same provenance fields in `external-skills/manifest.json`:
+
+- `license`
+- `reviewed_at`
+- `pinned_commit`
+- `sha256`
+- `pin_status`
+
+Reference-only sources are not installed by this script. Installable sources should be pinned before repeatable public release instructions are published.
+
+If an installable source is not pinned, the installer stops by default. After reviewing upstream, a user can explicitly install the current upstream state:
+
+```powershell
+.\scripts\install-external-skills.ps1 -Install forrestchang-andrej-karpathy-skills -ApplyOverlays -AllowUnpinned
+```
+
+This override is generic. It applies to any installable external source, not one specific source.
+
+## Pinning an installable source
+
+1. Review the upstream repository, license, and expected skill path.
+2. Choose the exact commit to install.
+3. Add that commit to `external-skills/manifest.json` as `pinned_commit`.
+4. Add `sha256` when installing from an archive or fixed artifact.
+5. Set `pin_status` to `pinned-reviewed`.
+6. Run the install command without `-AllowUnpinned`.
+
 ## Manual install pattern
 
 Use this only when an external source needs to be installed manually.
 
 ```powershell
-git clone https://github.com/forrestchang/andrej-karpathy-skills .external-sources\forrestchang-andrej-karpathy-skills
+git clone --depth 1 https://github.com/forrestchang/andrej-karpathy-skills .external-sources\forrestchang-andrej-karpathy-skills
 New-Item -ItemType Directory -Force -Path "$HOME\.agents\skills" | Out-Null
 Copy-Item .external-sources\forrestchang-andrej-karpathy-skills\skills\karpathy-guidelines "$HOME\.agents\skills\karpathy-guidelines" -Recurse -Force
 .\scripts\apply-external-skill-overlays.ps1
@@ -62,6 +91,7 @@ Keep upstream files unchanged. Put local changes in an overlay file under `patch
 
 - Re-check each external link.
 - Confirm license compatibility.
+- Pin installable external sources before repeatable release instructions are published.
 - Do not imply endorsement by the external authors.
 - Do not claim Karpathy wording is verbatim.
 - Keep this pack's local skill edits separate from upstream source.

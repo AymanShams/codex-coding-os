@@ -1,10 +1,16 @@
 # Third-party skills and references
 
-This file explains which skills are bundled in this pack and which external sources remain upstream references.
+This file explains provenance, attribution, external references, and optional upstream installs.
 
-## Bundled skills
+The canonical full bundled-skill inventory is `docs/full-skill-inventory.md`.
 
-The bundled skills are full local skill folders, including references, assets, and scripts where available.
+Machine-readable external source data is `external-skills/manifest.json`.
+
+The required release validation inventory is `pack.manifest.json`.
+
+## Bundled skill groups relevant to provenance
+
+The bundled skills are full local skill folders, including references, assets, and scripts where available. This table summarizes bundled groups that matter for third-party provenance, attribution, or external-source comparison.
 
 | Area | Bundled skills |
 |---|---|
@@ -45,6 +51,19 @@ Human install details live in:
 | Supabase Agent Skills | https://github.com/supabase/agent-skills | Reference only | Use as supporting reference for Supabase projects. Prefer the Supabase plugin and MCP when available. |
 | OpenAI Agents Python | https://github.com/openai/openai-agents-python | Reference only | Use as an app-architecture reference when building Python agent applications. |
 
+## Attribution policy
+
+For skills or source material not created in this pack, the intent is to use public/open-source sources and preserve attribution through links, bundled license files, source notes, or reference manifests.
+
+If a source, attribution, or license note is missing, open an issue or pull request with:
+
+1. The affected file or skill.
+2. The source repository or documentation URL.
+3. The proposed attribution or correction.
+4. Any license details that should be reflected.
+
+Do not copy additional third-party skill code into this repo until license and provenance are reviewed.
+
 ## Overlay policy
 
 If an external skill is installed later, keep upstream files unchanged.
@@ -58,6 +77,12 @@ Current overlay:
 | External source | Overlay |
 |---|---|
 | `forrestchang/andrej-karpathy-skills` | `patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md` |
+
+## External source version policy
+
+Every external source in `external-skills/manifest.json` uses the same provenance fields: `license`, `reviewed_at`, `pinned_commit`, `sha256`, and `pin_status`.
+
+Reference-only sources are not installed by this pack. Installable external sources should be pinned before repeatable public release instructions are published. The installer applies this rule generically to any installable external source.
 
 ## Local adaptation
 

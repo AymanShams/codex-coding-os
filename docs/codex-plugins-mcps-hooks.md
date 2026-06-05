@@ -13,6 +13,7 @@ That keeps authentication, connector permissions, updates, and trust prompts in 
 | Local external overlays | Bundled under `patches/external-skills/` |
 | `software-technical-docs-pack.md` | Bundled inside `.agents/skills/artifact-system-designer/references/` |
 | Codex default and managed skills reference | Tracked in `codex-capabilities/default-skills-reference.md` and `codex-capabilities/plugins.manifest.json` |
+| Optional Codex rules templates | Bundled under `.codex/rules/` |
 
 ## Managed through Codex
 
@@ -110,6 +111,13 @@ codex mcp list
 - Review the source before adding MCPs with broad filesystem, shell, browser, or network access.
 - Store sensitive integration settings outside repository files.
 - Treat MCP tools as real execution boundaries, not harmless prompts.
+- Complete `docs/mcp-review-checklist.md` before enabling MCPs with write actions, authenticated data, broad filesystem access, shell access, browser access, or production access.
+
+## Codex rules policy
+
+Codex rules templates live in `.codex/rules/`.
+
+They are not installed automatically because rules affect command approval behavior outside the sandbox. Review `docs/codex-rules.md`, copy the rules into a user or trusted project rules layer, and restart Codex.
 
 ## Hooks policy
 

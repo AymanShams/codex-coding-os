@@ -19,6 +19,17 @@
 | Document intake | `doc`, `pdf` | DOCX and PDF extraction or rendering when project sources arrive as documents |
 | External overlay handling | `external-skill-overlay-pack` | Tracks third-party source treatment and local overlay edits |
 
+## Bundled operational components
+
+| Component group | Files | Reason |
+|---|---|---|
+| Pack source of truth | `pack.manifest.json` | Drives validation and release inventory |
+| Install and uninstall | `scripts/install.ps1`, `scripts/uninstall.ps1`, `scripts/install.sh`, `scripts/uninstall.sh` | Installs skills and support files, writes an install manifest, and removes from matching paths |
+| Release safety | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1`, `scripts/package.ps1` | Validates required files, skill frontmatter, secret patterns, release exclusions, and generated ZIP contents |
+| CI and smoke test | `.github/workflows/validate.yml`, `tests/install-uninstall-smoke.ps1` | Runs validation, install/reinstall/uninstall test, and package build |
+| Command approval templates | `.codex/rules/default.rules`, `docs/codex-rules.md` | Optional Codex command policy for destructive commands, installs, migrations, deployments, and secret exposure |
+| MCP review | `docs/mcp-review-checklist.md` | Review gate for MCPs, connectors, and plugin-managed tools with sensitive permissions |
+
 ## Bundled templates
 
 | Template group | Files |
@@ -37,6 +48,7 @@
 | Built-in or plugin-managed skills | Prefer named platform skills when available, but do not require them |
 | AGENTS.md support | Use root and scoped templates |
 | Browser or frontend verification tools | Use when available, otherwise fall back to bundled `playwright` guidance |
+| Codex rules | Optional templates are bundled but not installed automatically |
 
 ## Third-party components not bundled
 

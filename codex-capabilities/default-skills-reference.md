@@ -12,6 +12,7 @@ That keeps authentication, connector permissions, MCP configuration, updates, an
 | Local templates | `templates/` |
 | External overlays | `patches/external-skills/` |
 | Software technical docs reference | `.agents/skills/artifact-system-designer/references/software-technical-docs-pack.md` |
+| Optional command approval rules | `.codex/rules/default.rules` |
 
 ## Codex default skills
 
@@ -70,9 +71,11 @@ Plugin-managed skills can change with Codex releases, rely on connector permissi
 3. Open Codex Plugins.
 4. Install the plugins listed above.
 5. Connect only the services needed for the project.
-6. Restart Codex again.
-7. Open a new chat.
-8. Paste `templates/first-codex-prompt.md`.
+6. Review `docs/mcp-review-checklist.md` before enabling MCPs with sensitive access.
+7. Review `docs/codex-rules.md` before copying command approval rules.
+8. Restart Codex again.
+9. Open a new chat.
+10. Paste `templates/first-codex-prompt.md`.
 
 ## Verification note
 

@@ -26,6 +26,8 @@ The included set covers:
 - DOCX/PDF source intake
 - capability mining from prior AI chats
 - external skill overlay handling
+- optional Codex command approval rule templates
+- release validation, safety scanning, package inspection, and install smoke testing
 
 ## Referenced through Codex
 
@@ -34,6 +36,16 @@ Codex-managed skills, plugins, and connectors stay managed by Codex. They are li
 - `codex-capabilities/default-skills-reference.md`
 - `codex-capabilities/plugins.manifest.json`
 - `docs/codex-plugins-mcps-hooks.md`
+- `docs/mcp-review-checklist.md`
+
+## Optional command approval rules
+
+Codex rules templates are included in:
+
+- `.codex/rules/default.rules`
+- `docs/codex-rules.md`
+
+They are not silently installed. Review and copy them into a user or trusted project rules layer when the project needs command approval policy.
 
 ## Referenced as tools or MCPs
 

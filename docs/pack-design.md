@@ -18,12 +18,15 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 
 | Layer | Files | Purpose |
 |---|---|---|
+| Pack manifest | `pack.manifest.json` | Source of truth for required files, bundled skills, support items, and release exclusions |
 | Installer | `scripts/install.ps1` | Copies skills and optionally adds global AGENTS rules |
 | Master skill | `.agents/skills/codex-coding-os-master/SKILL.md` | Routes the full coding workflow |
 | Workflow skills | `.agents/skills/*/SKILL.md` | Full local skills for PRD, docs, repo instructions, QA, security, architecture, frontend, and review gates |
 | Templates | `templates/*.md` | Gives the user and Codex controlled output shapes, including the full repo documentation pack template |
 | Third-party references | `THIRD_PARTY_SKILLS.md`, `patches/` | Links external skills and stores local overlay notes |
-| Validation | `scripts/validate-pack.ps1` | Checks required files, skill frontmatter, release exclusions, and secret patterns |
+| Validation | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1` | Checks manifest inventory, skill frontmatter, release exclusions, forbidden files, and secret patterns |
+| Command policy templates | `.codex/rules/` | Optional Codex command approval rules for destructive commands, installs, deployments, migrations, and secret exposure |
+| CI | `.github/workflows/validate.yml` | Runs validation, install/uninstall smoke test, and package build on GitHub Actions |
 
 ## Operating model
 
@@ -51,3 +54,5 @@ This repo is limited to reusable workflow assets. Project code, generated docume
 ## Maintenance rule
 
 Future improvements should be written as portable rules or templates before being added here. Keep the reusable lesson, not the one-off example.
+
+When a file, skill, or support directory is added or removed, update `pack.manifest.json` first, then update reader-facing docs.

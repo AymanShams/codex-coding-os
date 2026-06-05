@@ -1,0 +1,142 @@
+# Codex Coding OS command approval rules.
+# Copy this file to an active Codex rules layer, such as ~/.codex/rules/default.rules,
+# or keep it in a trusted project .codex/rules/ folder.
+
+prefix_rule(
+    pattern = ["rm", "-rf"],
+    decision = "forbidden",
+    justification = "Recursive forced deletion requires a narrower reviewed command.",
+    match = [
+        "rm -rf /",
+        "rm -rf .git",
+        "rm -rf node_modules",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Remove-Item"],
+    decision = "prompt",
+    justification = "PowerShell deletion should be reviewed before running outside the sandbox.",
+    match = [
+        "Remove-Item -LiteralPath .\\dist -Recurse -Force",
+        "Remove-Item .\\old-file.txt",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Hard resets can discard user work. Ask the user for an explicit recovery or reset plan.",
+    match = [
+        "git reset --hard",
+        "git reset --hard HEAD~1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "clean"],
+    decision = "prompt",
+    justification = "Cleaning untracked files can delete user work and generated evidence.",
+    match = [
+        "git clean -fd",
+        "git clean -fdx",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Publishing commits should be confirmed by the user.",
+    match = [
+        "git push",
+        "git push origin main",
+    ],
+)
+
+prefix_rule(
+    pattern = [["npm", "pnpm", "yarn", "bun"], ["install", "add", "remove", "update", "upgrade"]],
+    decision = "prompt",
+    justification = "Package dependency changes should be reviewed before running outside the sandbox.",
+    match = [
+        "npm install",
+        "pnpm add react",
+        "yarn remove lodash",
+        "bun add zod",
+    ],
+)
+
+prefix_rule(
+    pattern = [["pip", "pip3"], "install"],
+    decision = "prompt",
+    justification = "Python package installation changes the local environment.",
+    match = [
+        "pip install requests",
+        "pip3 install -r requirements.txt",
+    ],
+)
+
+prefix_rule(
+    pattern = [["poetry", "uv", "cargo", "bundle"], ["add", "remove", "update", "install"]],
+    decision = "prompt",
+    justification = "Dependency manager operations should be reviewed.",
+    match = [
+        "poetry add fastapi",
+        "uv add pytest",
+        "cargo add serde",
+        "bundle install",
+    ],
+)
+
+prefix_rule(
+    pattern = [["prisma", "drizzle-kit", "alembic"], ["migrate", "push", "upgrade", "downgrade"]],
+    decision = "prompt",
+    justification = "Database migrations and schema pushes can affect persistent data.",
+    match = [
+        "prisma migrate deploy",
+        "drizzle-kit push",
+        "alembic upgrade head",
+    ],
+)
+
+prefix_rule(
+    pattern = [["vercel", "netlify", "wrangler", "firebase"], ["deploy", "publish"]],
+    decision = "prompt",
+    justification = "Cloud deployment publishes code or configuration outside the local workspace.",
+    match = [
+        "vercel deploy",
+        "wrangler deploy",
+        "firebase deploy",
+    ],
+)
+
+prefix_rule(
+    pattern = [["terraform", "pulumi"], ["apply", "destroy", "up"]],
+    decision = "prompt",
+    justification = "Infrastructure changes need explicit approval.",
+    match = [
+        "terraform apply",
+        "terraform destroy",
+        "pulumi up",
+    ],
+)
+
+prefix_rule(
+    pattern = [["env", "printenv"]],
+    decision = "prompt",
+    justification = "Environment dumps can expose secrets.",
+    match = [
+        "env",
+        "printenv",
+    ],
+)
+
+prefix_rule(
+    pattern = [["cat", "type", "Get-Content"], ".env"],
+    decision = "prompt",
+    justification = "Reading .env files can expose secrets.",
+    match = [
+        "cat .env",
+        "type .env",
+        "Get-Content .env",
+    ],
+)

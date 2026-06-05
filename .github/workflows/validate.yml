@@ -1,0 +1,35 @@
+name: Validate pack
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate manifest and release safety
+        shell: pwsh
+        run: .\scripts\validate-pack.ps1
+
+      - name: Smoke test install and uninstall
+        shell: pwsh
+        run: .\tests\install-uninstall-smoke.ps1
+
+      - name: Build release package
+        shell: pwsh
+        run: .\scripts\package.ps1 -OutputPath "$env:RUNNER_TEMP\codex-coding-os-starter.zip"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-coding-os-starter
+          path: ${{ runner.temp }}/codex-coding-os-starter.zip

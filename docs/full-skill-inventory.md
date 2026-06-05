@@ -2,6 +2,8 @@
 
 This pack bundles full local skill directories for the Codex Coding OS workflow.
 
+The machine-readable source of truth for validation is `pack.manifest.json`.
+
 ## Bundled skills
 
 | Skill | Treatment | Notes |
