@@ -1,11 +1,11 @@
-# Component Classification
+# Component classification
 
-## Bundled Full Local Skill Components
+## Bundled full local skill components
 
 | Component group | Included as | Reason |
 |---|---|---|
 | Master coding workflow | `codex-coding-os-master` | One entrypoint for first-project Codex work |
-| Portable routing | `catalogue-router` plus bundled catalogue | Replaces private machine catalogue routing |
+| Portable routing | `catalogue-router` plus bundled catalogue | Routes work without depending on a machine-specific catalogue |
 | Project kickoff and source-locked docs | `new-project-documentation-system` | Full orchestration from source intake to controlled docs, TDD, repo instructions, and validation |
 | PRD and product framing | `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` | Turns raw idea into usable product truth |
 | Technical repo documentation | `technical-docs-pack` plus `repo-docs-template.md` | Full repo docs structure, governance, ownership, and documentation rot controls |
@@ -18,7 +18,7 @@
 | Document intake | `doc`, `pdf` | DOCX and PDF extraction or rendering when project sources arrive as documents |
 | External overlay handling | `external-skill-overlay-pack` | Tracks third-party source treatment and local overlay edits |
 
-## Bundled Templates
+## Bundled templates
 
 | Template group | Files |
 |---|---|
@@ -28,7 +28,7 @@
 | Agent instructions | `repo-AGENTS.md`, `scoped-AGENTS.md`, `CLAUDE.md`, `handoff-note.md` |
 | Validation | `review-checklist.md`, `validation-report.md` |
 
-## Default Codex Capabilities To Use When Available
+## Default Codex capabilities to use when available
 
 | Capability | Treatment |
 |---|---|
@@ -37,7 +37,7 @@
 | AGENTS.md support | Use root and scoped templates |
 | Browser or frontend verification tools | Use when available, otherwise fall back to bundled `playwright` guidance |
 
-## Third-Party Components Not Bundled
+## Third-party components not bundled
 
 | Component | Treatment |
 |---|---|
@@ -49,14 +49,12 @@
 | `affaan-m/ECC` | Reference only |
 | `mukul975/Anthropic-Cybersecurity-Skills` | Reference only |
 
-## Excluded Material
+## Repository boundary
 
-| Material | Reason |
+| Material | Treatment |
 |---|---|
-| Private company context | Not needed for a generic coding pack |
-| Private project names | Avoids leaking user-specific work |
-| Credentials and environment values | Security risk |
-| Old chat transcripts | Too much private and irrelevant content |
-| Private plugin cache files | Not portable and may violate provenance |
-| Unreviewed third-party source copies | License and supply-chain risk |
-
+| Project code and generated documentation | Belong in the user's project repo |
+| Deployment and connected-service configuration | Belong in the user's project repo |
+| Prior conversation exports | Not included |
+| Codex-managed plugin installation files | Managed through Codex |
+| Unreviewed third-party source copies | Linked upstream instead of bundled |

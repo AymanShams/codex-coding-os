@@ -1,12 +1,10 @@
-# Codex Default And Managed Skills Reference
+# Codex default and managed skills reference
 
-## Direct Decision
+This repo bundles local coding skills directly. Codex default skills and plugin-managed skills remain managed by Codex.
 
-This repo bundles our local coding skills directly, but it does not copy Codex default skills or plugin-managed skills.
+That keeps authentication, connector permissions, MCP configuration, updates, and trust prompts in the system that owns them.
 
-Codex-managed capabilities must stay managed by Codex because they can depend on account permissions, connector authentication, plugin updates, MCP server configuration, and local trust prompts.
-
-## Included Directly
+## Included directly
 
 | Category | Location |
 |---|---|
@@ -15,7 +13,7 @@ Codex-managed capabilities must stay managed by Codex because they can depend on
 | External overlays | `patches/external-skills/` |
 | Software technical docs reference | `.agents/skills/artifact-system-designer/references/software-technical-docs-pack.md` |
 
-## Codex Default Skills To Leave Managed
+## Codex default skills
 
 These are referenced, not copied.
 
@@ -27,9 +25,9 @@ These are referenced, not copied.
 | `openai-docs` | Use official OpenAI and Codex documentation |
 | `imagegen` | Generate visual assets when a software project needs them |
 
-## Plugin-Managed Skills To Install Through Codex
+## Plugin-managed skills
 
-The complete managed skill list is tracked in `codex-capabilities/plugins.manifest.json`.
+The full managed skill list is tracked in `codex-capabilities/plugins.manifest.json`.
 
 Install these plugins first for a normal web app:
 
@@ -55,29 +53,23 @@ Install these when the project uses the matching platform or workflow:
 11. Presentations
 12. Data Analytics
 
-## Why They Are Not Copied
+## Why managed capabilities stay managed
 
-Do not copy plugin cache folders into this repo.
+Do not copy Codex-managed plugin installation files into this repo.
 
-Reasons:
+Plugin-managed skills can change with Codex releases, rely on connector permissions, or call MCP servers and app integrations. Installing them through Codex keeps the capability boundary clear.
 
-1. Plugin skills can change with Codex releases.
-2. Some plugin skills rely on connector permissions.
-3. Some plugin skills rely on MCP servers or app authentication.
-4. Private cache provenance is weaker than an official plugin install.
-5. A license may allow copying, but copying can still break update, trust, or credential boundaries.
-
-## Activation Notes For A New User
+## Activation steps
 
 1. Install this repo with `scripts/install.ps1`.
 2. Restart Codex.
 3. Open Codex Plugins.
 4. Install the plugins listed above.
-5. Connect only the services needed for the first project.
+5. Connect only the services needed for the project.
 6. Restart Codex again.
 7. Open a new chat.
 8. Paste `templates/first-codex-prompt.md`.
 
-## Verification Notes
+## Verification note
 
-Codex behavior changes over time. Before publishing a public release, re-check current OpenAI Codex documentation for plugin, skill, MCP, and hook behavior.
+Codex behavior changes over time. Before a public release, re-check current OpenAI Codex documentation for plugin, skill, MCP, and hook behavior.

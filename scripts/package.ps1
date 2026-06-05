@@ -14,7 +14,7 @@ if (Test-Path $ZipPath) {
 $ExcludedNames = @(
   ".git",
   ".external-sources",
-  ".private-terms.local.txt"
+  ".release-exclusions.local.txt"
 )
 
 $PackageItems = Get-ChildItem -Path $RepoRoot -Force | Where-Object {

@@ -1,22 +1,25 @@
-# Publishing Checklist
+# Publishing checklist
 
-## Before Sharing Privately
+## Before sharing
+
 - Run `scripts/validate-pack.ps1`.
 - Open `templates/first-codex-prompt.md` and confirm it is beginner-friendly.
-- Confirm `LICENSE.md` matches the intended sharing model.
-- Zip the repo folder.
-- Send the ZIP or private repo link.
+- Confirm `LICENSE.md` and `COMMERCIAL.md` match the intended sharing model.
+- Rebuild the ZIP with `scripts/package.ps1`.
+- Share the ZIP or repo link.
 
-## Before Publishing Publicly
-- Review license with counsel.
+## Before a public release
+
+- Review the license with counsel.
 - Verify every third-party link and license.
-- Decide whether the repo is source-available or true open source.
-- Run a private-name scan.
-- Run a secret scan.
+- Decide whether the repo is source-available or OSI-approved open source.
+- Run the release-safety scan.
+- Run the secret-pattern scan.
 - Test install on a clean Windows profile.
-- Confirm there are no private chat exports, memory files, or project docs.
+- Confirm examples and templates are generic.
 
-## Release Notes Template
+## Release notes template
+
 ```text
 Version:
 Date:
@@ -33,4 +36,3 @@ Fixed:
 Known limitations:
 - 
 ```
-

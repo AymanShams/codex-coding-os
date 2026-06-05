@@ -1,12 +1,10 @@
-# Codex Plugins, MCPs, Hooks, And Default Capabilities
+# Codex plugins, MCPs, hooks, and default capabilities
 
-## Direct Decision
+Codex plugins, MCP servers, and default skills should be installed through Codex instead of copied into this repo.
 
-This repo should not copy plugin-managed skill bodies from private plugin cache folders.
+That keeps authentication, connector permissions, updates, and trust prompts in the right place.
 
-Install plugins through Codex. Keep plugin-managed skills, connectors, and Model Context Protocol servers under the Codex plugin and MCP systems so authentication, permissions, updates, and provenance remain controlled.
-
-## Included Directly In This Repo
+## Included directly in this repo
 
 | Item | Status |
 |---|---|
@@ -16,7 +14,7 @@ Install plugins through Codex. Keep plugin-managed skills, connectors, and Model
 | `software-technical-docs-pack.md` | Bundled inside `.agents/skills/artifact-system-designer/references/` |
 | Codex default and managed skills reference | Tracked in `codex-capabilities/default-skills-reference.md` and `codex-capabilities/plugins.manifest.json` |
 
-## Not Copied Directly
+## Managed through Codex
 
 | Item | Treatment |
 |---|---|
@@ -32,11 +30,11 @@ Install plugins through Codex. Keep plugin-managed skills, connectors, and Model
 | Test Android Apps plugin skills | Install plugin in Codex when needed |
 | Documents, Spreadsheets, Data Analytics plugin skills | Install plugin in Codex when needed |
 
-## Recommended Plugin Install List
+## Recommended plugin install list
 
 Install these through Codex plugin browsing or workspace-approved plugin management.
 
-### Core For A First Web App
+### Core for a first web app
 
 1. Build Web Apps
 2. GitHub
@@ -45,7 +43,7 @@ Install these through Codex plugin browsing or workspace-approved plugin managem
 5. Codex Security
 6. Superpowers
 
-### Platform-Specific
+### Platform-specific
 
 1. Vercel
 2. Supabase
@@ -53,7 +51,7 @@ Install these through Codex plugin browsing or workspace-approved plugin managem
 4. Computer Use
 5. Cloudflare
 
-### App-Type-Specific
+### App-type-specific
 
 1. Build iOS Apps
 2. Test Android Apps
@@ -63,7 +61,7 @@ Install these through Codex plugin browsing or workspace-approved plugin managem
 6. Presentations
 7. Data Analytics
 
-## Single-Click Style Install Steps
+## Install steps
 
 1. Open Codex.
 2. Open Settings.
@@ -85,7 +83,7 @@ Install these through Codex plugin browsing or workspace-approved plugin managem
 | `code-review-graph` | Optional for larger repos | Graph-backed dependency and impact analysis |
 | `node_repl` | Optional for browser automation | Persistent JavaScript runtime |
 
-## MCP Setup Steps
+## MCP setup steps
 
 1. Install this repo first.
 2. Open a terminal that has the Codex CLI available.
@@ -99,16 +97,15 @@ codex mcp list
 4. Add `context7`, `chrome-devtools`, `code-review-graph`, or `node_repl` only when the project needs them.
 5. Restart Codex after changing MCP configuration.
 
-## MCP Policy
+## MCP policy
 
 - Install only MCPs needed for the project.
 - Prefer official or actively maintained MCPs.
-- Do not add MCPs with broad filesystem, shell, browser, or network powers without reviewing the source.
-- Do not put tokens in repo files.
-- Store MCP secrets in the approved local credential store or environment secret manager.
+- Review the source before adding MCPs with broad filesystem, shell, browser, or network access.
+- Store sensitive integration settings outside repository files.
 - Treat MCP tools as real execution boundaries, not harmless prompts.
 
-## Hooks Policy
+## Hooks policy
 
 Hooks are not enabled by default in this pack.
 
@@ -117,20 +114,20 @@ Use hooks only after checking current Codex hook behavior and reviewing the hook
 Recommended hook uses:
 
 1. Run `scripts/validate-pack.ps1` before publishing the pack.
-2. Run private-term scans before public release.
+2. Run release-safety scans before public release.
 3. Run secret-pattern scans before commit.
 4. Run frontend QA checks after UI changes.
 5. Reapply external skill overlays after optional external skill installation.
 
-## Hook Safety Rules
+## Hook safety rules
 
 - Do not bypass hook trust for unknown hook sources.
 - Do not run destructive hooks.
-- Do not run hooks that upload source files, secrets, or private data.
+- Do not run hooks that upload source files or sensitive integration settings.
 - Keep hooks local and auditable.
 - Prefer hooks that validate, scan, or report instead of hooks that mutate code.
 
-## Source Notes
+## Source notes
 
 Current Codex behavior changes over time. Check official OpenAI Codex documentation before enabling hooks, MCPs, or plugins in a public release.
 

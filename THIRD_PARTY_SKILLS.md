@@ -1,16 +1,10 @@
-# Third-Party Skills And References
+# Third-party skills and references
 
-This file separates bundled full local skills from external third-party sources.
+This file explains which skills are bundled in this pack and which external sources remain upstream references.
 
-## Direct Decision
+## Bundled skills
 
-The repo now bundles the full local coding workflow skills under `.agents/skills/`.
-
-Third-party skills are not silently copied into the repo. They are linked, classified, and optionally installed through `scripts/install-external-skills.ps1` when the user explicitly chooses them.
-
-## Bundled Full Local Skills
-
-The bundled skills are the actual full local skill folders, including references, assets, and scripts where present.
+The bundled skills are full local skill folders, including references, assets, and scripts where available.
 
 | Area | Bundled skills |
 |---|---|
@@ -24,7 +18,7 @@ The bundled skills are the actual full local skill folders, including references
 | Platform and repo tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli` |
 | Local document intake | `doc`, `pdf` |
 
-## External Source Manifest
+## External source manifest
 
 Machine-readable source data lives in:
 
@@ -34,19 +28,19 @@ Human install details live in:
 
 `docs/external-skills-installation.md`
 
-## External Repositories
+## External repositories
 
 | Source | Link | Treatment | Install instruction |
 |---|---|---|---|
 | Andrej Karpathy Skills | https://github.com/forrestchang/andrej-karpathy-skills | Optional install with overlay | `.\scripts\install-external-skills.ps1 -Install forrestchang-andrej-karpathy-skills -ApplyOverlays` |
 | Anthropic Skills | https://github.com/anthropics/skills | Reference only | Do not bulk-install. Select and review specific skills first. |
 | MiniMax Skills | https://github.com/MiniMax-AI/skills | Reference only | Do not bulk-install. Use as packaging reference. |
-| GitHub Spec Kit | https://github.com/github/spec-kit | Reference only | Use as spec-driven development reference. This pack already has PRD, TDD, and source-locked docs flow. |
+| GitHub Spec Kit | https://github.com/github/spec-kit | Reference only | Use as a spec-driven development reference. This pack already has PRD, TDD, and source-locked docs flow. |
 | AGENTS.md | https://github.com/agentsmd/agents.md | Reference only | Use for instruction-file conventions. This pack includes its own templates. |
 | ECC | https://github.com/affaan-m/ECC | Reference only | Mine narrow harness-security and no-secrets rules. Do not install full ECC by default. |
 | Anthropic Cybersecurity Skills | https://github.com/mukul975/Anthropic-Cybersecurity-Skills | Reference only | Use only for authorized defensive checklist mining. Do not install globally. |
 
-## Overlay Policy
+## Overlay policy
 
 If an external skill is installed later, keep upstream files unchanged.
 
@@ -60,9 +54,9 @@ Current overlay:
 |---|---|
 | `forrestchang/andrej-karpathy-skills` | `patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md` |
 
-## What Was Adapted Locally
+## Local adaptation
 
-The Karpathy-inspired rules are already incorporated into `ai-coding-discipline` as generalized rules:
+The Karpathy-inspired rules are already incorporated into `ai-coding-discipline` as generalized coding rules:
 
 - think before coding
 - simplicity first
@@ -73,9 +67,9 @@ The Karpathy-inspired rules are already incorporated into `ai-coding-discipline`
 - narrow verification before completion
 - no broad autonomous agents on sensitive or production data
 
-The overlay captures how to apply this pack's stricter project-doc, validation, and security gates beside the upstream external skill.
+The overlay explains how to use this pack's project-doc, validation, and security gates beside the upstream external skill.
 
-## Default Or Built-In Codex Capabilities
+## Default Codex capabilities
 
 Use these if the user's Codex environment provides them:
 
@@ -86,7 +80,7 @@ Use these if the user's Codex environment provides them:
 | AGENTS.md support | Persistent repo instructions and scoped rules |
 | Shell and patch tools | Controlled local edits and validation |
 
-## Optional Plugin Capabilities
+## Optional plugin capabilities
 
 These are useful when available, but the pack must still work without them:
 
@@ -94,19 +88,10 @@ These are useful when available, but the pack must still work without them:
 |---|---|
 | Build Web Apps or Vercel skills | Next.js, React, deployment, UI, and browser verification |
 | GitHub skills | PRs, issues, CI, and code review |
-| Supabase skills | Database projects, migrations, SQL, and RLS review |
+| Supabase skills | Database projects, migrations, SQL, and row-level security review |
 | Codex Security skills | Security scans, threat modeling, finding validation |
 | Browser or Playwright tools | Local frontend QA and screenshots |
 
-## Excluded Material
+## Repository boundary
 
-The pack intentionally excludes:
-
-- private company context
-- client facts
-- private project names
-- account IDs
-- API keys
-- private plugin cache files
-- proprietary source documents
-
+This pack contains reusable workflow assets. Project code, generated documentation, deployment settings, and connected-service configuration belong in the user's project repo.

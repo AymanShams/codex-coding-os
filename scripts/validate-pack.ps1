@@ -108,9 +108,9 @@ Get-ChildItem -Path $SkillRoot -Directory | ForEach-Object {
 }
 
 $Forbidden = @()
-$LocalForbiddenPath = Join-Path $RepoRoot ".private-terms.local.txt"
-if (Test-Path $LocalForbiddenPath) {
-  $Forbidden = Get-Content -Path $LocalForbiddenPath | Where-Object {
+$LocalExclusionPath = Join-Path $RepoRoot ".release-exclusions.local.txt"
+if (Test-Path $LocalExclusionPath) {
+  $Forbidden = Get-Content -Path $LocalExclusionPath | Where-Object {
     $_.Trim().Length -gt 0 -and -not $_.Trim().StartsWith("#")
   }
 }
@@ -120,7 +120,7 @@ foreach ($Term in $Forbidden) {
     $_.FullName -notmatch "\\.git\\" -and $_.FullName -notmatch "\\node_modules\\"
   } | Select-String -Pattern $Term -SimpleMatch
   if ($Hits) {
-    $Errors += "Forbidden private term found: $Term"
+    $Errors += "Restricted release term found: $Term"
   }
 }
 

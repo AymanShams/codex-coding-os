@@ -16,7 +16,7 @@
 - Protected actions are checked on the server.
 - Inputs are validated.
 - Secrets are not committed.
-- Logs avoid secrets and private user content.
+- Logs avoid secrets and sensitive user content.
 - Dependency changes are justified.
 
 ## Frontend
@@ -38,4 +38,3 @@
 Ship, revise, or block: {{decision}}
 
 Reason: {{reason}}
-

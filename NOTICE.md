@@ -2,7 +2,7 @@
 
 This pack was created as a generic coding workflow starter for Codex.
 
-It includes original workflow text and templates derived from local coding practice, not private company documents.
+It includes reusable workflow text and templates intended for software project setup.
 
 It includes the generic `repo-docs-template.md` reference from the local `technical-docs-pack` skill. Source checked on 2026-06-05. SHA256: 2A54EE7A6830F9C0A394AC339267E5658CB9A35B3BDE4F873B4ABC5DAD0C1284.
 

@@ -1,21 +1,14 @@
-# External Skills Installation And Overlay Guide
+# External skills installation and overlay guide
 
-## Direct Decision
+The bundled skills are the primary workflow. External repositories are optional references, and only one upstream skill pack has an install path in this repo.
 
-Do not bulk-install external skill packs for a first project.
+Do not bulk-install external skill packs for a first project. Review the source, install only what is needed, and keep local changes in overlays.
 
-The bundled local skills are the primary system. External repositories are reference sources or optional installs when a user knowingly wants the upstream behavior too.
+## Why this matters
 
-## Why
+External skill packs can introduce license drift, duplicate instructions, unexpected tool behavior, and maintenance risk.
 
-External skill packs create four risks:
-
-- license and attribution drift
-- duplicate or conflicting instructions
-- broad tool behavior that was not designed for this pack
-- supply-chain and maintenance risk
-
-## External Sources
+## External sources
 
 | Source | Link | Treatment |
 |---|---|---|
@@ -27,7 +20,7 @@ External skill packs create four risks:
 | ECC | https://github.com/affaan-m/ECC | Reference only |
 | Anthropic Cybersecurity Skills | https://github.com/mukul975/Anthropic-Cybersecurity-Skills | Reference only |
 
-## One-Pack Optional Install
+## Optional install
 
 From the repo root:
 
@@ -39,9 +32,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 This clones the external source into `.external-sources/`, installs only the selected skill path when found, and applies this pack's overlay file.
 
-## Manual Install Pattern
+## Manual install pattern
 
-Use this only when the user asks to install an external source manually.
+Use this only when an external source needs to be installed manually.
 
 ```powershell
 git clone https://github.com/forrestchang/andrej-karpathy-skills .external-sources\forrestchang-andrej-karpathy-skills
@@ -50,23 +43,20 @@ Copy-Item .external-sources\forrestchang-andrej-karpathy-skills\skills\karpathy-
 .\scripts\apply-external-skill-overlays.ps1
 ```
 
-## Overlay Rule
+## Overlay rule
 
-Never edit upstream external skill files without tracking the delta.
+Keep upstream files unchanged. Put local changes in an overlay file under `patches/external-skills/<source-id>/`.
 
-Put local changes in an overlay file under `patches/external-skills/<source-id>/`.
-
-## Current Overlays
+## Current overlays
 
 | Source | Overlay |
 |---|---|
 | `forrestchang-andrej-karpathy-skills` | `patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md` |
 
-## Review Before Public Release
+## Review before public release
 
 - Re-check each external link.
 - Confirm license compatibility.
 - Do not imply endorsement by the external authors.
 - Do not claim Karpathy wording is verbatim.
 - Keep this pack's local skill edits separate from upstream source.
-

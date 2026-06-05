@@ -1,17 +1,15 @@
-# Full Skill Inventory
+# Full skill inventory
 
-## Decision
+This pack bundles full local skill directories for the coding workflow.
 
-This pack bundles full local skill directories for the coding workflow. It does not bundle private company context or unreviewed third-party repositories.
-
-## Bundled Skills
+## Bundled skills
 
 | Skill | Treatment | Notes |
 |---|---|---|
 | `codex-coding-os-master` | Pack master | Top-level workflow router for first-project coding |
-| `catalogue-router` | Full sanitized local skill | Uses bundled `references/capability-catalogue.md` instead of a private machine path |
-| `ai-coding-discipline` | Full sanitized local skill | Karpathy-inspired coding discipline, generalized for sensitive data |
-| `new-project-documentation-system` | Full sanitized local skill | Includes references and AGENTS/CLAUDE/handoff assets |
+| `catalogue-router` | Full portable local skill | Uses bundled `references/capability-catalogue.md` |
+| `ai-coding-discipline` | Full portable local skill | Karpathy-inspired coding discipline, generalized for sensitive data |
+| `new-project-documentation-system` | Full portable local skill | Includes references and AGENTS/CLAUDE/handoff assets |
 | `technical-docs-pack` | Full local skill | Includes exact `references/repo-docs-template.md` |
 | `create-prd` | Full local skill | PRD creation |
 | `product-strategy` | Full local skill | Product direction before PRD where needed |
@@ -26,7 +24,7 @@ This pack bundles full local skill directories for the coding workflow. It does 
 | `support-docs` | Full local skill | Support and help documentation |
 | `doc` | Full local skill | DOCX intake and creation |
 | `pdf` | Full local skill | PDF intake |
-| `evidence-checker` | Full sanitized local skill | Source-quality and factual verification |
+| `evidence-checker` | Full portable local skill | Source-quality and factual verification |
 | `deep-critic` | Full local skill | Skeptical critique |
 | `pre-mortem` | Full local skill | Failure-first planning |
 | `improve-codebase-architecture` | Full local skill | Architecture and refactor review |
@@ -39,13 +37,13 @@ This pack bundles full local skill directories for the coding workflow. It does 
 | `security-threat-model` | Full local skill | AppSec threat models |
 | `security-ownership-map` | Full local skill | Ownership and security hotspot graph scripts |
 | `vercel-optimize` | Full local skill | Vercel performance and cost optimization references and scripts |
-| `code-review-graph` | Full sanitized local skill | Graph-backed code review entrypoints |
+| `code-review-graph` | Full portable local skill | Graph-backed code review entrypoints |
 | `vexor-cli` | Full local skill | CLI helper guidance |
 | `external-skill-overlay-pack` | Pack master | External source handling and overlays |
 
-## Removed From The Earlier Skeleton
+## Removed from the earlier skeleton
 
-These abbreviated skills were removed because their responsibilities are now covered by full local skills:
+These abbreviated skills were removed because full local skills now cover their responsibilities:
 
 - `ai-coding-discipline-pack`
 - `first-project-prd-workflow`
@@ -55,12 +53,9 @@ These abbreviated skills were removed because their responsibilities are now cov
 - `simplify-review-gate`
 - `source-locked-docs-workflow`
 
-## Sanitization
+## Portability changes
 
-The copied skills were sanitized for portability:
-
-- private machine paths were replaced with portable paths
-- private company names were excluded
-- healthcare-specific sensitive-data wording was generalized
-- the local catalogue router now uses a bundled catalogue
-
+- Machine-specific paths were replaced with portable paths.
+- Domain-specific examples were generalized.
+- Sensitive-data wording was kept generic.
+- The catalogue router uses a bundled catalogue.

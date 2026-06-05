@@ -44,7 +44,7 @@ Use the project commands defined in `docs/implementation-plan.md` or the package
 - Frontend hiding is not authorization.
 - Environment variables must use placeholders in committed files.
 - User input must be validated on the server.
-- Logs must not contain secrets or private user content.
+- Logs must not contain secrets or sensitive user content.
 
 ## Completion Standard
 Do not say a task is done unless:
@@ -53,4 +53,3 @@ Do not say a task is done unless:
 - Relevant tests or checks were run.
 - User-facing behavior is described.
 - Any remaining risk is stated.
-

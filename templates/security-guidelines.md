@@ -37,7 +37,7 @@
 
 ## Logging
 - Log failures and important admin actions.
-- Do not log passwords, tokens, payment data, or private user content.
+- Do not log passwords, tokens, payment data, or sensitive user content.
 - Keep logs useful for debugging without becoming a second database.
 
 ## Prelaunch Gate
@@ -47,4 +47,3 @@
 - Dependency audit checked.
 - Backup or rollback path checked.
 - Error states checked.
-

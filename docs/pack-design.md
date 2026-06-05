@@ -1,16 +1,21 @@
-# Pack Design
+# Pack design
 
-## Decision
-This pack is a coding-only Codex operating system for first-project work. It bundles original generic skills, templates, scripts, and repo instructions. It does not bundle private project context or third-party skill bodies.
+## Purpose
 
-## Design Goals
-- One install before the first Codex project chat.
-- Idea to PRD to technical design to repo instructions to first slice.
-- Beginner-friendly output with strict engineering discipline.
-- Generic enough for public sharing after legal and license review.
-- Source-faithful docs instead of generic AI filler.
+This pack gives Codex a disciplined first-project workflow: idea intake, PRD, technical design, repo instructions, implementation planning, a bounded first build slice, and validation.
+
+It bundles generic skills, templates, scripts, and repo instructions. External skills stay linked to their upstream sources unless this pack explicitly says otherwise.
+
+## Design goals
+
+- Install once before the first Codex project chat.
+- Move from idea to PRD to technical design to repo instructions to first slice.
+- Keep the workflow beginner-friendly without weakening engineering discipline.
+- Make the repo suitable for public release after license and source review.
+- Favor source-faithful docs over generic AI output.
 
 ## Architecture
+
 | Layer | Files | Purpose |
 |---|---|---|
 | Installer | `scripts/install.ps1` | Copies skills and optionally adds global AGENTS rules |
@@ -18,32 +23,30 @@ This pack is a coding-only Codex operating system for first-project work. It bun
 | Workflow skills | `.agents/skills/*/SKILL.md` | Full local skills for PRD, docs, repo instructions, QA, security, architecture, frontend, and review gates |
 | Templates | `templates/*.md` | Gives the user and Codex controlled output shapes, including the full repo documentation pack template |
 | Third-party references | `THIRD_PARTY_SKILLS.md`, `patches/` | Links external skills and stores local overlay notes |
-| Validation | `scripts/validate-pack.ps1` | Checks required files, skill frontmatter, private terms, and secret patterns |
+| Validation | `scripts/validate-pack.ps1` | Checks required files, skill frontmatter, release exclusions, and secret patterns |
 
-## Operating Model
+## Operating model
+
 1. Install the pack.
 2. Restart Codex.
 3. Paste `templates/first-codex-prompt.md`.
-4. Codex asks only necessary scope questions.
-5. Codex creates the controlled docs.
-6. Codex creates a technical design document.
-7. Codex creates repo instructions.
-8. Codex starts one bounded implementation slice.
-9. Codex validates before completion.
+4. Answer only the scope questions needed to define the project.
+5. Create the controlled docs.
+6. Create the technical design document.
+7. Create repo instructions.
+8. Start one bounded implementation slice.
+9. Validate before completion.
 
-## Full Skill Boundary
+## Skill boundary
 
 The full bundled inventory is documented in `docs/full-skill-inventory.md`.
 
-The earlier abbreviated skeleton skills were removed. Their responsibilities are covered by full local skills such as `new-project-documentation-system`, `ai-coding-discipline`, `technical-docs-pack`, `playwright`, and the security skills.
+The earlier abbreviated skeleton skills were removed. Full local skills now cover those responsibilities, including `new-project-documentation-system`, `ai-coding-discipline`, `technical-docs-pack`, `playwright`, and the security skills.
 
-## Exclusions
-- Private company names.
-- Client, private user, project, and production data.
-- Local memory exports.
-- Plugin cache contents from a private machine.
-- Full third-party skill copies without separate license review.
+## Repository boundary
 
-## Maintenance Rule
-If a future improvement comes from a private project, convert it to a generic rule before adding it here. Keep the cause, not the private example.
+This repo is limited to reusable workflow assets. Project code, generated documentation, deployment settings, and connected-service configuration belong in the user's project repo.
 
+## Maintenance rule
+
+Future improvements should be written as portable rules or templates before being added here. Keep the reusable lesson, not the one-off example.

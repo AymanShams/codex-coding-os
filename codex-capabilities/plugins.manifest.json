@@ -1,7 +1,7 @@
 {
   "version": "1.1.0",
   "generated_from": "Codex starter-pack authoring environment on 2026-06-05",
-  "policy": "Plugin-managed skills, connectors, and MCP servers are not copied from private plugin cache folders. Install them through Codex so authentication, updates, permissions, and provenance remain controlled by the plugin system.",
+  "policy": "Plugin-managed skills, connectors, and MCP servers are installed through Codex so authentication, updates, permissions, and provenance remain controlled by the plugin system.",
   "repo_bundled_policy": {
     "copied_directly": [
       "full local coding skills under .agents/skills",
@@ -12,9 +12,9 @@
     "not_copied_directly": [
       "Codex default skills",
       "Codex plugin-managed skills",
-      "Codex plugin cache files",
-      "connected app credentials",
-      "MCP credentials",
+      "Codex-managed plugin installation files",
+      "connected app auth state",
+      "MCP auth state",
       "hooks that mutate local files"
     ],
     "reason": "License permission alone is not enough. Plugin-managed skills can depend on account permissions, connector authentication, plugin updates, and private cache provenance."
@@ -332,7 +332,7 @@
     "reason": "Hooks are powerful automation boundaries. Enable only after reviewing current Codex hook documentation and trusting the hook source.",
     "recommended_hook_uses": [
       "pack validation before release",
-      "private-term scan before publish",
+      "release-safety scan before publish",
       "secret-pattern scan before commit",
       "frontend QA command after UI changes",
       "external skill overlay reapply after external skill install"

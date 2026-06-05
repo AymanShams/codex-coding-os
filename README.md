@@ -1,19 +1,21 @@
 # Codex Coding OS Starter
 
-This repo is a one-install starter pack for a first serious Codex coding project.
+Codex Coding OS Starter is a setup pack for a first serious Codex coding project.
 
-It gives Codex a disciplined workflow for turning an idea into a PRD, controlled project docs, a technical build plan, repo instructions, and then a first implementation slice.
+It gives Codex a structured path from a raw idea to a product requirements document, technical design, repo instructions, implementation plan, and first build slice.
 
-## What This Pack Does
+The point is simple: do not start by asking Codex to build the app. First make the idea clear enough that the build can stay focused.
 
-- Installs a full coding-only skill stack into the user's Codex skills folder.
-- Adds a generic AGENTS instruction layer for safe AI-assisted coding.
-- Guides the first chat from idea intake to PRD, TDD, repo docs, and first build slice.
-- Keeps third-party skills as tracked links, optional installs, and overlays unless their license and provenance are separately reviewed.
-- Includes the local edits and overlay rules for third-party-inspired coding discipline.
-- Avoids company, private user, client, and private workspace context.
+## What this pack includes
 
-## Install On Windows
+- A coding skill stack for project kickoff, PRD creation, technical documentation, implementation planning, code review, QA, and security review.
+- A reusable AGENTS instruction layer for disciplined AI-assisted development.
+- A first-chat prompt that guides Codex through product discovery before implementation.
+- Templates for project docs, technical docs, repo instructions, handoff notes, reviews, and validation reports.
+- Scripts for install, uninstall, validation, packaging, and optional external skill overlays.
+- References for Codex plugins, MCPs, default skills, and external skill sources.
+
+## Install on Windows
 
 1. Download or clone this repo.
 2. Open PowerShell inside the repo folder.
@@ -27,7 +29,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 4. Restart Codex.
 5. Open a new Codex chat and paste the first prompt from `templates/first-codex-prompt.md`.
 
-## Install Without Global AGENTS Changes
+## Install without global AGENTS changes
 
 If you only want the skills copied and do not want to modify `~\.codex\AGENTS.md`, run:
 
@@ -53,23 +55,22 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 The uninstall script removes the skills installed by this pack and removes the global AGENTS block if it was added by the installer.
 
-## First Chat Workflow
+## First project workflow
 
-The first chat should not start with "build the app."
-
-Use this flow:
+Use this sequence in a new Codex chat:
 
 1. Paste the first prompt.
-2. Let Codex ask project-defining questions.
-3. Answer in batches.
-4. Let Codex create the seven controlled docs.
-5. Let Codex create the TDD build plan.
-6. Let Codex create repo instructions.
-7. Only then start the first implementation slice.
+2. Answer Codex's project questions in batches.
+3. Generate the controlled project docs.
+4. Generate the technical design document.
+5. Generate the implementation plan.
+6. Add repo instructions.
+7. Start one bounded implementation slice.
+8. Validate before marking the work done.
 
-## Included Skills
+## Included skills
 
-This repo now bundles full local skill folders, including their references, assets, and scripts where present.
+The pack includes full skill folders with their references, assets, and scripts where available.
 
 | Area | Skills |
 |---|---|
@@ -84,20 +85,20 @@ This repo now bundles full local skill folders, including their references, asse
 | Document intake | `doc`, `pdf` |
 | External overlay routing | `external-skill-overlay-pack` |
 
-## Included Templates
+## Included templates
 
-The templates in `templates/` cover the first prompt, project brief, PRD, app flow, tech stack, frontend rules, backend structure, security rules, implementation plan, technical design, full repo documentation pack, repo instructions, handoff, review, and validation.
+The `templates/` folder covers the first prompt, project brief, PRD, app flow, tech stack, frontend rules, backend structure, security rules, implementation plan, technical design, repo documentation pack, repo instructions, handoff, review, and validation.
 
-## External Skills
+## Codex plugins and external skills
 
-External sources are documented in:
+This pack works on its own. It also documents optional Codex plugins, MCPs, and external skill sources:
 
-- `THIRD_PARTY_SKILLS.md`
-- `external-skills/manifest.json`
 - `codex-capabilities/default-skills-reference.md`
-- `docs/external-skills-installation.md`
 - `codex-capabilities/plugins.manifest.json`
 - `docs/codex-plugins-mcps-hooks.md`
+- `THIRD_PARTY_SKILLS.md`
+- `external-skills/manifest.json`
+- `docs/external-skills-installation.md`
 
 List optional external installs:
 
@@ -111,7 +112,13 @@ Install the optional Karpathy-inspired upstream skill and apply this pack's over
 .\scripts\install-external-skills.ps1 -Install forrestchang-andrej-karpathy-skills -ApplyOverlays
 ```
 
-## Package For Sharing
+## Repository boundary
+
+This repository is a starter pack. Project code, generated documentation, deployment settings, and connected-service configuration belong in the user's project repo.
+
+Third-party projects stay linked to their upstream sources unless this repo explicitly says otherwise.
+
+## Package for sharing
 
 Run:
 
@@ -122,30 +129,21 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 This validates the pack and creates `codex-coding-os-starter.zip` beside the repo folder.
 
-## What Is Not Included
-
-- Private company context.
-- Personal memories.
-- Credentials, tokens, API keys, or production environment values.
-- Full copies of third-party skills unless their license and provenance are separately reviewed.
-- Plugin cache files from a private Codex setup.
-
-## License Position
+## License
 
 This repo uses a source-available licensing model:
 
-- Personal, educational, hobby, research, evaluation, and noncommercial use are covered by the public license in `LICENSE.md`.
+- Personal, educational, hobby, research, evaluation, and noncommercial use are covered by `LICENSE.md`.
 - Commercial or enterprise use requires a separate written commercial license. See `COMMERCIAL.md`.
 
-This is not OSI-approved open source because commercial restriction is not open source under the Open Source Definition. If you want true open source instead, switch to Apache-2.0.
+This is not OSI-approved open source because the license restricts commercial use. For an OSI-approved open source release, use a license such as Apache-2.0 instead.
 
-## Maintainer Notes
+## Maintainer checklist
 
-Before publishing publicly:
+Before a release:
 
 1. Run `.\scripts\validate-pack.ps1`.
-2. Optionally create `.private-terms.local.txt` with one private term per line and rerun validation.
-3. Review `LICENSE.md` with counsel.
-4. Confirm all third-party references in `THIRD_PARTY_SKILLS.md`.
-5. Remove any private names from examples.
-6. Test install on a clean Windows user profile.
+2. Review `LICENSE.md` and `COMMERCIAL.md`.
+3. Re-check third-party links and licenses in `THIRD_PARTY_SKILLS.md`.
+4. Run a release-safety scan with `.release-exclusions.local.txt` if you maintain a local exclusion list.
+5. Test install on a clean Windows user profile.
