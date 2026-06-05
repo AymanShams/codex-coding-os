@@ -8,7 +8,10 @@ $Required = @(
   "COMMERCIAL.md",
   "NOTICE.md",
   "THIRD_PARTY_SKILLS.md",
+  "codex-capabilities\default-skills-reference.md",
+  "codex-capabilities\plugins.manifest.json",
   "external-skills\manifest.json",
+  "docs\codex-plugins-mcps-hooks.md",
   "docs\external-skills-installation.md",
   "docs\full-skill-inventory.md",
   "docs\pack-design.md",
@@ -34,7 +37,8 @@ $Required = @(
   "scripts\install-external-skills.ps1",
   "scripts\uninstall.ps1",
   "scripts\apply-external-skill-overlays.ps1",
-  "scripts\package.ps1"
+  "scripts\package.ps1",
+  "hooks\README.md"
 )
 
 $Errors = @()

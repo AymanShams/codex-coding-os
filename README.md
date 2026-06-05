@@ -94,7 +94,10 @@ External sources are documented in:
 
 - `THIRD_PARTY_SKILLS.md`
 - `external-skills/manifest.json`
+- `codex-capabilities/default-skills-reference.md`
 - `docs/external-skills-installation.md`
+- `codex-capabilities/plugins.manifest.json`
+- `docs/codex-plugins-mcps-hooks.md`
 
 List optional external installs:
 

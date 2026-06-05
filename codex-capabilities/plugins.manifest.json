@@ -1,0 +1,341 @@
+{
+  "version": "1.1.0",
+  "generated_from": "Codex starter-pack authoring environment on 2026-06-05",
+  "policy": "Plugin-managed skills, connectors, and MCP servers are not copied from private plugin cache folders. Install them through Codex so authentication, updates, permissions, and provenance remain controlled by the plugin system.",
+  "repo_bundled_policy": {
+    "copied_directly": [
+      "full local coding skills under .agents/skills",
+      "local templates under templates/",
+      "external overlays under patches/external-skills/",
+      "software-technical-docs-pack.md under .agents/skills/artifact-system-designer/references/"
+    ],
+    "not_copied_directly": [
+      "Codex default skills",
+      "Codex plugin-managed skills",
+      "Codex plugin cache files",
+      "connected app credentials",
+      "MCP credentials",
+      "hooks that mutate local files"
+    ],
+    "reason": "License permission alone is not enough. Plugin-managed skills can depend on account permissions, connector authentication, plugin updates, and private cache provenance."
+  },
+  "default_codex_skills_reference": [
+    {
+      "name": "skill-installer",
+      "treatment": "Codex-managed default skill",
+      "use": "Install local skills from folders, archives, or repos"
+    },
+    {
+      "name": "skill-creator",
+      "treatment": "Codex-managed default skill",
+      "use": "Create and improve reusable skills"
+    },
+    {
+      "name": "plugin-creator",
+      "treatment": "Codex-managed default skill",
+      "use": "Create Codex plugin bundles"
+    },
+    {
+      "name": "openai-docs",
+      "treatment": "Codex-managed default skill",
+      "use": "Use official OpenAI and Codex documentation"
+    },
+    {
+      "name": "imagegen",
+      "treatment": "Codex-managed default skill",
+      "use": "Generate visual assets when a project needs them"
+    }
+  ],
+  "recommended_plugins": [
+    {
+      "name": "Build Web Apps",
+      "priority": "required-for-web-apps",
+      "purpose": "Frontend app building, React, UI implementation, browser testing, and web app workflow support",
+      "managed_skills": [
+        "build-web-apps:frontend-app-builder",
+        "build-web-apps:frontend-testing-debugging",
+        "build-web-apps:react-best-practices",
+        "build-web-apps:shadcn",
+        "build-web-apps:stripe-best-practices",
+        "build-web-apps:supabase-postgres-best-practices"
+      ]
+    },
+    {
+      "name": "GitHub",
+      "priority": "required-for-github-repos",
+      "purpose": "Repository, issue, pull request, and CI workflow access",
+      "managed_skills": [
+        "github:github",
+        "github:gh-address-comments",
+        "github:gh-fix-ci",
+        "github:yeet"
+      ]
+    },
+    {
+      "name": "Browser",
+      "priority": "required-for-local-ui-review",
+      "purpose": "Open and inspect local web targets in the Codex in-app browser",
+      "managed_skills": [
+        "browser:control-in-app-browser"
+      ]
+    },
+    {
+      "name": "OpenAI Developers",
+      "priority": "recommended-for-openai-work",
+      "purpose": "OpenAI APIs, Agents SDK, ChatGPT Apps, API keys, and official developer docs",
+      "managed_skills": [
+        "openai-developers:agents-sdk",
+        "openai-developers:build-chatgpt-app",
+        "openai-developers:chatgpt-app-submission",
+        "openai-developers:openai-api-troubleshooting",
+        "openai-developers:openai-platform-api-key"
+      ]
+    },
+    {
+      "name": "Codex Security",
+      "priority": "recommended",
+      "purpose": "Security scans, diff scans, finding validation, and secure remediation workflows",
+      "managed_skills": [
+        "codex-security:attack-path-analysis",
+        "codex-security:deep-security-scan",
+        "codex-security:finding-discovery",
+        "codex-security:fix-finding",
+        "codex-security:security-diff-scan",
+        "codex-security:security-scan",
+        "codex-security:threat-model",
+        "codex-security:validation"
+      ]
+    },
+    {
+      "name": "Superpowers",
+      "priority": "recommended",
+      "purpose": "TDD, planning, debugging, verification, worktrees, and agentic development workflows",
+      "managed_skills": [
+        "superpowers:brainstorming",
+        "superpowers:dispatching-parallel-agents",
+        "superpowers:executing-plans",
+        "superpowers:finishing-a-development-branch",
+        "superpowers:receiving-code-review",
+        "superpowers:requesting-code-review",
+        "superpowers:subagent-driven-development",
+        "superpowers:systematic-debugging",
+        "superpowers:test-driven-development",
+        "superpowers:using-git-worktrees",
+        "superpowers:using-superpowers",
+        "superpowers:verification-before-completion",
+        "superpowers:writing-plans",
+        "superpowers:writing-skills"
+      ]
+    },
+    {
+      "name": "Vercel",
+      "priority": "recommended-for-vercel-deployments",
+      "purpose": "Deployments, domains, logs, platform docs, storage, queues, cron, and Vercel-specific app workflows",
+      "managed_skills": [
+        "vercel:agent-browser",
+        "vercel:agent-browser-verify",
+        "vercel:ai-elements",
+        "vercel:ai-gateway",
+        "vercel:ai-generation-persistence",
+        "vercel:ai-sdk",
+        "vercel:auth",
+        "vercel:bootstrap",
+        "vercel:chat-sdk",
+        "vercel:cms",
+        "vercel:cron-jobs",
+        "vercel:deployments-cicd",
+        "vercel:email",
+        "vercel:env-vars",
+        "vercel:geist",
+        "vercel:geistdocs",
+        "vercel:investigation-mode",
+        "vercel:json-render",
+        "vercel:marketplace",
+        "vercel:micro",
+        "vercel:ncc",
+        "vercel:next-forge",
+        "vercel:nextjs",
+        "vercel:observability",
+        "vercel:payments",
+        "vercel:react-best-practices",
+        "vercel:routing-middleware",
+        "vercel:runtime-cache",
+        "vercel:satori",
+        "vercel:shadcn",
+        "vercel:sign-in-with-vercel",
+        "vercel:swr",
+        "vercel:turbopack",
+        "vercel:turborepo",
+        "vercel:v0-dev",
+        "vercel:vercel-agent",
+        "vercel:vercel-api",
+        "vercel:vercel-cli",
+        "vercel:vercel-firewall",
+        "vercel:vercel-flags",
+        "vercel:vercel-functions",
+        "vercel:vercel-queues",
+        "vercel:vercel-sandbox",
+        "vercel:vercel-services",
+        "vercel:vercel-storage",
+        "vercel:verification",
+        "vercel:workflow"
+      ]
+    },
+    {
+      "name": "Supabase",
+      "priority": "recommended-for-supabase-projects",
+      "purpose": "Database projects, SQL, migrations, auth, RLS, and Supabase project operations",
+      "managed_skills": [
+        "supabase:supabase",
+        "supabase:supabase-postgres-best-practices"
+      ]
+    },
+    {
+      "name": "Chrome",
+      "priority": "optional",
+      "purpose": "Authenticated Chrome profile, existing tabs, cookies, extensions, and remote URL debugging",
+      "managed_skills": [
+        "chrome:control-chrome"
+      ]
+    },
+    {
+      "name": "Computer Use",
+      "priority": "optional",
+      "purpose": "Desktop app control and non-browser workflows when explicit user approval exists",
+      "managed_skills": [
+        "computer-use:computer-use"
+      ]
+    },
+    {
+      "name": "Build iOS Apps",
+      "priority": "optional-for-ios",
+      "purpose": "SwiftUI, Xcode, simulator, iOS debugging, and iOS UI workflows",
+      "managed_skills": [
+        "build-ios-apps:ios-app-intents",
+        "build-ios-apps:ios-debugger-agent",
+        "build-ios-apps:ios-ettrace-performance",
+        "build-ios-apps:ios-memgraph-leaks",
+        "build-ios-apps:ios-simulator-browser",
+        "build-ios-apps:swiftui-liquid-glass",
+        "build-ios-apps:swiftui-performance-audit",
+        "build-ios-apps:swiftui-ui-patterns",
+        "build-ios-apps:swiftui-view-refactor"
+      ]
+    },
+    {
+      "name": "Test Android Apps",
+      "priority": "optional-for-android",
+      "purpose": "Android emulator QA, screenshots, logs, and performance",
+      "managed_skills": [
+        "test-android-apps:android-emulator-qa",
+        "test-android-apps:android-performance"
+      ]
+    },
+    {
+      "name": "Documents",
+      "priority": "optional-for-doc-deliverables",
+      "purpose": "Create and edit document artifacts",
+      "managed_skills": [
+        "documents:documents"
+      ]
+    },
+    {
+      "name": "Document Skills",
+      "priority": "optional-for-file-conversion",
+      "purpose": "Low-level DOCX, PDF, PPTX, and XLSX manipulation from the public document skills pack",
+      "managed_skills": [
+        "document-skills:docx",
+        "document-skills:pdf",
+        "document-skills:pptx",
+        "document-skills:xlsx"
+      ]
+    },
+    {
+      "name": "Spreadsheets",
+      "priority": "optional-for-data-workbooks",
+      "purpose": "Create, edit, analyze, and export spreadsheets",
+      "managed_skills": [
+        "spreadsheets:Spreadsheets"
+      ]
+    },
+    {
+      "name": "Presentations",
+      "priority": "optional-for-slide-decks",
+      "purpose": "Create, edit, render, verify, and export presentation decks",
+      "managed_skills": [
+        "presentations:Presentations"
+      ]
+    },
+    {
+      "name": "Data Analytics",
+      "priority": "optional-for-analytics",
+      "purpose": "Reports, dashboards, KPI analysis, and data visualization",
+      "managed_skills": [
+        "data-analytics:build-dashboard",
+        "data-analytics:build-report",
+        "data-analytics:design-kpis",
+        "data-analytics:index",
+        "data-analytics:kpi-reporting",
+        "data-analytics:market-sizing",
+        "data-analytics:metric-diagnostics",
+        "data-analytics:product-business-analysis",
+        "data-analytics:visualize-data"
+      ]
+    },
+    {
+      "name": "Cloudflare",
+      "priority": "optional-for-cloudflare-projects",
+      "purpose": "Workers, Wrangler, Durable Objects, Cloudflare Agents SDK, and Cloudflare platform workflows",
+      "managed_skills": [
+        "cloudflare:agents-sdk",
+        "cloudflare:building-ai-agent-on-cloudflare",
+        "cloudflare:building-mcp-server-on-cloudflare",
+        "cloudflare:cloudflare",
+        "cloudflare:durable-objects",
+        "cloudflare:sandbox-sdk",
+        "cloudflare:web-perf",
+        "cloudflare:workers-best-practices",
+        "cloudflare:wrangler"
+      ]
+    }
+  ],
+  "recommended_mcps": [
+    {
+      "name": "openaiDeveloperDocs",
+      "priority": "recommended-for-openai-work",
+      "purpose": "Current OpenAI API, Codex, Agents SDK, and ChatGPT Apps documentation",
+      "install_reference": "codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp"
+    },
+    {
+      "name": "context7",
+      "priority": "recommended",
+      "purpose": "Current library, framework, SDK, API, CLI, and cloud-service documentation"
+    },
+    {
+      "name": "chrome-devtools",
+      "priority": "recommended-for-frontend-debugging",
+      "purpose": "Browser debugging, screenshots, runtime inspection, and frontend verification"
+    },
+    {
+      "name": "code-review-graph",
+      "priority": "optional-for-large-repos",
+      "purpose": "Graph-backed impact analysis and code review context"
+    },
+    {
+      "name": "node_repl",
+      "priority": "optional-for-browser-automation",
+      "purpose": "Persistent JavaScript runtime for browser and automation workflows"
+    }
+  ],
+  "hooks_policy": {
+    "default": "documentation-only",
+    "reason": "Hooks are powerful automation boundaries. Enable only after reviewing current Codex hook documentation and trusting the hook source.",
+    "recommended_hook_uses": [
+      "pack validation before release",
+      "private-term scan before publish",
+      "secret-pattern scan before commit",
+      "frontend QA command after UI changes",
+      "external skill overlay reapply after external skill install"
+    ]
+  }
+}
