@@ -29,6 +29,7 @@ That keeps authentication, connector permissions, updates, and trust prompts in 
 | Build iOS Apps plugin skills | Install plugin in Codex when needed |
 | Test Android Apps plugin skills | Install plugin in Codex when needed |
 | Documents, Spreadsheets, Data Analytics plugin skills | Install plugin in Codex when needed |
+| Understand Anything codebase graph skills | Install or enable through its Codex/plugin workflow when available |
 
 ## Recommended plugin install list
 
@@ -60,6 +61,8 @@ Install these through Codex plugin browsing or workspace-approved plugin managem
 5. Spreadsheets
 6. Presentations
 7. Data Analytics
+8. Build Web Data Visualization
+9. Product Design
 
 ## Install steps
 
@@ -82,6 +85,9 @@ Install these through Codex plugin browsing or workspace-approved plugin managem
 | `chrome-devtools` | Recommended for frontend debugging | Browser inspection, screenshots, runtime debugging |
 | `code-review-graph` | Optional for larger repos | Graph-backed dependency and impact analysis |
 | `node_repl` | Optional for browser automation | Persistent JavaScript runtime |
+| `n8n` | Optional for workflow automation | n8n node lookup, workflow validation, and template search |
+| `supabase` | Optional for Supabase projects | Supabase docs, account, database, functions, storage, and project operations |
+| `vercel` | Optional for Vercel projects | Vercel docs, deployments, build logs, protected URLs, and project operations |
 
 ## MCP setup steps
 
@@ -94,7 +100,7 @@ codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp
 codex mcp list
 ```
 
-4. Add `context7`, `chrome-devtools`, `code-review-graph`, or `node_repl` only when the project needs them.
+4. Add `context7`, `chrome-devtools`, `code-review-graph`, `node_repl`, `n8n`, `supabase`, or `vercel` only when the project needs them.
 5. Restart Codex after changing MCP configuration.
 
 ## MCP policy

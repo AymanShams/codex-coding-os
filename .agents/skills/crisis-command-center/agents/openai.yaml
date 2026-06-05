@@ -1,0 +1,4 @@
+interface:
+  display_name: "Crisis Command Center"
+  short_description: "Crisis response, escalation, and comms control"
+  default_prompt: "Use $crisis-command-center to build a crisis response plan with escalation, stakeholder communication, evidence logging, and post-crisis review."

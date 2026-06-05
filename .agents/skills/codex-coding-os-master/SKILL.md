@@ -1,13 +1,13 @@
 ---
 name: codex-coding-os-master
-description: Use when a user starts a first Codex coding project, wants to vibe code safely, asks to turn an idea into a PRD, wants a complete project kickoff workflow, needs repo AGENTS files, or wants one master workflow from idea to first implementation slice.
+description: Use when a user starts or continues a Codex coding project, wants to vibe code safely, asks to turn an idea into a PRD, wants a complete coding operating workflow, needs repo AGENTS files, or wants one master workflow from idea through implementation, review, validation, and maintenance.
 ---
 
 # Codex Coding OS Master
 
-This is the top-level router for the full `codex-coding-os-starter` pack.
+This is the top-level router for the full Codex Coding OS package distributed as `codex-coding-os-starter`.
 
-Use it when the user brings a raw product idea and wants Codex to help build it safely.
+Use it when the user brings a raw product idea, an existing repo, a design task, a bug, a security concern, a documentation gap, or a deployment/review problem and wants Codex to work with discipline.
 
 ## Core Decision
 
@@ -24,11 +24,12 @@ This pack includes the full local skills needed for the default workflow:
 | Routing | `catalogue-router` |
 | Idea and product definition | `new-project-documentation-system`, `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` |
 | Documentation system | `technical-docs-pack`, `artifact-system-designer`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` |
-| Planning and validation | `wbs-artifact-planner`, `artifact-validation-workflow`, `pre-mortem`, `deep-critic`, `evidence-checker` |
-| Coding discipline | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator` |
+| Planning and validation | `wbs-artifact-planner`, `artifact-validation-workflow`, `pre-mortem`, `deep-critic`, `evidence-checker`, `grill-me`, `grill-with-docs` |
+| Coding discipline | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator`, `quality-improvement-problem-solving`, `quant-review` |
+| UX, design, and prose quality | `codex-design-artifacts`, `humanizer`, `storyscope-structural-audit` |
 | QA and browser checks | `playwright` |
-| Security | `security-best-practices`, `security-threat-model`, `security-ownership-map` |
-| Platform and codebase tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli` |
+| Security and incident readiness | `security-best-practices`, `security-threat-model`, `security-ownership-map`, `defensive-security-checklist`, `crisis-command-center` |
+| Platform and codebase tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli`, `chat-export-capability-miner`, `external-skill-overlay-pack` |
 | Document intake | `doc`, `pdf` |
 
 ## Default Workflow
@@ -85,8 +86,14 @@ This pack includes the full local skills needed for the default workflow:
    - Use `deep-critic` for reasoning and evidence quality.
    - Use `artifact-validation-workflow` for docs and handoff artifacts.
    - Use `security-best-practices` and `security-threat-model` when auth, private data, payments, exports, admin, or public endpoints exist.
+   - Use `defensive-security-checklist` for security hardening checklists, supply-chain checks, MCP/hook/agent safety reviews, and control gap planning.
    - Use `playwright` for frontend UI checks when a local or remote app can run.
    - Use `improve-codebase-architecture` when the implementation exposes structural problems.
+   - Use `quality-improvement-problem-solving` when defects or incidents recur.
+   - Use `quant-review` when calculations, capacity, costs, or KPI logic affect implementation.
+   - Use `humanizer` and `storyscope-structural-audit` for public docs, PRDs, README files, and product narratives that must not read like generic AI output.
+   - Use `codex-design-artifacts` for design-heavy prototypes, HTML artifacts, and visual UI concepts.
+   - Use `crisis-command-center` for outages, incidents, escalations, evidence logs, and after-action reviews.
 
 ## First-Chat Output Standard
 
@@ -103,7 +110,7 @@ For a new project, produce:
 
 ## Rules
 
-- Do not copy private context from other projects.
+- Do not copy unrelated context from other projects.
 - Do not invent implementation details when docs are missing.
 - Do not install broad third-party skill packs during the first run unless the user explicitly chooses that optional path.
 - Do not add paid services, external databases, auth providers, or deployment providers without user approval.

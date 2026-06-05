@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex Design Artifacts"
+  short_description: "Design prototypes and HTML artifacts"
+  default_prompt: "Use $codex-design-artifacts to create a polished Codex-native design artifact grounded in available product context."
+
+policy:
+  allow_implicit_invocation: true

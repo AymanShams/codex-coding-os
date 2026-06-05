@@ -2,7 +2,7 @@
 
 The bundled skills are the primary workflow. External repositories are optional references, and only one upstream skill pack has an install path in this repo.
 
-Do not bulk-install external skill packs for a first project. Review the source, install only what is needed, and keep local changes in overlays.
+Do not bulk-install external skill packs into the default Coding OS. Review the source, install only what is needed, and keep local changes in overlays.
 
 ## Why this matters
 
@@ -19,6 +19,11 @@ External skill packs can introduce license drift, duplicate instructions, unexpe
 | AGENTS.md | https://github.com/agentsmd/agents.md | Reference only |
 | ECC | https://github.com/affaan-m/ECC | Reference only |
 | Anthropic Cybersecurity Skills | https://github.com/mukul975/Anthropic-Cybersecurity-Skills | Reference only |
+| Addy Osmani Agent Skills | https://github.com/addyosmani/agent-skills | Reference only |
+| Claude Build Workflow | https://github.com/rohunj/claude-build-workflow | Reference only |
+| Claude Code Templates | https://github.com/davila7/claude-code-templates | Reference only |
+| Supabase Agent Skills | https://github.com/supabase/agent-skills | Reference only |
+| OpenAI Agents Python | https://github.com/openai/openai-agents-python | Reference only |
 
 ## Optional install
 

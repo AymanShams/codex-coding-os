@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "generated_from": "Codex starter-pack authoring environment on 2026-06-05",
+  "generated_from": "Codex Coding OS authoring environment on 2026-06-05",
   "policy": "Plugin-managed skills, connectors, and MCP servers are installed through Codex so authentication, updates, permissions, and provenance remain controlled by the plugin system.",
   "repo_bundled_policy": {
     "copied_directly": [
@@ -17,7 +17,7 @@
       "MCP auth state",
       "hooks that mutate local files"
     ],
-    "reason": "License permission alone is not enough. Plugin-managed skills can depend on account permissions, connector authentication, plugin updates, and private cache provenance."
+    "reason": "License permission alone is not enough. Plugin-managed skills can depend on account permissions, connector authentication, plugin updates, and Codex-managed provenance."
   },
   "default_codex_skills_reference": [
     {
@@ -276,10 +276,28 @@
         "data-analytics:design-kpis",
         "data-analytics:index",
         "data-analytics:kpi-reporting",
-        "data-analytics:market-sizing",
         "data-analytics:metric-diagnostics",
         "data-analytics:product-business-analysis",
         "data-analytics:visualize-data"
+      ]
+    },
+    {
+      "name": "Build Web Data Visualization",
+      "priority": "optional-for-data-visualization",
+      "purpose": "Charts, maps, diagrams, dashboards, Gantt, UML, scrollytelling, reports, and advanced web visualization work",
+      "managed_skills": [
+        "build-web-data-visualization:data-visualization"
+      ]
+    },
+    {
+      "name": "Product Design",
+      "priority": "optional-for-design-to-code",
+      "purpose": "Brief-gated product design, design QA, URL-to-code, image-to-code, and prototype direction",
+      "managed_skills": [
+        "product-design:get-context",
+        "product-design:ideate",
+        "product-design:image-to-code",
+        "product-design:index"
       ]
     },
     {
@@ -296,6 +314,19 @@
         "cloudflare:web-perf",
         "cloudflare:workers-best-practices",
         "cloudflare:wrangler"
+      ]
+    },
+    {
+      "name": "Understand Anything",
+      "priority": "optional-for-codebase-knowledge-graphs",
+      "purpose": "Codebase graph creation, graph-backed Q&A, diffs, onboarding guides, and file or flow explanations",
+      "managed_skills": [
+        "understand-anything:understand",
+        "understand-anything:understand-chat",
+        "understand-anything:understand-dashboard",
+        "understand-anything:understand-diff",
+        "understand-anything:understand-explain",
+        "understand-anything:understand-onboard"
       ]
     }
   ],
@@ -325,6 +356,21 @@
       "name": "node_repl",
       "priority": "optional-for-browser-automation",
       "purpose": "Persistent JavaScript runtime for browser and automation workflows"
+    },
+    {
+      "name": "n8n",
+      "priority": "optional-for-workflow-automation",
+      "purpose": "n8n node discovery, node validation, workflow validation, and template search"
+    },
+    {
+      "name": "supabase",
+      "priority": "optional-for-supabase-projects",
+      "purpose": "Supabase docs, account, database, functions, branching, storage, and development operations"
+    },
+    {
+      "name": "vercel",
+      "priority": "optional-for-vercel-projects",
+      "purpose": "Vercel docs, projects, deployments, build logs, protected URLs, and deployment tooling"
     }
   ],
   "hooks_policy": {

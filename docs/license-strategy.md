@@ -20,7 +20,7 @@ Apache-2.0 is permissive and commercially usable by anyone. It is better for ado
 
 ## Current Repo State
 
-This starter pack includes `LICENSE.md` as a practical wrapper around PolyForm Noncommercial and `COMMERCIAL.md` for the commercial licensing position. Review both before public release.
+This package includes `LICENSE.md` as a practical wrapper around PolyForm Noncommercial and `COMMERCIAL.md` for the commercial licensing position. Review both before public release.
 
 ## Apache-2.0 Comparison
 

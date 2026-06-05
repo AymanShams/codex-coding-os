@@ -4,17 +4,18 @@
 
 | Component group | Included as | Reason |
 |---|---|---|
-| Master coding workflow | `codex-coding-os-master` | One entrypoint for first-project Codex work |
+| Master coding workflow | `codex-coding-os-master` | One entrypoint for Codex software work |
 | Portable routing | `catalogue-router` plus bundled catalogue | Routes work without depending on a machine-specific catalogue |
 | Project kickoff and source-locked docs | `new-project-documentation-system` | Full orchestration from source intake to controlled docs, TDD, repo instructions, and validation |
 | PRD and product framing | `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` | Turns raw idea into usable product truth |
 | Technical repo documentation | `technical-docs-pack` plus `repo-docs-template.md` | Full repo docs structure, governance, ownership, and documentation rot controls |
 | Artifact system and validation | `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` | Controlled artifacts, handoff, acceptance gates, and operational docs |
-| Execution planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker` | Work breakdown, risk testing, source quality, and skeptical review |
-| Coding discipline and architecture | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator` | Bounded AI coding, architecture review, frontend rules, and implementation discipline |
+| Execution planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker`, `grill-me`, `grill-with-docs` | Work breakdown, risk testing, source quality, skeptical review, and hard planning questions |
+| Coding discipline and architecture | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator`, `quality-improvement-problem-solving`, `quant-review` | Bounded AI coding, architecture review, frontend rules, implementation discipline, RCA, and numeric logic review |
+| Design and writing quality | `codex-design-artifacts`, `humanizer`, `storyscope-structural-audit` | Visual artifacts, UI concept work, README/prose polish, and non-generic PRD or memo structure |
 | QA and browser checks | `playwright` | CLI browser automation and visual verification support |
-| Security | `security-best-practices`, `security-threat-model`, `security-ownership-map` | Secure coding, threat modeling, and ownership risk analysis |
-| Platform and codebase tools | `vercel-optimize`, `code-review-graph`, `vexor-cli` | Performance, graph-backed review, and local CLI guidance |
+| Security and incident readiness | `security-best-practices`, `security-threat-model`, `security-ownership-map`, `defensive-security-checklist`, `crisis-command-center` | Secure coding, threat modeling, ownership risk analysis, defensive checklists, and incident response |
+| Platform and codebase tools | `vercel-optimize`, `code-review-graph`, `vexor-cli`, `chat-export-capability-miner` | Performance, graph-backed review, local CLI guidance, and capability mining |
 | Document intake | `doc`, `pdf` | DOCX and PDF extraction or rendering when project sources arrive as documents |
 | External overlay handling | `external-skill-overlay-pack` | Tracks third-party source treatment and local overlay edits |
 
@@ -48,6 +49,11 @@
 | `agentsmd/agents.md` | Reference only |
 | `affaan-m/ECC` | Reference only |
 | `mukul975/Anthropic-Cybersecurity-Skills` | Reference only |
+| `addyosmani/agent-skills` | Reference only |
+| `rohunj/claude-build-workflow` | Reference only |
+| `davila7/claude-code-templates` | Reference only |
+| `supabase/agent-skills` | Reference only |
+| `openai/openai-agents-python` | Reference only |
 
 ## Repository boundary
 

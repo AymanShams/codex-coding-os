@@ -1,6 +1,6 @@
 # Notice
 
-This pack was created as a generic coding workflow starter for Codex.
+This pack was created as a generic Codex Coding OS package.
 
 It includes reusable workflow text and templates intended for software project setup.
 

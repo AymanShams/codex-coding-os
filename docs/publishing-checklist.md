@@ -3,7 +3,7 @@
 ## Before sharing
 
 - Run `scripts/validate-pack.ps1`.
-- Open `templates/first-codex-prompt.md` and confirm it is beginner-friendly.
+- Open `templates/first-codex-prompt.md` and confirm it is clear for a non-technical user.
 - Confirm `LICENSE.md` and `COMMERCIAL.md` match the intended sharing model.
 - Rebuild the ZIP with `scripts/package.ps1`.
 - Share the ZIP or repo link.

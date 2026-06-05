@@ -52,6 +52,10 @@ Install these when the project uses the matching platform or workflow:
 10. Spreadsheets
 11. Presentations
 12. Data Analytics
+13. Build Web Data Visualization
+14. Product Design
+15. Understand Anything
+16. Cloudflare
 
 ## Why managed capabilities stay managed
 

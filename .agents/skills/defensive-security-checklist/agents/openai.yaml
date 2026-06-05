@@ -1,0 +1,4 @@
+interface:
+  display_name: "Defensive Security Checklist"
+  short_description: "Authorized defensive security checklists"
+  default_prompt: "Use $defensive-security-checklist to create an authorized defensive security checklist for this app or workflow."

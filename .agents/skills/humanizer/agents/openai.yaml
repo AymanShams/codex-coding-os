@@ -1,0 +1,4 @@
+interface:
+  display_name: "Humanizer"
+  short_description: "Make writing sound natural, human, voice-matched, and less robotic."
+  default_prompt: "Humanize this text. Follow the Humanizer skill and preserve the meaning."

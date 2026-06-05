@@ -1,0 +1,4 @@
+interface:
+  display_name: "StoryScope Structural Audit"
+  short_description: "Audit structure before polishing prose"
+  default_prompt: "Use $storyscope-structural-audit to audit this draft for AI-like structural defaults before revising it."

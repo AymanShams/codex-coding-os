@@ -64,7 +64,46 @@
       "treatment": "reference-only",
       "reason": "Large defensive and dual-use security skill library. Use only as authorized defensive checklist reference.",
       "default_action": "reference"
+    },
+    {
+      "id": "addyosmani-agent-skills",
+      "name": "Addy Osmani Agent Skills",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "treatment": "reference-only",
+      "reason": "Useful software workflow and checklist reference. Bundled local skills and Superpowers references own the active workflow.",
+      "default_action": "reference"
+    },
+    {
+      "id": "rohunj-claude-build-workflow",
+      "name": "Claude Build Workflow",
+      "repo": "https://github.com/rohunj/claude-build-workflow",
+      "treatment": "reference-only",
+      "reason": "Claude-oriented build workflow source. Mine selectively for patterns, but do not install wholesale.",
+      "default_action": "reference"
+    },
+    {
+      "id": "davila7-claude-code-templates",
+      "name": "Claude Code Templates",
+      "repo": "https://github.com/davila7/claude-code-templates",
+      "treatment": "reference-only",
+      "reason": "Template and prompt source. Mine only project-specific templates after review.",
+      "default_action": "reference"
+    },
+    {
+      "id": "supabase-agent-skills",
+      "name": "Supabase Agent Skills",
+      "repo": "https://github.com/supabase/agent-skills",
+      "treatment": "reference-only",
+      "reason": "Supabase AI-agent development reference. Prefer Codex Supabase plugin and MCP when available.",
+      "default_action": "reference"
+    },
+    {
+      "id": "openai-agents-python",
+      "name": "OpenAI Agents Python",
+      "repo": "https://github.com/openai/openai-agents-python",
+      "treatment": "reference-only",
+      "reason": "App architecture reference for Python agent applications. It is not installed as a Codex skill.",
+      "default_action": "reference"
     }
   ]
 }
-

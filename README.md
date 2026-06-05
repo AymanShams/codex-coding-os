@@ -1,19 +1,19 @@
 # Codex Coding OS Starter
 
-Codex Coding OS Starter is a setup pack for a first serious Codex coding project.
+Codex Coding OS Starter is the installable package name for a full Codex Coding OS.
 
-It gives Codex a structured path from a raw idea to a product requirements document, technical design, repo instructions, implementation plan, and first build slice.
+It gives Codex a structured operating system for software work: idea intake, product requirements, technical design, repo instructions, implementation planning, coding discipline, UI and documentation polish, security review, incident response, RCA, and validation.
 
-The point is simple: do not start by asking Codex to build the app. First make the idea clear enough that the build can stay focused.
+The point is simple: do not treat AI coding as a blank prompt. Give Codex durable rules, reusable skills, clear templates, and a bounded workflow before it touches code.
 
 ## What this pack includes
 
-- A coding skill stack for project kickoff, PRD creation, technical documentation, implementation planning, code review, QA, and security review.
+- A coding skill stack for project kickoff, PRD creation, technical documentation, implementation planning, code review, QA, design artifacts, security review, incident handling, RCA, and public-facing documentation polish.
 - A reusable AGENTS instruction layer for disciplined AI-assisted development.
 - A first-chat prompt that guides Codex through product discovery before implementation.
 - Templates for project docs, technical docs, repo instructions, handoff notes, reviews, and validation reports.
 - Scripts for install, uninstall, validation, packaging, and optional external skill overlays.
-- References for Codex plugins, MCPs, default skills, and external skill sources.
+- References for Codex plugins, MCPs, local tools, default skills, and external skill sources.
 
 ## Install on Windows
 
@@ -55,9 +55,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 The uninstall script removes the skills installed by this pack and removes the global AGENTS block if it was added by the installer.
 
-## First project workflow
+## Default coding workflow
 
-Use this sequence in a new Codex chat:
+Use this sequence in a new Codex chat or when taking over an existing repo:
 
 1. Paste the first prompt.
 2. Answer Codex's project questions in batches.
@@ -66,7 +66,7 @@ Use this sequence in a new Codex chat:
 5. Generate the implementation plan.
 6. Add repo instructions.
 7. Start one bounded implementation slice.
-8. Validate before marking the work done.
+8. Review, test, and validate before marking the work done.
 
 ## Included skills
 
@@ -77,11 +77,12 @@ The pack includes full skill folders with their references, assets, and scripts 
 | Master routing | `codex-coding-os-master`, `catalogue-router` |
 | Idea to project docs | `new-project-documentation-system`, `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` |
 | Docs and artifact systems | `technical-docs-pack`, `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` |
-| Planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker` |
-| Coding discipline and architecture | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator` |
+| Planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker`, `grill-me`, `grill-with-docs` |
+| Coding discipline and architecture | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator`, `quality-improvement-problem-solving`, `quant-review` |
+| Design and writing quality | `codex-design-artifacts`, `humanizer`, `storyscope-structural-audit` |
 | QA and browser work | `playwright` |
-| Security | `security-best-practices`, `security-threat-model`, `security-ownership-map` |
-| Platform and repo tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli` |
+| Security and incident readiness | `security-best-practices`, `security-threat-model`, `security-ownership-map`, `defensive-security-checklist`, `crisis-command-center` |
+| Platform and repo tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli`, `chat-export-capability-miner` |
 | Document intake | `doc`, `pdf` |
 | External overlay routing | `external-skill-overlay-pack` |
 
@@ -91,11 +92,13 @@ The `templates/` folder covers the first prompt, project brief, PRD, app flow, t
 
 ## Codex plugins and external skills
 
-This pack works on its own. It also documents optional Codex plugins, MCPs, and external skill sources:
+This pack works on its own. It also documents optional Codex plugins, MCPs, local tools, and external skill sources:
 
 - `codex-capabilities/default-skills-reference.md`
 - `codex-capabilities/plugins.manifest.json`
+- `codex-capabilities/tools.manifest.json`
 - `docs/codex-plugins-mcps-hooks.md`
+- `docs/system-scope.md`
 - `THIRD_PARTY_SKILLS.md`
 - `external-skills/manifest.json`
 - `docs/external-skills-installation.md`
@@ -114,7 +117,7 @@ Install the optional Karpathy-inspired upstream skill and apply this pack's over
 
 ## Repository boundary
 
-This repository is a starter pack. Project code, generated documentation, deployment settings, and connected-service configuration belong in the user's project repo.
+This repository is an installable Coding OS package. Project code, generated documentation, deployment settings, and connected-service configuration belong in the user's project repo.
 
 Third-party projects stay linked to their upstream sources unless this repo explicitly says otherwise.
 

@@ -39,6 +39,11 @@ Human install details live in:
 | AGENTS.md | https://github.com/agentsmd/agents.md | Reference only | Use for instruction-file conventions. This pack includes its own templates. |
 | ECC | https://github.com/affaan-m/ECC | Reference only | Mine narrow harness-security and no-secrets rules. Do not install full ECC by default. |
 | Anthropic Cybersecurity Skills | https://github.com/mukul975/Anthropic-Cybersecurity-Skills | Reference only | Use only for authorized defensive checklist mining. Do not install globally. |
+| Addy Osmani Agent Skills | https://github.com/addyosmani/agent-skills | Reference only | Mine checklist ideas selectively. The active coding discipline is already in bundled local skills and Superpowers references. |
+| Claude Build Workflow | https://github.com/rohunj/claude-build-workflow | Reference only | Mine workflow patterns only. Do not install wholesale into Codex. |
+| Claude Code Templates | https://github.com/davila7/claude-code-templates | Reference only | Mine templates selectively when a specific project needs them. |
+| Supabase Agent Skills | https://github.com/supabase/agent-skills | Reference only | Use as supporting reference for Supabase projects. Prefer the Supabase plugin and MCP when available. |
+| OpenAI Agents Python | https://github.com/openai/openai-agents-python | Reference only | Use as an app-architecture reference when building Python agent applications. |
 
 ## Overlay policy
 
@@ -91,6 +96,7 @@ These are useful when available, but the pack must still work without them:
 | Supabase skills | Database projects, migrations, SQL, and row-level security review |
 | Codex Security skills | Security scans, threat modeling, finding validation |
 | Browser or Playwright tools | Local frontend QA and screenshots |
+| Understand Anything | Codebase knowledge graphs, codebase Q&A, diffs, onboarding, and flow explanations |
 
 ## Repository boundary
 

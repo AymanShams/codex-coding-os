@@ -34,8 +34,11 @@ Get-ChildItem -Path $SourceSkills -Directory | ForEach-Object {
 $SupportItems = @(
   "templates",
   "docs",
+  "codex-capabilities",
   "external-skills",
+  "hooks",
   "patches",
+  "scripts",
   "THIRD_PARTY_SKILLS.md",
   "README.md",
   "LICENSE.md",

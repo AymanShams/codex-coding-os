@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "policy": "This repo documents coding-related tools and MCP servers. Install tools only when the project needs them and after reviewing trust, permissions, and credentials.",
+  "local_tools": [
+    {
+      "name": "code-review-graph",
+      "treatment": "bundled skill plus optional local tool or MCP",
+      "use": "Graph-backed code review, impact analysis, ownership mapping, and compact codebase context"
+    },
+    {
+      "name": "context7-cli",
+      "treatment": "reference",
+      "use": "Current documentation lookup for libraries, frameworks, SDKs, APIs, CLIs, and cloud services"
+    },
+    {
+      "name": "supabase CLI",
+      "treatment": "reference",
+      "use": "Supabase migrations, schema work, auth, storage, local development, and remote project operations"
+    },
+    {
+      "name": "markitdown",
+      "treatment": "reference",
+      "use": "Convert documents and web-like inputs into Markdown for review, ingestion, and documentation workflows"
+    },
+    {
+      "name": "n8n-mcp",
+      "treatment": "reference",
+      "use": "n8n node discovery, node validation, workflow validation, template search, and optional n8n API operations"
+    },
+    {
+      "name": "Understand Anything",
+      "treatment": "Codex/plugin-managed reference",
+      "use": "Codebase graph creation, codebase Q&A, diffs, onboarding guides, and file or flow explanations"
+    }
+  ],
+  "mcp_servers": [
+    {
+      "name": "context7",
+      "priority": "recommended",
+      "use": "Current library, framework, SDK, CLI, and cloud-service documentation"
+    },
+    {
+      "name": "chrome-devtools",
+      "priority": "recommended-for-frontend-debugging",
+      "use": "Chrome DevTools diagnostics, frontend debugging, console/network checks, screenshots, traces, and performance inspection"
+    },
+    {
+      "name": "openaiDeveloperDocs",
+      "priority": "recommended-for-openai-work",
+      "use": "Official OpenAI developer documentation for APIs, Agents SDK, ChatGPT Apps, and platform docs"
+    },
+    {
+      "name": "code-review-graph",
+      "priority": "optional-for-large-repos",
+      "use": "Graph-backed code review, impact analysis, ownership mapping, and compact codebase context"
+    },
+    {
+      "name": "node_repl",
+      "priority": "optional-for-browser-automation",
+      "use": "Persistent JavaScript runtime for browser and automation workflows"
+    },
+    {
+      "name": "n8n",
+      "priority": "optional-for-workflow-automation",
+      "use": "n8n workflow validation, node lookup, and workflow template search"
+    },
+    {
+      "name": "supabase",
+      "priority": "optional-for-supabase-projects",
+      "use": "Supabase docs, account, database, functions, branching, storage, and development operations"
+    },
+    {
+      "name": "vercel",
+      "priority": "optional-for-vercel-projects",
+      "use": "Vercel docs, projects, deployments, build logs, protected URLs, and deployment tooling"
+    }
+  ]
+}

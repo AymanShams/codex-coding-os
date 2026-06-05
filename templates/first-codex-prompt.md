@@ -5,7 +5,7 @@ Paste this into a new Codex chat after installing the pack.
 ```text
 Use $codex-coding-os-master.
 
-I am starting my first serious Codex coding project. I do not want to start coding from a vague idea. I want you to help me turn the idea into a PRD, a technical design, repo instructions, and a first implementation slice.
+I am starting or continuing a Codex coding project. I do not want to start coding from a vague idea or weak context. I want you to help me turn the idea or existing repo into a PRD, a technical design, repo instructions, and a first implementation slice.
 
 My idea:
 {{write_the_idea_here}}
@@ -46,6 +46,5 @@ Rules:
 - Do not invent requirements.
 - If you are missing a critical answer, ask me.
 - If a reasonable assumption is safe, state it and proceed.
-- Keep the output practical and beginner-friendly.
+- Keep the output practical and clear for a non-technical user.
 ```
-
