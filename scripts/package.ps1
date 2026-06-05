@@ -11,7 +11,16 @@ if (Test-Path $ZipPath) {
   Remove-Item -LiteralPath $ZipPath -Force
 }
 
-Compress-Archive -Path (Join-Path $RepoRoot "*") -DestinationPath $ZipPath -Force
+$ExcludedNames = @(
+  ".git",
+  ".external-sources",
+  ".private-terms.local.txt"
+)
+
+$PackageItems = Get-ChildItem -Path $RepoRoot -Force | Where-Object {
+  $ExcludedNames -notcontains $_.Name
+}
+
+Compress-Archive -Path ($PackageItems | Select-Object -ExpandProperty FullName) -DestinationPath $ZipPath -Force
 
 Write-Output "Packaged: $ZipPath"
-

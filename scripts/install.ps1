@@ -1,5 +1,6 @@
 param(
   [switch]$InstallGlobalAgents,
+  [switch]$InstallExternalSkills,
   [string]$SkillsRoot = "$HOME\.agents\skills",
   [string]$CodexHome = "$HOME\.codex"
 )
@@ -28,6 +29,31 @@ Get-ChildItem -Path $SourceSkills -Directory | ForEach-Object {
   }
   Copy-Item -Path $_.FullName -Destination $Target -Recurse -Force
   $Installed += $Target
+}
+
+$SupportItems = @(
+  "templates",
+  "docs",
+  "external-skills",
+  "patches",
+  "THIRD_PARTY_SKILLS.md",
+  "README.md",
+  "LICENSE.md",
+  "COMMERCIAL.md",
+  "NOTICE.md"
+)
+
+foreach ($Item in $SupportItems) {
+  $Source = Join-Path $RepoRoot $Item
+  if (Test-Path $Source) {
+    $Target = Join-Path $ManifestDir $Item
+    if (Test-Path $Target) {
+      $Backup = "$Target.backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+      Copy-Item -Path $Target -Destination $Backup -Recurse -Force
+      Remove-Item -LiteralPath $Target -Recurse -Force
+    }
+    Copy-Item -Path $Source -Destination $Target -Recurse -Force
+  }
 }
 
 if ($InstallGlobalAgents) {
@@ -59,14 +85,19 @@ $Lines += "Codex Coding OS Starter installed at $(Get-Date -Format o)"
 $Lines += "RepoRoot=$RepoRoot"
 $Lines += "SkillsRoot=$SkillsRoot"
 $Lines += "InstalledGlobalAgents=$InstallGlobalAgents"
+$Lines += "InstalledExternalSkills=$InstallExternalSkills"
 $Lines += "Skills:"
 $Lines += $Installed
 Set-Content -Path $ManifestPath -Value $Lines -Encoding UTF8
+
+if ($InstallExternalSkills) {
+  & (Join-Path $RepoRoot "scripts\install-external-skills.ps1") -Install forrestchang-andrej-karpathy-skills -ApplyOverlays -TargetSkillsRoot $SkillsRoot
+}
 
 Write-Output "Installed skills:"
 $Installed | ForEach-Object { Write-Output " - $_" }
 if ($InstallGlobalAgents) {
   Write-Output "Updated global AGENTS.md with backup if needed."
 }
-Write-Output "Restart Codex, then use templates\first-codex-prompt.md."
-
+Write-Output "Support files copied to: $ManifestDir"
+Write-Output "Restart Codex, then use templates\first-codex-prompt.md from this repo or $ManifestDir."

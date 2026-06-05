@@ -8,6 +8,9 @@ $Required = @(
   "COMMERCIAL.md",
   "NOTICE.md",
   "THIRD_PARTY_SKILLS.md",
+  "external-skills\manifest.json",
+  "docs\external-skills-installation.md",
+  "docs\full-skill-inventory.md",
   "docs\pack-design.md",
   "docs\component-classification.md",
   "docs\publishing-checklist.md",
@@ -28,6 +31,7 @@ $Required = @(
   "templates\review-checklist.md",
   "templates\validation-report.md",
   "scripts\install.ps1",
+  "scripts\install-external-skills.ps1",
   "scripts\uninstall.ps1",
   "scripts\apply-external-skill-overlays.ps1",
   "scripts\package.ps1"
@@ -42,7 +46,51 @@ foreach ($Path in $Required) {
   }
 }
 
+$RequiredSkills = @(
+  "codex-coding-os-master",
+  "catalogue-router",
+  "ai-coding-discipline",
+  "new-project-documentation-system",
+  "technical-docs-pack",
+  "create-prd",
+  "product-strategy",
+  "customer-journey-map",
+  "working-backwards",
+  "wbs-artifact-planner",
+  "artifact-system-designer",
+  "artifact-validation-workflow",
+  "ssot-drafter",
+  "ssot-auditor",
+  "process-docs",
+  "support-docs",
+  "doc",
+  "pdf",
+  "evidence-checker",
+  "deep-critic",
+  "pre-mortem",
+  "improve-codebase-architecture",
+  "react-best-practices",
+  "react-native-skills",
+  "composition-patterns",
+  "cli-creator",
+  "playwright",
+  "security-best-practices",
+  "security-threat-model",
+  "security-ownership-map",
+  "vercel-optimize",
+  "code-review-graph",
+  "vexor-cli",
+  "external-skill-overlay-pack"
+)
+
 $SkillRoot = Join-Path $RepoRoot ".agents\skills"
+foreach ($SkillName in $RequiredSkills) {
+  $SkillFile = Join-Path $SkillRoot "$SkillName\SKILL.md"
+  if (-not (Test-Path $SkillFile)) {
+    $Errors += "Missing bundled full skill: $SkillName"
+  }
+}
+
 Get-ChildItem -Path $SkillRoot -Directory | ForEach-Object {
   $SkillFile = Join-Path $_.FullName "SKILL.md"
   if (-not (Test-Path $SkillFile)) {

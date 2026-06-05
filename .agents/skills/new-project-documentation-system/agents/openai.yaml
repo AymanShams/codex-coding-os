@@ -1,0 +1,4 @@
+interface:
+  display_name: "New Project Docs"
+  short_description: "Orchestrate source-locked project documentation"
+  default_prompt: "Use $new-project-documentation-system to turn this new project idea and source folder into controlled project docs and a repo-ready handoff."

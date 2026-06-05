@@ -7,6 +7,8 @@ description: Use when installing, referencing, patching, or adapting third-party
 
 Use this skill when third-party skills are involved.
 
+Use `external-skills/manifest.json` and `docs/external-skills-installation.md` as the source of truth for external repositories, install treatment, and overlays.
+
 ## Policy
 
 Do not blindly copy third-party skill repos into this pack.
@@ -26,6 +28,7 @@ Use one of four treatments:
 4. Add a companion overlay file that records local rules.
 5. Record the overlay in `THIRD_PARTY_SKILLS.md`.
 6. Reapply overlays with `scripts/apply-external-skill-overlays.ps1`.
+7. If this pack is the install vehicle, use `scripts/install-external-skills.ps1` with an explicit `-Install <source-id>` argument.
 
 ## Decision Rules
 
@@ -33,6 +36,7 @@ Use one of four treatments:
 - A focused local skill beats a broad prompt pack.
 - Reference-only is correct for catalogs and pattern libraries.
 - Avoid is correct when provenance, license, security, or overlap risk dominates.
+- Do not install reference-only or broad security packs automatically.
 
 ## Output
 
@@ -44,4 +48,3 @@ When reviewing an external skill, report:
 - overlap with this pack
 - install, overlay, reference, or avoid
 - exact overlay files if any
-

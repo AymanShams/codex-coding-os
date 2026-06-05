@@ -6,12 +6,12 @@ It gives Codex a disciplined workflow for turning an idea into a PRD, controlled
 
 ## What This Pack Does
 
-- Installs a coding-only skill set into the user's Codex skills folder.
+- Installs a full coding-only skill stack into the user's Codex skills folder.
 - Adds a generic AGENTS instruction layer for safe AI-assisted coding.
 - Guides the first chat from idea intake to PRD, TDD, repo docs, and first build slice.
-- Keeps third-party skills as links and references unless they are built into this pack.
-- Includes optional overlay notes for external skills that inspired the workflow.
-- Avoids company, patient, client, and private workspace context.
+- Keeps third-party skills as tracked links, optional installs, and overlays unless their license and provenance are separately reviewed.
+- Includes the local edits and overlay rules for third-party-inspired coding discipline.
+- Avoids company, private user, client, and private workspace context.
 
 ## Install On Windows
 
@@ -69,21 +69,44 @@ Use this flow:
 
 ## Included Skills
 
-| Skill | Purpose |
+This repo now bundles full local skill folders, including their references, assets, and scripts where present.
+
+| Area | Skills |
 |---|---|
-| `codex-coding-os-master` | Main router for first-project coding work |
-| `first-project-prd-workflow` | Turns a raw idea into scoped product docs |
-| `source-locked-docs-workflow` | Creates source-faithful docs and prevents generic filler |
-| `ai-coding-discipline-pack` | Keeps AI coding bounded, simple, surgical, and verified |
-| `repo-agent-instructions-pack` | Creates root and scoped AGENTS files plus handoff notes |
-| `simplify-review-gate` | Reviews diffs for reuse, quality, and efficiency |
-| `security-prelaunch-gate` | Applies minimum viable security checks before launch |
-| `frontend-qa-gate` | Runs browser and UI verification after frontend work |
-| `external-skill-overlay-pack` | Captures local improvements to third-party skills as overlays |
+| Master routing | `codex-coding-os-master`, `catalogue-router` |
+| Idea to project docs | `new-project-documentation-system`, `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` |
+| Docs and artifact systems | `technical-docs-pack`, `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` |
+| Planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker` |
+| Coding discipline and architecture | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator` |
+| QA and browser work | `playwright` |
+| Security | `security-best-practices`, `security-threat-model`, `security-ownership-map` |
+| Platform and repo tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli` |
+| Document intake | `doc`, `pdf` |
+| External overlay routing | `external-skill-overlay-pack` |
 
 ## Included Templates
 
 The templates in `templates/` cover the first prompt, project brief, PRD, app flow, tech stack, frontend rules, backend structure, security rules, implementation plan, technical design, full repo documentation pack, repo instructions, handoff, review, and validation.
+
+## External Skills
+
+External sources are documented in:
+
+- `THIRD_PARTY_SKILLS.md`
+- `external-skills/manifest.json`
+- `docs/external-skills-installation.md`
+
+List optional external installs:
+
+```powershell
+.\scripts\install-external-skills.ps1 -List
+```
+
+Install the optional Karpathy-inspired upstream skill and apply this pack's overlay:
+
+```powershell
+.\scripts\install-external-skills.ps1 -Install forrestchang-andrej-karpathy-skills -ApplyOverlays
+```
 
 ## Package For Sharing
 

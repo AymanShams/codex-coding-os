@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $SkillSourceRoot = Join-Path $RepoRoot ".agents\skills"
 $UserSkillRoot = Join-Path $HOME ".agents\skills"
+$InstalledSupportRoot = Join-Path $HOME ".codex\coding-os-starter"
 $Markers = @{
   Start = "# BEGIN CODEX CODING OS STARTER"
   End = "# END CODEX CODING OS STARTER"
@@ -29,6 +30,11 @@ if (Test-Path $AgentsPath) {
     Set-Content -Path $AgentsPath -Value $Updated -Encoding UTF8
     Write-Output "Removed global AGENTS block. Backup: $Backup"
   }
+}
+
+if (Test-Path $InstalledSupportRoot) {
+  Remove-Item -LiteralPath $InstalledSupportRoot -Recurse -Force
+  Write-Output "Removed installed support files: $InstalledSupportRoot"
 }
 
 Write-Output "Uninstall complete."

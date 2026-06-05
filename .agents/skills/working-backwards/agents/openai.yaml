@@ -1,0 +1,4 @@
+interface:
+  display_name: "Working Backwards"
+  short_description: "Draft PR/FAQ and narrative memos"
+  default_prompt: "Use $working-backwards to draft a PR/FAQ or six-page decision memo for this initiative."

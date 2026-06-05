@@ -1,0 +1,6 @@
+interface:
+  display_name: "Technical Docs Pack"
+  short_description: "Create repo technical documentation packs"
+  default_prompt: "Use $technical-docs-pack to create a complete technical documentation pack for this repo."
+policy:
+  allow_implicit_invocation: true

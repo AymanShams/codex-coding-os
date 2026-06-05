@@ -1,0 +1,70 @@
+{
+  "version": "1.0.0",
+  "policy": "Bundled local skills are installed by default. Third-party repositories are referenced and optionally installed only when explicitly selected.",
+  "sources": [
+    {
+      "id": "forrestchang-andrej-karpathy-skills",
+      "name": "andrej-karpathy-skills",
+      "repo": "https://github.com/forrestchang/andrej-karpathy-skills",
+      "treatment": "optional-install-with-overlay",
+      "reason": "Karpathy-inspired AI coding guardrails are already incorporated into ai-coding-discipline. Optional install is useful only for users who also want the upstream skill.",
+      "expected_skill_paths": [
+        "skills/karpathy-guidelines"
+      ],
+      "overlay_paths": [
+        "patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md"
+      ],
+      "default_action": "do-not-install-by-default"
+    },
+    {
+      "id": "anthropics-skills",
+      "name": "Anthropic Skills",
+      "repo": "https://github.com/anthropics/skills",
+      "treatment": "reference-only",
+      "reason": "Useful pattern library and examples. Do not bundle or bulk-install without selecting specific skills and reviewing license/provenance.",
+      "default_action": "reference"
+    },
+    {
+      "id": "minimax-skills",
+      "name": "MiniMax Skills",
+      "repo": "https://github.com/MiniMax-AI/skills",
+      "treatment": "reference-only",
+      "reason": "Useful skill-packaging reference. Do not bulk-install into a first-project Codex setup.",
+      "default_action": "reference"
+    },
+    {
+      "id": "github-spec-kit",
+      "name": "GitHub Spec Kit",
+      "repo": "https://github.com/github/spec-kit",
+      "docs": "https://github.github.io/spec-kit/",
+      "treatment": "reference-only",
+      "reason": "Spec-driven development inspiration. This pack implements its own PRD, TDD, and source-locked docs flow.",
+      "default_action": "reference"
+    },
+    {
+      "id": "agentsmd-agents-md",
+      "name": "AGENTS.md",
+      "repo": "https://github.com/agentsmd/agents.md",
+      "treatment": "reference-only",
+      "reason": "Reference for agent instruction conventions. This pack includes its own AGENTS templates and full repo instruction workflow.",
+      "default_action": "reference"
+    },
+    {
+      "id": "affaan-m-ecc",
+      "name": "ECC",
+      "repo": "https://github.com/affaan-m/ECC",
+      "treatment": "reference-only",
+      "reason": "Mine only narrow harness security, no-secrets, and install-path separation rules. Do not install full ECC by default.",
+      "default_action": "reference"
+    },
+    {
+      "id": "mukul975-anthropic-cybersecurity-skills",
+      "name": "Anthropic Cybersecurity Skills",
+      "repo": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
+      "treatment": "reference-only",
+      "reason": "Large defensive and dual-use security skill library. Use only as authorized defensive checklist reference.",
+      "default_action": "reference"
+    }
+  ]
+}
+

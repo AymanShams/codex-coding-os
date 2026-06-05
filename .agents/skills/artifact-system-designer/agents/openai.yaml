@@ -1,0 +1,6 @@
+interface:
+  display_name: "Artifact System Designer"
+  short_description: "Design controlled artifact systems"
+  default_prompt: "Use $artifact-system-designer to design a controlled artifact system for my project documents."
+policy:
+  allow_implicit_invocation: true

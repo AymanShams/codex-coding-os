@@ -1,0 +1,6 @@
+interface:
+  display_name: "WBS Artifact Planner"
+  short_description: "Break projects into traceable WBS nodes"
+  default_prompt: "Use $wbs-artifact-planner to turn this initiative into a WBS plan with deliverables and validation gates."
+policy:
+  allow_implicit_invocation: true

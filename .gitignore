@@ -1,5 +1,5 @@
 .private-terms.local.txt
+.external-sources/
 *.zip
 *.bak
 *.backup-*
-

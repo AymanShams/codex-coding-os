@@ -1,27 +1,94 @@
 # Third-Party Skills And References
 
-This file separates bundled content from references.
+This file separates bundled full local skills from external third-party sources.
 
-## Bundled In This Repo
+## Direct Decision
 
-The skills under `.agents/skills/` are authored for this pack.
+The repo now bundles the full local coding workflow skills under `.agents/skills/`.
 
-They are designed to work even when no external skill pack is installed.
+Third-party skills are not silently copied into the repo. They are linked, classified, and optionally installed through `scripts/install-external-skills.ps1` when the user explicitly chooses them.
+
+## Bundled Full Local Skills
+
+The bundled skills are the actual full local skill folders, including references, assets, and scripts where present.
+
+| Area | Bundled skills |
+|---|---|
+| Master routing | `codex-coding-os-master`, `catalogue-router` |
+| Idea to project docs | `new-project-documentation-system`, `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` |
+| Docs and artifact systems | `technical-docs-pack`, `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` |
+| Planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker` |
+| Coding discipline and architecture | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator` |
+| QA and browser work | `playwright` |
+| Security | `security-best-practices`, `security-threat-model`, `security-ownership-map` |
+| Platform and repo tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli` |
+| Local document intake | `doc`, `pdf` |
+
+## External Source Manifest
+
+Machine-readable source data lives in:
+
+`external-skills/manifest.json`
+
+Human install details live in:
+
+`docs/external-skills-installation.md`
+
+## External Repositories
+
+| Source | Link | Treatment | Install instruction |
+|---|---|---|---|
+| Andrej Karpathy Skills | https://github.com/forrestchang/andrej-karpathy-skills | Optional install with overlay | `.\scripts\install-external-skills.ps1 -Install forrestchang-andrej-karpathy-skills -ApplyOverlays` |
+| Anthropic Skills | https://github.com/anthropics/skills | Reference only | Do not bulk-install. Select and review specific skills first. |
+| MiniMax Skills | https://github.com/MiniMax-AI/skills | Reference only | Do not bulk-install. Use as packaging reference. |
+| GitHub Spec Kit | https://github.com/github/spec-kit | Reference only | Use as spec-driven development reference. This pack already has PRD, TDD, and source-locked docs flow. |
+| AGENTS.md | https://github.com/agentsmd/agents.md | Reference only | Use for instruction-file conventions. This pack includes its own templates. |
+| ECC | https://github.com/affaan-m/ECC | Reference only | Mine narrow harness-security and no-secrets rules. Do not install full ECC by default. |
+| Anthropic Cybersecurity Skills | https://github.com/mukul975/Anthropic-Cybersecurity-Skills | Reference only | Use only for authorized defensive checklist mining. Do not install globally. |
+
+## Overlay Policy
+
+If an external skill is installed later, keep upstream files unchanged.
+
+Apply local edits as overlay files from:
+
+`patches/external-skills/`
+
+Current overlay:
+
+| External source | Overlay |
+|---|---|
+| `forrestchang/andrej-karpathy-skills` | `patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md` |
+
+## What Was Adapted Locally
+
+The Karpathy-inspired rules are already incorporated into `ai-coding-discipline` as generalized rules:
+
+- think before coding
+- simplicity first
+- surgical changes
+- goal-driven execution
+- read before write
+- deterministic logic in code
+- narrow verification before completion
+- no broad autonomous agents on sensitive or production data
+
+The overlay captures how to apply this pack's stricter project-doc, validation, and security gates beside the upstream external skill.
 
 ## Default Or Built-In Codex Capabilities
 
 Use these if the user's Codex environment provides them:
 
-| Capability | How This Pack Uses It |
+| Capability | How this pack uses it |
 |---|---|
-| `skill-creator` | Create or improve future skills |
-| `skill-installer` | Install external skills if the user chooses later |
+| `skill-creator` | Future skill creation or pack improvement |
+| `skill-installer` | External skill installation when explicitly selected |
 | AGENTS.md support | Persistent repo instructions and scoped rules |
-| Shell and apply patch tools | Controlled local edits and validation |
+| Shell and patch tools | Controlled local edits and validation |
 
 ## Optional Plugin Capabilities
 
-These are useful if available, but this pack must still work without them:
+These are useful when available, but the pack must still work without them:
 
 | Capability | Use |
 |---|---|
@@ -30,26 +97,6 @@ These are useful if available, but this pack must still work without them:
 | Supabase skills | Database projects, migrations, SQL, and RLS review |
 | Codex Security skills | Security scans, threat modeling, finding validation |
 | Browser or Playwright tools | Local frontend QA and screenshots |
-
-## Reference Only
-
-Do not wholesale-install broad packs. Mine narrow ideas only.
-
-| Source | Recommended Treatment |
-|---|---|
-| `agentsmd/agents.md` | Reference for root and nested `AGENTS.md` conventions |
-| `forrestchang/andrej-karpathy-skills` | Reference for Karpathy-inspired coding rules already adapted here |
-| `github/spec-kit` | Reference for spec-driven development, not a required dependency |
-| `anthropics/skills` | Pattern library, not bundled |
-| `MiniMax-AI/skills` | Pattern library, not bundled |
-| `vercel-labs` examples | Reference for platform-specific app work |
-| broad Claude Code template packs | Reference only, do not make them the foundation |
-
-## Overlay Policy
-
-If an external skill is installed later, do not edit it manually without tracking the change.
-
-Use `scripts/apply-external-skill-overlays.ps1` to place a companion overlay file beside the external skill. That preserves the original upstream skill and makes local edits auditable.
 
 ## Excluded Material
 
@@ -60,6 +107,6 @@ The pack intentionally excludes:
 - private project names
 - account IDs
 - API keys
-- plugin cache files
+- private plugin cache files
 - proprietary source documents
 
