@@ -1,0 +1,66 @@
+# Workflow Modes And Gates
+
+## Modes
+
+| Mode | Use when | Completion meaning |
+|---|---|---|
+| Full Run | The skill is explicitly invoked for a new project or source folder without a narrower limit | All phases 0 to 8 pass |
+| Review Only | The user asks to review, audit, compare, or identify gaps without changing files | Review findings delivered, no drafting or completion claim |
+| Single Phase | The user explicitly asks for one deliverable or phase only | Requested phase completed, wider workflow remains incomplete |
+| Resume | A valid workflow manifest exists from a prior run | Continue from the first incomplete or blocked phase |
+
+Do not infer Single Phase merely because the user mentions one folder or one document. An explicit invocation of the skill defaults to Full Run.
+
+## Status Values
+
+Use only:
+
+- `not_started`
+- `in_progress`
+- `blocked`
+- `awaiting_approval`
+- `approved`
+- `completed`
+- `explicitly_deferred`
+
+Only one phase may be `in_progress`.
+
+## Hard Gates
+
+### Gate A: Scope
+
+Do not inventory or draft until the mode, output location, required formats, and code permission are recorded.
+
+### Gate B: Source Authority
+
+If sources conflict on a material issue, stop and ask the user which source controls. Repetition across generated files is not independent confirmation.
+
+### Gate C: Material Decisions
+
+Do not draft the PRD while material decisions remain open. Consolidate questions into one numbered decision request.
+
+### Gate D: Controlled Docs
+
+Treat all seven documents as drafts until approved. Do not use them as source truth for repo docs or code before approval.
+
+### Gate E: TDD Alignment
+
+Do not call a TDD merged unless every external draft was classified by keep, correct, reject, or defer. Do not advance while TDD conflicts with controlled docs.
+
+### Gate F: Repo And Instructions
+
+Do not recommend coding before repo documentation and agent instructions exist. If no repo exists, ask for a decision rather than skipping the phase.
+
+### Gate G: Final Validation
+
+Run the manifest validator and artifact validation. Any blocker or major defect prevents a ready-to-code claim.
+
+## Approval Rules
+
+Record approval only from:
+
+- an explicit user statement
+- a controlling source that clearly grants the decision
+- explicit delegated authority from the user
+
+Silence, lack of response, or Codex inference is not approval.

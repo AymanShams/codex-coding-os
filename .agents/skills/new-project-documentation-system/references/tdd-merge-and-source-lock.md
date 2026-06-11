@@ -24,6 +24,8 @@ Use this reference when the user provides external TDD/build-plan drafts, AI-gen
 6. Patch the seven controlled source docs only when the TDD exposes a real gap.
 7. Add an alignment review explaining what was kept, corrected, rejected, or deferred.
 
+If no external TDD exists, create a source-locked TDD from the approved controlled documents. Do not label it merged.
+
 ## Required TDD Sections
 
 - Purpose and source-of-truth hierarchy.

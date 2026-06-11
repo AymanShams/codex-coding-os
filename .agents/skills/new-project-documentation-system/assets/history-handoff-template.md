@@ -33,7 +33,7 @@
 - Files:
 - Drift:
 - Secrets:
-- sensitive regulated data:
+- PHI:
 - Git:
 
 ## Known Blockers
@@ -53,8 +53,9 @@ Before coding:
 2. Read docs/index.md.
 3. Read docs/history/<handoff file>.
 4. Read the controlled TDD.
-5. Run git status -sb and confirm whether the local repo is synced with origin/main.
+5. Read project-documentation-manifest.json.
+6. Run the workflow manifest validator.
+7. Run git status -sb and confirm whether the local repo is synced with origin/main.
 
-Start by reviewing the repository structure and propose the first implementation slice from the source docs.
+If the workflow manifest is not ready for coding, continue from its first blocked or incomplete phase. Propose the first implementation slice only when the manifest permits coding.
 ```
-

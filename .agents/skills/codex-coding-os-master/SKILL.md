@@ -48,8 +48,9 @@ This pack includes the full local skills needed for the default workflow:
    - Use `create-prd` for the PRD layer.
    - Use `product-strategy` and `customer-journey-map` when the idea is vague or the target user is weak.
    - Use `working-backwards` when the user needs a serious PR/FAQ or decision memo before build.
-   - Ask only questions that affect product scope, users, data, security, integrations, deployment, costs, or first release.
-   - If enough detail exists, state assumptions and proceed.
+   - Create the workflow manifest before drafting.
+   - Ask all unresolved material questions that affect product scope, users, roles, workflows, data, security, integrations, deployment, costs, repositories, external services, or first release.
+   - Stop before the PRD when material decisions or source conflicts remain. Use assumptions only for low-risk, reversible presentation choices.
 
 3. **Create controlled source docs**
    - Use `new-project-documentation-system`.
@@ -67,6 +68,7 @@ This pack includes the full local skills needed for the default workflow:
    - Use a plain step-by-step technical design document.
    - Include file and folder list, pages, buttons, data model, API routes, tests, env placeholders, and implementation sequence.
    - Use `artifact-validation-workflow` to validate that the plan matches the controlled docs.
+   - Do not treat the TDD as approved until the controlled docs are approved and the alignment gate passes.
 
 5. **Create repo instruction layer**
    - Use `new-project-documentation-system` assets.
@@ -77,6 +79,7 @@ This pack includes the full local skills needed for the default workflow:
 
 6. **Start implementation**
    - Use `ai-coding-discipline`.
+   - Start only when the new-project workflow manifest permits coding.
    - Pick one vertical slice.
    - Read before writing.
    - Make the smallest correct change.
@@ -100,11 +103,12 @@ This pack includes the full local skills needed for the default workflow:
 For a new project, produce:
 
 - short assumptions list
-- questions only where needed
+- consolidated material-decision questions before drafting
+- workflow manifest and phase status
 - project brief
 - seven-doc plan
 - suggested repo structure
-- first implementation slice
+- first implementation slice recommendation only after documentation approval
 - validation plan
 - risks and decisions that still need the user
 
@@ -130,9 +134,12 @@ If an external skill repo is unavailable, skip external installation and use the
 
 Do not claim the project is ready to code until these exist or are explicitly deferred:
 
+- valid workflow manifest with no open material decisions or source conflicts
 - controlled PRD or project brief
-- first implementation plan
+- approved seven-doc pack and TDD
+- repo documentation appropriate to the current stage
 - security baseline
 - repo AGENTS instructions
 - validation commands or validation placeholders
 - known blockers
+- explicit approval to start coding

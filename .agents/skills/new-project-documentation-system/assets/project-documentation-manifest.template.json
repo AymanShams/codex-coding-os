@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "project_name": "",
+  "mode": "full_run",
+  "output_root": "",
+  "required_formats": [],
+  "code_allowed": false,
+  "next_action": "resolve_scope",
+  "open_material_decisions": [],
+  "unresolved_source_conflicts": [],
+  "approvals": {
+    "source_authority": false,
+    "material_decisions": false,
+    "controlled_docs": false,
+    "tdd": false,
+    "coding_start": false
+  },
+  "phases": {
+    "0_route_scope": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "1_source_inventory": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "2_material_decisions": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "3_controlled_docs": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "4_tdd_alignment": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "5_repo_documentation": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "6_agent_instructions": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "7_handoff": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "8_final_validation": {
+      "status": "not_started",
+      "evidence": []
+    }
+  }
+}

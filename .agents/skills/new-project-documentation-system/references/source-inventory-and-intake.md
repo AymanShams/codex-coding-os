@@ -13,7 +13,7 @@ Classify every source as one of:
 | External draft | Output from another AI, consultant, or team | Compare and correct before merging |
 | Evidence/source material | Raw research, files, transcripts, screenshots, exports | Extract facts, preserve source chain |
 | Media asset | Images, video, audio, logos, diagrams | Inventory, inspect only when relevant |
-| Restricted/sensitive | sensitive regulated data, secrets, credentials, personal files, pilot data | Do not copy to Git or public outputs |
+| Restricted/sensitive | PHI, secrets, credentials, personal files, pilot data | Do not copy to Git or public outputs |
 | Historical | Older names, superseded decisions, archived docs | Use only to detect drift or explain history |
 
 ## Source Manifest
@@ -40,7 +40,7 @@ Ask only questions that materially change the work:
 6. Required formats: Markdown, DOCX, repo files, or all.
 7. Whether application code is allowed now.
 8. Identity, MFA, roles, and access model.
-9. Data privacy, encryption, sensitive regulated data, audit, and retention rules.
+9. Data privacy, encryption, PHI, audit, and retention rules.
 10. Integrations and external systems.
 11. AI features, autonomy level, and human approval gates.
 12. Development stack, deployment path, and migration constraints.
@@ -48,7 +48,19 @@ Ask only questions that materially change the work:
 
 If the answer can be inferred safely from sources, state the assumption and proceed.
 
+## Material Decision Stop Rule
+
+Do not infer answers about scope, users, roles, workflows, approvals, data, PHI, identity, security, integrations, AI, stack, deployment, repositories, external services, output location, formats, or coding permission.
+
+If any source conflicts or any answer is missing in those categories:
+
+1. Create or update the decision register.
+2. Set the material-decision phase to `blocked`.
+3. Ask all material questions in one numbered request.
+4. Wait for the user before drafting the PRD.
+
+The “draft Version 1 with assumptions” option applies only when no material decision is missing.
+
 ## Drafting Rule
 
 Do not draft from memory when current source folders are available. Use memory only for routing and prior-context hints, then verify against current files.
-
