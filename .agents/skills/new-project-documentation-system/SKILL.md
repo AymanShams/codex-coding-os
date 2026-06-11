@@ -78,7 +78,7 @@ Complete phases in order. Do not advance past a blocked or awaiting-approval pha
 | 1. Source inventory | Classified source manifest, authority map, sensitive-file flags, conflict list | Source authority approved when conflicts exist |
 | 2. Material decisions | Consolidated decision register and all required questions | No open material decisions before PRD drafting |
 | 3. Project brief and seven controlled docs | Project brief plus PRD, app flow, tech stack, frontend, backend, security, implementation plan | User approval before treating docs as controlled |
-| 4. TDD and alignment | TDD created from controlled docs, external drafts reconciled when present, alignment review | TDD approved and no unresolved drift |
+| 4. TDD and alignment | TDD created from controlled docs, significant architecture decisions recorded as ADRs, external drafts reconciled when present, alignment review | TDD approved and no unresolved drift |
 | 5. Repo documentation | Full template-driven repo docs appropriate to the current stage | `technical-docs-pack` coverage validated |
 | 6. Agent instruction layer | Root/scoped `AGENTS.md`, `CLAUDE.md`, docs index links | Required reading and source hierarchy verified |
 | 7. Handoff | History note, current-state summary, next-chat prompt | Handoff matches actual state |
@@ -103,6 +103,7 @@ For Full Run mode, produce or explicitly defer with user approval:
 - decision register
 - seven controlled source docs
 - TDD
+- ADRs for significant architecture choices, or an explicit note that none were required
 - documentation alignment review
 - repo documentation tree using `technical-docs-pack`
 - root and scoped agent instructions

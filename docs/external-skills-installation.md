@@ -47,9 +47,9 @@ Every external source uses the same provenance fields in `external-skills/manife
 - `sha256`
 - `pin_status`
 
-Reference-only sources are not installed by this script. Installable sources should be pinned before repeatable public release instructions are published.
+Reference-only sources are not installed by this script. The current installable source is pinned to a reviewed commit. Any future installable source must also be pinned before repeatable public release instructions are published.
 
-If an installable source is not pinned, the installer stops by default. After reviewing upstream, a user can explicitly install the current upstream state:
+If a future installable source is not pinned, the installer stops by default. After reviewing upstream, a user can explicitly install its current upstream state:
 
 ```powershell
 .\scripts\install-external-skills.ps1 -Install forrestchang-andrej-karpathy-skills -ApplyOverlays -AllowUnpinned
@@ -71,7 +71,9 @@ This override is generic. It applies to any installable external source, not one
 Use this only when an external source needs to be installed manually.
 
 ```powershell
-git clone --depth 1 https://github.com/forrestchang/andrej-karpathy-skills .external-sources\forrestchang-andrej-karpathy-skills
+git clone --no-checkout https://github.com/forrestchang/andrej-karpathy-skills .external-sources\forrestchang-andrej-karpathy-skills
+git -C .external-sources\forrestchang-andrej-karpathy-skills fetch --depth 1 origin 2c606141936f1eeef17fa3043a72095b4765b9c2
+git -C .external-sources\forrestchang-andrej-karpathy-skills checkout --detach 2c606141936f1eeef17fa3043a72095b4765b9c2
 New-Item -ItemType Directory -Force -Path "$HOME\.agents\skills" | Out-Null
 Copy-Item .external-sources\forrestchang-andrej-karpathy-skills\skills\karpathy-guidelines "$HOME\.agents\skills\karpathy-guidelines" -Recurse -Force
 .\scripts\apply-external-skill-overlays.ps1

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  validate:
+  validate-windows:
     runs-on: windows-latest
 
     steps:
@@ -33,3 +33,28 @@ jobs:
         with:
           name: codex-coding-os-starter
           path: ${{ runner.temp }}/codex-coding-os-starter.zip
+
+  validate-bash:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate manifest and release safety
+        shell: pwsh
+        run: ./scripts/validate-pack.ps1
+
+      - name: Check bash syntax
+        shell: bash
+        run: bash -n ./scripts/install.sh ./scripts/uninstall.sh ./tests/install-uninstall-smoke.sh
+
+      - name: Smoke test bash install and uninstall
+        shell: bash
+        run: bash ./tests/install-uninstall-smoke.sh

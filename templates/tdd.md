@@ -6,6 +6,13 @@
 ## Architecture
 {{architecture_summary}}
 
+## Architecture Decisions
+Create or link an ADR from `templates/adr.md` for each significant choice.
+
+| ADR | Decision | Status | Consequence |
+|---|---|---|---|
+| {{adr_path_or_id}} | {{decision}} | Proposed, Accepted, or Superseded | {{consequence}} |
+
 ## Project Structure
 ```text
 {{project_name}}/
@@ -56,4 +63,3 @@
 | Risk | Mitigation |
 |---|---|
 | {{risk}} | {{mitigation}} |
-

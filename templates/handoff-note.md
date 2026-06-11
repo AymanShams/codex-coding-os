@@ -7,6 +7,11 @@
 - {{decision_1}}
 - {{decision_2}}
 
+## ADRs Created or Updated
+| ADR | Status | Summary |
+|---|---|---|
+| {{adr_path_or_id}} | Proposed, Accepted, or Superseded | {{summary}} |
+
 ## Files Changed
 | File | Change |
 |---|---|
@@ -31,4 +36,3 @@ Then handle this next task:
 
 Before editing, summarize the affected files and validation plan.
 ```
-

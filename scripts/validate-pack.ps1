@@ -27,6 +27,24 @@ try {
   exit 1
 }
 
+if ([string]$Manifest.version -notmatch '^\d+\.\d+\.\d+([\-+][0-9A-Za-z.-]+)?$') {
+  $Errors += "pack.manifest.json version must be valid SemVer: $($Manifest.version)"
+}
+
+$VersionFile = Join-Path $RepoRoot "VERSION"
+if (Test-Path $VersionFile) {
+  $Errors += "VERSION file is not allowed. pack.manifest.json#version is the sole package release version."
+}
+
+$ChangelogPath = Join-Path $RepoRoot "CHANGELOG.md"
+if (Test-Path $ChangelogPath) {
+  $ChangelogText = Get-Content -Raw -LiteralPath $ChangelogPath
+  $EscapedVersion = [regex]::Escape([string]$Manifest.version)
+  if ($ChangelogText -notmatch "(?m)^## \[$EscapedVersion\]") {
+    $Errors += "CHANGELOG.md must contain an entry for package version $($Manifest.version)."
+  }
+}
+
 foreach ($Path in $Manifest.required_files) {
   $Full = Join-Path $RepoRoot (Convert-PackPath $Path)
   if (-not (Test-Path $Full)) {
@@ -75,6 +93,14 @@ if (Test-Path $ExternalManifestPath) {
       if ($Source.treatment -match "optional-install" -and [string]::IsNullOrWhiteSpace([string]$Source.pinned_commit)) {
         if ($Source.pin_status -ne "required-before-repeatable-install") {
           $Errors += "Installable external source without pinned_commit must set pin_status=required-before-repeatable-install: $($Source.id)"
+        }
+      }
+      if ($Source.treatment -match "optional-install" -and -not [string]::IsNullOrWhiteSpace([string]$Source.pinned_commit)) {
+        if ($Source.pin_status -ne "pinned-reviewed") {
+          $Errors += "Pinned installable external source must set pin_status=pinned-reviewed: $($Source.id)"
+        }
+        if ([string]$Source.pinned_commit -notmatch '^[0-9a-fA-F]{40}$') {
+          $Errors += "Pinned installable external source must use a full 40-character commit SHA: $($Source.id)"
         }
       }
       if ($Source.treatment -eq "reference-only" -and $Source.pin_status -ne "reference-only-not-installed") {

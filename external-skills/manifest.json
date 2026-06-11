@@ -9,10 +9,10 @@
       "name": "andrej-karpathy-skills",
       "repo": "https://github.com/forrestchang/andrej-karpathy-skills",
       "license": "public-repository-license-review-required",
-      "reviewed_at": "2026-06-06",
-      "pinned_commit": "",
+      "reviewed_at": "2026-06-11",
+      "pinned_commit": "2c606141936f1eeef17fa3043a72095b4765b9c2",
       "sha256": "",
-      "pin_status": "required-before-repeatable-install",
+      "pin_status": "pinned-reviewed",
       "treatment": "optional-install-with-overlay",
       "reason": "Karpathy-inspired AI coding guardrails are already incorporated into ai-coding-discipline. Optional install is useful only for users who also want the upstream skill.",
       "expected_skill_paths": [

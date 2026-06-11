@@ -123,6 +123,7 @@ support_items=(
   pack.manifest.json
   THIRD_PARTY_SKILLS.md
   README.md
+  CHANGELOG.md
   LICENSE.md
   COMMERCIAL.md
   NOTICE.md

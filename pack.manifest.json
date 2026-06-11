@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "package_name": "codex-coding-os-starter",
   "display_name": "Codex Coding OS",
   "release_status": "public-release-candidate",
@@ -9,10 +9,13 @@
     "external_source_data": "external-skills/manifest.json",
     "plugin_and_mcp_guidance": "docs/codex-plugins-mcps-hooks.md",
     "codex_rules_guidance": "docs/codex-rules.md",
-    "release_process": "docs/publishing-checklist.md"
+    "release_process": "docs/publishing-checklist.md",
+    "release_history": "CHANGELOG.md",
+    "package_release_version": "pack.manifest.json#version"
   },
   "required_files": [
     "README.md",
+    "CHANGELOG.md",
     "AGENTS.md",
     "LICENSE.md",
     "COMMERCIAL.md",
@@ -28,6 +31,7 @@
     "docs/mcp-review-checklist.md",
     "docs/system-scope.md",
     "docs/external-skills-installation.md",
+    "docs/getting-started.md",
     "docs/full-skill-inventory.md",
     "docs/pack-design.md",
     "docs/component-classification.md",
@@ -42,6 +46,7 @@
     "templates/security-guidelines.md",
     "templates/implementation-plan.md",
     "templates/tdd.md",
+    "templates/adr.md",
     "templates/repo-docs-template.md",
     "templates/repo-AGENTS.md",
     "templates/scoped-AGENTS.md",
@@ -61,7 +66,8 @@
     ".codex/rules/default.rules",
     ".codex/rules/README.md",
     ".github/workflows/validate.yml",
-    "tests/install-uninstall-smoke.ps1"
+    "tests/install-uninstall-smoke.ps1",
+    "tests/install-uninstall-smoke.sh"
   ],
   "support_items": [
     "templates",
@@ -77,6 +83,7 @@
     "pack.manifest.json",
     "THIRD_PARTY_SKILLS.md",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE.md",
     "COMMERCIAL.md",
     "NOTICE.md"

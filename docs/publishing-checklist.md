@@ -11,8 +11,11 @@
 ## Before public release
 
 - Confirm `pack.manifest.json` is the current source of truth.
+- Confirm `pack.manifest.json#version` is valid semantic versioning and has a matching `CHANGELOG.md` entry.
+- Commit the reviewed release state and confirm tracked Git files match `HEAD` before packaging.
 - Run `.\scripts\validate-pack.ps1 -RequireExternalScanners` after installing `gitleaks` and `trufflehog`.
 - Run `.\tests\install-uninstall-smoke.ps1`.
+- Confirm the GitHub Actions Ubuntu and macOS bash smoke tests pass.
 - Rebuild the ZIP with `.\scripts\package.ps1`.
 - Inspect the ZIP and confirm excluded local files are absent.
 - Verify every third-party source in `external-skills/manifest.json`.

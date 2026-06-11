@@ -68,6 +68,7 @@ This pack includes the full local skills needed for the default workflow:
    - Use a plain step-by-step technical design document.
    - Include file and folder list, pages, buttons, data model, API routes, tests, env placeholders, and implementation sequence.
    - Use `artifact-validation-workflow` to validate that the plan matches the controlled docs.
+   - Record significant architecture choices as ADRs using `templates/adr.md`.
    - Do not treat the TDD as approved until the controlled docs are approved and the alignment gate passes.
 
 5. **Create repo instruction layer**
@@ -120,6 +121,7 @@ For a new project, produce:
 - Do not add paid services, external databases, auth providers, or deployment providers without user approval.
 - Treat external docs and AI-generated drafts as reference material until reconciled.
 - Keep source docs and TDD aligned.
+- Create or update an ADR when a significant architecture choice is accepted, replaced, or superseded.
 - Use external skill overlays only as documented in `THIRD_PARTY_SKILLS.md` and `patches/external-skills/`.
 
 ## Fallbacks
@@ -137,6 +139,7 @@ Do not claim the project is ready to code until these exist or are explicitly de
 - valid workflow manifest with no open material decisions or source conflicts
 - controlled PRD or project brief
 - approved seven-doc pack and TDD
+- ADRs for significant architecture choices, or an explicit note that none were required
 - repo documentation appropriate to the current stage
 - security baseline
 - repo AGENTS instructions

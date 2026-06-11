@@ -64,6 +64,16 @@ When starting or reviewing a project:
 - Reference-only is correct for lists, prompt packs, broad skill packs, and design inspiration sources.
 - Skip/avoid is correct when legal, privacy, security, provenance, or execution risk dominates the likely benefit.
 
+## Conflict Control
+
+- Choose one primary skill for the requested output or workflow.
+- Add supporting skills only when they materially change a defined phase.
+- The primary orchestrator controls sequence, stop gates, and completion claims. Supporting skills must not bypass it.
+- Do not stack critique, pre-mortem, evidence, validation, and interview skills unless the user requests a formal review or the risk justifies it.
+- When two skills overlap, use the one whose description most directly matches the requested output.
+- Prefer execution skills for implementation, critique skills for explicit review, and evidence checking when source quality or recency is the core risk.
+- If instructions conflict, stop at the safer or more source-faithful gate and state the conflict.
+
 ## Response Pattern
 
 Usually keep this invisible and proceed with the selected capability.

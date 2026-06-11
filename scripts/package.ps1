@@ -38,11 +38,28 @@ if (Test-Path $OutputPath) {
   Remove-Item -LiteralPath $OutputPath -Force
 }
 
-$PackageItems = Get-ChildItem -Path $RepoRoot -Force | Where-Object {
-  -not (Test-IsExcludedName -Name $_.Name -ExcludedNames $ExcludedNames)
-}
+$GitCommand = Get-Command git -ErrorAction SilentlyContinue
+$GitRoot = Join-Path $RepoRoot ".git"
+if ($GitCommand -and (Test-Path $GitRoot)) {
+  $GitStatus = @(& git -C $RepoRoot status --porcelain --untracked-files=no)
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect Git working tree before packaging."
+  }
+  if ($GitStatus.Count -gt 0) {
+    throw "Tracked Git files must match HEAD before packaging. Commit or revert tracked changes so the archive matches a reviewed revision."
+  }
 
-Compress-Archive -Path ($PackageItems | Select-Object -ExpandProperty FullName) -DestinationPath $OutputPath -Force
+  & git -C $RepoRoot archive --format=zip --output=$OutputPath HEAD
+  if ($LASTEXITCODE -ne 0) {
+    throw "git archive failed."
+  }
+} else {
+  $PackageItems = Get-ChildItem -Path $RepoRoot -Force | Where-Object {
+    -not (Test-IsExcludedName -Name $_.Name -ExcludedNames $ExcludedNames)
+  }
+
+  Compress-Archive -Path ($PackageItems | Select-Object -ExpandProperty FullName) -DestinationPath $OutputPath -Force
+}
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $ForbiddenExtensions = @($Manifest.release_safety.forbidden_file_extensions)
