@@ -54,6 +54,8 @@ source_skills="$repo_root/.agents/skills"
 support_root="$CODEX_HOME/coding-os-starter"
 manifest_txt="$support_root/install-manifest.txt"
 timestamp="$(date +%Y%m%d-%H%M%S)"
+previous_skills_root=""
+previous_skill_paths=()
 
 run() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -93,11 +95,60 @@ copy_file_clean() {
   echo "Installed $label: $target"
 }
 
+read_previous_manifest() {
+  [[ -f "$manifest_txt" ]] || return 0
+
+  while IFS= read -r line; do
+    case "$line" in
+      SkillsRoot=*)
+        previous_skills_root="${line#SkillsRoot=}"
+        ;;
+      SkillPath=*)
+        previous_skill_paths+=("${line#SkillPath=}")
+        ;;
+    esac
+  done < "$manifest_txt"
+}
+
+abs_path() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    (cd "$(dirname "$path")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")")
+  else
+    (cd "$(dirname "$path")" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")") || printf '%s\n' "$path"
+  fi
+}
+
+ensure_under_root() {
+  local target
+  local root
+  target="$(abs_path "$1")"
+  root="$(abs_path "$2")"
+  case "$target" in
+    "$root"|"$root"/*) ;;
+    *)
+      echo "Refusing to manage path outside root. Target=$target Root=$root" >&2
+      exit 1
+      ;;
+  esac
+}
+
+contains_path() {
+  local expected="$1"
+  shift
+  local candidate
+  for candidate in "$@"; do
+    [[ "$candidate" == "$expected" ]] && return 0
+  done
+  return 1
+}
+
 if [[ ! -d "$source_skills" ]]; then
   echo "Cannot find source skills folder: $source_skills" >&2
   exit 1
 fi
 
+read_previous_manifest
 run mkdir -p "$SKILLS_ROOT" "$CODEX_HOME" "$support_root"
 
 installed_skills=()
@@ -108,6 +159,21 @@ for skill_dir in "$source_skills"/*; do
   copy_dir_clean "$skill_dir" "$target" "skill $skill_name"
   installed_skills+=("$target")
 done
+
+if [[ -n "$previous_skills_root" && "$previous_skills_root" == "$SKILLS_ROOT" ]]; then
+  for old_target in "${previous_skill_paths[@]}"; do
+    if ! contains_path "$old_target" "${installed_skills[@]}"; then
+      ensure_under_root "$old_target" "$SKILLS_ROOT"
+      if [[ -e "$old_target" ]]; then
+        run cp -R "$old_target" "$old_target.backup-$timestamp"
+        run rm -rf "$old_target"
+        echo "Removed obsolete pack-managed skill: $old_target"
+      fi
+    fi
+  done
+elif [[ "${#previous_skill_paths[@]}" -gt 0 ]]; then
+  echo "Previous install used a different SkillsRoot. Obsolete skills there were left unchanged."
+fi
 
 support_items=(
   templates
@@ -166,14 +232,16 @@ fi
 
 if [[ "$DRY_RUN" -eq 0 ]]; then
   {
-    echo "Codex Coding OS Starter installed at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "ManifestVersion=2"
+    echo "Package=codex-coding-os-starter"
+    echo "InstalledAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "RepoRoot=$repo_root"
     echo "SkillsRoot=$SKILLS_ROOT"
     echo "CodexHome=$CODEX_HOME"
     echo "SupportRoot=$support_root"
     echo "InstalledGlobalAgents=$INSTALL_GLOBAL_AGENTS"
-    echo "Skills:"
-    printf '%s\n' "${installed_skills[@]}"
+    echo "GlobalAgentsPath=$CODEX_HOME/AGENTS.md"
+    printf 'SkillPath=%s\n' "${installed_skills[@]}"
   } > "$manifest_txt"
 fi
 

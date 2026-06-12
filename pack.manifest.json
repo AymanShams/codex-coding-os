@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "package_name": "codex-coding-os-starter",
   "display_name": "Codex Coding OS",
   "release_status": "public-release-candidate",
@@ -11,6 +11,9 @@
     "codex_rules_guidance": "docs/codex-rules.md",
     "release_process": "docs/publishing-checklist.md",
     "release_history": "CHANGELOG.md",
+    "philosophy": "docs/philosophy.md",
+    "review_doctrine": "docs/review-doctrine.md",
+    "first_party_skill_standard": "docs/skill-quality-standard.md",
     "package_release_version": "pack.manifest.json#version"
   },
   "required_files": [
@@ -32,6 +35,9 @@
     "docs/system-scope.md",
     "docs/external-skills-installation.md",
     "docs/getting-started.md",
+    "docs/philosophy.md",
+    "docs/review-doctrine.md",
+    "docs/skill-quality-standard.md",
     "docs/full-skill-inventory.md",
     "docs/pack-design.md",
     "docs/component-classification.md",
@@ -52,6 +58,7 @@
     "templates/scoped-AGENTS.md",
     "templates/handoff-note.md",
     "templates/review-checklist.md",
+    "templates/fresh-context-review.md",
     "templates/validation-report.md",
     "scripts/install.ps1",
     "scripts/install.sh",
@@ -62,12 +69,14 @@
     "scripts/package.ps1",
     "scripts/release-safety-scan.ps1",
     "scripts/validate-pack.ps1",
+    "scripts/validate-links.ps1",
     "hooks/README.md",
     ".codex/rules/default.rules",
     ".codex/rules/README.md",
     ".github/workflows/validate.yml",
     "tests/install-uninstall-smoke.ps1",
-    "tests/install-uninstall-smoke.sh"
+    "tests/install-uninstall-smoke.sh",
+    "tests/workflow-gates-smoke.py"
   ],
   "support_items": [
     "templates",
@@ -112,6 +121,7 @@
     { "name": "humanizer", "category": "writing-quality", "required": true, "source": "local" },
     { "name": "improve-codebase-architecture", "category": "architecture", "required": true, "source": "local-or-open-source" },
     { "name": "new-project-documentation-system", "category": "project-kickoff", "required": true, "source": "local" },
+    { "name": "project-session-continuity", "category": "coordination", "required": true, "source": "local" },
     { "name": "pdf", "category": "document-intake", "required": true, "source": "local-or-open-source" },
     { "name": "playwright", "category": "qa", "required": true, "source": "local-or-open-source" },
     { "name": "pre-mortem", "category": "planning-review", "required": true, "source": "local" },

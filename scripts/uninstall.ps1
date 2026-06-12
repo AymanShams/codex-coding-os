@@ -46,15 +46,30 @@ $SkillSourceRoot = Join-Path $RepoRoot ".agents\skills"
 $CodexHome = Resolve-InstallPath $CodexHome
 $DefaultSupportRoot = Join-Path $CodexHome "coding-os-starter"
 $ManifestJsonPath = Join-Path $DefaultSupportRoot "install-manifest.json"
+$ManifestTextPath = Join-Path $DefaultSupportRoot "install-manifest.txt"
 $Manifest = $null
+$TextManifest = @{}
+$TextSkillPaths = @()
 
 if (Test-Path $ManifestJsonPath) {
   $Manifest = Get-Content -Raw -LiteralPath $ManifestJsonPath | ConvertFrom-Json
+} elseif (Test-Path $ManifestTextPath) {
+  foreach ($Line in Get-Content -LiteralPath $ManifestTextPath) {
+    if ($Line -match '^([^=]+)=(.*)$') {
+      if ($Matches[1] -eq "SkillPath") {
+        $TextSkillPaths += $Matches[2]
+      } else {
+        $TextManifest[$Matches[1]] = $Matches[2]
+      }
+    }
+  }
 }
 
 if (-not $SkillsRoot) {
   if ($Manifest -and $Manifest.skills_root) {
     $SkillsRoot = [string]$Manifest.skills_root
+  } elseif ($TextManifest.SkillsRoot) {
+    $SkillsRoot = [string]$TextManifest.SkillsRoot
   } else {
     $SkillsRoot = "$HOME\.agents\skills"
   }
@@ -63,12 +78,16 @@ if (-not $SkillsRoot) {
 $SkillsRoot = Resolve-InstallPath $SkillsRoot
 $InstalledSupportRoot = if ($Manifest -and $Manifest.support_root) {
   Resolve-InstallPath ([string]$Manifest.support_root)
+} elseif ($TextManifest.SupportRoot) {
+  Resolve-InstallPath ([string]$TextManifest.SupportRoot)
 } else {
   $DefaultSupportRoot
 }
 
 $AgentsPath = if ($Manifest -and $Manifest.global_agents_path) {
   Resolve-InstallPath ([string]$Manifest.global_agents_path)
+} elseif ($TextManifest.GlobalAgentsPath) {
+  Resolve-InstallPath ([string]$TextManifest.GlobalAgentsPath)
 } else {
   Join-Path $CodexHome "AGENTS.md"
 }
@@ -86,6 +105,8 @@ if ($Manifest -and $Manifest.skills) {
       $SkillTargets += $Path
     }
   }
+} elseif ($TextSkillPaths.Count -gt 0) {
+  $SkillTargets += $TextSkillPaths
 } elseif (Test-Path $SkillSourceRoot) {
   Get-ChildItem -Path $SkillSourceRoot -Directory | Sort-Object Name | ForEach-Object {
     $SkillTargets += (Join-Path $SkillsRoot $_.Name)

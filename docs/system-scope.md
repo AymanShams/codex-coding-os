@@ -9,6 +9,7 @@ This repo bundles coding-related local skills in full under `.agents/skills/`.
 The included set covers:
 
 - project kickoff and PRD creation
+- project session start, resume, current-state, and handoff continuity
 - technical documentation and repo instructions
 - implementation planning and work breakdown
 - AI coding discipline
@@ -28,6 +29,7 @@ The included set covers:
 - external skill overlay handling
 - optional Codex command approval rule templates
 - release validation, safety scanning, package inspection, and install smoke testing
+- philosophy, review doctrine, and first-party skill quality controls
 
 ## Referenced through Codex
 

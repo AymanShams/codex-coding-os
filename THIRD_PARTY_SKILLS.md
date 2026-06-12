@@ -14,7 +14,7 @@ The bundled skills are full local skill folders, including references, assets, a
 
 | Area | Bundled skills |
 |---|---|
-| Master routing | `codex-coding-os-master`, `catalogue-router` |
+| Master routing and continuity | `codex-coding-os-master`, `catalogue-router`, `project-session-continuity` |
 | Idea to project docs | `new-project-documentation-system`, `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` |
 | Docs and artifact systems | `technical-docs-pack`, `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` |
 | Planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker` |
@@ -80,9 +80,9 @@ Current overlay:
 
 ## External source version policy
 
-Every external source in `external-skills/manifest.json` uses the same provenance fields: `license`, `reviewed_at`, `pinned_commit`, `sha256`, and `pin_status`.
+Every external source in `external-skills/manifest.json` uses the same provenance fields: `license`, `reviewed_at`, `pinned_commit`, `sha256`, and `pin_status`. Installable sources also declare the integrity control that the installer actually enforces.
 
-Reference-only sources are not installed by this pack. Installable external sources should be pinned before repeatable public release instructions are published. The installer applies this rule generically to any installable external source.
+Reference-only sources are not installed by this pack. Installable external sources should be pinned before repeatable public release instructions are published. The installer applies this rule generically to any installable external source and verifies that a pinned Git checkout resolves to the declared commit.
 
 ## Local adaptation
 

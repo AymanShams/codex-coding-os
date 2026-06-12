@@ -8,12 +8,15 @@ The point is simple: do not treat AI coding as a blank prompt. Give Codex durabl
 
 [Start here: five-minute setup and first project](docs/getting-started.md)
 
+The operating principles are in [docs/philosophy.md](docs/philosophy.md). Review assurance rules are in [docs/review-doctrine.md](docs/review-doctrine.md).
+
 ## What this pack includes
 
 - A coding skill stack for project kickoff, PRD creation, technical documentation, implementation planning, code review, QA, design artifacts, security review, incident handling, RCA, and public-facing documentation polish.
 - A reusable AGENTS instruction layer for disciplined AI-assisted development.
 - A first-chat prompt that guides Codex through product discovery before implementation.
-- Templates for project docs, technical docs, repo instructions, handoff notes, reviews, and validation reports.
+- Templates for project docs, technical docs, repo instructions, handoff notes, fresh-context reviews, and validation reports.
+- Automated project session continuity for start, resume, exact-next-action checks, session-boundary decisions, and persistent handoffs.
 - Scripts for install, uninstall, validation, packaging, and optional external skill overlays.
 - References for Codex plugins, MCPs, local tools, default skills, command rules, and external skill sources.
 
@@ -109,8 +112,17 @@ Use this sequence in a new Codex chat or when taking over an existing repo:
 4. Generate the technical design document.
 5. Generate the implementation plan.
 6. Add repo instructions.
-7. Start one bounded implementation slice.
-8. Review, test, and validate before marking the work done.
+7. Add current delivery state and the project session-start gate.
+8. Start one bounded implementation slice only when the workflow manifest permits coding.
+9. Review, test, and validate before marking the work done.
+
+## When to invoke the full project workflow
+
+Use the full workflow for a new product, an unclear existing repo, architecture changes, shared or production-facing behavior, sensitive data, or work where incorrect assumptions would create material rework or risk.
+
+For a small, reversible, well-specified change, keep the pack installed but use the narrowest relevant skill, preserve source truth, and run proportionate validation. Do not manufacture a full project-documentation cycle for a trivial edit.
+
+Documentation completeness is stage-bounded. The existing Stage 0 to Stage 6 model in `.agents/skills/new-project-documentation-system/references/documentation-stage-map.md` defines what must be filled and what remains not due.
 
 ## Included skills
 
@@ -118,7 +130,7 @@ The pack includes full skill folders with their references, assets, and scripts 
 
 | Area | Skills |
 |---|---|
-| Master routing | `codex-coding-os-master`, `catalogue-router` |
+| Master routing and continuity | `codex-coding-os-master`, `catalogue-router`, `project-session-continuity` |
 | Idea to project docs | `new-project-documentation-system`, `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` |
 | Docs and artifact systems | `technical-docs-pack`, `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` |
 | Planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker`, `grill-me`, `grill-with-docs` |

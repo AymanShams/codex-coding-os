@@ -33,6 +33,7 @@ STATUSES = {
 
 DONE = {"approved", "completed", "explicitly_deferred"}
 READY_TO_CODE = {"approved", "completed"}
+ADVANCED = {"in_progress", "awaiting_approval", *DONE}
 
 
 def fail(errors: list[str], message: str) -> None:
@@ -67,6 +68,13 @@ def validate(data: dict) -> list[str]:
     if in_progress > 1:
         fail(errors, "only one phase may be in_progress")
 
+    for index, phase in enumerate(PHASES[1:], start=1):
+        status = phases.get(phase, {}).get("status")
+        previous_phase = PHASES[index - 1]
+        previous_status = phases.get(previous_phase, {}).get("status")
+        if status in ADVANCED and previous_status not in DONE:
+            fail(errors, f"{phase} cannot advance while {previous_phase} is {previous_status!r}")
+
     open_decisions = data.get("open_material_decisions")
     conflicts = data.get("unresolved_source_conflicts")
     if not isinstance(open_decisions, list):
@@ -82,13 +90,13 @@ def validate(data: dict) -> list[str]:
         approvals = {}
 
     controlled_status = phases.get("3_controlled_docs", {}).get("status")
-    if controlled_status in DONE:
+    if controlled_status in ADVANCED:
         if open_decisions:
-            fail(errors, "controlled docs cannot be done while material decisions remain open")
+            fail(errors, "controlled docs cannot start while material decisions remain open")
         if conflicts:
-            fail(errors, "controlled docs cannot be done while source conflicts remain unresolved")
+            fail(errors, "controlled docs cannot start while source conflicts remain unresolved")
         if not approvals.get("material_decisions"):
-            fail(errors, "controlled docs require material_decisions approval")
+            fail(errors, "controlled docs cannot start without material_decisions approval")
 
     tdd_status = phases.get("4_tdd_alignment", {}).get("status")
     if tdd_status in DONE and not approvals.get("controlled_docs"):
@@ -113,6 +121,10 @@ def validate(data: dict) -> list[str]:
             status = phases.get(phase, {}).get("status")
             if status not in DONE:
                 fail(errors, f"full_run completion requires {phase} done, got {status!r}")
+
+    for field in ("coordination_state_path", "session_continuity_command"):
+        if not isinstance(data.get(field), str) or not data.get(field, "").strip():
+            fail(errors, f"{field} must be a non-empty string")
 
     return errors
 

@@ -6,9 +6,11 @@
 2. Read `CLAUDE.md` if using Claude Code.
 3. Read `project-documentation-manifest.json`.
 4. Run the workflow manifest validator.
-5. Read `docs/index.md`.
-6. Read the latest file in `docs/history/`.
-7. Read the controlled TDD before coding.
+5. Run `python scripts/agent/session_continuity.py start` when available.
+6. Read `docs/delivery/current-state.md`.
+7. Read `docs/index.md`.
+8. Read the latest handoff referenced by current state.
+9. Read the controlled TDD before coding.
 
 ## Source Of Truth
 
@@ -25,6 +27,7 @@ Use this order:
 
 - Do not change architecture without updating the controlling docs.
 - Do not start coding unless the workflow manifest permits coding.
+- Treat current state and handoffs as coordination records only. They cannot override controlled docs or the workflow manifest.
 - Do not commit secrets, PHI, pilot records, medical files, generated credentials, or local tool metadata.
 - Do not treat development-stage tools as permanent architecture unless the docs say so.
 - Update documentation in the same change when API, database, config, security, workflow, or deployment behavior changes.

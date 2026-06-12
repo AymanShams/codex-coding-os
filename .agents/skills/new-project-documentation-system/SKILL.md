@@ -33,6 +33,8 @@ Run `scripts/validate_workflow_manifest.py <manifest-path>`:
 
 If validation fails, stop at the failing gate. Do not bypass a failed gate with assumptions.
 
+Run `scripts/validate_filled_artifacts.py <filled-artifact-paths>` before requesting approval for controlled documents, completing repo documentation, or finalizing a handoff. Do not scan blank source templates as filled artifacts.
+
 ## Material Decision Gate
 
 The safe-assumptions exception applies only to low-risk presentation choices such as filenames, formatting, or clearly reversible organization.
@@ -62,6 +64,7 @@ Start with `catalogue-router`. Use one primary skill per phase and add supportin
 | Delivery sequencing and implementation plan | `wbs-artifact-planner` | `pre-mortem` only for material delivery risk |
 | Security, privacy, and development controls | `security-best-practices` | `security-threat-model` when assets and trust boundaries are known |
 | Readiness, drift, and pass/fail checks | `artifact-validation-workflow` | `deep-critic` only when the user requests hard critique |
+| Session start, resume, and handoff continuity | `project-session-continuity` | use after the workflow manifest exists |
 | Implementation handoff | `ai-coding-discipline` | use only after the documentation workflow passes |
 
 Use `technical-docs-pack/references/repo-docs-template.md` for the detailed repo documentation template. Do not recreate it here.
@@ -78,10 +81,10 @@ Complete phases in order. Do not advance past a blocked or awaiting-approval pha
 | 1. Source inventory | Classified source manifest, authority map, sensitive-file flags, conflict list | Source authority approved when conflicts exist |
 | 2. Material decisions | Consolidated decision register and all required questions | No open material decisions before PRD drafting |
 | 3. Project brief and seven controlled docs | Project brief plus PRD, app flow, tech stack, frontend, backend, security, implementation plan | User approval before treating docs as controlled |
-| 4. TDD and alignment | TDD created from controlled docs, significant architecture decisions recorded as ADRs, external drafts reconciled when present, alignment review | TDD approved and no unresolved drift |
+| 4. TDD and alignment | TDD created from controlled docs, external drafts reconciled when present, alignment review | TDD approved and no unresolved drift |
 | 5. Repo documentation | Full template-driven repo docs appropriate to the current stage | `technical-docs-pack` coverage validated |
-| 6. Agent instruction layer | Root/scoped `AGENTS.md`, `CLAUDE.md`, docs index links | Required reading and source hierarchy verified |
-| 7. Handoff | History note, current-state summary, next-chat prompt | Handoff matches actual state |
+| 6. Agent instruction layer | Root/scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, session continuity command | Required reading, source hierarchy, and start gate verified |
+| 7. Handoff | Persistent history note, current-state update, exact next-chat task | Handoff matches actual state and cannot bypass the manifest |
 | 8. Final validation | Pass/fail report, blockers, unavailable checks, git state when applicable | Manifest validator passes |
 
 ## Controlled Status Rules
@@ -92,6 +95,7 @@ Complete phases in order. Do not advance past a blocked or awaiting-approval pha
 - If no external TDD exists, create a source-locked TDD and call it a TDD, not a merged TDD.
 - Absence of a Git repo does not automatically skip repo documentation. Ask whether to create a repo, prepare repo-ready docs outside a repo, or explicitly defer the phase.
 - Do not call coding the next step unless Phase 8 passes and `coding_start` approval is recorded.
+- A new chat, handoff note, or current-state file cannot grant approval. Resume from the first blocked or incomplete phase in the manifest.
 
 ## Required Outputs
 
@@ -103,10 +107,10 @@ For Full Run mode, produce or explicitly defer with user approval:
 - decision register
 - seven controlled source docs
 - TDD
-- ADRs for significant architecture choices, or an explicit note that none were required
 - documentation alignment review
 - repo documentation tree using `technical-docs-pack`
 - root and scoped agent instructions
+- `docs/delivery/current-state.md` and project-local session continuity command
 - handoff history note and paste-ready next-chat prompt
 - final validation report
 

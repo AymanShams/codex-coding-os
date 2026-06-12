@@ -1,0 +1,93 @@
+---
+name: project-session-continuity
+description: Use when starting, resuming, ending, handing off, reviewing, merging, rebasing, or deciding whether to continue a non-trivial coding session. Maintains a live coordination state, checks Git synchronization, enforces deterministic session boundaries, creates persistent handoffs, and prevents a new session from bypassing the project documentation manifest or permission-to-code gate.
+---
+
+# Project Session Continuity
+
+Keep project state inspectable across Codex, Claude, human, and other agent sessions. This skill coordinates delivery state only. It never overrides the project brief, controlled product docs, TDD, architecture decisions, security docs, API/schema contracts, or workflow manifest.
+
+## Install Into A Project
+
+Copy `scripts/session_continuity.py` to `scripts/agent/session_continuity.py`.
+
+Then run:
+
+```text
+python scripts/agent/session_continuity.py init
+python scripts/agent/session_continuity.py validate
+```
+
+Use `py -3` instead of `python` on Windows when needed.
+
+## Start Or Resume
+
+For every new or resumed non-trivial session:
+
+1. Run `python scripts/agent/session_continuity.py start`.
+2. Stop if it reports `BLOCKED` or `INSPECTION_REQUIRED`.
+3. Inspect incoming commits before pulling or building on them.
+4. Read root and scoped agent instructions.
+5. Read `docs/delivery/current-state.md`.
+6. Read the latest handoff referenced by `last_handoff`.
+7. Read the workflow manifest and task-controlling sources.
+8. Confirm the requested task matches `next_action` and `next_slice`.
+
+The start gate must block an implementation next action unless the workflow manifest independently permits coding.
+
+## Continue Current Session Only When
+
+- Work remains the same bounded slice.
+- The agent is responding to review findings for that slice.
+- The agent is validating or fixing defects found during that slice.
+- No hard new-session trigger has fired.
+
+## New-Session Triggers
+
+Run `python scripts/agent/session_continuity.py decide` before crossing into another slice or ending a meaningful slice.
+
+A new session is required when:
+
+- the live state requires it
+- a merge or history rewrite changes the baseline
+- the next delivery area changes
+- the next slice is high risk
+- two or more context-related corrections occurred
+- context is stale
+- work will split across agents
+- incoming remote work changes the baseline
+
+## End And Handoff
+
+When a trigger fires:
+
+1. Stop at a safe checkpoint.
+2. Update `docs/delivery/current-state.md` with actual state and the exact next permitted action.
+3. Run:
+
+   ```text
+   python scripts/agent/session_continuity.py handoff --topic "<topic>" --reason "<trigger>" --next "<exact next slice>" --write
+   ```
+
+4. Replace every generated `[Agent must ...]` placeholder.
+5. Run `python scripts/agent/session_continuity.py validate`.
+6. Run relevant project validation and `git status -sb`.
+7. Give the user the exact next-session task and first command.
+
+## Source And Gate Rules
+
+- `docs/delivery/current-state.md` is a coordination source, not a product or technical authority.
+- Handoff notes record state. They do not approve requirements, architecture, security, or coding.
+- The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
+- A fresh session must continue from the first blocked or incomplete documentation phase when coding is not permitted.
+- Notifications, review markers, or handoffs never grant permission to merge, deploy, or bypass validation.
+
+## Completion Standard
+
+Do not call continuity ready unless:
+
+- current state contains every required field and section
+- latest handoff exists when referenced and contains no generated placeholders
+- workflow manifest path resolves when declared
+- implementation next actions are blocked until the manifest permits coding
+- Git state and checks are reported honestly

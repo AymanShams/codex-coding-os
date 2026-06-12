@@ -36,6 +36,8 @@ Before editing code:
 - Run `git status -sb` if inside a git repo.
 - Identify the exact files likely to change.
 - Search existing code before creating new helpers, types, components, services, or scripts.
+- When `scripts/agent/session_continuity.py` exists, run its `start` command and read `docs/delivery/current-state.md`.
+- When `project-documentation-manifest.json` exists, confirm it permits the requested action. A new chat or handoff cannot bypass it.
 
 During edits:
 
@@ -53,6 +55,7 @@ Before finishing:
 - Run broader checks when the blast radius justifies it.
 - State checks that were not run.
 - Report files changed, why they changed, risks, and remaining work.
+- For a meaningful slice, run the project session decision command when available and create a persistent handoff before crossing into a different slice.
 
 ## Source Of Truth
 
@@ -66,6 +69,8 @@ Use this order:
 6. Older chats or external drafts only as historical context.
 
 If sources conflict, stop and identify the conflict. Do not average conflicting sources.
+
+Current delivery state and handoff notes coordinate work but do not override controlled project or technical sources.
 
 ## Security And Privacy
 
@@ -99,4 +104,3 @@ pnpm build
 ```
 
 If the project uses another stack, inspect `package.json`, `pyproject.toml`, `requirements.txt`, `Cargo.toml`, `go.mod`, or repo docs first.
-

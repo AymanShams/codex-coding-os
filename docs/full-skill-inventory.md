@@ -13,6 +13,7 @@ The machine-readable source of truth for validation is `pack.manifest.json`.
 | `chat-export-capability-miner` | Full portable local skill | Mines prior AI chat exports for reusable skills, plugins, MCPs, tools, and workflow candidates |
 | `ai-coding-discipline` | Full portable local skill | Karpathy-inspired coding discipline, generalized for sensitive data |
 | `new-project-documentation-system` | Full portable local skill | Includes references and AGENTS/CLAUDE/handoff assets |
+| `project-session-continuity` | Full portable local skill | Automated start, resume, current-state, session-boundary, and persistent-handoff gates |
 | `technical-docs-pack` | Full local skill | Includes exact `references/repo-docs-template.md` |
 | `create-prd` | Full local skill | PRD creation |
 | `product-strategy` | Full local skill | Product direction before PRD where needed |

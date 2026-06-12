@@ -17,6 +17,10 @@ try {
   if (-not (Test-Path $ManifestPath)) {
     throw "Install manifest was not written."
   }
+  $PortableManifestPath = Join-Path $CodexHome "coding-os-starter\install-manifest.txt"
+  if (-not ((Get-Content -LiteralPath $PortableManifestPath) -contains "ManifestVersion=2")) {
+    throw "Portable install manifest version was not written."
+  }
 
   $MasterSkill = Join-Path $SkillsRoot "codex-coding-os-master\SKILL.md"
   if (-not (Test-Path $MasterSkill)) {
@@ -31,6 +35,14 @@ try {
 
   $StaleFile = Join-Path $SkillsRoot "ai-coding-discipline\STALE.txt"
   Set-Content -LiteralPath $StaleFile -Value "stale file from previous install" -Encoding UTF8
+  $ObsoleteSkill = Join-Path $SkillsRoot "obsolete-pack-skill"
+  New-Item -ItemType Directory -Force -Path $ObsoleteSkill | Out-Null
+  Set-Content -LiteralPath (Join-Path $ObsoleteSkill "SKILL.md") -Value "obsolete skill from previous package version" -Encoding UTF8
+  $ExistingManifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+  $ExistingSkills = @($ExistingManifest.skills)
+  $ExistingSkills += [pscustomobject]@{ name = "obsolete-pack-skill"; path = $ObsoleteSkill }
+  $ExistingManifest.skills = $ExistingSkills
+  $ExistingManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
 
   & $InstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -Confirm:$false
   if (-not $?) { throw "Reinstall failed." }
@@ -38,12 +50,27 @@ try {
   if (Test-Path $StaleFile) {
     throw "Reinstall left a stale file in an existing skill folder."
   }
+  if (Test-Path $ObsoleteSkill) {
+    throw "Upgrade left a skill recorded by the previous package version."
+  }
+
+  $ManifestOnlySkill = Join-Path $SkillsRoot "manifest-only-skill"
+  New-Item -ItemType Directory -Force -Path $ManifestOnlySkill | Out-Null
+  Set-Content -LiteralPath (Join-Path $ManifestOnlySkill "SKILL.md") -Value "manifest-only uninstall target" -Encoding UTF8
+  $CurrentManifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+  $CurrentSkills = @($CurrentManifest.skills)
+  $CurrentSkills += [pscustomobject]@{ name = "manifest-only-skill"; path = $ManifestOnlySkill }
+  $CurrentManifest.skills = $CurrentSkills
+  $CurrentManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
 
   & $UninstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -Confirm:$false
   if (-not $?) { throw "Uninstall failed." }
 
   if (Test-Path $MasterSkill) {
     throw "Uninstall did not remove installed skills from the custom SkillsRoot."
+  }
+  if (Test-Path $ManifestOnlySkill) {
+    throw "Uninstall did not consume the recorded installed-state manifest."
   }
 
   if (Test-Path (Join-Path $CodexHome "coding-os-starter")) {

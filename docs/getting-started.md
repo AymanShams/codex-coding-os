@@ -56,17 +56,35 @@ grep -q "BEGIN CODEX CODING OS STARTER" "$HOME/.codex/AGENTS.md" && echo "Global
 
 ## What the First Chat Should Produce
 
-Codex should start with project intake and material-decision questions. It should create a workflow manifest before controlled documents, stop when important decisions are unresolved, and wait for explicit approval before coding.
+Codex should start with project intake and consolidated material-decision questions. It should create a workflow manifest before controlled documents, stop when important decisions are unresolved, and wait for explicit approval before coding. It must not jump directly into the seven documents while material decisions remain open.
 
 Expected workflow:
 
 1. Project scope and source inventory.
 2. Consolidated material-decision questions.
-3. Project brief and seven controlled source documents.
+3. Project brief and seven controlled source documents only after material decisions are resolved.
 4. Technical design document and relevant ADRs.
-5. Repo documentation and AGENTS instructions.
-6. Handoff and validation report.
-7. First bounded implementation slice after approval.
+5. Repo documentation, AGENTS instructions, current delivery state, and session-start gate.
+6. Persistent handoff and validation report.
+7. First bounded implementation slice only after manifest and user approval.
+
+## Session Start And Resume
+
+Projects prepared by the full workflow include a live `docs/delivery/current-state.md` file and a project-local session continuity command.
+
+At the start of every new or resumed non-trivial project session, Codex should run:
+
+```text
+python scripts/agent/session_continuity.py start
+```
+
+The command reports Git and coordination state, requires incoming work inspection, and blocks an implementation next action when the project documentation manifest does not permit coding.
+
+## Use A Lighter Workflow For Small Changes
+
+The full project workflow is for new products, unclear repositories, material architecture or product decisions, shared behavior, sensitive data, and other work where a wrong assumption has meaningful cost.
+
+For a small, reversible, already-specified change, use the narrowest matching skill and proportionate validation. The Stage 0 to Stage 6 documentation model remains available under the installed `new-project-documentation-system` skill when a project needs deeper control.
 
 ## Starting from an Existing Repo
 

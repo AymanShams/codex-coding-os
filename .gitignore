@@ -3,3 +3,5 @@
 *.zip
 *.bak
 *.backup-*
+__pycache__/
+*.pyc

@@ -59,6 +59,10 @@ function Sync-ExternalRepo {
   }
   git -C $ClonePath fetch --depth 1 origin $PinnedCommit
   git -C $ClonePath checkout --detach $PinnedCommit
+  $ResolvedCommit = (git -C $ClonePath rev-parse HEAD).Trim()
+  if ($ResolvedCommit -ne $PinnedCommit) {
+    throw "External source '$($Source.id)' resolved to $ResolvedCommit instead of pinned commit $PinnedCommit."
+  }
 }
 
 Require-Command -Name "git"

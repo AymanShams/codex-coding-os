@@ -24,6 +24,10 @@ jobs:
         shell: pwsh
         run: .\tests\install-uninstall-smoke.ps1
 
+      - name: Smoke test workflow gates
+        shell: pwsh
+        run: python .\tests\workflow-gates-smoke.py
+
       - name: Build release package
         shell: pwsh
         run: .\scripts\package.ps1 -OutputPath "$env:RUNNER_TEMP\codex-coding-os-starter.zip"
@@ -58,3 +62,7 @@ jobs:
       - name: Smoke test bash install and uninstall
         shell: bash
         run: bash ./tests/install-uninstall-smoke.sh
+
+      - name: Smoke test workflow gates
+        shell: bash
+        run: python ./tests/workflow-gates-smoke.py

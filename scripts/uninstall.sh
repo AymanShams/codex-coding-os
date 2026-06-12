@@ -46,7 +46,11 @@ done
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_skills="$repo_root/.agents/skills"
 support_root="$CODEX_HOME/coding-os-starter"
+manifest_txt="$support_root/install-manifest.txt"
 timestamp="$(date +%Y%m%d-%H%M%S)"
+manifest_skills_root=""
+manifest_agents_path=""
+manifest_skill_paths=()
 
 run() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -90,7 +94,35 @@ remove_if_present() {
   fi
 }
 
-if [[ -d "$source_skills" ]]; then
+if [[ -f "$manifest_txt" ]]; then
+  while IFS= read -r line; do
+    case "$line" in
+      SkillsRoot=*)
+        manifest_skills_root="${line#SkillsRoot=}"
+        ;;
+      GlobalAgentsPath=*)
+        manifest_agents_path="${line#GlobalAgentsPath=}"
+        ;;
+      SkillPath=*)
+        manifest_skill_paths+=("${line#SkillPath=}")
+        ;;
+    esac
+  done < "$manifest_txt"
+fi
+
+if [[ -n "$manifest_skills_root" ]]; then
+  if [[ "$SKILLS_ROOT" != "$manifest_skills_root" ]]; then
+    echo "Using SkillsRoot recorded by the install manifest: $manifest_skills_root"
+  fi
+  SKILLS_ROOT="$manifest_skills_root"
+fi
+
+if [[ "${#manifest_skill_paths[@]}" -gt 0 ]]; then
+  for target in "${manifest_skill_paths[@]}"; do
+    ensure_under_root "$target" "$SKILLS_ROOT"
+    remove_if_present "$target" "skill"
+  done
+elif [[ -d "$source_skills" ]]; then
   for skill_dir in "$source_skills"/*; do
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
@@ -100,7 +132,7 @@ if [[ -d "$source_skills" ]]; then
   done
 fi
 
-global_agents="$CODEX_HOME/AGENTS.md"
+global_agents="${manifest_agents_path:-$CODEX_HOME/AGENTS.md}"
 if [[ -e "$global_agents" ]] && grep -q "# BEGIN CODEX CODING OS STARTER" "$global_agents"; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "DRY RUN: would remove global AGENTS block from $global_agents"

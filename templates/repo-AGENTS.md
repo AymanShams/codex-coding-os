@@ -19,6 +19,8 @@ Read these files before making product or architecture changes:
 If these files conflict, ask for clarification or state the conflict before editing.
 
 ## Working Rules
+- At the start of a new or resumed non-trivial session, run `python scripts/agent/session_continuity.py start` when available.
+- Read `docs/delivery/current-state.md`, its latest handoff, and `project-documentation-manifest.json` before editing.
 - Read relevant files before writing code.
 - Make the smallest correct change.
 - Do not rewrite unrelated code.
@@ -27,6 +29,8 @@ If these files conflict, ask for clarification or state the conflict before edit
 - Do not invent product behavior that is absent from the docs.
 - Update docs when code changes the intended behavior.
 - Run available validation before final response.
+- Do not start implementation unless the workflow manifest permits coding.
+- Treat current state and handoffs as coordination records, not product or technical authority.
 
 ## Implementation Flow
 1. Restate the requested change in one sentence.
@@ -53,3 +57,5 @@ Do not say a task is done unless:
 - Relevant tests or checks were run.
 - User-facing behavior is described.
 - Any remaining risk is stated.
+
+Before crossing into a different meaningful slice, run `python scripts/agent/session_continuity.py decide` when available and prepare the required persistent handoff.

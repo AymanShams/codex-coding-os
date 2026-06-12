@@ -13,6 +13,7 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 - Keep the workflow clear for non-technical users without weakening engineering discipline.
 - Make the repo suitable for public release after license and source review.
 - Favor source-faithful docs over generic AI output.
+- Preserve exact next action and workflow gates across new sessions.
 
 ## Architecture
 
@@ -25,6 +26,7 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 | Templates | `templates/*.md` | Gives the user and Codex controlled output shapes, including the full repo documentation pack template |
 | Third-party references | `THIRD_PARTY_SKILLS.md`, `patches/` | Links external skills and stores local overlay notes |
 | Validation | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1` | Checks manifest inventory, skill frontmatter, release exclusions, forbidden files, and secret patterns |
+| Session continuity | `.agents/skills/project-session-continuity/` | Provides generic current-state, session-start, boundary-decision, and persistent-handoff controls |
 | Command policy templates | `.codex/rules/` | Optional Codex command approval rules for destructive commands, installs, deployments, migrations, and secret exposure |
 | CI | `.github/workflows/validate.yml` | Runs validation and install/uninstall smoke tests on Windows, Ubuntu, and macOS, then builds the package on Windows |
 
@@ -37,9 +39,10 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 5. Create the controlled docs.
 6. Create the technical design document.
 7. Create repo instructions.
-8. Start one bounded implementation slice.
-9. Use the review, security, design, RCA, and validation skills when the task calls for them.
-10. Validate before completion.
+8. Add current state and session continuity.
+9. Start one bounded implementation slice.
+10. Use the review, security, design, RCA, and validation skills when the task calls for them.
+11. Validate before completion.
 
 ## Skill boundary
 
@@ -54,6 +57,8 @@ This repo is limited to reusable workflow assets. Project code, generated docume
 ## Maintenance rule
 
 Future improvements should be written as portable rules or templates before being added here. Keep the reusable lesson, not the one-off example.
+
+Add a first-party skill only when it closes a demonstrated capability gap, prevents a recurring failure mode, or materially improves verification.
 
 When a file, skill, or support directory is added or removed, update `pack.manifest.json` first, then update reader-facing docs.
 

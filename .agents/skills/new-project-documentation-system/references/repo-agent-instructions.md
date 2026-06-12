@@ -16,6 +16,8 @@ Add these when the matching directories exist:
 - `packages/AGENTS.md`
 - `supabase/AGENTS.md`
 - `docs/history/<date>-project-setup-and-agent-context.md`
+- `docs/delivery/current-state.md`
+- `scripts/agent/session_continuity.py`
 
 Use the files in `assets/` as starting templates, then tailor them to the project.
 
@@ -31,6 +33,7 @@ Root instructions must include:
 - migration and environment-file rules
 - validation commands
 - how to update docs when code changes
+- how every new session runs the session-start gate and confirms the exact next permitted action
 
 ## Handoff Note Content
 
@@ -45,6 +48,7 @@ The handoff note must include:
 - validation results
 - known blockers
 - paste-ready prompt for the next chat
+- current-state path, workflow-manifest path, and first session-start command
 
 ## New Chat Prompt
 
@@ -57,13 +61,15 @@ Repo path:
 <absolute repo path>
 
 Before coding:
-1. Read AGENTS.md and CLAUDE.md.
-2. Read docs/index.md.
-3. Read docs/history/<handoff file>.
-4. Read the controlled TDD.
-5. Read project-documentation-manifest.json.
-6. Run the workflow manifest validator.
-7. Run git status -sb and confirm whether the local repo is synced with origin/main.
+1. Run python scripts/agent/session_continuity.py start.
+2. Read AGENTS.md and CLAUDE.md.
+3. Read docs/delivery/current-state.md.
+4. Read docs/index.md.
+5. Read docs/history/<handoff file>.
+6. Read the controlled TDD.
+7. Read project-documentation-manifest.json.
+8. Run the workflow manifest validator.
+9. Run git status -sb and confirm whether the local repo is synced with origin/main.
 
 If the workflow manifest is not ready for coding, continue from its first blocked or incomplete phase. Propose the first implementation slice only when the manifest permits coding.
 ```

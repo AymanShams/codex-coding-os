@@ -16,6 +16,18 @@ function Resolve-InstallPath {
   $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Expanded)
 }
 
+function Test-IsUnderRoot {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Root
+  )
+  $ResolvedPath = Resolve-InstallPath $Path
+  $ResolvedRoot = Resolve-InstallPath $Root
+  $RootWithSlash = $ResolvedRoot.TrimEnd("\", "/") + [System.IO.Path]::DirectorySeparatorChar
+  $ResolvedPath.Equals($ResolvedRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $ResolvedPath.StartsWith($RootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 function Test-CommandAvailable {
   param([Parameter(Mandatory = $true)][string]$Name)
   [bool](Get-Command $Name -ErrorAction SilentlyContinue)
@@ -108,6 +120,14 @@ $CodexHome = Resolve-InstallPath $CodexHome
 $ManifestDir = Join-Path $CodexHome "coding-os-starter"
 $ManifestJsonPath = Join-Path $ManifestDir "install-manifest.json"
 $ManifestTextPath = Join-Path $ManifestDir "install-manifest.txt"
+$PreviousManifest = $null
+if (Test-Path $ManifestJsonPath) {
+  try {
+    $PreviousManifest = Get-Content -Raw -LiteralPath $ManifestJsonPath | ConvertFrom-Json
+  } catch {
+    Write-Warning "Previous JSON install manifest could not be read. Obsolete skill cleanup will be skipped."
+  }
+}
 
 if (-not (Test-Path $SourceSkills)) {
   throw "Cannot find source skills folder: $SourceSkills"
@@ -134,6 +154,37 @@ Get-ChildItem -Path $SourceSkills -Directory | Sort-Object Name | ForEach-Object
       path = $Target
     }
   }
+}
+
+if ($PreviousManifest -and $PreviousManifest.skills -and
+    [string]$PreviousManifest.skills_root -and
+    (Resolve-InstallPath ([string]$PreviousManifest.skills_root)) -eq $SkillsRoot) {
+  $CurrentTargets = @($Installed | ForEach-Object { Resolve-InstallPath ([string]$_.path) })
+  foreach ($PreviousSkill in $PreviousManifest.skills) {
+    $PreviousPath = [string]$PreviousSkill.path
+    if (-not $PreviousPath) {
+      continue
+    }
+    $ResolvedPreviousPath = Resolve-InstallPath $PreviousPath
+    if ($CurrentTargets -notcontains $ResolvedPreviousPath) {
+      if (-not (Test-IsUnderRoot -Path $ResolvedPreviousPath -Root $SkillsRoot)) {
+        throw "Refusing to manage obsolete skill outside SkillsRoot. Target=$ResolvedPreviousPath SkillsRoot=$SkillsRoot"
+      }
+      if (Test-Path $ResolvedPreviousPath) {
+        $Backup = "$ResolvedPreviousPath.backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        if ($DryRun) {
+          Write-Output "DRY RUN: would back up obsolete pack-managed skill to $Backup"
+          Write-Output "DRY RUN: would remove obsolete pack-managed skill at $ResolvedPreviousPath"
+        } elseif ($PSCmdlet.ShouldProcess($ResolvedPreviousPath, "Remove obsolete pack-managed skill")) {
+          Copy-Item -LiteralPath $ResolvedPreviousPath -Destination $Backup -Recurse -Force
+          Remove-Item -LiteralPath $ResolvedPreviousPath -Recurse -Force
+          Write-Output "Removed obsolete pack-managed skill: $ResolvedPreviousPath"
+        }
+      }
+    }
+  }
+} elseif ($PreviousManifest -and $PreviousManifest.skills) {
+  Write-Output "Previous install used a different SkillsRoot. Obsolete skills there were left unchanged."
 }
 
 $SupportItems = if ($PackManifest -and $PackManifest.support_items) {
@@ -225,7 +276,9 @@ if (-not $DryRun) {
   $Manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestJsonPath -Encoding UTF8
 
   $Lines = @()
-  $Lines += "Codex Coding OS Starter installed at $($Manifest.installed_at)"
+  $Lines += "ManifestVersion=2"
+  $Lines += "Package=codex-coding-os-starter"
+  $Lines += "InstalledAt=$($Manifest.installed_at)"
   $Lines += "RepoRoot=$RepoRoot"
   $Lines += "SkillsRoot=$SkillsRoot"
   $Lines += "CodexHome=$CodexHome"
@@ -234,8 +287,7 @@ if (-not $DryRun) {
   $Lines += "GlobalAgentsPath=$GlobalAgents"
   $Lines += "InstalledExternalSkills=$InstallExternalSkills"
   $Lines += "AllowedUnpinnedExternalSkills=$AllowUnpinnedExternalSkills"
-  $Lines += "Skills:"
-  $Lines += ($Installed | ForEach-Object { $_.path })
+  $Lines += ($Installed | ForEach-Object { "SkillPath=$($_.path)" })
   Set-Content -LiteralPath $ManifestTextPath -Value $Lines -Encoding UTF8
 } else {
   Write-Output "DRY RUN: would write install manifests:"

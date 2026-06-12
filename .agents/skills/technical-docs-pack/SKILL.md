@@ -1,6 +1,6 @@
 ---
 name: technical-docs-pack
-description: Use when the user asks to create, upgrade, structure, fill, audit, or maintain a complete technical documentation pack for a software repo, app, platform, module, or engineering handoff. Use for repo documentation systems covering README, product overview, requirements, non-functional requirements, architecture, data, API, frontend, backend, integrations, security, reliability, runbooks, delivery, testing, performance, edge cases, ADRs, CODEOWNERS, PR documentation checks, source-of-truth rules, and documentation rot prevention. Use when the goal is developer onboarding, AI-navigable repo context, production handoff, operational readiness, or "make sure a new developer can continue building." Do not use for a standalone PRD only, product strategy only, customer-facing help docs only, one routine SOP only, or code architecture refactoring without documentation output. If the primary task is a PRD, use create-prd. If the primary task is designing a broad artifact library or governance system beyond a software repo, use artifact-system-designer. If the primary task is validating readiness of existing documents, use artifact-validation-workflow.
+description: Use when the user asks to create, upgrade, structure, fill, audit, or maintain a complete technical documentation pack for a software repo, app, platform, module, or engineering handoff. Use for repo documentation systems covering README, product overview, requirements, non-functional requirements, architecture, data, API, frontend, backend, integrations, security, reliability, runbooks, delivery, testing, performance, edge cases, ADRs, PR documentation checks, source-of-truth rules, and documentation rot prevention. Use when the goal is developer onboarding, AI-navigable repo context, production handoff, operational readiness, or "make sure a new developer can continue building." Do not use for a standalone PRD only, product strategy only, customer-facing help docs only, one routine SOP only, or code architecture refactoring without documentation output. If the primary task is a PRD, use create-prd. If the primary task is designing a broad artifact library or governance system beyond a software repo, use artifact-system-designer. If the primary task is validating readiness of existing documents, use artifact-validation-workflow.
 ---
 
 # Technical Docs Pack
@@ -65,7 +65,7 @@ If enough context exists, produce Version 1 with assumptions instead of blocking
 4. Draft the requested files or templates.
 5. Add governance:
    - Definition of Done for PRs.
-   - CODEOWNERS or owner mapping.
+   - owner mapping where needed.
    - Review cadence.
    - CI checks when practical.
    - Drift metrics.

@@ -4,6 +4,8 @@ This file mirrors the repository operating rules for assistants that read `CLAUD
 
 ## Start Here
 - Read `AGENTS.md`.
+- Run `python scripts/agent/session_continuity.py start` when available.
+- Read `docs/delivery/current-state.md`, its latest handoff, and `project-documentation-manifest.json`.
 - Read the source docs in `docs/`.
 - Follow the same validation and security rules as Codex.
 
@@ -15,10 +17,10 @@ The controlled docs in `docs/` override chat memory and old assumptions.
 - Avoid broad rewrites.
 - Never commit real secrets.
 - Ask when product behavior conflicts across docs.
+- Do not let current state or a handoff override controlled sources or permission-to-code gates.
 
 ## Current Status
 {{short_status_summary}}
 
 ## Next Best Task
 {{next_task}}
-

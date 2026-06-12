@@ -6,6 +6,8 @@
   "required_formats": [],
   "code_allowed": false,
   "next_action": "resolve_scope",
+  "coordination_state_path": "docs/delivery/current-state.md",
+  "session_continuity_command": "python scripts/agent/session_continuity.py start",
   "open_material_decisions": [],
   "unresolved_source_conflicts": [],
   "approvals": {

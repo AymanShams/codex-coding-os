@@ -11,13 +11,14 @@ Use these gates before reporting a new project documentation setup as complete.
 5. Approval state: material decisions, controlled docs, TDD, and coding-start approvals are recorded when required.
 6. Stage fit: Stage 0 to Stage 3 are filled when sources exist, and Stage 4 to Stage 6 are not falsely completed before evidence exists.
 7. Drift: high-risk decisions match across project brief, PRD, app flow, tech stack, frontend, backend, security, implementation plan, TDD, and repo docs.
-8. Generic filler: no `TODO`, `TBD`, `starter draft`, placeholder brackets, or vague `as needed` language in filled docs.
+8. Generic filler: run `scripts/validate_filled_artifacts.py` against filled docs. Blank source templates are excluded from this check.
 9. Name hygiene: old project names are removed from file names, Markdown, YAML, JSON, env examples, README files, and generated DOCX internals when applicable.
 10. Secret hygiene: no obvious credentials, generated passwords, tokens, or `.env` values are staged.
 11. PHI hygiene: no protected health information, pilot member records, or private medical files are staged for Git.
-12. Repo hygiene: `.gitignore`, PR template, CODEOWNERS or owner mapping, and governance checks exist where practical.
-13. Agent context: root and scoped `AGENTS.md`, `CLAUDE.md`, docs index links, and handoff note exist.
+12. Repo hygiene: `.gitignore`, review workflow, ownership mapping where needed, and governance checks exist where practical.
+13. Agent context: root and scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, session continuity command, and handoff note exist.
 14. Git state: run and report `git status -sb` when a repo exists.
+15. Session gate: a new session cannot reach implementation unless the workflow manifest permits coding.
 
 ## Contradiction Patterns
 

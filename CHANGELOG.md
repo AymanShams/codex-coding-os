@@ -2,6 +2,24 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [0.4.0] - 2026-06-13
+
+### Added
+
+- Generic automated project session continuity with live current state, deterministic boundary decisions, and persistent handoffs.
+- Filled-artifact placeholder validation inside the new-project documentation workflow.
+- Internal Markdown link and declared-path validation.
+- Concise philosophy, risk-tiered review doctrine, fresh-context review template, and first-party skill quality standard.
+
+### Changed
+
+- Made the new-project workflow block controlled-document drafting while material decisions remain unresolved.
+- Made later documentation phases fail closed when an earlier phase is incomplete.
+- Made Bash install, upgrade, and uninstall consume a portable installed-state manifest.
+- Added obsolete pack-managed skill cleanup and upgrade coverage to both installer families.
+- Clarified that Git commit pinning is the enforced integrity control for pinned external Git sources.
+- Added stage-bounded workflow guidance and a lighter path for small, reversible changes.
+
 ## [0.3.0] - 2026-06-11
 
 ### Added

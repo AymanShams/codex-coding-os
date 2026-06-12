@@ -22,7 +22,7 @@ The software docs system should separate:
 
 ## Governance Requirements
 
-- Add `CODEOWNERS` or equivalent owner mapping for documentation areas.
+- Add explicit owner mapping for documentation areas where needed.
 - Add a PR Definition of Done that requires doc updates when API, database, config, behavior, security controls, or architecture decisions change.
 - Review documentation drift weekly or per release.
 - Review operational truth monthly, especially alerts, runbooks, and restore proof.

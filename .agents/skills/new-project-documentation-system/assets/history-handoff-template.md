@@ -6,6 +6,9 @@
 - Repo path:
 - Source documentation path:
 - Current status:
+- Current-state path:
+- Workflow-manifest path:
+- Exact next permitted action:
 
 ## Source Of Truth
 
@@ -49,13 +52,15 @@ Repo path:
 <absolute repo path>
 
 Before coding:
-1. Read AGENTS.md and CLAUDE.md.
-2. Read docs/index.md.
-3. Read docs/history/<handoff file>.
-4. Read the controlled TDD.
-5. Read project-documentation-manifest.json.
-6. Run the workflow manifest validator.
-7. Run git status -sb and confirm whether the local repo is synced with origin/main.
+1. Run python scripts/agent/session_continuity.py start.
+2. Read AGENTS.md and CLAUDE.md.
+3. Read docs/delivery/current-state.md.
+4. Read docs/index.md.
+5. Read docs/history/<handoff file>.
+6. Read the controlled TDD.
+7. Read project-documentation-manifest.json.
+8. Run the workflow manifest validator.
+9. Run git status -sb and confirm whether the local repo is synced with origin/main.
 
 If the workflow manifest is not ready for coding, continue from its first blocked or incomplete phase. Propose the first implementation slice only when the manifest permits coding.
 ```

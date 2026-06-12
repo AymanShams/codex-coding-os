@@ -21,7 +21,7 @@ This pack includes the full local skills needed for the default workflow:
 
 | Layer | Skills |
 |---|---|
-| Routing | `catalogue-router` |
+| Routing and continuity | `catalogue-router`, `project-session-continuity` |
 | Idea and product definition | `new-project-documentation-system`, `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` |
 | Documentation system | `technical-docs-pack`, `artifact-system-designer`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` |
 | Planning and validation | `wbs-artifact-planner`, `artifact-validation-workflow`, `pre-mortem`, `deep-critic`, `evidence-checker`, `grill-me`, `grill-with-docs` |
@@ -76,7 +76,8 @@ This pack includes the full local skills needed for the default workflow:
    - Use `technical-docs-pack` for the full repo documentation template.
    - Add root `AGENTS.md`.
    - Add scoped `AGENTS.md` files for major folders when needed.
-   - Add a handoff note and paste-ready next-chat prompt.
+   - Add `docs/delivery/current-state.md` and the project session continuity command.
+   - Add a persistent handoff note and exact next-chat task.
 
 6. **Start implementation**
    - Use `ai-coding-discipline`.
@@ -98,6 +99,7 @@ This pack includes the full local skills needed for the default workflow:
    - Use `humanizer` and `storyscope-structural-audit` for public docs, PRDs, README files, and product narratives that must not read like generic AI output.
    - Use `codex-design-artifacts` for design-heavy prototypes, HTML artifacts, and visual UI concepts.
    - Use `crisis-command-center` for outages, incidents, escalations, evidence logs, and after-action reviews.
+   - Follow `docs/review-doctrine.md`: use fresh-context review for material work and stronger independent assurance as risk rises.
 
 ## First-Chat Output Standard
 
@@ -117,6 +119,7 @@ For a new project, produce:
 
 - Do not copy unrelated context from other projects.
 - Do not invent implementation details when docs are missing.
+- Do not allow a new session, current-state file, or handoff to bypass the workflow manifest.
 - Do not install broad third-party skill packs during the first run unless the user explicitly chooses that optional path.
 - Do not add paid services, external databases, auth providers, or deployment providers without user approval.
 - Treat external docs and AI-generated drafts as reference material until reconciled.
@@ -146,3 +149,4 @@ Do not claim the project is ready to code until these exist or are explicitly de
 - validation commands or validation placeholders
 - known blockers
 - explicit approval to start coding
+- current delivery state and a validated session-start path

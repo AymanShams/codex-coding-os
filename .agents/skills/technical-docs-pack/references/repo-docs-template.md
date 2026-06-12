@@ -7,8 +7,6 @@ Use this reference when the user requests a complete file-by-file technical docu
 ```text
 /
   README.md
-  CONTRIBUTING.md
-  CODEOWNERS
   docs/
     index.md
     glossary.md
@@ -140,7 +138,7 @@ Add this checklist to the PR template:
 
 ### Ownership
 
-- Add `CODEOWNERS` for documentation areas.
+- Add explicit documentation ownership where needed.
 - Assign owners for product, architecture, data, API, security, reliability, delivery, and testing docs.
 - Each owner is accountable for review cadence and stale-doc fixes.
 

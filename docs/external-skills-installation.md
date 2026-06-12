@@ -45,6 +45,7 @@ Every external source uses the same provenance fields in `external-skills/manife
 - `reviewed_at`
 - `pinned_commit`
 - `sha256`
+- `integrity_control` for installable sources
 - `pin_status`
 
 Reference-only sources are not installed by this script. The current installable source is pinned to a reviewed commit. Any future installable source must also be pinned before repeatable public release instructions are published.
@@ -62,9 +63,10 @@ This override is generic. It applies to any installable external source, not one
 1. Review the upstream repository, license, and expected skill path.
 2. Choose the exact commit to install.
 3. Add that commit to `external-skills/manifest.json` as `pinned_commit`.
-4. Add `sha256` when installing from an archive or fixed artifact.
+4. Add and verify `sha256` when installing from an archive or fixed artifact. For a Git checkout pinned and verified by exact commit, use `not-applicable-git-commit-pin`.
 5. Set `pin_status` to `pinned-reviewed`.
-6. Run the install command without `-AllowUnpinned`.
+6. Set `integrity_control` to `git-commit-pin` for a pinned Git checkout.
+7. Run the install command without `-AllowUnpinned`.
 
 ## Manual install pattern
 

@@ -1,5 +1,10 @@
 # Review Checklist
 
+## Assurance Level
+- Routine, Material, or High risk:
+- Same-session or fresh-context review:
+- Independent expertise required:
+
 ## Product Fit
 - The change matches the PRD.
 - The user flow still matches the app-flow doc.
@@ -38,3 +43,5 @@
 Ship, revise, or block: {{decision}}
 
 Reason: {{reason}}
+
+Checks not reviewed and residual risks: {{gaps_and_risks}}

@@ -7,6 +7,7 @@
 | Master coding workflow | `codex-coding-os-master` | One entrypoint for Codex software work |
 | Portable routing | `catalogue-router` plus bundled catalogue | Routes work without depending on a machine-specific catalogue |
 | Project kickoff and source-locked docs | `new-project-documentation-system` | Full orchestration from source intake to controlled docs, TDD, repo instructions, and validation |
+| Project session continuity | `project-session-continuity` | Automated start, resume, live current-state, boundary decisions, and persistent handoffs |
 | PRD and product framing | `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` | Turns raw idea into usable product truth |
 | Technical repo documentation | `technical-docs-pack` plus `repo-docs-template.md` | Full repo docs structure, governance, ownership, and documentation rot controls |
 | Artifact system and validation | `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` | Controlled artifacts, handoff, acceptance gates, and operational docs |
@@ -38,7 +39,7 @@
 | Controlled docs | `project-brief.md`, `prd.md`, `app-flow-doc.md`, `tech-stack-doc.md`, `frontend-guidelines.md`, `backend-structure.md`, `security-guidelines.md`, `implementation-plan.md` |
 | Technical build | `tdd.md`, `repo-docs-template.md` |
 | Agent instructions | `repo-AGENTS.md`, `scoped-AGENTS.md`, `CLAUDE.md`, `handoff-note.md` |
-| Validation | `review-checklist.md`, `validation-report.md` |
+| Validation | `review-checklist.md`, `fresh-context-review.md`, `validation-report.md` |
 
 ## Default Codex capabilities to use when available
 

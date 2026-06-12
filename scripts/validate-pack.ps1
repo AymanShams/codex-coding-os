@@ -52,6 +52,21 @@ foreach ($Path in $Manifest.required_files) {
   }
 }
 
+foreach ($Property in $Manifest.source_of_truth.PSObject.Properties) {
+  $SourcePath = ([string]$Property.Value).Split("#")[0]
+  $Full = Join-Path $RepoRoot (Convert-PackPath $SourcePath)
+  if (-not (Test-Path $Full)) {
+    $Errors += "Missing source-of-truth path '$($Property.Name)': $SourcePath"
+  }
+}
+
+foreach ($Path in $Manifest.support_items) {
+  $Full = Join-Path $RepoRoot (Convert-PackPath ([string]$Path))
+  if (-not (Test-Path $Full)) {
+    $Errors += "Missing support item: $Path"
+  }
+}
+
 $SkillRoot = Join-Path $RepoRoot ".agents\skills"
 if (-not (Test-Path $SkillRoot)) {
   $Errors += "Missing bundled skill root: .agents/skills"
@@ -102,6 +117,22 @@ if (Test-Path $ExternalManifestPath) {
         if ([string]$Source.pinned_commit -notmatch '^[0-9a-fA-F]{40}$') {
           $Errors += "Pinned installable external source must use a full 40-character commit SHA: $($Source.id)"
         }
+        if ([string]$Source.integrity_control -ne "git-commit-pin") {
+          $Errors += "Pinned Git installable source must set integrity_control=git-commit-pin: $($Source.id)"
+        }
+        if ([string]$Source.sha256 -ne "not-applicable-git-commit-pin" -and
+            [string]$Source.sha256 -notmatch '^[0-9a-fA-F]{64}$') {
+          $Errors += "Pinned Git installable source sha256 must be a verified archive hash or not-applicable-git-commit-pin: $($Source.id)"
+        }
+      }
+      foreach ($OverlayPath in @($Source.overlay_paths)) {
+        if ([string]::IsNullOrWhiteSpace([string]$OverlayPath)) {
+          continue
+        }
+        $FullOverlayPath = Join-Path $RepoRoot (Convert-PackPath ([string]$OverlayPath))
+        if (-not (Test-Path $FullOverlayPath)) {
+          $Errors += "External source overlay path does not exist: $OverlayPath"
+        }
       }
       if ($Source.treatment -eq "reference-only" -and $Source.pin_status -ne "reference-only-not-installed") {
         $Errors += "Reference-only external source must set pin_status=reference-only-not-installed: $($Source.id)"
@@ -109,6 +140,18 @@ if (Test-Path $ExternalManifestPath) {
     }
   } catch {
     $Errors += "external-skills/manifest.json is not valid JSON: $($_.Exception.Message)"
+  }
+}
+
+if ($Errors.Count -eq 0) {
+  $LinkScript = Join-Path $RepoRoot "scripts\validate-links.ps1"
+  if (Test-Path $LinkScript) {
+    & $LinkScript -RepoRoot $RepoRoot
+    if (-not $?) {
+      $Errors += "Internal link validation failed."
+    }
+  } else {
+    $Errors += "Missing internal link validation script."
   }
 }
 
