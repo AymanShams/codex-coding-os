@@ -10,7 +10,7 @@ on:
 
 jobs:
   validate-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
 
     steps:
       - name: Checkout
@@ -33,7 +33,7 @@ jobs:
         run: .\scripts\package.ps1 -OutputPath "$env:RUNNER_TEMP\codex-coding-os-starter.zip"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codex-coding-os-starter
           path: ${{ runner.temp }}/codex-coding-os-starter.zip
