@@ -19,7 +19,7 @@ All notable package changes are recorded here. The authoritative package release
 - Added obsolete pack-managed skill cleanup and upgrade coverage to both installer families.
 - Clarified that Git commit pinning is the enforced integrity control for pinned external Git sources.
 - Added stage-bounded workflow guidance and a lighter path for small, reversible changes.
-- Updated GitHub Actions to current Node.js 24-based action majors and pinned the Windows runner to a stable GA image.
+- Updated GitHub Actions to current Node.js 24-based action majors and pinned the Windows runner to an explicit GA image.
 
 ## [0.3.0] - 2026-06-11
 
