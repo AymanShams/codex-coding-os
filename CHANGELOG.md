@@ -2,6 +2,13 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [0.5.1] - 2026-06-13
+
+### Changed
+
+- Added explicit instruction-context-cost, progressive-disclosure, instruction-budget, and deterministic formatter/linter guidance to the first-party skill standard.
+- Slimmed `codex-coding-os-master` into a routing skill that defers detailed workflow ownership to narrower skills.
+
 ## [0.5.0] - 2026-06-13
 
 ### Changed

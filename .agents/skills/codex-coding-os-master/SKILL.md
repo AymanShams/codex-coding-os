@@ -32,88 +32,31 @@ This pack includes the full local skills needed for the default workflow:
 | Platform and codebase tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli`, `chat-export-capability-miner`, `external-skill-overlay-pack` |
 | Document intake | `doc`, `pdf` |
 
-## Default Workflow
+## Routing Workflow
 
-1. **Route and classify**
-   - Use `catalogue-router`.
-   - web app
-   - mobile app
-   - API or backend service
-   - automation or internal tool
-   - data tool
-   - mixed product
+1. **Route first**
+   - Use `catalogue-router` to choose the narrowest owner skill.
+   - Do not stack skills unless risk or scope justifies it.
 
-2. **Run first intake**
-   - Use `new-project-documentation-system`.
-   - Use `create-prd` for the PRD layer.
-   - Use `product-strategy` and `customer-journey-map` when the idea is vague or the target user is weak.
-   - Use `working-backwards` when the user needs a serious PR/FAQ or decision memo before build.
-   - Create the workflow manifest before drafting.
-   - Ask all unresolved material questions that affect product scope, users, roles, workflows, data, security, integrations, deployment, costs, repositories, external services, or first release.
-   - Stop before the PRD when material decisions or source conflicts remain. Use assumptions only for low-risk, reversible presentation choices.
+2. **New idea or unclear product**
+   - Hand off to `new-project-documentation-system`.
+   - That skill owns the workflow manifest, material-decision gate, seven controlled docs, TDD alignment, repo instruction layer, current state, and handoff prompt.
+   - Do not duplicate those procedures here.
 
-3. **Create controlled source docs**
-   - Use `new-project-documentation-system`.
-   - Produce the seven-doc pack before repo docs:
-   - PRD
-   - app-flow-doc
-   - tech-stack-doc
-   - frontend-guidelines
-   - backend-structure
-   - security-guidelines
-   - implementation-plan
+3. **Existing repo implementation**
+   - Hand off to `ai-coding-discipline`.
+   - Add specialist skills only for the actual risk: frontend, security, architecture, QA, platform, quantitative logic, incident response, or documentation.
+   - Coding starts only when the controlling project docs or workflow manifest permit it.
 
-4. **Create the TDD build plan**
-   - Use `wbs-artifact-planner` for work breakdown and sequencing.
-   - Use a plain step-by-step technical design document.
-   - Include file and folder list, pages, buttons, data model, API routes, tests, env placeholders, and implementation sequence.
-   - Use `artifact-validation-workflow` to validate that the plan matches the controlled docs.
-   - Record significant architecture choices as ADRs using `templates/adr.md`.
-   - Do not treat the TDD as approved until the controlled docs are approved and the alignment gate passes.
+4. **Review, validation, or rescue**
+   - Use `artifact-validation-workflow` for controlled docs and handoffs.
+   - Use `deep-critic` or `evidence-checker` only when the task is a formal critique or source-quality check.
+   - Use `security-best-practices`, `security-threat-model`, or `defensive-security-checklist` for security scope.
+   - Use `project-session-continuity` for session start, resume, boundary decisions, and paste-ready handoff prompts.
 
-5. **Create repo instruction layer**
-   - Use `new-project-documentation-system` assets.
-   - Use `technical-docs-pack` for the full repo documentation template.
-   - Add root `AGENTS.md`.
-   - Add scoped `AGENTS.md` files for major folders when needed.
-   - Add `docs/delivery/current-state.md` and the project session continuity command.
-   - Add a persistent handoff note and exact next-chat task.
-
-6. **Start implementation**
-   - Use `ai-coding-discipline`.
-   - Start only when the new-project workflow manifest permits coding.
-   - Pick one vertical slice.
-   - Read before writing.
-   - Make the smallest correct change.
-   - Verify before completion.
-
-7. **Review and validate**
-   - Use `deep-critic` for reasoning and evidence quality.
-   - Use `artifact-validation-workflow` for docs and handoff artifacts.
-   - Use `security-best-practices` and `security-threat-model` when auth, private data, payments, exports, admin, or public endpoints exist.
-   - Use `defensive-security-checklist` for security hardening checklists, supply-chain checks, MCP/hook/agent safety reviews, and control gap planning.
-   - Use `playwright` for frontend UI checks when a local or remote app can run.
-   - Use `improve-codebase-architecture` when the implementation exposes structural problems.
-   - Use `quality-improvement-problem-solving` when defects or incidents recur.
-   - Use `quant-review` when calculations, capacity, costs, or KPI logic affect implementation.
-   - Use `humanizer` and `storyscope-structural-audit` for public docs, PRDs, README files, and product narratives that must not read like generic AI output.
-   - Use `codex-design-artifacts` for design-heavy prototypes, HTML artifacts, and visual UI concepts.
-   - Use `crisis-command-center` for outages, incidents, escalations, evidence logs, and after-action reviews.
-   - Follow `docs/review-doctrine.md`: use fresh-context review for material work and stronger independent assurance as risk rises.
-
-## First-Chat Output Standard
-
-For a new project, produce:
-
-- short assumptions list
-- consolidated material-decision questions before drafting
-- workflow manifest and phase status
-- project brief
-- seven-doc plan
-- suggested repo structure
-- first implementation slice recommendation only after documentation approval
-- validation plan
-- risks and decisions that still need the user
+5. **Reference-only or external skill material**
+   - Use `external-skill-overlay-pack` and `THIRD_PARTY_SKILLS.md`.
+   - Keep upstream files unchanged and put local edits in overlays.
 
 ## Rules
 
@@ -137,16 +80,10 @@ If an external skill repo is unavailable, skip external installation and use the
 
 ## Completion Standard
 
-Do not claim the project is ready to code until these exist or are explicitly deferred:
+Do not claim readiness or completion from this master skill alone.
 
-- valid workflow manifest with no open material decisions or source conflicts
-- controlled PRD or project brief
-- approved seven-doc pack and TDD
-- ADRs for significant architecture choices, or an explicit note that none were required
-- repo documentation appropriate to the current stage
-- security baseline
-- repo AGENTS instructions
-- validation commands or validation placeholders
-- known blockers
-- explicit approval to start coding
-- current delivery state and a validated session-start path
+- For new projects, defer readiness to `new-project-documentation-system`.
+- For implementation work, defer completion to `ai-coding-discipline` plus the project validation commands.
+- For controlled artifacts, defer readiness to `artifact-validation-workflow`.
+- For session boundaries, defer readiness to `project-session-continuity`.
+- Report blockers, unavailable checks, and the next permitted action honestly.

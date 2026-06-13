@@ -6,6 +6,16 @@ Apply this standard to new first-party skills and material changes to existing f
 
 A skill must close a demonstrated capability gap, prevent a recurring failure mode, or materially improve verification. Do not add a skill that only restates existing instructions or changes tone.
 
+Before accepting a new rule, template, or skill, apply an instruction-context-cost check:
+
+- What repeated failure or capability gap does this prevent?
+- Which existing rule, skill, script, hook, or template already owns part of it?
+- What is the smallest place it can live without becoming always-on context?
+- Can a deterministic formatter, linter, validator, test, or script enforce it better than prose?
+- What negative trigger prevents the rule or skill from firing in adjacent tasks?
+
+Reject additions when their context cost is higher than their verified behavioral value.
+
 ## Required Definition
 
 Every first-party skill must define:
@@ -23,13 +33,15 @@ Every first-party skill must define:
 
 - Keep one primary owner for each workflow phase or detailed template.
 - Route to existing specialist skills instead of duplicating their procedures.
+- Use progressive disclosure: put trigger and routing guidance in the skill body, and move detailed templates, examples, and long procedures into referenced files that are read only when needed.
 - Keep examples generic and portable.
 - Keep coordination artifacts subordinate to controlled sources.
-- Prefer deterministic scripts for repeatable checks.
+- Prefer deterministic scripts, formatters, linters, validators, tests, hooks, or CI checks for repeatable enforcement.
 - Treat unavailable checks as reported gaps, not implicit passes.
 - Keep root `AGENTS.md` concise. Put folder-specific rules in scoped `AGENTS.md` files, detailed procedures in skills or docs, and repeatable checks in scripts or hooks.
 - Do not add broad prompt packs, persona rules, or roleplay instructions unless they close a verified coding failure mode.
 - Prefer a pointer to the owning source over copied detail when the copied detail would drift.
+- Treat instruction budget as a design constraint: every always-on sentence must justify why it belongs in global or root instructions instead of a scoped skill, reference, script, or template.
 
 ## Validation
 
