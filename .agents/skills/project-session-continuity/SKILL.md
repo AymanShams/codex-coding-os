@@ -57,6 +57,43 @@ A new session is required when:
 - work will split across agents
 - incoming remote work changes the baseline
 
+## Parallel Worktree Lane Gate
+
+When a material or high-risk implementation could be split across Codex threads,
+offer parallel worktree lanes only after the session-start gate passes and the
+workflow manifest independently permits coding.
+
+Use:
+
+```text
+python scripts/agent/worktree_lanes.py evaluate --task "<task>" --risk material
+```
+
+Codex may offer lane mode when the task is material, high-risk, or naturally
+separable into implementation, review, test hardening, docs alignment, or security
+review lanes.
+
+Lane mode is blocked when:
+
+- the workflow manifest does not permit coding;
+- material decisions or source conflicts remain open;
+- Git state is dirty, behind, or unreviewed;
+- lane file ownership cannot be stated;
+- lanes would overlap on files;
+- controlled files would be edited without explicit approval;
+- validation commands are missing;
+- the user has not explicitly approved creating worktrees.
+
+The default thread mode is manual. Codex creates worktrees and paste-ready lane
+prompts, then the user opens each lane thread intentionally. Fully automated thread
+creation is advanced and must show a clear risk warning first. Use it only when
+trusted thread-creation tools are available and the user explicitly accepts the
+risk.
+
+Only the parent/orchestrator session may update `docs/delivery/current-state.md`,
+merge lanes, or close the overall parallel run. Lane sessions must follow their
+task contract, stop when the contract is insufficient, and end with a lane handoff.
+
 ## End And Handoff
 
 When a trigger fires:
@@ -75,6 +112,11 @@ When a trigger fires:
 7. Give the user a paste-ready next-session prompt plus the first command to run inside that session.
 
 The next-session prompt must include the repository path, required reading order, latest current-state and handoff paths, workflow manifest path, the exact next permitted action, and stop conditions. It must not imply that coding is permitted unless the manifest independently permits coding.
+
+For parallel lane work, the parent session must also give each lane its paste-ready
+prompt from `docs/delivery/parallel-worktrees/<run-id>/prompts/`, or create
+separate Codex threads only after the user explicitly accepts fully automated
+thread mode.
 
 ## Source And Gate Rules
 

@@ -132,6 +132,8 @@ Recommended hook uses:
 3. Run secret-pattern scans before commit.
 4. Run frontend QA checks after UI changes.
 5. Reapply external skill overlays after optional external skill installation.
+6. Run `python scripts/agent/worktree_lanes.py validate --current` before commit
+   or push in projects that enable parallel worktree lanes.
 
 ## Hook safety rules
 

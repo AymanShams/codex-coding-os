@@ -1,5 +1,5 @@
 {
-  "version": "0.6.0",
+  "version": "0.7.0",
   "package_name": "codex-coding-os",
   "display_name": "Codex Coding OS",
   "release_status": "public-release-candidate",
@@ -38,6 +38,7 @@
     "docs/external-skills-installation.md",
     "docs/getting-started.md",
     "docs/philosophy.md",
+    "docs/parallel-worktree-doctrine.md",
     "docs/review-doctrine.md",
     "docs/skill-quality-standard.md",
     "docs/full-skill-inventory.md",
@@ -59,9 +60,13 @@
     "templates/repo-AGENTS.md",
     "templates/scoped-AGENTS.md",
     "templates/handoff-note.md",
+    "templates/worktree-task-contract.md",
+    "templates/parallel-worktree-offer.md",
+    "templates/parallel-lane-handoff.md",
     "templates/review-checklist.md",
     "templates/fresh-context-review.md",
     "templates/validation-report.md",
+    "scripts/agent/worktree_lanes.py",
     "scripts/install.ps1",
     "scripts/install.sh",
     "scripts/install-external-skills.ps1",
@@ -78,7 +83,10 @@
     ".github/workflows/validate.yml",
     "tests/install-uninstall-smoke.ps1",
     "tests/install-uninstall-smoke.sh",
-    "tests/workflow-gates-smoke.py"
+    "tests/workflow-gates-smoke.py",
+    "tests/worktree-lanes-smoke.py",
+    "hooks/worktree-lane-pre-commit.py",
+    "hooks/worktree-lane-pre-push.py"
   ],
   "support_items": [
     "templates",

@@ -2,6 +2,14 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [0.7.0] - 2026-06-13
+
+### Added
+
+- Added fail-closed parallel worktree lane doctrine, templates, optional hooks, and orchestration script.
+- Added manual-by-default lane prompts with an explicit warning and acknowledgement gate for fully automated thread mode.
+- Added smoke coverage for blocked workflow manifests, dirty Git state, missing user approval, lane overlap, auto-thread risk acknowledgement, valid lane creation, and controlled-source violations.
+
 ## [0.6.0] - 2026-06-13
 
 ### Changed

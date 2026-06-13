@@ -10,6 +10,7 @@ The included set covers:
 
 - project kickoff and PRD creation
 - project session start, resume, current-state, and handoff continuity
+- fail-closed parallel worktree lane planning, creation, validation, and cleanup
 - technical documentation and repo instructions
 - implementation planning and work breakdown
 - AI coding discipline
@@ -28,6 +29,7 @@ The included set covers:
 - capability mining from prior AI chats
 - external skill overlay handling
 - optional Codex command approval rule templates
+- optional Git hook wrappers for active worktree lane validation
 - release validation, safety scanning, package inspection, and install smoke testing
 - philosophy, review doctrine, and first-party skill quality controls
 

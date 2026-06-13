@@ -27,6 +27,7 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 | Third-party references | `THIRD_PARTY_SKILLS.md`, `patches/` | Links external skills and stores local overlay notes |
 | Validation | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1` | Checks manifest inventory, skill frontmatter, release exclusions, forbidden files, and secret patterns |
 | Session continuity | `.agents/skills/project-session-continuity/` | Provides generic current-state, session-start, boundary-decision, and persistent-handoff controls |
+| Parallel worktree lanes | `scripts/agent/worktree_lanes.py`, `docs/parallel-worktree-doctrine.md`, `templates/worktree-task-contract.md` | Offers, creates, validates, and closes bounded worktree lanes after manifest and user-approval gates pass |
 | Command policy templates | `.codex/rules/` | Optional Codex command approval rules for destructive commands, installs, deployments, migrations, and secret exposure |
 | CI | `.github/workflows/validate.yml` | Runs validation and install/uninstall smoke tests on Windows, Ubuntu, and macOS, then builds the package on Windows |
 
@@ -41,8 +42,9 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 7. Create repo instructions.
 8. Add current state and session continuity.
 9. Start one bounded implementation slice.
-10. Use the review, security, design, RCA, and validation skills when the task calls for them.
-11. Validate before completion.
+10. Offer parallel worktree lanes only when the workflow manifest permits coding and the task is material, high-risk, or naturally separable.
+11. Use the review, security, design, RCA, and validation skills when the task calls for them.
+12. Validate before completion.
 
 ## Skill boundary
 

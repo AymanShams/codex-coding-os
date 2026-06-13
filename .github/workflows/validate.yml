@@ -28,6 +28,10 @@ jobs:
         shell: pwsh
         run: python .\tests\workflow-gates-smoke.py
 
+      - name: Smoke test worktree lanes
+        shell: pwsh
+        run: python .\tests\worktree-lanes-smoke.py
+
       - name: Build release package
         shell: pwsh
         run: .\scripts\package.ps1 -OutputPath "$env:RUNNER_TEMP\codex-coding-os.zip"
@@ -66,3 +70,7 @@ jobs:
       - name: Smoke test workflow gates
         shell: bash
         run: python ./tests/workflow-gates-smoke.py
+
+      - name: Smoke test worktree lanes
+        shell: bash
+        run: python ./tests/worktree-lanes-smoke.py

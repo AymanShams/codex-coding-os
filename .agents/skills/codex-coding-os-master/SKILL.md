@@ -47,6 +47,11 @@ This pack includes the full local skills needed for the default workflow:
    - Hand off to `ai-coding-discipline`.
    - Add specialist skills only for the actual risk: frontend, security, architecture, QA, platform, quantitative logic, incident response, or documentation.
    - Coding starts only when the controlling project docs or workflow manifest permit it.
+   - For material or high-risk work that can be split into isolated file lanes,
+     route through `project-session-continuity` and
+     `python scripts/agent/worktree_lanes.py evaluate --task "<task>" --risk material`.
+     Parallel lanes remain blocked unless the workflow manifest permits coding and
+     the user explicitly approves the lane plan.
 
 4. **Review, validation, or rescue**
    - Use `artifact-validation-workflow` for controlled docs and handoffs.
@@ -69,6 +74,9 @@ This pack includes the full local skills needed for the default workflow:
 - Keep source docs and TDD aligned.
 - Create or update an ADR when a significant architecture choice is accepted, replaced, or superseded.
 - Use external skill overlays only as documented in `THIRD_PARTY_SKILLS.md` and `patches/external-skills/`.
+- Treat parallel Codex work as bounded worktree lanes, not personas. Default to
+  manual paste-ready lane prompts; use fully automated thread creation only after
+  a clear risk warning and explicit user approval.
 
 ## Fallbacks
 

@@ -38,8 +38,8 @@ This pack turns that into a controlled workflow:
 - A master routing skill for starting from an idea or an existing repo.
 - A reusable `AGENTS.md` layer and scoped AGENTS templates.
 - A first-chat prompt that guides Codex through project discovery before coding.
-- Templates for project docs, TDDs, repo instructions, handoffs, reviews, and
-  validation reports.
+- Templates for project docs, TDDs, repo instructions, handoffs, reviews,
+  worktree-lane contracts, and validation reports.
 - Session-continuity tooling for non-trivial or multi-session projects.
 - Install, uninstall, validation, packaging, and optional external-skill scripts.
 - References for Codex plugins, MCPs, local tools, default skills, command rules,
@@ -152,6 +152,11 @@ project-documentation cycle for a trivial edit.
 
 Session continuity is recommended for all non-trivial or multi-session projects.
 For trivial, reversible edits, use the narrowest relevant skill and normal repo checks.
+
+Advanced parallel worktree lanes are available for material or high-risk coding
+after the workflow manifest permits coding. The default is manual: Codex creates
+worktrees and paste-ready prompts, and the user opens each lane thread. See
+`docs/parallel-worktree-doctrine.md`.
 
 ## Included skills
 

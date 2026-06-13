@@ -8,6 +8,7 @@
 | Portable routing | `catalogue-router` plus bundled catalogue | Routes work without depending on a machine-specific catalogue |
 | Project kickoff and source-locked docs | `new-project-documentation-system` | Full orchestration from source intake to controlled docs, TDD, repo instructions, and validation |
 | Project session continuity | `project-session-continuity` | Automated start, resume, live current-state, boundary decisions, and persistent handoffs |
+| Parallel worktree lanes | `project-session-continuity` plus `scripts/agent/worktree_lanes.py` | Fail-closed lane offer, contract, worktree creation, validation, handoff, and cleanup controls |
 | PRD and product framing | `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` | Turns raw idea into usable product truth |
 | Technical repo documentation | `technical-docs-pack` plus `repo-docs-template.md` | Full repo docs structure, governance, ownership, and documentation rot controls |
 | Artifact system and validation | `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` | Controlled artifacts, handoff, acceptance gates, and operational docs |
@@ -27,6 +28,7 @@
 | Pack source of truth | `pack.manifest.json` | Drives validation and release inventory |
 | Install and uninstall | `scripts/install.ps1`, `scripts/uninstall.ps1`, `scripts/install.sh`, `scripts/uninstall.sh` | Installs skills and support files, writes an install manifest, and removes from matching paths |
 | Release safety | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1`, `scripts/package.ps1` | Validates required files, skill frontmatter, secret patterns, release exclusions, and generated ZIP contents |
+| Parallel lane orchestration | `scripts/agent/worktree_lanes.py`, `hooks/worktree-lane-pre-commit.py`, `hooks/worktree-lane-pre-push.py` | Creates bounded worktrees only after approval and validates lane contracts before commit or push when hooks are enabled |
 | CI and smoke test | `.github/workflows/validate.yml`, `tests/install-uninstall-smoke.ps1` | Runs validation, install/reinstall/uninstall test, and package build |
 | Command approval templates | `.codex/rules/default.rules`, `docs/codex-rules.md` | Optional Codex command policy for destructive commands, installs, migrations, deployments, and secret exposure |
 | MCP review | `docs/mcp-review-checklist.md` | Review gate for MCPs, connectors, and plugin-managed tools with sensitive permissions |
@@ -39,6 +41,7 @@
 | Controlled docs | `project-brief.md`, `prd.md`, `app-flow-doc.md`, `tech-stack-doc.md`, `frontend-guidelines.md`, `backend-structure.md`, `security-guidelines.md`, `implementation-plan.md` |
 | Technical build | `tdd.md`, `repo-docs-template.md` |
 | Agent instructions | `repo-AGENTS.md`, `scoped-AGENTS.md`, `CLAUDE.md`, `handoff-note.md` |
+| Parallel lanes | `worktree-task-contract.md`, `parallel-worktree-offer.md`, `parallel-lane-handoff.md` |
 | Validation | `review-checklist.md`, `fresh-context-review.md`, `validation-report.md` |
 
 ## Default Codex capabilities to use when available
