@@ -45,8 +45,12 @@ done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_skills="$repo_root/.agents/skills"
-support_root="$CODEX_HOME/coding-os-starter"
+support_root="$CODEX_HOME/coding-os"
+legacy_support_root="$CODEX_HOME/coding-os-starter"
 manifest_txt="$support_root/install-manifest.txt"
+if [[ ! -f "$manifest_txt" && -f "$legacy_support_root/install-manifest.txt" ]]; then
+  manifest_txt="$legacy_support_root/install-manifest.txt"
+fi
 timestamp="$(date +%Y%m%d-%H%M%S)"
 manifest_skills_root=""
 manifest_agents_path=""
@@ -133,17 +137,22 @@ elif [[ -d "$source_skills" ]]; then
 fi
 
 global_agents="${manifest_agents_path:-$CODEX_HOME/AGENTS.md}"
-if [[ -e "$global_agents" ]] && grep -q "# BEGIN CODEX CODING OS STARTER" "$global_agents"; then
+if [[ -e "$global_agents" ]] && grep -q "# BEGIN CODEX CODING OS" "$global_agents"; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "DRY RUN: would remove global AGENTS block from $global_agents"
   else
     cp "$global_agents" "$global_agents.bak.$timestamp"
-    perl -0pi -e 's/\n?# BEGIN CODEX CODING OS STARTER.*?# END CODEX CODING OS STARTER\n?//s' "$global_agents"
+    perl -0pi -e 's/\n?# BEGIN CODEX CODING OS( STARTER)?.*?# END CODEX CODING OS( STARTER)?\n?//s' "$global_agents"
     echo "Removed global AGENTS block. Backup: $global_agents.bak.$timestamp"
   fi
 fi
 
 ensure_under_root "$support_root" "$CODEX_HOME"
 remove_if_present "$support_root" "installed support files"
+
+if [[ "$legacy_support_root" != "$support_root" ]]; then
+  ensure_under_root "$legacy_support_root" "$CODEX_HOME"
+  remove_if_present "$legacy_support_root" "legacy support files"
+fi
 
 echo "Uninstall complete."

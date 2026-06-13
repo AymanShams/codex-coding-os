@@ -5,7 +5,7 @@ description: Use when a user starts or continues a Codex coding project, wants t
 
 # Codex Coding OS Master
 
-This is the top-level router for the full Codex Coding OS package distributed as `codex-coding-os-starter`.
+This is the top-level router for the full Codex Coding OS package distributed as `codex-coding-os`.
 
 Use it when the user brings a raw product idea, an existing repo, a design task, a bug, a security concern, a documentation gap, or a deployment/review problem and wants Codex to work with discipline.
 

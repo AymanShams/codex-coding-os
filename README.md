@@ -1,6 +1,6 @@
-# Codex Coding OS Starter
+# Codex Coding OS
 
-Codex Coding OS Starter is the installable package name for a full Codex Coding OS:
+Codex Coding OS is the installable package name for a full Codex Coding OS:
 a spec-first, skills-mediated control system for AI-assisted software development.
 
 It is designed for builders who do not want Codex to start from a vague prompt and
@@ -264,7 +264,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\scripts\package.ps1
 ```
 
-This validates the pack and creates `codex-coding-os-starter.zip` beside the repo
+This validates the pack and creates `codex-coding-os.zip` beside the repo
 folder.
 
 When run from a Git clone, packaging requires tracked files to match `HEAD` and
@@ -275,7 +275,7 @@ are recorded in `CHANGELOG.md`.
 
 ## License
 
-Codex Coding OS Starter is licensed under the Mozilla Public License 2.0. See
+Codex Coding OS is licensed under the Mozilla Public License 2.0. See
 `LICENSE.md`.
 
 Commercial use is allowed under MPL-2.0. See `COMMERCIAL.md` for the practical

@@ -30,13 +30,13 @@ jobs:
 
       - name: Build release package
         shell: pwsh
-        run: .\scripts\package.ps1 -OutputPath "$env:RUNNER_TEMP\codex-coding-os-starter.zip"
+        run: .\scripts\package.ps1 -OutputPath "$env:RUNNER_TEMP\codex-coding-os.zip"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: codex-coding-os-starter
-          path: ${{ runner.temp }}/codex-coding-os-starter.zip
+          name: codex-coding-os
+          path: ${{ runner.temp }}/codex-coding-os.zip
 
   validate-bash:
     strategy:

@@ -44,9 +44,14 @@ function Remove-IfPresent {
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $SkillSourceRoot = Join-Path $RepoRoot ".agents\skills"
 $CodexHome = Resolve-InstallPath $CodexHome
-$DefaultSupportRoot = Join-Path $CodexHome "coding-os-starter"
+$DefaultSupportRoot = Join-Path $CodexHome "coding-os"
+$LegacySupportRoot = Join-Path $CodexHome ("coding-os" + "-starter")
 $ManifestJsonPath = Join-Path $DefaultSupportRoot "install-manifest.json"
 $ManifestTextPath = Join-Path $DefaultSupportRoot "install-manifest.txt"
+if (-not (Test-Path $ManifestJsonPath) -and (Test-Path (Join-Path $LegacySupportRoot "install-manifest.json"))) {
+  $ManifestJsonPath = Join-Path $LegacySupportRoot "install-manifest.json"
+  $ManifestTextPath = Join-Path $LegacySupportRoot "install-manifest.txt"
+}
 $Manifest = $null
 $TextManifest = @{}
 $TextSkillPaths = @()
@@ -93,8 +98,8 @@ $AgentsPath = if ($Manifest -and $Manifest.global_agents_path) {
 }
 
 $Markers = @{
-  Start = "# BEGIN CODEX CODING OS STARTER"
-  End = "# END CODEX CODING OS STARTER"
+  Start = "# BEGIN CODEX CODING OS"
+  End = "# END CODEX CODING OS"
 }
 
 $SkillTargets = @()
@@ -123,7 +128,7 @@ foreach ($Target in $SkillTargets) {
 
 if (Test-Path $AgentsPath) {
   $Existing = Get-Content -Raw -LiteralPath $AgentsPath
-  $Pattern = "(?s)\r?\n?$([regex]::Escape($Markers.Start)).*?$([regex]::Escape($Markers.End))\r?\n?"
+  $Pattern = "(?s)\r?\n?# BEGIN CODEX CODING OS(?: STARTER)?.*?# END CODEX CODING OS(?: STARTER)?\r?\n?"
   if ($Existing -match $Pattern) {
     if ($DryRun) {
       Write-Output "DRY RUN: would remove global AGENTS block from $AgentsPath"
@@ -141,5 +146,13 @@ if (-not (Test-IsUnderRoot -Path $InstalledSupportRoot -Root $CodexHome)) {
   throw "Refusing to remove support files outside CodexHome. Target=$InstalledSupportRoot CodexHome=$CodexHome"
 }
 Remove-IfPresent -Path $InstalledSupportRoot -Label "installed support files" -Cmdlet $PSCmdlet
+
+if ((Resolve-InstallPath $LegacySupportRoot) -ne (Resolve-InstallPath $InstalledSupportRoot) -and
+    (Test-Path $LegacySupportRoot)) {
+  if (-not (Test-IsUnderRoot -Path $LegacySupportRoot -Root $CodexHome)) {
+    throw "Refusing to remove legacy support files outside CodexHome. Target=$LegacySupportRoot CodexHome=$CodexHome"
+  }
+  Remove-IfPresent -Path $LegacySupportRoot -Label "legacy support files" -Cmdlet $PSCmdlet
+}
 
 Write-Output "Uninstall complete."

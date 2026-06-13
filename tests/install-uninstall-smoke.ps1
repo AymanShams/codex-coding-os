@@ -9,15 +9,18 @@ $UninstallScript = Join-Path $RepoRoot "scripts\uninstall.ps1"
 
 try {
   New-Item -ItemType Directory -Force -Path $TestRoot | Out-Null
+  New-Item -ItemType Directory -Force -Path $CodexHome | Out-Null
+  $GlobalAgents = Join-Path $CodexHome "AGENTS.md"
+  Set-Content -LiteralPath $GlobalAgents -Value "# BEGIN CODEX CODING OS STARTER`r`nlegacy global block`r`n# END CODEX CODING OS STARTER`r`n" -Encoding UTF8
 
   & $InstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -InstallGlobalAgents -Confirm:$false
   if (-not $?) { throw "Install failed." }
 
-  $ManifestPath = Join-Path $CodexHome "coding-os-starter\install-manifest.json"
+  $ManifestPath = Join-Path $CodexHome "coding-os\install-manifest.json"
   if (-not (Test-Path $ManifestPath)) {
     throw "Install manifest was not written."
   }
-  $PortableManifestPath = Join-Path $CodexHome "coding-os-starter\install-manifest.txt"
+  $PortableManifestPath = Join-Path $CodexHome "coding-os\install-manifest.txt"
   if (-not ((Get-Content -LiteralPath $PortableManifestPath) -contains "ManifestVersion=2")) {
     throw "Portable install manifest version was not written."
   }
@@ -27,10 +30,12 @@ try {
     throw "Master skill was not installed."
   }
 
-  $GlobalAgents = Join-Path $CodexHome "AGENTS.md"
   $GlobalText = Get-Content -Raw -LiteralPath $GlobalAgents
-  if ($GlobalText -notmatch "# BEGIN CODEX CODING OS STARTER") {
+  if ($GlobalText -notmatch "# BEGIN CODEX CODING OS") {
     throw "Global AGENTS block was not installed into the temp Codex home."
+  }
+  if ($GlobalText -match "CODEX CODING OS STARTER|legacy global block") {
+    throw "Install did not fully replace a legacy global AGENTS block."
   }
 
   $StaleFile = Join-Path $SkillsRoot "ai-coding-discipline\STALE.txt"
@@ -62,6 +67,7 @@ try {
   $CurrentSkills += [pscustomobject]@{ name = "manifest-only-skill"; path = $ManifestOnlySkill }
   $CurrentManifest.skills = $CurrentSkills
   $CurrentManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
+  Set-Content -LiteralPath $GlobalAgents -Value "# BEGIN CODEX CODING OS STARTER`r`nlegacy global block before uninstall`r`n# END CODEX CODING OS STARTER`r`n" -Encoding UTF8
 
   & $UninstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -Confirm:$false
   if (-not $?) { throw "Uninstall failed." }
@@ -73,13 +79,13 @@ try {
     throw "Uninstall did not consume the recorded installed-state manifest."
   }
 
-  if (Test-Path (Join-Path $CodexHome "coding-os-starter")) {
+  if (Test-Path (Join-Path $CodexHome "coding-os")) {
     throw "Uninstall did not remove support files from the custom CodexHome."
   }
 
   if (Test-Path $GlobalAgents) {
     $AfterUninstall = Get-Content -Raw -LiteralPath $GlobalAgents
-    if ($AfterUninstall -match "# BEGIN CODEX CODING OS STARTER") {
+    if ($AfterUninstall -match "# BEGIN CODEX CODING OS|CODEX CODING OS STARTER|legacy global block") {
       throw "Uninstall did not remove the global AGENTS block from the custom CodexHome."
     }
   }

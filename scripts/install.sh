@@ -51,8 +51,10 @@ done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_skills="$repo_root/.agents/skills"
-support_root="$CODEX_HOME/coding-os-starter"
+support_root="$CODEX_HOME/coding-os"
+legacy_support_root="$CODEX_HOME/coding-os-starter"
 manifest_txt="$support_root/install-manifest.txt"
+previous_manifest_txt="$manifest_txt"
 timestamp="$(date +%Y%m%d-%H%M%S)"
 previous_skills_root=""
 previous_skill_paths=()
@@ -96,7 +98,10 @@ copy_file_clean() {
 }
 
 read_previous_manifest() {
-  [[ -f "$manifest_txt" ]] || return 0
+  if [[ ! -f "$previous_manifest_txt" && -f "$legacy_support_root/install-manifest.txt" ]]; then
+    previous_manifest_txt="$legacy_support_root/install-manifest.txt"
+  fi
+  [[ -f "$previous_manifest_txt" ]] || return 0
 
   while IFS= read -r line; do
     case "$line" in
@@ -107,7 +112,7 @@ read_previous_manifest() {
         previous_skill_paths+=("${line#SkillPath=}")
         ;;
     esac
-  done < "$manifest_txt"
+  done < "$previous_manifest_txt"
 }
 
 abs_path() {
@@ -206,10 +211,16 @@ for item in "${support_items[@]}"; do
   fi
 done
 
+if [[ "$legacy_support_root" != "$support_root" && -e "$legacy_support_root" ]]; then
+  ensure_under_root "$legacy_support_root" "$CODEX_HOME"
+  run rm -rf "$legacy_support_root"
+  echo "Removed legacy support files: $legacy_support_root"
+fi
+
 if [[ "$INSTALL_GLOBAL_AGENTS" -eq 1 ]]; then
   global_agents="$CODEX_HOME/AGENTS.md"
-  start_marker="# BEGIN CODEX CODING OS STARTER"
-  end_marker="# END CODEX CODING OS STARTER"
+  start_marker="# BEGIN CODEX CODING OS"
+  end_marker="# END CODEX CODING OS"
 
   echo "Global AGENTS.md update requested."
   echo "Target: $global_agents"
@@ -218,7 +229,7 @@ if [[ "$INSTALL_GLOBAL_AGENTS" -eq 1 ]]; then
     mkdir -p "$(dirname "$global_agents")"
     if [[ -e "$global_agents" ]]; then
       cp "$global_agents" "$global_agents.backup-$timestamp"
-      perl -0pi -e 's/\n?# BEGIN CODEX CODING OS STARTER.*?# END CODEX CODING OS STARTER\n?//s' "$global_agents"
+      perl -0pi -e 's/\n?# BEGIN CODEX CODING OS( STARTER)?.*?# END CODEX CODING OS( STARTER)?\n?//s' "$global_agents"
     fi
     {
       printf '\n%s\n' "$start_marker"
@@ -233,7 +244,7 @@ fi
 if [[ "$DRY_RUN" -eq 0 ]]; then
   {
     echo "ManifestVersion=2"
-    echo "Package=codex-coding-os-starter"
+    echo "Package=codex-coding-os"
     echo "InstalledAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "RepoRoot=$repo_root"
     echo "SkillsRoot=$SKILLS_ROOT"

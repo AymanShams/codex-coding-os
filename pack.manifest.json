@@ -1,6 +1,6 @@
 {
-  "version": "0.5.1",
-  "package_name": "codex-coding-os-starter",
+  "version": "0.6.0",
+  "package_name": "codex-coding-os",
   "display_name": "Codex Coding OS",
   "release_status": "public-release-candidate",
   "source_of_truth": {

@@ -18,7 +18,7 @@ $ManifestPath = Join-Path $RepoRoot "pack.manifest.json"
 $Validate = Join-Path $RepoRoot "scripts\validate-pack.ps1"
 
 if (-not $OutputPath) {
-  $OutputPath = Join-Path $Parent "codex-coding-os-starter.zip"
+  $OutputPath = Join-Path $Parent "codex-coding-os.zip"
 }
 
 & $Validate

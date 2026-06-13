@@ -1,6 +1,6 @@
 # System scope
 
-`codex-coding-os-starter` is the package name. The installed system is the Codex Coding OS.
+`codex-coding-os` is the package name. The installed system is the Codex Coding OS.
 
 ## Included in full
 

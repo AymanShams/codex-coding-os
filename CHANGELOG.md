@@ -2,6 +2,14 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [0.6.0] - 2026-06-13
+
+### Changed
+
+- Renamed the public package from `codex-coding-os-starter` to `codex-coding-os`.
+- Updated public docs, package metadata, support install folder, archive name, and AGENTS block markers to use Codex Coding OS naming.
+- Added cleanup compatibility for the previous `coding-os-starter` support folder during install and uninstall.
+
 ## [0.5.1] - 2026-06-13
 
 ### Changed

@@ -1,6 +1,6 @@
 # License strategy
 
-Codex Coding OS Starter uses the Mozilla Public License 2.0.
+Codex Coding OS uses the Mozilla Public License 2.0.
 
 ## Current posture
 

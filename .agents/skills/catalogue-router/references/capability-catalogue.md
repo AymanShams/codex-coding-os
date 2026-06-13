@@ -1,6 +1,6 @@
 # Coding OS Capability Catalogue
 
-This catalogue is the portable routing source bundled with `codex-coding-os-starter`.
+This catalogue is the portable routing source bundled with `codex-coding-os`.
 
 ## Fast Router
 

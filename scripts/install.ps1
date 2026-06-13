@@ -92,7 +92,7 @@ function Get-UpdatedAgentsText {
     [Parameter(Mandatory = $true)][string]$Existing,
     [Parameter(Mandatory = $true)][string]$Block
   )
-  $Pattern = "(?s)# BEGIN CODEX CODING OS STARTER.*?# END CODEX CODING OS STARTER"
+  $Pattern = "(?s)# BEGIN CODEX CODING OS(?: STARTER)?.*?# END CODEX CODING OS(?: STARTER)?"
   if ($Existing -match $Pattern) {
     [regex]::Replace($Existing, $Pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Block })
   } else {
@@ -117,13 +117,21 @@ if (Test-Path $PackManifestPath) {
 }
 $SkillsRoot = Resolve-InstallPath $SkillsRoot
 $CodexHome = Resolve-InstallPath $CodexHome
-$ManifestDir = Join-Path $CodexHome "coding-os-starter"
+$ManifestDir = Join-Path $CodexHome "coding-os"
+$LegacyManifestDir = Join-Path $CodexHome ("coding-os" + "-starter")
 $ManifestJsonPath = Join-Path $ManifestDir "install-manifest.json"
 $ManifestTextPath = Join-Path $ManifestDir "install-manifest.txt"
+$PreviousManifestJsonPath = if (Test-Path $ManifestJsonPath) {
+  $ManifestJsonPath
+} elseif (Test-Path (Join-Path $LegacyManifestDir "install-manifest.json")) {
+  Join-Path $LegacyManifestDir "install-manifest.json"
+} else {
+  $ManifestJsonPath
+}
 $PreviousManifest = $null
-if (Test-Path $ManifestJsonPath) {
+if (Test-Path $PreviousManifestJsonPath) {
   try {
-    $PreviousManifest = Get-Content -Raw -LiteralPath $ManifestJsonPath | ConvertFrom-Json
+    $PreviousManifest = Get-Content -Raw -LiteralPath $PreviousManifestJsonPath | ConvertFrom-Json
   } catch {
     Write-Warning "Previous JSON install manifest could not be read. Obsolete skill cleanup will be skipped."
   }
@@ -226,12 +234,25 @@ foreach ($Item in $SupportItems) {
   }
 }
 
+if ((Resolve-InstallPath $LegacyManifestDir) -ne (Resolve-InstallPath $ManifestDir) -and
+    (Test-Path $LegacyManifestDir)) {
+  if (-not (Test-IsUnderRoot -Path $LegacyManifestDir -Root $CodexHome)) {
+    throw "Refusing to remove legacy support files outside CodexHome. Target=$LegacyManifestDir CodexHome=$CodexHome"
+  }
+  if ($DryRun) {
+    Write-Output "DRY RUN: would remove legacy support files at $LegacyManifestDir"
+  } elseif ($PSCmdlet.ShouldProcess($LegacyManifestDir, "Remove legacy support files")) {
+    Remove-Item -LiteralPath $LegacyManifestDir -Recurse -Force
+    Write-Output "Removed legacy support files: $LegacyManifestDir"
+  }
+}
+
 $GlobalAgents = Join-Path $CodexHome "AGENTS.md"
 $GlobalAgentsUpdated = $false
 if ($InstallGlobalAgents) {
   $PackAgents = Join-Path $RepoRoot "AGENTS.md"
-  $Start = "# BEGIN CODEX CODING OS STARTER"
-  $End = "# END CODEX CODING OS STARTER"
+  $Start = "# BEGIN CODEX CODING OS"
+  $End = "# END CODEX CODING OS"
   $PackText = Get-Content -Raw -LiteralPath $PackAgents
   $Block = "$Start`r`n$PackText`r`n$End"
 
@@ -259,7 +280,7 @@ if ($InstallGlobalAgents) {
 }
 
 $Manifest = [pscustomobject]@{
-  package = "codex-coding-os-starter"
+  package = "codex-coding-os"
   installed_at = (Get-Date -Format o)
   repo_root = $RepoRoot
   skills_root = $SkillsRoot
@@ -277,7 +298,7 @@ if (-not $DryRun) {
 
   $Lines = @()
   $Lines += "ManifestVersion=2"
-  $Lines += "Package=codex-coding-os-starter"
+  $Lines += "Package=codex-coding-os"
   $Lines += "InstalledAt=$($Manifest.installed_at)"
   $Lines += "RepoRoot=$RepoRoot"
   $Lines += "SkillsRoot=$SkillsRoot"

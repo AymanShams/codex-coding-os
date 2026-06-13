@@ -1,6 +1,6 @@
 # Commercial Use
 
-Commercial use of Codex Coding OS Starter is permitted under the Mozilla Public
+Commercial use of Codex Coding OS is permitted under the Mozilla Public
 License 2.0.
 
 ## What this means

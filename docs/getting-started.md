@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide takes you from a downloaded copy of Codex Coding OS Starter to the first project-planning chat.
+This guide takes you from a downloaded copy of Codex Coding OS to the first project-planning chat.
 
 ## Five-Minute Setup
 
@@ -40,8 +40,8 @@ chmod +x ./scripts/install.sh ./scripts/uninstall.sh
 
 ```powershell
 Test-Path "$HOME\.agents\skills\codex-coding-os-master\SKILL.md"
-Test-Path "$HOME\.codex\coding-os-starter\templates\first-codex-prompt.md"
-Select-String -Path "$HOME\.codex\AGENTS.md" -Pattern "BEGIN CODEX CODING OS STARTER"
+Test-Path "$HOME\.codex\coding-os\templates\first-codex-prompt.md"
+Select-String -Path "$HOME\.codex\AGENTS.md" -Pattern "BEGIN CODEX CODING OS"
 ```
 
 Each command should return `True` or show the installed marker.
@@ -50,8 +50,8 @@ Each command should return `True` or show the installed marker.
 
 ```bash
 test -f "$HOME/.agents/skills/codex-coding-os-master/SKILL.md" && echo "Master skill installed"
-test -f "$HOME/.codex/coding-os-starter/templates/first-codex-prompt.md" && echo "Support files installed"
-grep -q "BEGIN CODEX CODING OS STARTER" "$HOME/.codex/AGENTS.md" && echo "Global rules installed"
+test -f "$HOME/.codex/coding-os/templates/first-codex-prompt.md" && echo "Support files installed"
+grep -q "BEGIN CODEX CODING OS" "$HOME/.codex/AGENTS.md" && echo "Global rules installed"
 ```
 
 ## What the First Chat Should Produce
