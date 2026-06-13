@@ -1,6 +1,7 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)),
-  [switch]$RequireExternalScanners
+  [switch]$RequireExternalScanners,
+  [switch]$ScanGitHistory
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,8 +23,10 @@ $ExcludedNames = $ExcludedNames | Select-Object -Unique
 
 function Test-IsExcludedPath {
   param([Parameter(Mandatory = $true)][string]$Path)
+  $NormalizedPath = $Path -replace "\\", "/"
   foreach ($Name in $ExcludedNames) {
-    if ($Path -match "(^|[\\/])$([regex]::Escape($Name))([\\/]|$)") {
+    $NormalizedName = ([string]$Name) -replace "\\", "/"
+    if ($NormalizedPath -match "(^|/)$([regex]::Escape($NormalizedName))(/|$)") {
       return $true
     }
   }
@@ -81,7 +84,11 @@ if (Test-Path $LocalExclusionPath) {
 }
 
 if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
-  & gitleaks detect --source $RepoRoot --no-git --redact --verbose
+  if ($ScanGitHistory) {
+    & gitleaks detect --source $RepoRoot --redact --verbose
+  } else {
+    & gitleaks detect --source $RepoRoot --no-git --redact --verbose
+  }
   if ($LASTEXITCODE -ne 0) {
     $Errors += "gitleaks reported findings."
   }
@@ -92,7 +99,12 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
 }
 
 if (Get-Command trufflehog -ErrorAction SilentlyContinue) {
-  & trufflehog filesystem --no-update --fail $RepoRoot
+  if ($ScanGitHistory) {
+    $RepoUri = (Resolve-Path -LiteralPath $RepoRoot).Path -replace "\\", "/"
+    & trufflehog git "file:///$RepoUri" --no-update --fail
+  } else {
+    & trufflehog filesystem --no-update --fail $RepoRoot
+  }
   if ($LASTEXITCODE -ne 0) {
     $Errors += "trufflehog reported findings."
   }
@@ -100,6 +112,10 @@ if (Get-Command trufflehog -ErrorAction SilentlyContinue) {
   $Errors += "trufflehog is required but not installed."
 } else {
   $Warnings += "trufflehog not installed; internal regex scan was used."
+}
+
+if ($ScanGitHistory -and -not (Test-Path (Join-Path $RepoRoot ".git"))) {
+  $Warnings += "Git history scan requested, but .git was not found under the repository root."
 }
 
 if ($Warnings.Count -gt 0) {

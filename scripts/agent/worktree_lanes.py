@@ -19,7 +19,11 @@ from typing import Any
 
 MANIFEST_PATH = Path("project-documentation-manifest.json")
 CURRENT_STATE_PATH = Path("docs/delivery/current-state.md")
-LANE_ROOT = Path("docs/delivery/parallel-worktrees")
+AUDIT_LANE_ROOT = Path("docs/delivery/parallel-worktrees")
+LOCAL_LANE_ROOT = Path(".codex/parallel-worktrees")
+PLAN_FILE = "planned-lanes.json"
+RUNTIME_MANIFEST_FILE = "lane-manifest.json"
+SUMMARY_FILE = "lane-summary.json"
 READY_TO_CODE = {"approved", "completed"}
 REQUIRED_CODE_PHASES = {
     "0_route_scope",
@@ -75,6 +79,10 @@ IGNORED_LANE_LOCAL_FILES = {
     ".codex/",
     ".codex/parallel-lane.json",
 }
+LOCAL_EXCLUDE_PATTERNS = [
+    ".codex/parallel-worktrees/",
+    ".codex/parallel-lane.json",
+]
 BROAD_PATTERNS = {"*", "**", ".", "./", "**/*", "src/**", "app/**", "pages/**"}
 THREAD_RISK_WARNING = """FULLY AUTOMATED THREAD MODE IS ADVANCED.
 
@@ -138,6 +146,13 @@ def relative_to_root(path: Path, root: Path) -> str:
     return path.resolve().relative_to(root.resolve()).as_posix()
 
 
+def display_path(path: Path, root: Path) -> str:
+    try:
+        return relative_to_root(path, root)
+    except ValueError:
+        return path.as_posix()
+
+
 def normalize_path(value: str) -> str:
     normalized = value.replace("\\", "/").strip()
     while normalized.startswith("./"):
@@ -186,6 +201,39 @@ def parse_lanes(values: list[str], default_validation: list[str]) -> list[Lane]:
     return lanes
 
 
+def lane_to_plan_record(lane: Lane) -> dict[str, Any]:
+    return {
+        "name": lane.name,
+        "slug": lane.slug,
+        "objective": lane.objective,
+        "allowed_files": lane.allowed_files,
+        "forbidden_files": lane.forbidden_files,
+        "review": lane.review,
+        "validation": lane.validation,
+        "allow_controlled_files": lane.allow_controlled_files,
+    }
+
+
+def lane_from_record(record: dict[str, Any]) -> Lane:
+    return Lane(
+        name=str(record["name"]),
+        objective=str(record["objective"]),
+        allowed_files=[normalize_path(str(item)) for item in record.get("allowed_files", [])],
+        forbidden_files=[normalize_path(str(item)) for item in record.get("forbidden_files", [])],
+        review=str(record.get("review") or "fresh-context"),
+        validation=[str(item) for item in record.get("validation", []) if str(item).strip()],
+        allow_controlled_files=bool(record.get("allow_controlled_files")),
+    )
+
+
+def utc_timestamp() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def default_run_id() -> str:
+    return f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-parallel-run"
+
+
 def read_manifest() -> tuple[dict[str, Any] | None, list[str]]:
     if not MANIFEST_PATH.exists():
         return None, [f"workflow manifest not found: {MANIFEST_PATH}"]
@@ -230,10 +278,40 @@ def tracking_ref() -> str:
     return ""
 
 
-def git_gate_errors(require_clean: bool = True) -> list[str]:
+def status_paths() -> list[str]:
+    paths: list[str] = []
+    status = run_git(["status", "--porcelain", "-uall"])
+    for line in status.splitlines():
+        if not line.strip():
+            continue
+        path = line[3:].strip() if len(line) > 3 else ""
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path:
+            paths.append(normalize_path(path))
+    return paths
+
+
+def dirty_path_allowed(path: str, allowed_prefixes: list[str]) -> bool:
+    normalized = normalize_path(path).rstrip("/")
+    for prefix in allowed_prefixes:
+        clean_prefix = normalize_path(prefix).rstrip("/")
+        if normalized == clean_prefix or normalized.startswith(clean_prefix + "/"):
+            return True
+    return False
+
+
+def git_gate_errors(require_clean: bool = True, allowed_dirty_prefixes: list[str] | None = None) -> list[str]:
     errors: list[str] = []
-    if require_clean and run_git(["status", "--porcelain"]):
-        errors.append("working tree is dirty or has untracked files; classify or commit/stash them before creating lanes")
+    if require_clean and run_git(["status", "--porcelain", "-uall"]):
+        allowed_dirty_prefixes = allowed_dirty_prefixes or []
+        unallowed = [path for path in status_paths() if not dirty_path_allowed(path, allowed_dirty_prefixes)]
+        if unallowed:
+            errors.append(
+                "working tree is dirty or has untracked files outside the allowed lane-plan audit path; "
+                "classify or commit/stash them before creating lanes: "
+                + ", ".join(unallowed[:8])
+            )
     remote = tracking_ref()
     if remote:
         counts = run_git(["rev-list", "--left-right", "--count", f"HEAD...{remote}"]).split()
@@ -314,8 +392,16 @@ def print_errors(prefix: str, errors: list[str]) -> None:
         print(f"- {error}")
 
 
-def preflight(task: str, risk: str, require_clean: bool = True) -> tuple[str, list[str]]:
-    errors = workflow_manifest_errors() + git_gate_errors(require_clean=require_clean)
+def preflight(
+    task: str,
+    risk: str,
+    require_clean: bool = True,
+    allowed_dirty_prefixes: list[str] | None = None,
+) -> tuple[str, list[str]]:
+    errors = workflow_manifest_errors() + git_gate_errors(
+        require_clean=require_clean,
+        allowed_dirty_prefixes=allowed_dirty_prefixes,
+    )
     if errors:
         return "BLOCKED", errors
     if not has_parallel_trigger(task, risk):
@@ -339,12 +425,52 @@ def command_evaluate(args: argparse.Namespace) -> int:
     return 2 if decision == "BLOCKED" else 0
 
 
-def lane_root(run_id: str) -> Path:
-    return LANE_ROOT / run_id
+def audit_lane_root(run_id: str) -> Path:
+    return AUDIT_LANE_ROOT / run_id
+
+
+def local_lane_root(run_id: str) -> Path:
+    return LOCAL_LANE_ROOT / run_id
+
+
+def plan_path(run_id: str) -> Path:
+    return audit_lane_root(run_id) / PLAN_FILE
+
+
+def runtime_manifest_path(run_id: str) -> Path:
+    return local_lane_root(run_id) / RUNTIME_MANIFEST_FILE
+
+
+def summary_path(run_id: str) -> Path:
+    return audit_lane_root(run_id) / SUMMARY_FILE
 
 
 def default_worktree_root(run_id: str, root: Path) -> Path:
     return root.parent / f"{root.name}-worktrees" / run_id
+
+
+def load_plan(run_id: str) -> tuple[dict[str, Any], list[Lane]]:
+    path = plan_path(run_id)
+    if not path.exists():
+        raise RuntimeError(f"planned lane run not found: {path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    lanes = [lane_from_record(record) for record in data.get("lanes", [])]
+    if not lanes:
+        raise RuntimeError(f"planned lane run has no lanes: {path}")
+    return data, lanes
+
+
+def ensure_git_info_excludes(root: Path) -> None:
+    git_path = run_git(["rev-parse", "--git-path", "info/exclude"], cwd=root, check=True)
+    exclude_path = Path(git_path)
+    if not exclude_path.is_absolute():
+        exclude_path = root / exclude_path
+    exclude_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
+    additions = [pattern for pattern in LOCAL_EXCLUDE_PATTERNS if pattern not in existing]
+    if additions:
+        prefix = "\n" if existing and not existing.endswith("\n") else ""
+        exclude_path.write_text(existing + prefix + "\n".join(additions) + "\n", encoding="utf-8")
 
 
 def contract_text(lane: Lane, run_id: str, branch: str, worktree_path: Path, base_commit: str) -> str:
@@ -459,6 +585,77 @@ Do not create or start lane threads unless the user explicitly approves this pla
     return offer_path
 
 
+def write_plan(
+    run_root: Path,
+    run_id: str,
+    task: str,
+    risk: str,
+    lanes: list[Lane],
+    thread_mode: str,
+) -> Path:
+    path = run_root / PLAN_FILE
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "run_id": run_id,
+                "task": task,
+                "risk": risk,
+                "thread_mode": thread_mode,
+                "created_at": utc_timestamp(),
+                "lanes": [lane_to_plan_record(lane) for lane in lanes],
+                "next_command": f"python scripts/agent/worktree_lanes.py create --from-run {run_id} --user-approved",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def audit_lane_record(lane: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": lane["name"],
+        "slug": lane["slug"],
+        "objective": lane["objective"],
+        "branch": lane["branch"],
+        "allowed_files": lane["allowed_files"],
+        "forbidden_files": lane["forbidden_files"],
+        "validation": lane["validation"],
+        "review": lane["review"],
+        "allow_controlled_files": lane["allow_controlled_files"],
+        "status": lane["status"],
+        "runtime_contract": lane["runtime_contract"],
+        "runtime_prompt": lane["runtime_prompt"],
+    }
+
+
+def write_audit_summary(audit_root: Path, manifest: dict[str, Any]) -> Path:
+    path = audit_root / SUMMARY_FILE
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "run_id": manifest["run_id"],
+                "task": manifest["task"],
+                "risk": manifest["risk"],
+                "thread_mode": manifest["thread_mode"],
+                "base_commit": manifest["base_commit"],
+                "created_at": manifest["created_at"],
+                "integration_owner": manifest["integration_owner"],
+                "current_state_owner": manifest["current_state_owner"],
+                "merge_policy": manifest["merge_policy"],
+                "local_runtime_manifest": f"{LOCAL_LANE_ROOT.as_posix()}/{manifest['run_id']}/{RUNTIME_MANIFEST_FILE}",
+                "local_runtime_note": "Local runtime files are intentionally excluded from Git and may contain machine-specific paths.",
+                "lanes": [audit_lane_record(lane) for lane in manifest.get("lanes", [])],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def command_plan(args: argparse.Namespace) -> int:
     lanes = parse_lanes(args.lane, args.validation)
     decision, errors = preflight(args.task, args.risk)
@@ -469,48 +666,92 @@ def command_plan(args: argparse.Namespace) -> int:
         print_errors("PARALLEL WORKTREE PLAN: BLOCKED", errors)
         return 2
     root = repo_root()
-    run_id = args.run_id or f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{slugify(args.task)[:32]}"
-    run_root = lane_root(run_id)
+    run_id = args.run_id or default_run_id()
+    run_root = audit_lane_root(run_id)
     run_root.mkdir(parents=True, exist_ok=False)
     offer_path = write_offer(run_root, args.task, lanes, args.thread_mode)
+    plan_file = write_plan(run_root, run_id, args.task, args.risk, lanes, args.thread_mode)
     print(f"Planned parallel lanes under {run_root.as_posix()}")
     print(f"Offer: {offer_path.as_posix()}")
+    print(f"Plan: {plan_file.as_posix()}")
+    print(f"Create after explicit user approval: python scripts/agent/worktree_lanes.py create --from-run {run_id} --user-approved")
     print(f"Repository: {root.as_posix()}")
     return 0
 
 
-def ensure_user_approval(args: argparse.Namespace) -> list[str]:
+def ensure_user_approval(user_approved: bool, thread_mode: str, acknowledge_auto_thread_risk: bool) -> list[str]:
     errors: list[str] = []
-    if not args.user_approved:
+    if not user_approved:
         errors.append("user approval is required before creating worktrees; rerun with --user-approved after explicit yes")
-    if args.thread_mode == "auto" and not args.acknowledge_auto_thread_risk:
+    if thread_mode == "auto" and not acknowledge_auto_thread_risk:
         errors.append("auto thread mode requires --acknowledge-auto-thread-risk after reading the risk warning")
     return errors
 
 
+def resolve_create_inputs(args: argparse.Namespace) -> tuple[str, str, str, str, list[Lane], list[str]]:
+    errors: list[str] = []
+    if args.from_run:
+        if args.run_id and args.run_id != args.from_run:
+            errors.append("--run-id must match --from-run when both are supplied")
+        try:
+            plan, lanes = load_plan(args.from_run)
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            return args.from_run, "", "", "manual", [], [str(exc)]
+        thread_mode = args.thread_mode or str(plan.get("thread_mode") or "manual")
+        return (
+            args.from_run,
+            str(plan.get("task") or ""),
+            str(plan.get("risk") or "material"),
+            thread_mode,
+            lanes,
+            errors,
+        )
+
+    if not args.task:
+        errors.append("--task is required unless --from-run is used")
+    if not args.lane:
+        errors.append("--lane is required unless --from-run is used")
+    lanes: list[Lane] = []
+    if args.lane:
+        try:
+            lanes = parse_lanes(args.lane, args.validation)
+        except ValueError as exc:
+            errors.append(str(exc))
+    return args.run_id or default_run_id(), args.task or "", args.risk, args.thread_mode or "manual", lanes, errors
+
+
 def command_create(args: argparse.Namespace) -> int:
-    lanes = parse_lanes(args.lane, args.validation)
-    decision, errors = preflight(args.task, args.risk)
+    run_id, task, risk, thread_mode, lanes, errors = resolve_create_inputs(args)
+    allowed_dirty = [audit_lane_root(run_id).as_posix()] if args.from_run else []
+    decision, preflight_errors = preflight(task, risk, allowed_dirty_prefixes=allowed_dirty)
+    errors.extend(preflight_errors)
     errors.extend(lane_definition_errors(lanes))
-    errors.extend(ensure_user_approval(args))
+    errors.extend(ensure_user_approval(args.user_approved, thread_mode, args.acknowledge_auto_thread_risk))
     if decision == "SERIAL_RECOMMENDED" and not args.force:
         errors.extend(errors or ["parallel lanes are not recommended for this task"])
     if errors:
-        if args.thread_mode == "auto":
+        if thread_mode == "auto":
             print(THREAD_RISK_WARNING.strip())
         print_errors("PARALLEL WORKTREE CREATE: BLOCKED", errors)
         return 2
 
     root = repo_root()
     base_commit = run_git(["rev-parse", "HEAD"], check=True)
-    run_id = args.run_id or f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{slugify(args.task)[:32]}"
-    run_root = lane_root(run_id)
-    contracts_root = run_root / "contracts"
-    prompts_root = run_root / "prompts"
-    handoffs_root = run_root / "handoffs"
+    audit_root = audit_lane_root(run_id)
+    runtime_root = local_lane_root(run_id)
+    contracts_root = runtime_root / "contracts"
+    prompts_root = runtime_root / "prompts"
+    handoffs_root = runtime_root / "handoffs"
     worktree_root = Path(args.worktree_root).resolve() if args.worktree_root else default_worktree_root(run_id, root)
-    if run_root.exists():
-        raise RuntimeError(f"lane run already exists: {run_root}")
+    if runtime_manifest_path(run_id).exists():
+        raise RuntimeError(f"lane runtime already exists: {runtime_manifest_path(run_id)}")
+    if audit_root.exists() and not args.from_run:
+        raise RuntimeError(f"lane audit run already exists; use --from-run {run_id} or choose a new --run-id")
+    if not audit_root.exists():
+        audit_root.mkdir(parents=True)
+        write_offer(audit_root, task, lanes, thread_mode)
+        write_plan(audit_root, run_id, task, risk, lanes, thread_mode)
+    ensure_git_info_excludes(root)
     contracts_root.mkdir(parents=True)
     prompts_root.mkdir(parents=True)
     handoffs_root.mkdir(parents=True)
@@ -524,6 +765,7 @@ def command_create(args: argparse.Namespace) -> int:
             worktree_path = worktree_root / lane.slug
             run_git(["worktree", "add", "-b", branch, str(worktree_path), base_commit], check=True)
             created_worktrees.append(worktree_path)
+            ensure_git_info_excludes(worktree_path)
             contract_path = contracts_root / f"{lane.slug}.md"
             prompt_path = prompts_root / f"{lane.slug}-prompt.md"
             contract_path.write_text(contract_text(lane, run_id, branch, worktree_path, base_commit), encoding="utf-8")
@@ -535,7 +777,7 @@ def command_create(args: argparse.Namespace) -> int:
                     {
                         "run_id": run_id,
                         "lane": lane.slug,
-                        "lane_manifest": (run_root / "lane-manifest.json").resolve().as_posix(),
+                        "lane_manifest": runtime_manifest_path(run_id).resolve().as_posix(),
                     },
                     indent=2,
                 ),
@@ -550,6 +792,8 @@ def command_create(args: argparse.Namespace) -> int:
                     "worktree_path": worktree_path.as_posix(),
                     "contract_path": contract_path.resolve().as_posix(),
                     "prompt_path": prompt_path.resolve().as_posix(),
+                    "runtime_contract": display_path(contract_path, root),
+                    "runtime_prompt": display_path(prompt_path, root),
                     "handoff_path": "",
                     "allowed_files": lane.allowed_files,
                     "forbidden_files": lane.forbidden_files,
@@ -564,26 +808,29 @@ def command_create(args: argparse.Namespace) -> int:
             subprocess.run(["git", "worktree", "remove", "--force", str(path)], check=False)
         raise
 
-    offer_path = write_offer(run_root, args.task, lanes, args.thread_mode)
+    offer_path = audit_root / "parallel-worktree-offer.md"
     manifest = {
         "schema_version": "1.0",
         "run_id": run_id,
-        "task": args.task,
-        "risk": args.risk,
-        "thread_mode": args.thread_mode,
+        "task": task,
+        "risk": risk,
+        "thread_mode": thread_mode,
         "base_commit": base_commit,
-        "created_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
+        "created_at": utc_timestamp(),
         "integration_owner": "parent-orchestrator-session",
         "current_state_owner": "parent-orchestrator-session",
         "merge_policy": "one-lane-at-a-time-after-validation-and-review",
         "offer_path": offer_path.as_posix(),
+        "audit_root": audit_root.as_posix(),
+        "runtime_root": runtime_root.resolve().as_posix(),
         "worktree_root": worktree_root.as_posix(),
         "lanes": lane_records,
     }
-    manifest_path = run_root / "lane-manifest.json"
+    manifest_path = runtime_manifest_path(run_id)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    if args.thread_mode == "auto":
-        (run_root / "auto-thread-requests.json").write_text(
+    summary = write_audit_summary(audit_root, manifest)
+    if thread_mode == "auto":
+        (runtime_root / "auto-thread-requests.json").write_text(
             json.dumps(
                 {
                     "warning": THREAD_RISK_WARNING,
@@ -603,6 +850,7 @@ def command_create(args: argparse.Namespace) -> int:
         )
     print(f"Created parallel worktree run: {run_id}")
     print(f"Lane manifest: {manifest_path.as_posix()}")
+    print(f"Commit-safe summary: {summary.as_posix()}")
     print("Default next step: open a separate Codex chat for each prompt under the prompts folder.")
     return 0
 
@@ -617,9 +865,9 @@ def load_lane_manifest(run_id: str | None, current: bool = False) -> tuple[Path,
                 manifest_path = Path(data["lane_manifest"])
                 if manifest_path.exists():
                     return manifest_path, json.loads(manifest_path.read_text(encoding="utf-8"))
-    candidates = sorted(LANE_ROOT.glob("*/lane-manifest.json"))
+    candidates = sorted(LOCAL_LANE_ROOT.glob(f"*/{RUNTIME_MANIFEST_FILE}"))
     if run_id:
-        candidates = [LANE_ROOT / run_id / "lane-manifest.json"]
+        candidates = [runtime_manifest_path(run_id)]
     if not candidates:
         raise RuntimeError("no lane manifest found")
     cwd = Path.cwd().resolve()
@@ -642,7 +890,7 @@ def changed_files(worktree_path: Path, base_commit: str) -> list[str]:
     files.update(normalize_path(line) for line in diff.splitlines() if line.strip())
     diff_cached = run_git(["-C", str(worktree_path), "diff", "--cached", "--name-only", base_commit])
     files.update(normalize_path(line) for line in diff_cached.splitlines() if line.strip())
-    status = run_git(["-C", str(worktree_path), "status", "--porcelain"])
+    status = run_git(["-C", str(worktree_path), "status", "--porcelain", "-uall"])
     for line in status.splitlines():
         if not line.strip():
             continue
@@ -688,9 +936,9 @@ def command_validate(args: argparse.Namespace) -> int:
             continue
         errors.extend(validate_lane(lane, manifest["base_commit"]))
     if errors:
-        print_errors("PARALLEL WORKTREE LANES: FAIL", errors)
+        print_errors("PARALLEL WORKTREE LANES: CONTRACT FAIL", errors)
         return 1
-    print("PARALLEL WORKTREE LANES: PASS")
+    print("PARALLEL WORKTREE LANES: CONTRACT PASS")
     return 0
 
 
@@ -728,6 +976,9 @@ def command_close(args: argparse.Namespace) -> int:
     if not found:
         raise RuntimeError(f"lane not found: {args.lane}")
     path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    audit_root = Path(manifest.get("audit_root", audit_lane_root(manifest["run_id"]).as_posix()))
+    if audit_root.exists():
+        write_audit_summary(audit_root, manifest)
     print(f"Updated {target} to {args.status}")
     return 0
 
@@ -776,13 +1027,14 @@ def build_parser() -> argparse.ArgumentParser:
     plan.set_defaults(func=command_plan)
 
     create = subparsers.add_parser("create")
-    create.add_argument("--task", required=True)
+    create.add_argument("--from-run", help="create worktrees from a prior plan run id")
+    create.add_argument("--task")
     create.add_argument("--risk", choices=["routine", "material", "high"], default="material")
-    create.add_argument("--lane", action="append", required=True)
+    create.add_argument("--lane", action="append")
     create.add_argument("--validation", action="append", default=[])
     create.add_argument("--run-id")
     create.add_argument("--worktree-root")
-    create.add_argument("--thread-mode", choices=["manual", "auto"], default="manual")
+    create.add_argument("--thread-mode", choices=["manual", "auto"])
     create.add_argument("--user-approved", action="store_true")
     create.add_argument("--acknowledge-auto-thread-risk", action="store_true")
     create.add_argument("--force", action="store_true")

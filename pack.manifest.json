@@ -1,5 +1,6 @@
 {
-  "version": "0.7.0",
+  "$schema": "pack.schema.json",
+  "version": "0.8.0",
   "package_name": "codex-coding-os",
   "display_name": "Codex Coding OS",
   "release_status": "public-release-candidate",
@@ -10,6 +11,7 @@
     "plugin_and_mcp_guidance": "docs/codex-plugins-mcps-hooks.md",
     "codex_rules_guidance": "docs/codex-rules.md",
     "license_strategy": "docs/license-strategy.md",
+    "manifest_schema": "pack.schema.json",
     "release_process": "docs/publishing-checklist.md",
     "release_history": "CHANGELOG.md",
     "philosophy": "docs/philosophy.md",
@@ -22,8 +24,11 @@
     "CHANGELOG.md",
     "AGENTS.md",
     "LICENSE.md",
-    "COMMERCIAL.md",
+    "COMMERCIAL-USE.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
     "NOTICE.md",
+    "pack.schema.json",
     "THIRD_PARTY_SKILLS.md",
     "pack.manifest.json",
     "codex-capabilities/default-skills-reference.md",
@@ -104,7 +109,9 @@
     "README.md",
     "CHANGELOG.md",
     "LICENSE.md",
-    "COMMERCIAL.md",
+    "COMMERCIAL-USE.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
     "NOTICE.md"
   ],
   "bundled_skills": [
@@ -170,6 +177,8 @@
     "excluded_paths": [
       ".git",
       ".external-sources",
+      ".codex/parallel-worktrees",
+      ".codex/parallel-lane.json",
       ".release-exclusions.local.txt",
       ".private-terms.local.txt"
     ]

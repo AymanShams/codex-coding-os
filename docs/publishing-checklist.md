@@ -11,9 +11,11 @@
 ## Before public release
 
 - Confirm `pack.manifest.json` is the current source of truth.
+- Confirm `pack.schema.json` still describes the manifest shape.
 - Confirm `pack.manifest.json#version` is valid semantic versioning and has a matching `CHANGELOG.md` entry.
 - Commit the reviewed release state and confirm tracked Git files match `HEAD` before packaging.
 - Run `.\scripts\validate-pack.ps1 -RequireExternalScanners` after installing `gitleaks` and `trufflehog`.
+- Run `.\scripts\release-safety-scan.ps1 -RequireExternalScanners -ScanGitHistory` before public release.
 - Run `.\tests\install-uninstall-smoke.ps1`.
 - Confirm the GitHub Actions Ubuntu and macOS bash smoke tests pass.
 - Rebuild the ZIP with `.\scripts\package.ps1`.
@@ -26,11 +28,12 @@
 - Confirm GitHub Actions passes on a fresh clone.
 - Test `scripts/install.sh` and `scripts/uninstall.sh` on macOS or Linux before advertising cross-platform support.
 - Confirm examples and templates are generic and contain no private context.
+- Confirm committed parallel-lane audit files do not contain local absolute paths.
 - Confirm no credentials, API keys, production values, private exports, local caches, or connected-app state are present.
 
 ## Before organizational adoption or redistribution
 
-- Have counsel review `LICENSE.md`, `COMMERCIAL.md`, third-party notices, and attribution.
+- Have counsel review `LICENSE.md`, `COMMERCIAL-USE.md`, third-party notices, and attribution.
 - Require pinned commits, hashes, or signed releases for installable external sources.
 - Require CI secret scanning and artifact upload on protected branches.
 - Require branch protection and PR review for manifest, installer, rules, and security changes.

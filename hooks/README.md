@@ -18,3 +18,7 @@ The worktree lane hooks are optional Git hook wrappers. They call
 `python scripts/agent/worktree_lanes.py validate --current` and fail closed when
 an active lane edits files outside its contract, touches controlled files without
 permission, or lacks required lane state.
+
+If an active lane marker exists but `scripts/agent/worktree_lanes.py` is missing,
+the hooks fail closed. Passing this hook means the lane contract is valid; it does
+not replace the lane's declared tests, build, lint, or review commands.

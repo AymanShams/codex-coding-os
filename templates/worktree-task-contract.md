@@ -5,7 +5,7 @@
 - Lane:
 - Branch:
 - Base commit:
-- Worktree path:
+- Local worktree path: keep in local runtime files only; do not copy into commit-safe summaries.
 - Integration owner: parent/orchestrator session
 - Current-state owner: parent/orchestrator session
 - Risk level: Routine / Material / High
@@ -58,3 +58,4 @@
 ## Required Handoff
 - Use `templates/parallel-lane-handoff.md`.
 - Include changed files, validation evidence, checks not run, blockers, and review packet.
+- Keep absolute machine paths in local runtime notes only.

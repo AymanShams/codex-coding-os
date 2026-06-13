@@ -4,7 +4,7 @@
 - Run ID:
 - Lane:
 - Branch:
-- Worktree path:
+- Local worktree path: keep out of committed summaries unless explicitly needed for local-only handoff.
 - Base commit:
 
 ## Work Completed
@@ -30,6 +30,7 @@
 - Acceptance criteria:
 - Validation output:
 - Non-goals:
+- Local runtime files: `.codex/parallel-worktrees/<run-id>/`
 
 ## Blockers Or Risks
 -

@@ -133,7 +133,8 @@ Recommended hook uses:
 4. Run frontend QA checks after UI changes.
 5. Reapply external skill overlays after optional external skill installation.
 6. Run `python scripts/agent/worktree_lanes.py validate --current` before commit
-   or push in projects that enable parallel worktree lanes.
+   or push in projects that enable parallel worktree lanes. This validates the
+   lane contract; it does not replace the lane's declared test or build commands.
 
 ## Hook safety rules
 

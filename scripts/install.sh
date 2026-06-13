@@ -196,7 +196,10 @@ support_items=(
   README.md
   CHANGELOG.md
   LICENSE.md
-  COMMERCIAL.md
+  COMMERCIAL-USE.md
+  SECURITY.md
+  CONTRIBUTING.md
+  pack.schema.json
   NOTICE.md
 )
 

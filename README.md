@@ -1,5 +1,7 @@
 # Codex Coding OS
 
+[![Validate pack](https://github.com/AymanShams/codex-coding-os/actions/workflows/validate.yml/badge.svg)](https://github.com/AymanShams/codex-coding-os/actions/workflows/validate.yml)
+
 Codex Coding OS is the installable package name for a full Codex Coding OS:
 a spec-first, skills-mediated control system for AI-assisted software development.
 
@@ -12,6 +14,27 @@ implementation, review, validation, and handoff.
 
 Operating principles live in [docs/philosophy.md](docs/philosophy.md). Review rules
 live in [docs/review-doctrine.md](docs/review-doctrine.md).
+
+## Fast path
+
+1. Install the pack.
+2. Restart Codex.
+3. Open a new Codex chat.
+4. Paste `templates/first-codex-prompt.md` with your idea filled in.
+5. Let Codex gather decisions and create the project documents before coding.
+
+## Who this is for
+
+- Non-technical founders who want Codex to move from idea to PRD, technical plan,
+  and implementation without skipping the questions that prevent rework.
+- Technical builders who want reusable skills, templates, review gates, and
+  validation scripts around AI-assisted coding.
+- Teams that need a lightweight public-release-ready pack they can inspect, fork,
+  and adapt without importing private project context.
+
+Use the full workflow for new products, unclear repositories, architecture changes,
+shared behavior, sensitive data, or work where wrong assumptions would be expensive.
+Use the lighter path for small, reversible, already-specified edits.
 
 ## What this solves
 
@@ -44,6 +67,8 @@ This pack turns that into a controlled workflow:
 - Install, uninstall, validation, packaging, and optional external-skill scripts.
 - References for Codex plugins, MCPs, local tools, default skills, command rules,
   and external skill sources.
+- Public repo hygiene files: security reporting, contribution guidance, manifest
+  schema, release checklist, and license FAQ.
 
 ## Install on Windows
 
@@ -233,6 +258,7 @@ Common release checks:
 .\scripts\validate-pack.ps1
 .\tests\install-uninstall-smoke.ps1
 python .\tests\workflow-gates-smoke.py
+python .\tests\worktree-lanes-smoke.py
 .\scripts\package.ps1
 ```
 
@@ -283,5 +309,5 @@ are recorded in `CHANGELOG.md`.
 Codex Coding OS is licensed under the Mozilla Public License 2.0. See
 `LICENSE.md`.
 
-Commercial use is allowed under MPL-2.0. See `COMMERCIAL.md` for the practical
-commercial-use boundary and third-party-license reminders.
+Commercial use is allowed under MPL-2.0. See `COMMERCIAL-USE.md` for the
+practical commercial-use boundary and third-party-license reminders.

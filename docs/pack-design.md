@@ -19,13 +19,13 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 
 | Layer | Files | Purpose |
 |---|---|---|
-| Pack manifest | `pack.manifest.json` | Source of truth for package version, required files, bundled skills, support items, and release exclusions |
+| Pack manifest | `pack.manifest.json`, `pack.schema.json` | Source of truth for package version, required files, bundled skills, support items, release exclusions, and manifest shape |
 | Installer | `scripts/install.ps1` | Copies skills and optionally adds global AGENTS rules |
 | Master skill | `.agents/skills/codex-coding-os-master/SKILL.md` | Routes the full coding workflow |
 | Workflow skills | `.agents/skills/*/SKILL.md` | Full local skills for PRD, docs, repo instructions, QA, security, architecture, frontend, and review gates |
 | Templates | `templates/*.md` | Gives the user and Codex controlled output shapes, including the full repo documentation pack template |
 | Third-party references | `THIRD_PARTY_SKILLS.md`, `patches/` | Links external skills and stores local overlay notes |
-| Validation | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1` | Checks manifest inventory, skill frontmatter, release exclusions, forbidden files, and secret patterns |
+| Validation | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1` | Checks manifest inventory, skill frontmatter, release exclusions, forbidden files, secret patterns, and optional Git history scanner runs |
 | Session continuity | `.agents/skills/project-session-continuity/` | Provides generic current-state, session-start, boundary-decision, and persistent-handoff controls |
 | Parallel worktree lanes | `scripts/agent/worktree_lanes.py`, `docs/parallel-worktree-doctrine.md`, `templates/worktree-task-contract.md` | Offers, creates, validates, and closes bounded worktree lanes after manifest and user-approval gates pass |
 | Command policy templates | `.codex/rules/` | Optional Codex command approval rules for destructive commands, installs, deployments, migrations, and secret exposure |

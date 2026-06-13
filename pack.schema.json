@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AymanShams/codex-coding-os/blob/main/pack.schema.json",
+  "title": "Codex Coding OS Pack Manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "version",
+    "package_name",
+    "display_name",
+    "release_status",
+    "source_of_truth",
+    "required_files",
+    "support_items",
+    "bundled_skills",
+    "release_safety"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+([\\-+][0-9A-Za-z.-]+)?$"
+    },
+    "package_name": {
+      "type": "string",
+      "const": "codex-coding-os"
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "release_status": {
+      "type": "string"
+    },
+    "source_of_truth": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "required_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "support_items": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "bundled_skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["name", "category", "required", "source"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "release_safety": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["forbidden_file_extensions", "excluded_paths"],
+      "properties": {
+        "forbidden_file_extensions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\."
+          },
+          "uniqueItems": true
+        },
+        "excluded_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

@@ -19,8 +19,9 @@ applications created with the pack to inherit the same license.
 
 ## Commercial use
 
-Commercial use is allowed under `LICENSE.md`. `COMMERCIAL.md` explains the practical
-commercial-use boundary and does not create a separate paid-license requirement.
+Commercial use is allowed under `LICENSE.md`. `COMMERCIAL-USE.md` explains the
+practical commercial-use boundary and does not create a separate paid-license
+requirement.
 
 ## Output boundary
 

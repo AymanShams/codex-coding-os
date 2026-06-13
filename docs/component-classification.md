@@ -25,9 +25,9 @@
 
 | Component group | Files | Reason |
 |---|---|---|
-| Pack source of truth | `pack.manifest.json` | Drives validation and release inventory |
+| Pack source of truth | `pack.manifest.json`, `pack.schema.json` | Drives validation, release inventory, and manifest shape |
 | Install and uninstall | `scripts/install.ps1`, `scripts/uninstall.ps1`, `scripts/install.sh`, `scripts/uninstall.sh` | Installs skills and support files, writes an install manifest, and removes from matching paths |
-| Release safety | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1`, `scripts/package.ps1` | Validates required files, skill frontmatter, secret patterns, release exclusions, and generated ZIP contents |
+| Release safety | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1`, `scripts/package.ps1` | Validates required files, skill frontmatter, secret patterns, release exclusions, optional Git history scans, and generated ZIP contents |
 | Parallel lane orchestration | `scripts/agent/worktree_lanes.py`, `hooks/worktree-lane-pre-commit.py`, `hooks/worktree-lane-pre-push.py` | Creates bounded worktrees only after approval and validates lane contracts before commit or push when hooks are enabled |
 | CI and smoke test | `.github/workflows/validate.yml`, `tests/install-uninstall-smoke.ps1` | Runs validation, install/reinstall/uninstall test, and package build |
 | Command approval templates | `.codex/rules/default.rules`, `docs/codex-rules.md` | Optional Codex command policy for destructive commands, installs, migrations, deployments, and secret exposure |

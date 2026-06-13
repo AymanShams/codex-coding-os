@@ -5,3 +5,5 @@
 *.backup-*
 __pycache__/
 *.pyc
+.codex/parallel-worktrees/
+.codex/parallel-lane.json

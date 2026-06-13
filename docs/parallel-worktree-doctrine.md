@@ -46,7 +46,6 @@ Each lane is defined by:
 
 - one objective;
 - one branch;
-- one worktree path;
 - one base commit;
 - allowed files;
 - forbidden files;
@@ -55,6 +54,13 @@ Each lane is defined by:
 - review requirement;
 - stop conditions;
 - handoff requirement.
+
+Commit-safe audit files live under `docs/delivery/parallel-worktrees/<run-id>/`.
+They must not contain local absolute paths.
+
+Local runtime files live under `.codex/parallel-worktrees/<run-id>/`. Runtime
+contracts, prompts, auto-thread request files, and lane manifests may contain
+machine-specific worktree paths and are excluded from Git.
 
 Lane names describe bounded work, not personas. Use names such as `auth-api`,
 `checkout-tests`, `docs-alignment`, or `security-review`. Do not use roleplay names
@@ -117,6 +123,20 @@ It requires explicit user opt-in and an acknowledgement that automated thread
 creation can send the wrong prompt, miss local context, or make ownership unclear.
 
 If thread-creation tools are unavailable, Codex must fall back to manual prompts.
+
+## Command Flow
+
+For non-technical users, prefer this sequence:
+
+1. `python scripts/agent/worktree_lanes.py plan ...`
+2. Review the generated offer under `docs/delivery/parallel-worktrees/<run-id>/`.
+3. Create lanes only after explicit approval with
+   `python scripts/agent/worktree_lanes.py create --from-run <run-id> --user-approved`.
+4. Validate lane ownership with
+   `python scripts/agent/worktree_lanes.py validate --run-id <run-id>`.
+
+The validation command reports contract status only. Lane sessions must still run
+their declared validation commands and include the results in the lane handoff.
 
 ## Failure Response
 

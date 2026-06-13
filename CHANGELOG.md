@@ -2,6 +2,20 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [0.8.0] - 2026-06-13
+
+### Added
+
+- Added `SECURITY.md`, `CONTRIBUTING.md`, and `pack.schema.json` for public-release hygiene.
+- Added compact README fast path, audience labels, and GitHub Actions status badge.
+- Added release-safety support for external scanner Git history mode.
+
+### Changed
+
+- Hardened parallel worktree lanes with plan-to-create flow, local-only runtime state, commit-safe audit summaries, neutral default run IDs, and contract-specific validation wording.
+- Hardened optional lane hooks to fail closed when an active lane marker exists but the validator script is missing.
+- Renamed `COMMERCIAL.md` to `COMMERCIAL-USE.md` to clarify that commercial use is allowed under MPL-2.0 and no separate commercial license is created by the FAQ.
+
 ## [0.7.0] - 2026-06-13
 
 ### Added

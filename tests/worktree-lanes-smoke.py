@@ -45,6 +45,17 @@ def ready_manifest(project: Path) -> None:
     (project / "project-documentation-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
+def assert_no_local_paths(path: Path, project: Path) -> None:
+    forbidden = {str(project), project.as_posix()}
+    for file_path in path.rglob("*"):
+        if not file_path.is_file():
+            continue
+        text = file_path.read_text(encoding="utf-8")
+        for marker in forbidden:
+            if marker and marker in text:
+                raise AssertionError(f"Commit-safe audit file contains local path {marker}: {file_path}")
+
+
 def main() -> int:
     python = sys.executable
     with tempfile.TemporaryDirectory(prefix="coding-os-worktree-lanes-") as temp:
@@ -147,18 +158,17 @@ def main() -> int:
         if "auto thread mode" not in auto_without_ack.stdout:
             raise AssertionError(auto_without_ack.stdout)
 
-        created = run(
+        planned = run(
             [
                 python,
                 str(SCRIPT),
-                "create",
+                "plan",
                 "--task",
                 "parallel auth feature",
                 "--risk",
                 "high",
                 "--run-id",
                 "smoke",
-                "--user-approved",
                 "--lane",
                 "code|Implement code|src/feature.py||fresh-context|python -m pytest",
                 "--lane",
@@ -167,15 +177,35 @@ def main() -> int:
             project,
             0,
         )
+        if "create --from-run smoke" not in planned.stdout:
+            raise AssertionError(planned.stdout)
+
+        created = run(
+            [
+                python,
+                str(SCRIPT),
+                "create",
+                "--from-run",
+                "smoke",
+                "--user-approved",
+            ],
+            project,
+            0,
+        )
         if "Created parallel worktree run" not in created.stdout:
             raise AssertionError(created.stdout)
 
-        lane_manifest = project / "docs" / "delivery" / "parallel-worktrees" / "smoke" / "lane-manifest.json"
+        audit_root = project / "docs" / "delivery" / "parallel-worktrees" / "smoke"
+        assert_no_local_paths(audit_root, project)
+
+        lane_manifest = project / ".codex" / "parallel-worktrees" / "smoke" / "lane-manifest.json"
         manifest = json.loads(lane_manifest.read_text(encoding="utf-8"))
         code_lane = next(lane for lane in manifest["lanes"] if lane["slug"] == "code")
         code_tree = Path(code_lane["worktree_path"])
         (code_tree / "src" / "feature.py").write_text("print('changed')\n", encoding="utf-8")
-        run([python, str(SCRIPT), "validate", "--run-id", "smoke"], project, 0)
+        validated = run([python, str(SCRIPT), "validate", "--run-id", "smoke"], project, 0)
+        if "CONTRACT PASS" not in validated.stdout:
+            raise AssertionError(validated.stdout)
 
         (code_tree / "project-documentation-manifest.json").write_text("{}", encoding="utf-8")
         controlled = run([python, str(SCRIPT), "validate", "--run-id", "smoke"], project, 1)
