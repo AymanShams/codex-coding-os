@@ -7,6 +7,8 @@ description: Use when the user asks Codex to start or review a new software proj
 
 Move from idea or source folder to a controlled, source-locked project documentation system and repo handoff. Keep this skill as the conductor. Route detailed drafting to the owning skills instead of duplicating their templates.
 
+If `codex-coding-os-master` is available and the user asks for a full coding project workflow, treat this skill as the documentation-phase owner under that master workflow. Do not act as the final implementation, review, validation, or maintenance authority.
+
 ## Default Mode
 
 When this skill is explicitly invoked without a narrower request, use **Full Run** mode.

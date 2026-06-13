@@ -2,6 +2,14 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [0.8.2] - 2026-06-14
+
+### Changed
+
+- Expanded `codex-coding-os-master` routing metadata so project starts, repo rescue, PRD/TDD/docs, `AGENTS.md`, handoff, and continuity work trigger the master workflow more reliably.
+- Clarified that `new-project-documentation-system` owns the documentation phase when the master workflow is available, not final implementation, review, validation, or maintenance authority.
+- Added public-safe agent harness security gates to `ai-coding-discipline` for skill packs, hooks, MCP servers, external agents, local services, secrets, observability, and memory boundaries.
+
 ## [0.8.1] - 2026-06-13
 
 ### Changed

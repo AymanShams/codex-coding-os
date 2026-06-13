@@ -1,6 +1,6 @@
 ---
 name: codex-coding-os-master
-description: Use when a user starts or continues a Codex coding project, wants to vibe code safely, asks to turn an idea into a PRD, wants a complete coding operating workflow, needs repo AGENTS files, or wants one master workflow from idea through implementation, review, validation, and maintenance.
+description: Use when a user starts or continues a Codex coding project, starts a new software project, reviews or rescues an existing repo, wants safe vibe coding, asks to turn an idea into controlled docs, PRD, TDD, repo docs, AGENTS.md, handoff, project session continuity, or wants one master workflow from idea through implementation, review, validation, and maintenance.
 ---
 
 # Codex Coding OS Master
