@@ -41,7 +41,7 @@ This file records the active slice, exact next permitted action, risks, and sess
 
 ## New Session Start Instructions
 ```text
-Run the project session-start gate. Read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action.
+Paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract

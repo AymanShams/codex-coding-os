@@ -2,6 +2,16 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [0.5.0] - 2026-06-13
+
+### Changed
+
+- Switched the package license model to MPL-2.0 and aligned public license guidance, notices, and commercial-use notes.
+- Reworked the README into the hybrid full-system introduction while preserving the installable package name.
+- Strengthened session handoff rules so new sessions receive a paste-ready next-session prompt, not only a command.
+- Added context-budget and instruction-placement rules for first-party skill design.
+- Added focused retry, reproduction, out-of-scope, and architecture-legibility guardrails from a narrow project review.
+
 ## [0.4.0] - 2026-06-13
 
 ### Added

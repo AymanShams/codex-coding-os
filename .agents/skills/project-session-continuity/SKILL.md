@@ -72,7 +72,9 @@ When a trigger fires:
 4. Replace every generated `[Agent must ...]` placeholder.
 5. Run `python scripts/agent/session_continuity.py validate`.
 6. Run relevant project validation and `git status -sb`.
-7. Give the user the exact next-session task and first command.
+7. Give the user a paste-ready next-session prompt plus the first command to run inside that session.
+
+The next-session prompt must include the repository path, required reading order, latest current-state and handoff paths, workflow manifest path, the exact next permitted action, and stop conditions. It must not imply that coding is permitted unless the manifest independently permits coding.
 
 ## Source And Gate Rules
 

@@ -27,6 +27,9 @@ Every first-party skill must define:
 - Keep coordination artifacts subordinate to controlled sources.
 - Prefer deterministic scripts for repeatable checks.
 - Treat unavailable checks as reported gaps, not implicit passes.
+- Keep root `AGENTS.md` concise. Put folder-specific rules in scoped `AGENTS.md` files, detailed procedures in skills or docs, and repeatable checks in scripts or hooks.
+- Do not add broad prompt packs, persona rules, or roleplay instructions unless they close a verified coding failure mode.
+- Prefer a pointer to the owning source over copied detail when the copied detail would drift.
 
 ## Validation
 
@@ -38,7 +41,8 @@ Before accepting a new or materially changed first-party skill:
 4. Exercise scripts against passing and failing cases.
 5. Confirm stop gates fail closed.
 6. Check that outputs and completion claims match the skill contract.
-7. Update the pack inventory, routing catalogue, and manifest.
+7. Test trigger behavior with one obvious trigger, one paraphrase trigger, one unrelated negative case, and one adjacent-skill negative case.
+8. Update the pack inventory, routing catalogue, and manifest.
 
 ## Removal Or Consolidation
 

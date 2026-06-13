@@ -12,6 +12,11 @@ These instructions apply to everything under this folder.
 - {{doc_or_file_1}}
 - {{doc_or_file_2}}
 
+## Source Relationship
+- Follow root `AGENTS.md` first.
+- Use this file only for rules specific to this folder.
+- If this file conflicts with controlled product, architecture, security, API, schema, or workflow docs, stop and report the conflict.
+
 ## Do
 - Keep changes inside this folder unless the task requires cross-folder work.
 - Preserve public interfaces unless the calling code is updated.
@@ -28,4 +33,3 @@ These instructions apply to everything under this folder.
 ```powershell
 {{folder_specific_validation_command}}
 ```
-

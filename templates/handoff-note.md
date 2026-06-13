@@ -39,11 +39,19 @@
 
 ## Next Prompt
 ```text
-Continue from this repo state.
+Continue this project in the repository containing this handoff.
 
-Run python scripts/agent/session_continuity.py start.
-Read AGENTS.md, docs/delivery/current-state.md, its latest handoff, project-documentation-manifest.json, and the controlling docs.
-Then handle only this next permitted task:
+First run:
+python scripts/agent/session_continuity.py start
+
+Then read:
+1. AGENTS.md and the closest scoped AGENTS.md files
+2. docs/delivery/current-state.md
+3. this latest handoff
+4. project-documentation-manifest.json
+5. the task-controlling docs
+
+Handle only this next permitted task:
 {{next_task}}
 
 If the workflow manifest does not permit coding, continue from its first blocked or incomplete phase. Before editing, summarize the affected files and validation plan.

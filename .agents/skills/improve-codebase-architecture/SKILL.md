@@ -44,6 +44,14 @@ Then walk the codebase using the normal Codex inspection tools available in the 
 
 Apply the **deletion test** to anything you suspect is shallow: would deleting it concentrate complexity, or just move it? A "yes, concentrates" is the signal you want.
 
+Add a behavior-to-code legibility check:
+
+- Can a maintainer trace the user-visible behavior and important side effects to a small number of explicit modules?
+- Are state changes, permissions, data writes, retries, or external calls hidden inside generic handlers, callbacks, or implicit side effects?
+- Would a new agent know which module owns the behavior before editing, or would it need to search through unrelated orchestration code?
+
+Treat poor traceability as architecture friction when it increases bug risk, review effort, or agent error.
+
 ### 2. Present candidates
 
 Present a numbered list of deepening opportunities. For each candidate:

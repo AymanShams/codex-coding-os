@@ -50,6 +50,7 @@ REQUIRED_HANDOFF_HEADINGS = {
     "## Risks And Blockers",
     "## Work Explicitly Not Done",
     "## Recommended Next Slice",
+    "## Paste-Ready Next-Session Prompt",
     "## Resume Instructions For The Next Agent",
 }
 READY_TO_CODE = {"approved", "completed"}
@@ -112,7 +113,7 @@ This file records coordination state only. Controlling product and technical sou
 
 ## New Session Start Instructions
 ```text
-Run the project session-start gate. Read current state, its latest handoff, the workflow manifest, and controlling sources.
+Paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract
@@ -409,12 +410,34 @@ Handoff reason: {args.reason}
 ## Recommended Next Slice
 {args.next}
 
+## Paste-Ready Next-Session Prompt
+```text
+Continue this project in the repository:
+{Path.cwd().as_posix()}
+
+First run:
+python scripts/agent/session_continuity.py start
+
+Then read:
+1. AGENTS.md and the closest scoped AGENTS.md files
+2. docs/delivery/current-state.md
+3. the latest handoff referenced by current state
+4. project-documentation-manifest.json
+5. the task-controlling docs
+
+Continue only from this exact next permitted slice:
+{args.next}
+
+Stop if the session-start gate blocks, the workflow manifest blocks the requested action, required sources are missing, or coding is not explicitly permitted.
+```
+
 ## Resume Instructions For The Next Agent
 1. Start a new session in this repository.
-2. Run `python scripts/agent/session_continuity.py start`.
-3. Read agent instructions, current state, latest handoff, workflow manifest, and controlling sources.
-4. Confirm the exact next permitted action before editing.
-5. Do not duplicate completed work or bypass a blocked documentation phase.
+2. Paste the prompt above.
+3. Run `python scripts/agent/session_continuity.py start` as the first command inside that session.
+4. Read agent instructions, current state, latest handoff, workflow manifest, and controlling sources.
+5. Confirm the exact next permitted action before editing.
+6. Do not duplicate completed work or bypass a blocked documentation phase.
 """
     if not args.write:
         print(content)

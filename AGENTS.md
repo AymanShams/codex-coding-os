@@ -38,6 +38,7 @@ Before editing code:
 - Search existing code before creating new helpers, types, components, services, or scripts.
 - When `scripts/agent/session_continuity.py` exists, run its `start` command and read `docs/delivery/current-state.md`.
 - When `project-documentation-manifest.json` exists, confirm it permits the requested action. A new chat or handoff cannot bypass it.
+- Keep root instructions universal. Place folder-specific rules in scoped `AGENTS.md` files and detailed task procedures in skills or docs.
 
 During edits:
 

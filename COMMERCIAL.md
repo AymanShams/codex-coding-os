@@ -1,34 +1,36 @@
-# Commercial Licensing
+# Commercial Use
 
-Commercial use is not permitted under the public noncommercial license.
+Commercial use of Codex Coding OS Starter is permitted under the Mozilla Public
+License 2.0.
 
-## Commercial Use Includes
+## What this means
 
-- Using the pack inside a for-profit company or enterprise.
-- Using the pack for client work.
-- Using the pack in agency, consulting, or contractor delivery.
-- Using the pack to build or support a paid product, paid service, SaaS, internal business system, or revenue-generating workflow.
-- Redistributing the pack as part of a commercial product or service.
+- You may use the covered files in personal, nonprofit, academic, startup, agency,
+  consulting, enterprise, and commercial settings.
+- You may charge for products, services, support, training, or implementation work
+  that uses this repository.
+- If you distribute modified covered files, those files must remain available under
+  MPL-2.0 and keep required license notices.
+- Larger works may use their own license terms, provided the covered MPL files and
+  modifications to those files comply with MPL-2.0.
 
-## Commercial License Path
+## Outputs created with the pack
 
-A separate written commercial license can grant commercial use rights.
+Applications, codebases, documents, prompts, and business outputs created by using
+this pack are not automatically part of this repository merely because Codex Coding
+OS helped structure or guide the work.
 
-The commercial license should define:
+If you copy covered files from this repository into another project, those copied
+files remain subject to MPL-2.0.
 
-- who is licensed
-- permitted use cases
-- number of users or seats
-- redistribution rights
-- support expectations
-- price or fee structure
-- term and renewal
-- warranty and liability limits
-- attribution and trademark rules
+## Third-party components
 
-## Friend Personal Use
+Some bundled or referenced materials carry their own license notices. Review
+`NOTICE.md`, `THIRD_PARTY_SKILLS.md`, bundled `LICENSE.txt` files, and
+`external-skills/manifest.json` before redistributing a package that includes them.
 
-Personal, noncommercial use is covered by the public noncommercial license.
+## Warranty, support, and trademarks
 
-If a personal project later becomes commercial, the user should obtain a commercial license before using the pack for the commercialized project.
-
+MPL-2.0 does not grant trademark rights. It also provides the covered software
+without warranty. Paid support, warranty, indemnity, or service terms may be offered
+separately, but they are separate from the open-source license.

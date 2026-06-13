@@ -31,6 +31,7 @@ If these files conflict, ask for clarification or state the conflict before edit
 - Run available validation before final response.
 - Do not start implementation unless the workflow manifest permits coding.
 - Treat current state and handoffs as coordination records, not product or technical authority.
+- Keep this root file for repo-wide rules. Put folder-specific rules in scoped `AGENTS.md` files and detailed task procedures in skills or docs.
 
 ## Implementation Flow
 1. Restate the requested change in one sentence.

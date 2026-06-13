@@ -86,6 +86,8 @@ These are the durable operating rules to apply before and during AI coding:
    - Run the narrowest meaningful tests first, then broader checks if the blast radius justifies them.
    - For frontend work, use browser verification when the app can run.
    - Do not claim completion until the acceptance criteria have been checked or the unverified parts are clearly stated.
+   - For deterministic logic bugs, create or run a minimal failing reproduction before changing code when feasible.
+   - For visual, timing, environment, or integration bugs where a deterministic reproduction is not feasible, state why and collect equivalent evidence such as logs, screenshots, traces, or exact manual steps.
 
 ## Extra Guardrails From The 12-Rule Expansion
 
@@ -96,6 +98,8 @@ These are the durable operating rules to apply before and during AI coding:
 - **Tests are not the whole goal.** Tests must prove behavior, include negative cases where relevant, and cover the regression or invariant being protected.
 - **Convention beats novelty.** In existing code, match naming, file structure, error handling, logging, component style, test style, and API response shape.
 - **Fail visibly.** Say "not verified", "partially complete", "tests not run", or "migration incomplete" when that is true. Silent partial success is failure.
+- **Stop repeated failed loops.** After three materially similar failures, stop and summarize the attempts, exact errors, current hypothesis, and the next different diagnostic step. Do not keep retrying the same command or patch shape.
+- **Park out-of-scope discoveries.** Record adjacent bugs, cleanup ideas, and future refactors separately. Do not implement them without user approval or an explicit scope change.
 
 ## External Agent Safety
 

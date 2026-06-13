@@ -8,6 +8,15 @@ Machine-readable external source data is `external-skills/manifest.json`.
 
 The required release validation inventory is `pack.manifest.json`.
 
+## License relationship
+
+The top-level repository license is MPL-2.0. That license applies to this
+repository's covered files. It does not relicense third-party files that carry their
+own notices, and it does not apply to external repositories that are only linked here.
+
+Before redistributing this pack or a derivative package, preserve bundled license
+and notice files and review the provenance metadata in `external-skills/manifest.json`.
+
 ## Bundled skill groups relevant to provenance
 
 The bundled skills are full local skill folders, including references, assets, and scripts where available. This table summarizes bundled groups that matter for third-party provenance, attribution, or external-source comparison.

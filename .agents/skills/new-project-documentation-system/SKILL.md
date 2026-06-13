@@ -84,7 +84,7 @@ Complete phases in order. Do not advance past a blocked or awaiting-approval pha
 | 4. TDD and alignment | TDD created from controlled docs, external drafts reconciled when present, alignment review | TDD approved and no unresolved drift |
 | 5. Repo documentation | Full template-driven repo docs appropriate to the current stage | `technical-docs-pack` coverage validated |
 | 6. Agent instruction layer | Root/scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, session continuity command | Required reading, source hierarchy, and start gate verified |
-| 7. Handoff | Persistent history note, current-state update, exact next-chat task | Handoff matches actual state and cannot bypass the manifest |
+| 7. Handoff | Persistent history note, current-state update, paste-ready next-chat prompt | Handoff matches actual state and cannot bypass the manifest |
 | 8. Final validation | Pass/fail report, blockers, unavailable checks, git state when applicable | Manifest validator passes |
 
 ## Controlled Status Rules
@@ -113,6 +113,8 @@ For Full Run mode, produce or explicitly defer with user approval:
 - `docs/delivery/current-state.md` and project-local session continuity command
 - handoff history note and paste-ready next-chat prompt
 - final validation report
+
+The next-chat prompt must tell the next agent to run the session-start gate, read current state, latest handoff, workflow manifest, and controlling sources, then continue only from the exact next permitted action. Do not provide only a command.
 
 Use the orchestrator-owned assets for the project brief, decision register, alignment review, manifest, and handoff. Use specialist skills for the detailed PRD, controlled docs, repo docs, and validation report.
 

@@ -1,5 +1,5 @@
 {
-  "version": "0.4.0",
+  "version": "0.5.0",
   "package_name": "codex-coding-os-starter",
   "display_name": "Codex Coding OS",
   "release_status": "public-release-candidate",
@@ -9,6 +9,7 @@
     "external_source_data": "external-skills/manifest.json",
     "plugin_and_mcp_guidance": "docs/codex-plugins-mcps-hooks.md",
     "codex_rules_guidance": "docs/codex-rules.md",
+    "license_strategy": "docs/license-strategy.md",
     "release_process": "docs/publishing-checklist.md",
     "release_history": "CHANGELOG.md",
     "philosophy": "docs/philosophy.md",
@@ -32,6 +33,7 @@
     "docs/codex-plugins-mcps-hooks.md",
     "docs/codex-rules.md",
     "docs/mcp-review-checklist.md",
+    "docs/license-strategy.md",
     "docs/system-scope.md",
     "docs/external-skills-installation.md",
     "docs/getting-started.md",

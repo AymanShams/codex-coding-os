@@ -74,6 +74,25 @@ def main() -> int:
         blocked_start = run([python, str(local_continuity), "start", "--no-fetch"], project, 2)
         if "workflow manifest" not in blocked_start.stdout:
             raise AssertionError(blocked_start.stdout)
+        handoff = run(
+            [
+                python,
+                str(local_continuity),
+                "handoff",
+                "--topic",
+                "smoke",
+                "--reason",
+                "test",
+                "--next",
+                "resolve next slice",
+            ],
+            project,
+            0,
+        )
+        if "## Paste-Ready Next-Session Prompt" not in handoff.stdout:
+            raise AssertionError(handoff.stdout)
+        if "First run:" not in handoff.stdout or "python scripts/agent/session_continuity.py start" not in handoff.stdout:
+            raise AssertionError(handoff.stdout)
 
     print("Workflow gate smoke test passed.")
     return 0

@@ -28,7 +28,7 @@
 - Confirm examples and templates are generic and contain no private context.
 - Confirm no credentials, API keys, production values, private exports, local caches, or connected-app state are present.
 
-## Before enterprise use
+## Before organizational adoption or redistribution
 
 - Have counsel review `LICENSE.md`, `COMMERCIAL.md`, third-party notices, and attribution.
 - Require pinned commits, hashes, or signed releases for installable external sources.
