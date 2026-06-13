@@ -1,9 +1,12 @@
 # Codex Coding OS
 
 [![Validate pack](https://github.com/AymanShams/codex-coding-os/actions/workflows/validate.yml/badge.svg)](https://github.com/AymanShams/codex-coding-os/actions/workflows/validate.yml)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen.svg)](LICENSE.md)
+[![GitHub stars](https://img.shields.io/github/stars/AymanShams/codex-coding-os?style=social)](https://github.com/AymanShams/codex-coding-os/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/AymanShams/codex-coding-os)](https://github.com/AymanShams/codex-coding-os/commits/main)
 
-Codex Coding OS is the installable package name for a full Codex Coding OS:
-a spec-first, skills-mediated control system for AI-assisted software development.
+Codex Coding OS is an installable workflow pack for Codex: a spec-first,
+skills-mediated control system for AI-assisted software development.
 
 It is designed for builders who do not want Codex to start from a vague prompt and
 drift into unreviewable code. It gives Codex a structured path from idea intake to
@@ -264,6 +267,13 @@ python .\tests\worktree-lanes-smoke.py
 
 GitHub Actions runs the Windows validation path and Bash smoke tests on Ubuntu and
 macOS.
+
+Before public promotion, run the stricter history scan after installing `gitleaks`
+and `trufflehog`:
+
+```powershell
+.\scripts\release-safety-scan.ps1 -RequireExternalScanners -ScanGitHistory
+```
 
 ## Repository boundary
 

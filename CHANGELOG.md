@@ -2,6 +2,15 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [0.8.1] - 2026-06-13
+
+### Changed
+
+- Polished the README opening and added concise CI, license, stars, and last-commit badges.
+- Clarified commercial-use FAQ authority, contribution expectations for skill changes, and manifest schema enforcement boundaries.
+- Strengthened release safety checks for absolute local paths in committed parallel-lane audit files.
+- Added the public-promotion history-scan command to the README validation guidance.
+
 ## [0.8.0] - 2026-06-13
 
 ### Added

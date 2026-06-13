@@ -31,6 +31,22 @@ if ([string]$Manifest.version -notmatch '^\d+\.\d+\.\d+([\-+][0-9A-Za-z.-]+)?$')
   $Errors += "pack.manifest.json version must be valid SemVer: $($Manifest.version)"
 }
 
+$SchemaReference = [string]$Manifest.'$schema'
+if ($SchemaReference -ne "pack.schema.json") {
+  $Errors += "pack.manifest.json must reference pack.schema.json in the `$schema field."
+}
+
+$SchemaPath = Join-Path $RepoRoot "pack.schema.json"
+if (-not (Test-Path $SchemaPath)) {
+  $Errors += "Missing manifest schema reference: pack.schema.json"
+} else {
+  try {
+    $null = Get-Content -Raw -LiteralPath $SchemaPath | ConvertFrom-Json
+  } catch {
+    $Errors += "pack.schema.json is not valid JSON: $($_.Exception.Message)"
+  }
+}
+
 $VersionFile = Join-Path $RepoRoot "VERSION"
 if (Test-Path $VersionFile) {
   $Errors += "VERSION file is not allowed. pack.manifest.json#version is the sole package release version."

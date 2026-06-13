@@ -3,6 +3,8 @@
 Commercial use of Codex Coding OS is permitted under the Mozilla Public
 License 2.0.
 
+This file is explanatory only. The controlling license terms are in `LICENSE.md`.
+
 ## What this means
 
 - You may use the covered files in personal, nonprofit, academic, startup, agency,

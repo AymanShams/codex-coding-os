@@ -31,6 +31,10 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 | Command policy templates | `.codex/rules/` | Optional Codex command approval rules for destructive commands, installs, deployments, migrations, and secret exposure |
 | CI | `.github/workflows/validate.yml` | Runs validation and install/uninstall smoke tests on Windows, Ubuntu, and macOS, then builds the package on Windows |
 
+`pack.schema.json` documents the manifest reference shape. `scripts/validate-pack.ps1`
+is the enforcement layer: it checks the manifest fields this pack depends on, plus
+the presence and JSON validity of `pack.schema.json`.
+
 ## Operating model
 
 1. Install the pack.

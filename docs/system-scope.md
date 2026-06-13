@@ -83,7 +83,7 @@ The following local skills are not bundled because they are outside the coding O
 - `charlie`
 - `dossier-builder`
 - `growth-seo-ads-auditor`
-- `healpath-knowledge-layer`
+- project-specific knowledge-layer skills
 - `novel-writing`
 - `stakeholder-map`
 

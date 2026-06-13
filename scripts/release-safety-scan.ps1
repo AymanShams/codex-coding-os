@@ -69,6 +69,21 @@ foreach ($PatternInfo in $SecretPatterns) {
   }
 }
 
+$ParallelAuditRoot = Join-Path $RepoRoot "docs\delivery\parallel-worktrees"
+if (Test-Path $ParallelAuditRoot) {
+  $AbsolutePathPatterns = @(
+    @{ name = "Windows absolute path"; pattern = "\b[A-Za-z]:[\\/][^\s\)\]\}<>`"']+" },
+    @{ name = "Unix user or temp absolute path"; pattern = "(^|[\s\(`"\'])/(Users|home|tmp|var|mnt|Volumes)/[^\s\)\]\}<>`"']+" }
+  )
+  $ParallelAuditFiles = Get-ChildItem -Path $ParallelAuditRoot -Recurse -File -Force
+  foreach ($PatternInfo in $AbsolutePathPatterns) {
+    $Hits = $ParallelAuditFiles | Select-String -Pattern $PatternInfo.pattern -ErrorAction SilentlyContinue
+    foreach ($Hit in $Hits) {
+      $Errors += "Possible $($PatternInfo.name) in committed parallel-lane audit file $($Hit.Path):$($Hit.LineNumber)"
+    }
+  }
+}
+
 $LocalExclusionPath = Join-Path $RepoRoot ".release-exclusions.local.txt"
 if (Test-Path $LocalExclusionPath) {
   $ForbiddenTerms = Get-Content -LiteralPath $LocalExclusionPath | Where-Object {
@@ -100,8 +115,14 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
 
 if (Get-Command trufflehog -ErrorAction SilentlyContinue) {
   if ($ScanGitHistory) {
-    $RepoUri = (Resolve-Path -LiteralPath $RepoRoot).Path -replace "\\", "/"
-    & trufflehog git "file:///$RepoUri" --no-update --fail
+    $RemoteUrl = (& git -C $RepoRoot remote get-url origin 2>$null)
+    if ($RemoteUrl -match "^https://") {
+      Write-Output "TruffleHog history scan target: origin remote"
+      & trufflehog git $RemoteUrl --no-update --fail
+    } else {
+      $RepoUri = (Resolve-Path -LiteralPath $RepoRoot).Path -replace "\\", "/"
+      & trufflehog git "file:///$RepoUri" --no-update --fail
+    }
   } else {
     & trufflehog filesystem --no-update --fail $RepoRoot
   }

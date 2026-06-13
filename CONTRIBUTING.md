@@ -24,9 +24,10 @@ Before opening a pull request:
 2. Run the relevant smoke test for the files changed.
 3. Update `pack.manifest.json` when adding, removing, or renaming a required file.
 4. Update `CHANGELOG.md` for user-visible package changes.
-5. Check that new files contain no credentials, private context, local paths,
+5. Read `docs/skill-quality-standard.md` before adding or materially changing a skill.
+6. Check that new files contain no credentials, private context, local paths,
    generated plugin caches, or unreviewed third-party source copies.
-6. Add or correct attribution in `THIRD_PARTY_SKILLS.md` when a change uses an
+7. Add or correct attribution in `THIRD_PARTY_SKILLS.md` when a change uses an
    external source.
 
 ## Style

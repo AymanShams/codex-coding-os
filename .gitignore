@@ -1,4 +1,5 @@
 .private-terms.local.txt
+.release-exclusions.local.txt
 .external-sources/
 *.zip
 *.bak
