@@ -98,6 +98,8 @@ task contract, stop when the contract is insufficient, and end with a lane hando
 
 When a trigger fires:
 
+Apply the outcome-control rule from `AGENTS.md` before creating or updating coordination artifacts. Do not turn a handoff, review wait, GitHub check, current-state update, or closeout note into another support-only workflow unless it directly completes the requested outcome, unblocks it, satisfies a mandatory control, or prevents a concrete error.
+
 1. Stop at a safe checkpoint.
 2. Update `docs/delivery/current-state.md` with actual state and the exact next permitted action.
 3. Run:
@@ -125,6 +127,7 @@ thread mode.
 - The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
 - A fresh session must continue from the first blocked or incomplete documentation phase when coding is not permitted.
 - Notifications, review markers, or handoffs never grant permission to merge, deploy, or bypass validation.
+- If coordination work starts generating more coordination work, report the loop and return to the requested outcome, the mandatory control, or a clear blocker.
 
 ## Completion Standard
 
