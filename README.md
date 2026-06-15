@@ -5,6 +5,9 @@
 [![GitHub stars](https://img.shields.io/github/stars/AymanShams/codex-coding-os?style=social)](https://github.com/AymanShams/codex-coding-os/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/AymanShams/codex-coding-os)](https://github.com/AymanShams/codex-coding-os/commits/main)
 
+Independent open-source project. Not affiliated with, endorsed by, or sponsored
+by OpenAI.
+
 Codex Coding OS is an installable workflow pack for Codex: a spec-first,
 skills-mediated control system for AI-assisted software development.
 
@@ -17,6 +20,26 @@ implementation, review, validation, and handoff.
 
 Operating principles live in [docs/philosophy.md](docs/philosophy.md). Review rules
 live in [docs/review-doctrine.md](docs/review-doctrine.md).
+
+Third-party sources, adapted materials, and optional upstream installs are tracked
+in [THIRD_PARTY_SKILLS.md](THIRD_PARTY_SKILLS.md) and
+[external-skills/manifest.json](external-skills/manifest.json).
+
+## Inspect before global changes
+
+Preview the Windows install without changing files:
+
+```powershell
+.\scripts\install.ps1 -InstallGlobalAgents -DryRun
+```
+
+Install the skills without modifying `~\.codex\AGENTS.md`:
+
+```powershell
+.\scripts\install.ps1
+```
+
+Global Codex instructions are installed only when you pass `-InstallGlobalAgents`.
 
 ## Fast path
 

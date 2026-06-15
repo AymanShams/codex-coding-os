@@ -1,0 +1,36 @@
+name: Workflow critique
+description: Critique a workflow gate, skill behavior, template, or operating rule.
+title: "[Workflow critique]: "
+labels:
+  - workflow
+  - critique
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow or file
+      description: Name the skill, template, script, doc, or behavior you are critiquing.
+      placeholder: codex-coding-os-master, new-project-documentation-system, templates/prd.md
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What failed, felt too heavy, skipped a gate, or created confusion?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Add a real example, transcript excerpt, command output, or reproduction steps when possible. Remove private data.
+    validations:
+      required: false
+  - type: textarea
+    id: proposed-change
+    attributes:
+      label: Proposed change
+      description: What should change, and what risk does that reduce?
+    validations:
+      required: false

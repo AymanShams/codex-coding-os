@@ -1,0 +1,33 @@
+name: Docs confusion
+description: Report unclear, outdated, missing, or contradictory documentation.
+title: "[Docs]: "
+labels:
+  - documentation
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page or file
+      description: Link or path to the confusing documentation.
+      placeholder: README.md, docs/getting-started.md, templates/first-codex-prompt.md
+    validations:
+      required: true
+  - type: textarea
+    id: confusing
+    attributes:
+      label: What was confusing
+      description: Quote or summarize the part that did not make sense.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should the docs make clear?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix
+      description: Optional wording, structure, or missing link.

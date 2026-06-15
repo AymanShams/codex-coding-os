@@ -1,0 +1,44 @@
+name: Security or safety concern
+description: Report non-sensitive security, privacy, safety, provenance, or command-execution concerns.
+title: "[Security/Safety]: "
+labels:
+  - security
+  - safety
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets, exploit payloads, private project data, or sensitive user data in a public issue. For sensitive reports, use GitHub private vulnerability reporting when available.
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Install or uninstall behavior
+        - Command approval or rules behavior
+        - Hooks or workflow gates
+        - External skills or provenance
+        - MCP, plugin, or connector guidance
+        - Secrets or local path exposure
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: concern
+    attributes:
+      label: Concern
+      description: Describe the non-sensitive issue and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: safe-evidence
+    attributes:
+      label: Safe evidence
+      description: Add links, file paths, or redacted snippets that do not expose secrets or private data.
+    validations:
+      required: false
+  - type: textarea
+    id: suggested-fix
+    attributes:
+      label: Suggested fix
+      description: Optional recommendation.

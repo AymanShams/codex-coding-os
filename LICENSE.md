@@ -1,15 +1,3 @@
-# Mozilla Public License Version 2.0
-
-This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
-If a copy of the MPL was not distributed with this file, You can obtain one at
-https://mozilla.org/MPL/2.0/.
-
-Copyright (c) 2026 Ayman Shams
-
-Third-party components, bundled upstream files, and referenced external repositories may
-carry their own license notices. See `NOTICE.md`, `THIRD_PARTY_SKILLS.md`, bundled
-`LICENSE.txt` files, and `external-skills/manifest.json`.
-
 Mozilla Public License
 Version 2.0
 

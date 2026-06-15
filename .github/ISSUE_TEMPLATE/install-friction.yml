@@ -1,0 +1,39 @@
+name: Install friction
+description: Report a problem installing, uninstalling, validating, or trying the pack.
+title: "[Install]: "
+labels:
+  - install
+  - friction
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for setup, install, uninstall, validation, ZIP package, or first-run friction.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, shell, Codex app or CLI context, and install method.
+      placeholder: Windows 11, PowerShell 7, Codex desktop, cloned repo
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or step
+      description: Paste the command or exact step that failed. Remove secrets and private paths if needed.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened
+      description: Include the error message and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra context
+      description: Anything else that would help reproduce or understand the friction.

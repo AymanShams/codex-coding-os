@@ -11,8 +11,8 @@ data in a public issue.
 
 Preferred reporting path:
 
-1. Use GitHub's private security advisory flow for this repository if it is enabled.
-2. If private advisories are not enabled, open a short public issue asking for a
+1. Use GitHub private vulnerability reporting for this repository.
+2. If private vulnerability reporting is unavailable, open a short public issue asking for a
    private reporting channel. Do not include technical exploit details in that issue.
 
 ## Scope
