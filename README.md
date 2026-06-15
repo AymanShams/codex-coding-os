@@ -79,6 +79,39 @@ This pack turns that into a controlled workflow:
 - verify before calling work complete
 - preserve handoff state across chats
 
+## Concrete example
+
+A non-technical founder asks Codex:
+
+```text
+Build a follow-up workflow for clinics.
+```
+
+Without a structured workflow, Codex may quietly assume:
+
+- who creates the follow-up
+- who owns and approves it
+- which users can see each record
+- what happens when contact details or required data are missing
+- which statuses exist
+- what needs audit logging
+- what counts as done
+
+That can produce working code for the wrong workflow.
+
+With Codex Coding OS, the first output is not code. Codex first has to surface:
+
+- open questions and assumptions
+- roles and permissions
+- workflow states
+- data and source-of-truth assumptions
+- security and privacy constraints
+- the first small implementation slice
+- validation checks before completion
+
+The goal is not more paperwork. The goal is to stop vague intent from becoming
+confident but wrong code.
+
 ## What this pack includes
 
 - Full local skills for project kickoff, PRDs, documentation systems, implementation
@@ -250,6 +283,10 @@ tools, and external skill sources:
 - `THIRD_PARTY_SKILLS.md`
 - `external-skills/manifest.json`
 - `docs/external-skills-installation.md`
+
+The `codex-capabilities/` folder is a human and operator reference for routing,
+setup, and capability-boundary decisions. It is not meant to teach Codex its own
+default skills.
 
 List optional external installs:
 
