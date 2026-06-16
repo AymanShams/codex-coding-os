@@ -2,7 +2,7 @@
 
 [![Validate pack](https://github.com/AymanShams/codex-coding-os/actions/workflows/validate.yml/badge.svg)](https://github.com/AymanShams/codex-coding-os/actions/workflows/validate.yml)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen.svg)](LICENSE.md)
-[![Stars](https://img.shields.io/badge/stars-open%20on%20GitHub-555?logo=github)](https://github.com/AymanShams/codex-coding-os/stargazers)
+[![Stars](https://img.shields.io/badge/dynamic/json?label=stars&query=stargazers_count&url=https%3A%2F%2Fapi.github.com%2Frepos%2FAymanShams%2Fcodex-coding-os&logo=github)](https://github.com/AymanShams/codex-coding-os/stargazers)
 [![Last commit](https://img.shields.io/badge/last%20commit-view%20history-555?logo=github)](https://github.com/AymanShams/codex-coding-os/commits/main)
 
 Independent open-source project. Not affiliated with, endorsed by, or sponsored
