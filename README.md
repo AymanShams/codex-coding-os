@@ -2,8 +2,6 @@
 
 [![Validate pack](https://github.com/AymanShams/codex-coding-os/actions/workflows/validate.yml/badge.svg)](https://github.com/AymanShams/codex-coding-os/actions/workflows/validate.yml)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen.svg)](LICENSE.md)
-[![GitHub stars](https://img.shields.io/github/stars/AymanShams/codex-coding-os?style=social)](https://github.com/AymanShams/codex-coding-os/stargazers)
-[![Last commit](https://img.shields.io/github/last-commit/AymanShams/codex-coding-os)](https://github.com/AymanShams/codex-coding-os/commits/main)
 
 Independent open-source project. Not affiliated with, endorsed by, or sponsored
 by OpenAI.
