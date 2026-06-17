@@ -13,6 +13,11 @@ Bundled catalogue:
 
 `references/capability-catalogue.md`
 
+Optional generated routing hints from hooks or index scripts are candidates, not
+authority. A capability is valid only when it materially helps the actual task
+after the task, non-goals, source of truth, allowed action, validation standard,
+and stop rule are clear.
+
 ## Skip Gate
 
 Skip the catalogue check for clearly trivial or self-contained tasks:
@@ -30,18 +35,25 @@ For everything else, do a quick routing pass.
 
 1. Extract 2-5 keywords from the user request.
    Include domain, file type, tool names, company names, framework names, and task type.
-2. Search the catalogue by keyword. Prefer `rg`.
+2. Run the task gate silently:
+   actual task, non-goals, example-only material, controlling scope, source of
+   truth, allowed action, validation standard, and stop rule.
+3. Treat generated hook or index results as candidate hints only. Reject matches
+   based only on generic words such as file, edit, verify, audit log, skill,
+   plugin, tool, issue, workflow, that, or why.
+4. Search the catalogue by keyword when a candidate needs context, precedence,
+   or boundary details. Prefer `rg`.
    Use the bundled helper if useful:
 
    ```powershell
    & "$HOME\.agents\skills\catalogue-router\scripts\query-catalogue.ps1" -Query "React|Next.js|security|PRD"
    ```
 
-3. Load only the matching section, not the whole catalogue.
-4. Choose the narrowest active capability first:
+5. Load only the matching section, not the whole catalogue.
+6. Choose the narrowest active capability first:
    local skill, enabled plugin skill, configured MCP server, then local installed tool.
-5. If the task may need a non-installed capability, check `Candidate Backlog` before recommending anything new.
-6. If no catalogue hit is useful, proceed normally and say nothing unless the missing capability affects the recommendation.
+7. If the task may need a non-installed capability, check `Candidate Backlog` before recommending anything new.
+8. If no catalogue hit is useful, proceed normally and say nothing unless the missing capability affects the recommendation.
 
 ## Routing Hints
 
@@ -68,6 +80,8 @@ When starting or reviewing a project:
 
 - Choose one primary skill for the requested output or workflow.
 - Add supporting skills only when they materially change a defined phase.
+- Keep skill and plugin selection active for non-trivial tasks, but do not
+  accept a capability that only matched generic routing language.
 - The primary orchestrator controls sequence, stop gates, and completion claims. Supporting skills must not bypass it.
 - Do not stack critique, pre-mortem, evidence, validation, and interview skills unless the user requests a formal review or the risk justifies it.
 - When two skills overlap, use the one whose description most directly matches the requested output.

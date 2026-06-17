@@ -7,10 +7,14 @@ All notable package changes are recorded here. The authoritative package release
 ### Added
 
 - Added compact issue templates for install friction, documentation confusion, workflow critique, and security or safety concerns.
+- Added an optional capability-router hook candidate with conservative scoring,
+  generic-term suppression, and regression coverage.
 
 ### Changed
 
 - Expanded `codex-coding-os-master` routing metadata so project starts, repo rescue, PRD/TDD/docs, `AGENTS.md`, handoff, and continuity work trigger the master workflow more reliably.
+- Tightened `catalogue-router` guidance so generated routing hints are treated
+  as candidates, not authority, and generic keyword matches must be rejected.
 - Clarified that `new-project-documentation-system` owns the documentation phase when the master workflow is available, not final implementation, review, validation, or maintenance authority.
 - Added public-safe agent harness security gates to `ai-coding-discipline` for skill packs, hooks, MCP servers, external agents, local services, secrets, observability, and memory boundaries.
 - Added README first-impression trust notes for OpenAI non-affiliation, third-party provenance, and installing without global Codex changes.
