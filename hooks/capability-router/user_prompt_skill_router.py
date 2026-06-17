@@ -25,12 +25,15 @@ ROUTES = [
         "skill": "evidence-checker",
         "triggers": (
             "fact check",
-            "verify",
             "sources",
             "citation",
             "latest",
             "documentation",
             "is this true",
+            "source check",
+            "source verification",
+            "verify claims",
+            "verify sources",
         ),
         "guidance": "For factual claims, verification, current docs, or source-quality review, use evidence-checker or the narrow official-doc skill when one applies.",
     },
@@ -93,7 +96,7 @@ ROUTES = [
             "auth",
             "privacy",
         ),
-        "guidance": "For security or privacy work, use the narrow security skill and distinguish guardrails from real enforcement boundaries.",
+        "guidance": "For security or privacy work, use the narrow security skill. For code diffs, include security-diff-scan when available.",
     },
     {
         "skill": "new-project-documentation-system or technical-docs-pack",
@@ -108,6 +111,19 @@ ROUTES = [
             "handoff note",
         ),
         "guidance": "For new-project documentation, route orchestration to new-project-documentation-system and detailed repo templates to technical-docs-pack.",
+    },
+    {
+        "skill": "Presentations or document-skills:pptx",
+        "triggers": (
+            "deck",
+            "powerpoint",
+            "presentation",
+            "ppt",
+            "pptx",
+            "slide deck",
+            "slides",
+        ),
+        "guidance": "For presentation or PPTX work, use the presentation capability and avoid document or product-planning skills unless source extraction or PRD work is explicitly requested.",
     },
     {
         "skill": "playwright",
@@ -142,7 +158,7 @@ def main() -> None:
         no_output()
 
     matched = matched_routes_for_prompt(prompt)
-    indexed_limit = 0 if len(matched) >= 2 else 2 if matched else 4
+    indexed_limit = 2 if matched else 4
     indexed = query_index(prompt, limit=indexed_limit) if indexed_limit else []
 
     candidate_matches = [entry for entry in indexed if entry.get("kind") == "candidate"]

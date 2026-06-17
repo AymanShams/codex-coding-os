@@ -112,18 +112,24 @@ GENERIC_MATCH_TERMS = STOP_WORDS | {
     "fix",
     "issue",
     "issues",
+    "changed",
     "keep",
     "keeping",
+    "log",
     "made",
     "make",
     "plugin",
     "plugins",
     "problem",
     "problems",
+    "previous",
+    "read",
     "selection",
     "skill",
     "skills",
     "solution",
+    "summarize",
+    "summary",
     "system",
     "thing",
     "tool",
@@ -222,6 +228,171 @@ FINANCE_TERMS = {
     "startup",
     "valuation",
 }
+CLI_TERMS = {
+    "argparse",
+    "bash",
+    "cli",
+    "command-line",
+    "powershell",
+    "script",
+    "shell",
+    "terminal",
+}
+GRILL_TERMS = {
+    "ask me",
+    "grill",
+    "hard questions",
+    "interview",
+    "questions",
+}
+NEW_PROJECT_DOC_TERMS = {
+    "app flow",
+    "brief",
+    "first project",
+    "implementation plan",
+    "new project",
+    "prd",
+    "project documentation",
+    "project kickoff",
+    "repo docs",
+    "tdd",
+    "tech stack",
+}
+TECHNICAL_DOC_TERMS = {
+    "agents.md",
+    "architecture doc",
+    "documentation",
+    "docs",
+    "handoff",
+    "readme",
+    "repo docs",
+    "technical documentation",
+}
+PRODUCT_DOC_TERMS = NEW_PROJECT_DOC_TERMS | {
+    "customer journey",
+    "feature",
+    "product",
+    "product strategy",
+    "requirements",
+    "spec",
+    "user journey",
+    "working backwards",
+}
+BUSINESS_STRATEGY_TERMS = {
+    "board",
+    "business",
+    "competitor",
+    "go-to-market",
+    "growth",
+    "gtm",
+    "market",
+    "pricing",
+    "sales",
+    "stakeholder",
+    "startup",
+    "strategy",
+}
+ARTIFACT_SYSTEM_TERMS = {
+    "artifact",
+    "controlled doc",
+    "documentation",
+    "docs",
+    "governance",
+    "policy",
+    "sop",
+    "template",
+    "validate",
+    "validation",
+}
+DOSSIER_TERMS = {
+    "briefing file",
+    "dossier",
+    "due diligence",
+    "evidence pack",
+    "fact file",
+}
+DESIGN_ARTIFACT_TERMS = {
+    "artifact",
+    "design",
+    "figma",
+    "flow",
+    "image",
+    "prototype",
+    "screen",
+    "ui",
+    "ux",
+    "visual",
+    "wireframe",
+}
+IMAGE_GENERATION_TERMS = {
+    "generate image",
+    "image",
+    "logo",
+    "picture",
+    "render",
+    "visual",
+}
+CODING_DISCIPLINE_TERMS = {
+    "bug",
+    "bugfix",
+    "code",
+    "coding",
+    "debug",
+    "error",
+    "existing",
+    "failing",
+    "feature",
+    "fix",
+    "implementation",
+    "repo",
+    "repository",
+    "refactor",
+    "test",
+    "tests",
+}
+REACT_WEB_TERMS = {
+    "component",
+    "frontend",
+    "jsx",
+    "next",
+    "next.js",
+    "react",
+    "tsx",
+    "ui",
+}
+SECURITY_TERMS = {
+    "auth",
+    "authorization",
+    "bypass",
+    "permission",
+    "privacy",
+    "secret",
+    "secrets",
+    "security",
+    "server-side",
+    "threat",
+    "vulnerability",
+}
+FORMAL_REVIEW_TERMS = {
+    "audit the",
+    "audit this",
+    "challenge",
+    "critique",
+    "review",
+    "review this",
+    "stress test",
+    "validate",
+}
+NEGATED_FORMAL_REVIEW_PHRASES = {
+    "do not critique",
+    "do not review",
+    "do not validate",
+    "don't critique",
+    "don't review",
+    "don't validate",
+    "not critique",
+    "not review",
+}
 CANDIDATE_TERMS = {
     "add",
     "candidate",
@@ -234,6 +405,8 @@ CANDIDATE_TERMS = {
     "repository",
     "tool",
 }
+CANDIDATE_ACTION_TERMS = {"add", "candidate", "install", "recommend"}
+CANDIDATE_OBJECT_TERMS = {"capability", "mcp", "plugin", "repo", "repository", "tool", "tools"}
 
 STATUS_PRIORITY = {
     "active-pack": 11,
@@ -572,12 +745,74 @@ def has_term(prompt_lower: str, prompt_tokens: set[str], terms: set[str]) -> boo
     return False
 
 
+def is_audit_log_context(prompt_lower: str) -> bool:
+    return "audit log" in prompt_lower or "audit trail" in prompt_lower
+
+
+def has_formal_review_request(prompt_lower: str, prompt_tokens: set[str]) -> bool:
+    if any(phrase in prompt_lower for phrase in NEGATED_FORMAL_REVIEW_PHRASES):
+        return False
+    return has_term(prompt_lower, prompt_tokens, FORMAL_REVIEW_TERMS)
+
+
+def wants_candidate_results(prompt_lower: str, prompt_tokens: set[str]) -> bool:
+    if "candidate" in prompt_tokens or "install" in prompt_tokens:
+        return True
+    if prompt_tokens & CANDIDATE_ACTION_TERMS and prompt_tokens & CANDIDATE_OBJECT_TERMS:
+        return True
+    return False
+
+
 def guarded_out(entry: dict, prompt_lower: str, prompt_tokens: set[str]) -> bool:
     name = entry.get("name", "")
     normalized_name = normalize(name)
     name_lower = name.lower()
     kind = entry.get("kind", "")
 
+    if is_audit_log_context(prompt_lower) and normalized_name in {
+        "artifact-validation-workflow",
+        "deep-critic",
+        "ssot-auditor",
+    }:
+        return not has_formal_review_request(prompt_lower, prompt_tokens)
+    if normalized_name == "cli-creator":
+        return not has_term(prompt_lower, prompt_tokens, CLI_TERMS)
+    if normalized_name in {"grill-me", "grill-with-docs"}:
+        return not has_term(prompt_lower, prompt_tokens, GRILL_TERMS)
+    if normalized_name == "new-project-documentation-system":
+        return not has_term(prompt_lower, prompt_tokens, NEW_PROJECT_DOC_TERMS)
+    if normalized_name == "technical-docs-pack":
+        return not has_term(prompt_lower, prompt_tokens, TECHNICAL_DOC_TERMS)
+    if normalized_name in {
+        "create-prd",
+        "customer-journey-map",
+        "product-strategy",
+        "working-backwards",
+    }:
+        return not has_term(prompt_lower, prompt_tokens, PRODUCT_DOC_TERMS)
+    if normalized_name in {
+        "board-update",
+        "competitor-analysis",
+        "gtm-strategy",
+        "market-sizing",
+        "pricing-strategy",
+        "stakeholder-map",
+        "startup-context",
+    }:
+        return not has_term(prompt_lower, prompt_tokens, BUSINESS_STRATEGY_TERMS)
+    if normalized_name in {
+        "artifact-system-designer",
+        "artifact-validation-workflow",
+        "ssot-auditor",
+        "ssot-drafter",
+    }:
+        return not has_term(prompt_lower, prompt_tokens, ARTIFACT_SYSTEM_TERMS)
+    if normalized_name == "dossier-builder":
+        return not has_term(prompt_lower, prompt_tokens, DOSSIER_TERMS)
+    if normalized_name == "codex-design-artifacts":
+        return not has_term(prompt_lower, prompt_tokens, DESIGN_ARTIFACT_TERMS)
+    if normalized_name == "imagegen":
+        return not has_term(prompt_lower, prompt_tokens, IMAGE_GENERATION_TERMS)
     if normalized_name in {"doc", "docx", "documents", "document-skills"}:
         return not has_term(prompt_lower, prompt_tokens, DOCUMENT_TERMS)
     if "document-skills" in name_lower or name_lower == "document skills":
@@ -608,10 +843,12 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
     index = ensure_index()
     prompt_lower = prompt.lower()
     prompt_tokens = tokenize(prompt)
+    if is_audit_log_context(prompt_lower):
+        if not has_formal_review_request(prompt_lower, prompt_tokens):
+            return []
+        prompt_tokens = prompt_tokens - {"audit", "log", "trail"}
     if include_candidates is None:
-        include_candidates = any(
-            re.search(rf"\b{re.escape(term)}\b", prompt_lower) for term in CANDIDATE_TERMS
-        )
+        include_candidates = wants_candidate_results(prompt_lower, prompt_tokens)
 
     excluded_statuses = {
         "cached-unconfigured",
@@ -647,6 +884,20 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
         capability_routing_match = normalize(name) == "catalogue-router" and len(
             prompt_tokens & CAPABILITY_ROUTING_TERMS
         ) >= 2
+        coding_discipline_match = normalize(name) == "ai-coding-discipline" and len(
+            prompt_tokens & CODING_DISCIPLINE_TERMS
+        ) >= 2
+        react_web_match = normalize(name) in {
+            "frontend-app-builder",
+            "frontend-testing-debugging",
+            "react-best-practices",
+        } and has_term(prompt_lower, prompt_tokens, REACT_WEB_TERMS)
+        security_match = normalize(name) in {
+            "defensive-security-checklist",
+            "security-best-practices",
+            "security-diff-scan",
+            "security-threat-model",
+        } and has_term(prompt_lower, prompt_tokens, SECURITY_TERMS)
         skill_authoring_match = normalize(name) in {"writing-skills", "skill-creator"} and has_term(
             prompt_lower, prompt_tokens, SKILL_AUTHORING_ACTION_TERMS
         ) and {"skill", "skills"} & prompt_tokens
@@ -656,6 +907,9 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
             and not name_in_prompt
             and not full_name_match
             and not capability_routing_match
+            and not coding_discipline_match
+            and not react_web_match
+            and not security_match
             and not skill_authoring_match
         ):
             continue
@@ -670,6 +924,12 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
             score += len(name_overlap) * 8
 
         if capability_routing_match:
+            score += 35
+        if coding_discipline_match:
+            score += 35
+        if react_web_match:
+            score += 25
+        if security_match:
             score += 35
         if skill_authoring_match:
             score += 30
