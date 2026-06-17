@@ -2,6 +2,7 @@
 set -euo pipefail
 
 INSTALL_GLOBAL_AGENTS=0
+REFRESH_CAPABILITY_INDEX=0
 DRY_RUN=0
 SKILLS_ROOT="${SKILLS_ROOT:-$HOME/.agents/skills}"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -12,6 +13,7 @@ Usage: ./scripts/install.sh [options]
 
 Options:
   --install-global-agents     Add the Coding OS block to $CODEX_HOME/AGENTS.md
+  --refresh-capability-index  Rebuild the installed capability index after copying support files
   --skills-root PATH          Skill install path, default $HOME/.agents/skills
   --codex-home PATH           Codex home path, default $HOME/.codex
   --dry-run                   Print actions without changing files
@@ -23,6 +25,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --install-global-agents)
       INSTALL_GLOBAL_AGENTS=1
+      shift
+      ;;
+    --refresh-capability-index)
+      REFRESH_CAPABILITY_INDEX=1
       shift
       ;;
     --skills-root)
@@ -254,9 +260,27 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     echo "CodexHome=$CODEX_HOME"
     echo "SupportRoot=$support_root"
     echo "InstalledGlobalAgents=$INSTALL_GLOBAL_AGENTS"
+    echo "RefreshedCapabilityIndex=$REFRESH_CAPABILITY_INDEX"
     echo "GlobalAgentsPath=$CODEX_HOME/AGENTS.md"
     printf 'SkillPath=%s\n' "${installed_skills[@]}"
   } > "$manifest_txt"
+fi
+
+if [[ "$REFRESH_CAPABILITY_INDEX" -eq 1 ]]; then
+  capability_cli="$support_root/hooks/capability-router/capability_index_cli.py"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "DRY RUN: would refresh capability index with $capability_cli"
+  elif [[ ! -f "$capability_cli" ]]; then
+    echo "Capability index CLI was not installed: $capability_cli" >&2
+    exit 1
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -B "$capability_cli" --refresh
+  elif command -v python >/dev/null 2>&1; then
+    python -B "$capability_cli" --refresh
+  else
+    echo "Python is required when --refresh-capability-index is used." >&2
+    exit 1
+  fi
 fi
 
 echo "Support files copied to: $support_root"

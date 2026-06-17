@@ -51,5 +51,6 @@ The reviewer must:
 
 - The implementing agent remains accountable for accepted fixes.
 - A reviewer must not approve based only on summaries, notifications, or prior review markers.
+- Review status must be tied to the current head or active slice through explicit fields such as review status, reviewed SHA, and whether the review applies to the active slice.
 - Any later material change invalidates the prior review until the changed state is checked.
 - Review does not override the workflow manifest, user approvals, or deterministic gates.

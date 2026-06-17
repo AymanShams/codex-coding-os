@@ -69,6 +69,8 @@ def main() -> int:
         local_continuity.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(CONTINUITY, local_continuity)
         run([python, str(local_continuity), "init"], project, 0)
+        if not (project / "docs" / "delivery" / "active-slice-manifest.json").exists():
+            raise AssertionError("active-slice manifest was not created")
         run([python, str(local_continuity), "validate"], project, 0)
         update_frontmatter(project / "docs" / "delivery" / "current-state.md", "next_action", "code")
         blocked_start = run([python, str(local_continuity), "start", "--no-fetch"], project, 2)
@@ -91,7 +93,7 @@ def main() -> int:
         )
         if "## Paste-Ready Next-Session Prompt" not in handoff.stdout:
             raise AssertionError(handoff.stdout)
-        if "First run:" not in handoff.stdout or "python scripts/agent/session_continuity.py start" not in handoff.stdout:
+        if "First run:" not in handoff.stdout or "python scripts/agent/session_continuity.py start --start-new" not in handoff.stdout:
             raise AssertionError(handoff.stdout)
 
     print("Workflow gate smoke test passed.")

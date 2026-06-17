@@ -3,6 +3,7 @@ state_version: 1
 last_updated: 1970-01-01
 workflow_state: documentation-intake
 workflow_manifest: project-documentation-manifest.json
+permission_manifest: docs/delivery/active-slice-manifest.json
 active_area: documentation
 active_slice: project-intake
 next_area: documentation
@@ -10,6 +11,10 @@ next_slice: resolve-material-decisions
 next_action: resolve_material_decisions
 next_high_risk: false
 next_session_required_before_next_slice: false
+review_required: false
+review_status: not_required
+reviewed_sha: none
+review_applies_to_active_slice: false
 last_handoff: none
 ---
 
@@ -17,6 +22,10 @@ last_handoff: none
 
 ## Purpose
 This file records the active slice, exact next permitted action, risks, and session-boundary decision. It is not a product, architecture, API, schema, data, or security authority. Correct this file when it conflicts with controlling sources.
+
+## Active Slice Manifest
+- The current permission boundary is `docs/delivery/active-slice-manifest.json`.
+- A current-state update, handoff, review marker, or new chat cannot authorize work outside that manifest.
 
 ## Current Verified Repository State
 - Record the verified branch, local head, remote baseline, and working-tree state.
@@ -45,4 +54,4 @@ Paste the latest handoff's next-session prompt into a new Codex chat. First run 
 ```
 
 ## Update Contract
-Update this file when the active slice, next action, risks, blockers, review state, latest handoff, or session-boundary decision changes. Do not copy chat history into this file.
+Update this file when the active slice, next action, risks, blockers, review state, permission manifest, latest handoff, or session-boundary decision changes. Do not copy chat history into this file.

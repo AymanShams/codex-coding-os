@@ -2,6 +2,18 @@
 
 All notable package changes are recorded here. The authoritative package release version is `pack.manifest.json#version`.
 
+## [Unreleased]
+
+### Added
+
+- Added an active-slice manifest gate for project-session continuity so coding, handoffs, review markers, notifications, and new sessions cannot bypass the current slice permission boundary.
+- Added installer support for refreshing the copied capability index after installation.
+
+### Changed
+
+- Updated new-project, handoff, repo-agent, and continuity instructions to require both the workflow manifest and active-slice manifest before coding or parallel worktree lanes.
+- Tightened session-start behavior so new-session starts fail closed on dirty working trees, while same-slice continuation remains explicit.
+
 ## [0.8.2] - 2026-06-14
 
 ### Added

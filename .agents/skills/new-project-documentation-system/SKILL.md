@@ -25,6 +25,8 @@ Before drafting any controlled document, create `project-documentation-manifest.
 
 Keep the manifest current throughout the run. It is the workflow source of truth.
 
+When a repository or repo-ready folder exists, also create `docs/delivery/active-slice-manifest.json` before any implementation handoff. It is the permission-to-code boundary for the current slice and must list the approved slice, allowed files, forbidden actions, source authority, validation commands, review state, and stop conditions.
+
 Run `scripts/validate_workflow_manifest.py <manifest-path>`:
 
 - before drafting the PRD
@@ -86,7 +88,7 @@ Complete phases in order. Do not advance past a blocked or awaiting-approval pha
 | 4. TDD and alignment | TDD created from controlled docs, external drafts reconciled when present, alignment review | TDD approved and no unresolved drift |
 | 5. Repo documentation | Full template-driven repo docs appropriate to the current stage | `technical-docs-pack` coverage validated |
 | 6. Agent instruction layer | Root/scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, session continuity command | Required reading, source hierarchy, and start gate verified |
-| 7. Handoff | Persistent history note, current-state update, paste-ready next-chat prompt | Handoff matches actual state and cannot bypass the manifest |
+| 7. Handoff | Persistent history note, current-state update, active-slice manifest, paste-ready next-chat prompt | Handoff matches actual state and cannot bypass either manifest |
 | 8. Final validation | Pass/fail report, blockers, unavailable checks, git state when applicable | Manifest validator passes |
 
 ## Controlled Status Rules
@@ -97,7 +99,8 @@ Complete phases in order. Do not advance past a blocked or awaiting-approval pha
 - If no external TDD exists, create a source-locked TDD and call it a TDD, not a merged TDD.
 - Absence of a Git repo does not automatically skip repo documentation. Ask whether to create a repo, prepare repo-ready docs outside a repo, or explicitly defer the phase.
 - Do not call coding the next step unless Phase 8 passes and `coding_start` approval is recorded.
-- A new chat, handoff note, or current-state file cannot grant approval. Resume from the first blocked or incomplete phase in the manifest.
+- A new chat, handoff note, current-state file, review marker, or notification cannot grant approval. Resume from the first blocked or incomplete phase in the manifest.
+- Coding requires both `project-documentation-manifest.json` and `docs/delivery/active-slice-manifest.json` to permit the current slice. If either blocks coding, stop.
 
 ## Required Outputs
 
@@ -112,11 +115,11 @@ For Full Run mode, produce or explicitly defer with user approval:
 - documentation alignment review
 - repo documentation tree using `technical-docs-pack`
 - root and scoped agent instructions
-- `docs/delivery/current-state.md` and project-local session continuity command
+- `docs/delivery/current-state.md`, `docs/delivery/active-slice-manifest.json`, and project-local session continuity command
 - handoff history note and paste-ready next-chat prompt
 - final validation report
 
-The next-chat prompt must tell the next agent to run the session-start gate, read current state, latest handoff, workflow manifest, and controlling sources, then continue only from the exact next permitted action. Do not provide only a command.
+The next-chat prompt must tell the next agent to run the session-start gate, read current state, active-slice manifest, latest handoff, workflow manifest, and controlling sources, then continue only from the exact next permitted action. Do not provide only a command.
 
 Use the orchestrator-owned assets for the project brief, decision register, alignment review, manifest, and handoff. Use specialist skills for the detailed PRD, controlled docs, repo docs, and validation report.
 
@@ -129,6 +132,7 @@ Do not claim the workflow is complete or recommend coding unless:
 - source authority is clear
 - the seven controlled docs and TDD are approved
 - repo documentation and agent instructions exist
+- the active-slice manifest exists and blocks work outside the approved slice
 - final validation is complete
 - the user approved coding to start
 

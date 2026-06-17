@@ -1,10 +1,14 @@
-# Capability Router Hook Candidate
+# Capability Router Support
 
-This optional hook candidate provides conservative `UserPromptSubmit` routing
-hints. It is not enabled by the installer.
+This support package provides conservative `UserPromptSubmit` routing hints and
+the local capability index used by `catalogue-router`.
 
-Use it only after reviewing current Codex hook syntax and the source files in
-this folder.
+The installer copies this folder as a support item. It can also refresh the
+capability index with `-RefreshCapabilityIndex` on Windows or
+`--refresh-capability-index` on macOS/Linux. The installer does not enable the
+runtime hook automatically because hook activation changes Codex prompt context.
+Enable the hook only after reviewing current Codex hook syntax and the source
+files in this folder.
 
 ## What It Does
 
@@ -25,6 +29,8 @@ this folder.
 py -3 -B hooks\capability-router\capability_index_cli.py --refresh
 py -3 -B hooks\capability-router\capability_index_cli.py --query "which skill should route this task"
 py -3 -B hooks\capability-router\test_capability_router.py
+.\scripts\install.ps1 -RefreshCapabilityIndex
+./scripts/install.sh --refresh-capability-index
 ```
 
 ## Environment Overrides

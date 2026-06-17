@@ -40,9 +40,9 @@ Your job:
 7. Treat those documents as drafts until I approve them.
 8. Create a TDD technical design document and alignment review after the docs are approved.
 9. Create the full stage-appropriate repo documentation and root/scoped AGENTS.md instructions.
-10. Add `docs/delivery/current-state.md` and install the project session continuity command.
+10. Add `docs/delivery/current-state.md`, `docs/delivery/active-slice-manifest.json`, and install the project session continuity command.
 11. Create a persistent handoff note and final validation report.
-12. Recommend the first vertical implementation slice only after the workflow manifest permits coding.
+12. Recommend the first vertical implementation slice only after the workflow manifest and active-slice manifest both permit coding.
 13. Do not start implementation until I explicitly approve coding.
 
 Rules:
@@ -52,6 +52,6 @@ Rules:
 - If you are missing a material answer, ask me and stop before the PRD.
 - Use assumptions only for low-risk, reversible presentation choices.
 - Do not call coding the next step until the manifest validator passes.
-- Do not let a new chat, handoff, or current-state file bypass unresolved questions or the manifest.
+- Do not let a new chat, handoff, current-state file, review marker, or notification bypass unresolved questions or either manifest.
 - Keep the output practical and clear for a non-technical user.
 ```
