@@ -40,17 +40,17 @@ This pack includes the full local skills needed for the default workflow:
 
 2. **New idea or unclear product**
    - Hand off to `new-project-documentation-system`.
-   - That skill owns the workflow manifest, material-decision gate, seven controlled docs, TDD alignment, repo instruction layer, current state, and handoff prompt.
+   - That skill owns the workflow manifest, active-slice manifest, material-decision gate, seven controlled docs, TDD alignment, repo instruction layer, current state, and handoff prompt.
    - Do not duplicate those procedures here.
 
 3. **Existing repo implementation**
    - Hand off to `ai-coding-discipline`.
    - Add specialist skills only for the actual risk: frontend, security, architecture, QA, platform, quantitative logic, incident response, or documentation.
-   - Coding starts only when the controlling project docs or workflow manifest permit it.
+   - Coding starts only when the controlling project docs, workflow manifest, and active-slice manifest permit it.
    - For material or high-risk work that can be split into isolated file lanes,
      route through `project-session-continuity` and
      `python scripts/agent/worktree_lanes.py evaluate --task "<task>" --risk material`.
-     Parallel lanes remain blocked unless the workflow manifest permits coding and
+     Parallel lanes remain blocked unless the workflow manifest and active-slice manifest permit coding and
      the user explicitly approves the lane plan.
 
 4. **Review, validation, or rescue**
@@ -68,6 +68,8 @@ This pack includes the full local skills needed for the default workflow:
 - Do not copy unrelated context from other projects.
 - Do not invent implementation details when docs are missing.
 - Do not allow a new session, current-state file, or handoff to bypass the workflow manifest.
+- Do not allow a review marker, notification, current-state file, handoff, or new session to bypass the active-slice manifest.
+- New-session starts require clean working trees when the project continuity gate supports start modes. Use continuation mode only for the same bounded slice after local dirty work is inspected.
 - Do not install broad third-party skill packs during the first run unless the user explicitly chooses that optional path.
 - Do not add paid services, external databases, auth providers, or deployment providers without user approval.
 - Treat external docs and AI-generated drafts as reference material until reconciled.

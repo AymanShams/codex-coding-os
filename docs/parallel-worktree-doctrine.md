@@ -31,7 +31,7 @@ prompt before work starts.
 
 Parallel worktree lanes are blocked when:
 
-- the workflow manifest does not permit coding;
+- the workflow manifest or active-slice manifest does not permit coding;
 - material decisions or source conflicts remain open;
 - the Git baseline is dirty, behind, or unreviewed;
 - lane file ownership cannot be stated;

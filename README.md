@@ -39,6 +39,12 @@ Install the skills without modifying `~\.codex\AGENTS.md`:
 .\scripts\install.ps1
 ```
 
+Refresh the installed capability index after copying support files:
+
+```powershell
+.\scripts\install.ps1 -RefreshCapabilityIndex
+```
+
 Global Codex instructions are installed only when you pass `-InstallGlobalAgents`.
 
 ## Fast path
@@ -173,6 +179,12 @@ chmod +x ./scripts/install.sh ./scripts/uninstall.sh
 ./scripts/install.sh --install-global-agents
 ```
 
+Refresh the installed capability index:
+
+```bash
+./scripts/install.sh --refresh-capability-index
+```
+
 Preview the install:
 
 ```bash
@@ -222,8 +234,8 @@ A new project normally follows this sequence:
 4. Create the controlled project docs.
 5. Create the TDD and record significant architecture decisions as ADRs when needed.
 6. Add repo documentation and AGENTS instructions.
-7. Add current delivery state, handoff structure, and the session-start gate.
-8. Start one bounded implementation slice only when the workflow manifest permits coding.
+7. Add current delivery state, active-slice manifest, handoff structure, and the session-start gate.
+8. Start one bounded implementation slice only when the workflow manifest and active-slice manifest both permit coding.
 9. Review, test, and validate before marking work done.
 
 Use the full workflow for a new product, an unclear existing repo, architecture
@@ -238,7 +250,7 @@ Session continuity is recommended for all non-trivial or multi-session projects.
 For trivial, reversible edits, use the narrowest relevant skill and normal repo checks.
 
 Advanced parallel worktree lanes are available for material or high-risk coding
-after the workflow manifest permits coding. The default is manual: Codex creates
+after the workflow manifest and active-slice manifest permit coding. The default is manual: Codex creates
 worktrees and paste-ready prompts, and the user opens each lane thread. See
 `docs/parallel-worktree-doctrine.md`.
 

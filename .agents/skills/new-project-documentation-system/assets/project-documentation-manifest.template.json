@@ -7,7 +7,8 @@
   "code_allowed": false,
   "next_action": "resolve_scope",
   "coordination_state_path": "docs/delivery/current-state.md",
-  "session_continuity_command": "python scripts/agent/session_continuity.py start",
+  "permission_manifest_path": "docs/delivery/active-slice-manifest.json",
+  "session_continuity_command": "python scripts/agent/session_continuity.py start --start-new",
   "open_material_decisions": [],
   "unresolved_source_conflicts": [],
   "approvals": {

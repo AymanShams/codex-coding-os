@@ -16,9 +16,9 @@ Use these gates before reporting a new project documentation setup as complete.
 10. Secret hygiene: no obvious credentials, generated passwords, tokens, or `.env` values are staged.
 11. PHI hygiene: no protected health information, pilot member records, or private medical files are staged for Git.
 12. Repo hygiene: `.gitignore`, review workflow, ownership mapping where needed, and governance checks exist where practical.
-13. Agent context: root and scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, session continuity command, and handoff note exist.
+13. Agent context: root and scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, active-slice manifest, session continuity command, and handoff note exist.
 14. Git state: run and report `git status -sb` when a repo exists.
-15. Session gate: a new session cannot reach implementation unless the workflow manifest permits coding.
+15. Session gate: a new session cannot reach implementation unless the workflow manifest and active-slice manifest both permit coding.
 
 ## Contradiction Patterns
 

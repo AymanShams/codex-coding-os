@@ -28,8 +28,9 @@ Before turning a support step into a separate task, branch, pull request, artifa
 If support work starts generating more support work, stop and report the loop. Continue only by returning to the requested outcome, completing the mandatory control, asking for approval, or explaining why the real task is blocked.
 
 ## Working Rules
-- At the start of a new or resumed non-trivial session, run `python scripts/agent/session_continuity.py start` when available.
-- Read `docs/delivery/current-state.md`, its latest handoff, and `project-documentation-manifest.json` before editing.
+- At the start of a new or resumed non-trivial session, run `python scripts/agent/session_continuity.py start --start-new` when available.
+- Use `python scripts/agent/session_continuity.py start --continue-slice` only when continuing the same bounded active slice with known dirty work after inspection.
+- Read `docs/delivery/current-state.md`, `docs/delivery/active-slice-manifest.json`, its latest handoff, and `project-documentation-manifest.json` before editing.
 - Read relevant files before writing code.
 - Make the smallest correct change.
 - Do not rewrite unrelated code.
@@ -38,8 +39,9 @@ If support work starts generating more support work, stop and report the loop. C
 - Do not invent product behavior that is absent from the docs.
 - Update docs when code changes the intended behavior.
 - Run available validation before final response.
-- Do not start implementation unless the workflow manifest permits coding.
+- Do not start implementation unless the workflow manifest and active-slice manifest both permit coding.
 - Treat current state and handoffs as coordination records, not product or technical authority.
+- Treat review markers and notifications as evidence to inspect, not permission to merge, deploy, or bypass validation.
 - Keep this root file for repo-wide rules. Put folder-specific rules in scoped `AGENTS.md` files and detailed task procedures in skills or docs.
 
 ## Implementation Flow

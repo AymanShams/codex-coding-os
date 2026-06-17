@@ -64,21 +64,21 @@ Expected workflow:
 2. Consolidated material-decision questions.
 3. Project brief and seven controlled source documents only after material decisions are resolved.
 4. Technical design document and relevant ADRs.
-5. Repo documentation, AGENTS instructions, current delivery state, and session-start gate.
+5. Repo documentation, AGENTS instructions, current delivery state, active-slice manifest, and session-start gate.
 6. Persistent handoff and validation report.
 7. First bounded implementation slice only after manifest and user approval.
 
 ## Session Start And Resume
 
-Projects prepared by the full workflow include a live `docs/delivery/current-state.md` file and a project-local session continuity command.
+Projects prepared by the full workflow include a live `docs/delivery/current-state.md` file, `docs/delivery/active-slice-manifest.json`, and a project-local session continuity command.
 
 At the start of every new or resumed non-trivial project session, Codex should run:
 
 ```text
-python scripts/agent/session_continuity.py start
+python scripts/agent/session_continuity.py start --start-new
 ```
 
-The command reports Git and coordination state, requires incoming work inspection, and blocks an implementation next action when the project documentation manifest does not permit coding.
+The command reports Git and coordination state, requires incoming work inspection, blocks dirty new-session starts, and blocks an implementation next action when either manifest does not permit coding.
 
 ## Use A Lighter Workflow For Small Changes
 

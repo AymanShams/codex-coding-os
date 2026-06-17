@@ -2,6 +2,7 @@
 param(
   [switch]$InstallGlobalAgents,
   [switch]$InstallExternalSkills,
+  [switch]$RefreshCapabilityIndex,
   [string]$SkillsRoot = "$HOME\.agents\skills",
   [string]$CodexHome = "$HOME\.codex",
   [switch]$AllowUnpinnedExternalSkills,
@@ -106,6 +107,10 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
 
 if ($InstallExternalSkills -and -not (Test-CommandAvailable -Name "git")) {
   throw "Git is required when -InstallExternalSkills is used."
+}
+
+if ($RefreshCapabilityIndex -and -not (Test-CommandAvailable -Name "py") -and -not (Test-CommandAvailable -Name "python")) {
+  throw "Python is required when -RefreshCapabilityIndex is used."
 }
 
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -292,6 +297,7 @@ $Manifest = [pscustomobject]@{
   installed_global_agents = [bool]$InstallGlobalAgents
   global_agents_path = $GlobalAgents
   installed_external_skills = [bool]$InstallExternalSkills
+  refreshed_capability_index = [bool]$RefreshCapabilityIndex
   allowed_unpinned_external_skills = [bool]$AllowUnpinnedExternalSkills
   skills = $Installed
 }
@@ -310,6 +316,7 @@ if (-not $DryRun) {
   $Lines += "InstalledGlobalAgents=$InstallGlobalAgents"
   $Lines += "GlobalAgentsPath=$GlobalAgents"
   $Lines += "InstalledExternalSkills=$InstallExternalSkills"
+  $Lines += "RefreshedCapabilityIndex=$RefreshCapabilityIndex"
   $Lines += "AllowedUnpinnedExternalSkills=$AllowUnpinnedExternalSkills"
   $Lines += ($Installed | ForEach-Object { "SkillPath=$($_.path)" })
   Set-Content -LiteralPath $ManifestTextPath -Value $Lines -Encoding UTF8
@@ -332,6 +339,21 @@ if ($InstallExternalSkills) {
       $ExternalArgs += "-AllowUnpinned"
     }
     & (Join-Path $RepoRoot "scripts\install-external-skills.ps1") @ExternalArgs
+  }
+}
+
+if ($RefreshCapabilityIndex) {
+  $CapabilityIndexCli = Join-Path $ManifestDir "hooks\capability-router\capability_index_cli.py"
+  if ($DryRun) {
+    Write-Output "DRY RUN: would refresh capability index with $CapabilityIndexCli"
+  } elseif (Test-Path $CapabilityIndexCli) {
+    if (Test-CommandAvailable -Name "py") {
+      & py -3 -B $CapabilityIndexCli --refresh
+    } else {
+      & python $CapabilityIndexCli --refresh
+    }
+  } else {
+    throw "Capability index CLI was not installed: $CapabilityIndexCli"
   }
 }
 

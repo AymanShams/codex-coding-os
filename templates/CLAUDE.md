@@ -4,8 +4,9 @@ This file mirrors the repository operating rules for assistants that read `CLAUD
 
 ## Start Here
 - Read `AGENTS.md`.
-- Run `python scripts/agent/session_continuity.py start` when available.
-- Read `docs/delivery/current-state.md`, its latest handoff, and `project-documentation-manifest.json`.
+- Run `python scripts/agent/session_continuity.py start --start-new` when available.
+- Use `python scripts/agent/session_continuity.py start --continue-slice` only when continuing the same bounded active slice with known dirty work after inspection.
+- Read `docs/delivery/current-state.md`, `docs/delivery/active-slice-manifest.json`, its latest handoff, and `project-documentation-manifest.json`.
 - Read the source docs in `docs/`.
 - Follow the same validation and security rules as Codex.
 
@@ -17,7 +18,7 @@ The controlled docs in `docs/` override chat memory and old assumptions.
 - Avoid broad rewrites.
 - Never commit real secrets.
 - Ask when product behavior conflicts across docs.
-- Do not let current state or a handoff override controlled sources or permission-to-code gates.
+- Do not let current state, a handoff, a review marker, or a notification override controlled sources or permission-to-code gates.
 
 ## Current Status
 {{short_status_summary}}

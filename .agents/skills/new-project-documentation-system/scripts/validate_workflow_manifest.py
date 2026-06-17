@@ -106,6 +106,17 @@ def validate(data: dict) -> list[str]:
     if next_action == "code":
         if not data.get("code_allowed"):
             fail(errors, "next_action code requires code_allowed true")
+        permission_manifest_path = data.get("permission_manifest_path")
+        if not isinstance(permission_manifest_path, str) or not permission_manifest_path.strip():
+            fail(errors, "next_action code requires permission_manifest_path")
+        else:
+            permission_path = Path(permission_manifest_path)
+            candidates = [permission_path] if permission_path.is_absolute() else [
+                Path.cwd() / permission_path,
+                Path(data.get("output_root") or ".") / permission_path,
+            ]
+            if not any(candidate.exists() for candidate in candidates):
+                fail(errors, f"next_action code requires permission manifest to exist: {permission_manifest_path}")
         if open_decisions or conflicts:
             fail(errors, "next_action code requires no open material decisions or source conflicts")
         for approval in ("source_authority", "material_decisions", "controlled_docs", "tdd", "coding_start"):
@@ -122,7 +133,7 @@ def validate(data: dict) -> list[str]:
             if status not in DONE:
                 fail(errors, f"full_run completion requires {phase} done, got {status!r}")
 
-    for field in ("coordination_state_path", "session_continuity_command"):
+    for field in ("coordination_state_path", "permission_manifest_path", "session_continuity_command"):
         if not isinstance(data.get(field), str) or not data.get(field, "").strip():
             fail(errors, f"{field} must be a non-empty string")
 

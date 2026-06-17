@@ -57,7 +57,7 @@ Run the manifest validator and artifact validation. Any blocker or major defect 
 
 ### Gate H: Session Continuity
 
-Every new or resumed non-trivial session must read the workflow manifest, current delivery state, latest handoff, and controlling sources before editing. If current state or a handoff implies coding while the manifest does not permit it, the manifest wins and the session must continue from the first blocked or incomplete phase.
+Every new or resumed non-trivial session must read the workflow manifest, current delivery state, active-slice manifest, latest handoff, and controlling sources before editing. If current state or a handoff implies coding while either manifest does not permit it, the blocking manifest wins and the session must continue from the first blocked or incomplete phase.
 
 ## Approval Rules
 
@@ -69,4 +69,4 @@ Record approval only from:
 
 Silence, lack of response, or Codex inference is not approval.
 
-A handoff, new chat prompt, coordination-state update, or review notification is also not approval.
+A handoff, new chat prompt, coordination-state update, review marker, or review notification is also not approval.

@@ -15,11 +15,13 @@ from pathlib import Path
 
 STATE_PATH = Path("docs/delivery/current-state.md")
 DEFAULT_MANIFEST_PATH = Path("project-documentation-manifest.json")
+DEFAULT_ACTIVE_SLICE_MANIFEST_PATH = Path("docs/delivery/active-slice-manifest.json")
 REQUIRED_STATE_FIELDS = {
     "state_version",
     "last_updated",
     "workflow_state",
     "workflow_manifest",
+    "permission_manifest",
     "active_area",
     "active_slice",
     "next_area",
@@ -27,6 +29,10 @@ REQUIRED_STATE_FIELDS = {
     "next_action",
     "next_high_risk",
     "next_session_required_before_next_slice",
+    "review_required",
+    "review_status",
+    "reviewed_sha",
+    "review_applies_to_active_slice",
     "last_handoff",
 }
 REQUIRED_STATE_HEADINGS = {
@@ -54,6 +60,7 @@ REQUIRED_HANDOFF_HEADINGS = {
     "## Resume Instructions For The Next Agent",
 }
 READY_TO_CODE = {"approved", "completed"}
+REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
 REQUIRED_CODE_PHASES = {
     "0_route_scope",
     "1_source_inventory",
@@ -75,6 +82,7 @@ state_version: 1
 last_updated: 1970-01-01
 workflow_state: documentation-intake
 workflow_manifest: project-documentation-manifest.json
+permission_manifest: docs/delivery/active-slice-manifest.json
 active_area: documentation
 active_slice: project-intake
 next_area: documentation
@@ -82,6 +90,10 @@ next_slice: resolve-material-decisions
 next_action: resolve_material_decisions
 next_high_risk: false
 next_session_required_before_next_slice: false
+review_required: false
+review_status: not_required
+reviewed_sha: none
+review_applies_to_active_slice: false
 last_handoff: none
 ---
 
@@ -89,6 +101,10 @@ last_handoff: none
 
 ## Purpose
 This file records coordination state only. Controlling product and technical sources and the workflow manifest remain authoritative.
+
+## Active Slice Manifest
+- The current permission boundary is `docs/delivery/active-slice-manifest.json`.
+- A current-state update, handoff, review marker, or new chat cannot authorize work outside that manifest.
 
 ## Current Verified Repository State
 - Record the verified branch, remote baseline, and working-tree state.
@@ -119,6 +135,51 @@ Paste the latest handoff's next-session prompt into a new Codex chat. First run 
 ## Update Contract
 Update this file when active work, next action, risks, blockers, latest handoff, or session-boundary decisions change.
 """
+
+DEFAULT_ACTIVE_SLICE_MANIFEST = {
+    "schema_version": 1,
+    "last_updated": "1970-01-01",
+    "active_area": "documentation",
+    "active_slice": "project-intake",
+    "permission_state": "documentation_only",
+    "permission_summary": "Resolve material decisions and documentation phases. Coding is not allowed until the workflow manifest and this active-slice manifest both permit it.",
+    "source_authority": [
+        "project-documentation-manifest.json",
+        "docs/delivery/current-state.md",
+        "docs/project-brief.md",
+        "docs/prd.md",
+        "docs/tdd.md",
+    ],
+    "allowed_files": [
+        "project-documentation-manifest.json",
+        "docs/**",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "scripts/agent/session_continuity.py",
+    ],
+    "forbidden_actions": [
+        "Do not start implementation.",
+        "Do not deploy.",
+        "Do not add paid services, providers, databases, auth systems, or production credentials without explicit approval.",
+        "Do not treat a handoff, review marker, notification, or new chat as permission to bypass the workflow manifest.",
+    ],
+    "validation_commands": [
+        "python scripts/agent/session_continuity.py start --start-new",
+        "python scripts/agent/session_continuity.py validate",
+    ],
+    "review": {
+        "required": False,
+        "status": "not_required",
+        "reviewed_sha": "none",
+        "applies_to_active_slice": False,
+    },
+    "stop_conditions": [
+        "Stop if the workflow manifest blocks the requested action.",
+        "Stop if requested work is outside allowed_files.",
+        "Stop if source authority is missing or conflicting.",
+        "Stop if coding is requested before coding_start approval.",
+    ],
+}
 
 
 def run_git(*args: str, check: bool = False) -> str:
@@ -225,6 +286,59 @@ def manifest_allows_code(path: Path) -> tuple[bool, list[str]]:
     return not errors, errors
 
 
+def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None = None) -> list[str]:
+    errors: list[str] = []
+    attributes = attributes or {}
+    if not path.exists():
+        return [f"active-slice manifest not found: {path}"]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"active-slice manifest cannot be read: {exc}"]
+
+    for field in (
+        "schema_version",
+        "active_area",
+        "active_slice",
+        "permission_state",
+        "source_authority",
+        "allowed_files",
+        "forbidden_actions",
+        "validation_commands",
+        "stop_conditions",
+    ):
+        if data.get(field) in (None, "", []):
+            errors.append(f"active-slice manifest is missing {field}")
+    for field in ("source_authority", "allowed_files", "forbidden_actions", "validation_commands", "stop_conditions"):
+        if not isinstance(data.get(field), list) or not data[field]:
+            errors.append(f"active-slice manifest {field} must be a non-empty list")
+    review = data.get("review", {})
+    if not isinstance(review, dict):
+        errors.append("active-slice manifest review must be an object")
+    else:
+        if review.get("status") not in REVIEW_STATUSES:
+            errors.append("active-slice manifest review.status is invalid")
+        if review.get("status") in {"approved", "changes_required"} and review.get("reviewed_sha") in {None, "", "none"}:
+            errors.append("active-slice manifest review.reviewed_sha is required for completed reviews")
+    if attributes.get("active_area") and data.get("active_area") != attributes["active_area"]:
+        errors.append("active-slice manifest active_area must match current state")
+    if attributes.get("active_slice") and data.get("active_slice") != attributes["active_slice"]:
+        errors.append("active-slice manifest active_slice must match current state")
+    if isinstance(review, dict) and attributes.get("review_status") and review.get("status") != attributes["review_status"]:
+        errors.append("active-slice manifest review.status must match current state")
+    return errors
+
+
+def active_slice_allows_code(path: Path) -> tuple[bool, list[str]]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, [f"active-slice manifest cannot be read: {exc}"]
+    if data.get("permission_state") not in {"coding_allowed", "same_slice_only"}:
+        return False, ["active-slice manifest permission_state does not allow coding"]
+    return True, []
+
+
 def validate_state() -> list[str]:
     errors: list[str] = []
     attributes, _, content = read_state()
@@ -239,6 +353,16 @@ def validate_state() -> list[str]:
     for field in ("next_high_risk", "next_session_required_before_next_slice"):
         if attributes.get(field) not in {"true", "false"}:
             errors.append(f"current state {field} must be true or false")
+    for field in ("review_required", "review_applies_to_active_slice"):
+        if attributes.get(field) not in {"true", "false"}:
+            errors.append(f"current state {field} must be true or false")
+    if attributes.get("review_status") not in REVIEW_STATUSES:
+        errors.append("current state review_status is invalid")
+    if attributes.get("review_status") in {"approved", "changes_required"} and attributes.get("reviewed_sha") == "none":
+        errors.append("current state reviewed_sha is required for completed reviews")
+
+    active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+    errors.extend(validate_active_slice_manifest(active_manifest, attributes))
 
     handoff_path = attributes.get("last_handoff", "none")
     if handoff_path != "none":
@@ -258,12 +382,18 @@ def validate_state() -> list[str]:
         allowed, manifest_errors = manifest_allows_code(manifest_path)
         if not allowed:
             errors.extend(f"implementation is blocked: {error}" for error in manifest_errors)
+        active_allowed, active_errors = active_slice_allows_code(active_manifest)
+        if not active_allowed:
+            errors.extend(f"implementation is blocked: {error}" for error in active_errors)
     return errors
 
 
 def command_init(_: argparse.Namespace) -> int:
     if STATE_PATH.exists():
         print(f"Refusing to overwrite existing current state: {STATE_PATH}")
+        return 1
+    if DEFAULT_ACTIVE_SLICE_MANIFEST_PATH.exists():
+        print(f"Refusing to overwrite existing active-slice manifest: {DEFAULT_ACTIVE_SLICE_MANIFEST_PATH}")
         return 1
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     template = Path(__file__).resolve().parent.parent / "assets" / "current-state-template.md"
@@ -274,11 +404,23 @@ def command_init(_: argparse.Namespace) -> int:
     attributes, body, _ = read_state()
     attributes["last_updated"] = dt.date.today().isoformat()
     write_state(attributes, body)
+    active_template = Path(__file__).resolve().parent.parent / "assets" / "active-slice-manifest.template.json"
+    if active_template.exists():
+        active_manifest = json.loads(active_template.read_text(encoding="utf-8"))
+    else:
+        active_manifest = DEFAULT_ACTIVE_SLICE_MANIFEST
+    active_manifest["last_updated"] = dt.date.today().isoformat()
+    DEFAULT_ACTIVE_SLICE_MANIFEST_PATH.write_text(json.dumps(active_manifest, indent=2) + "\n", encoding="utf-8")
     print(f"Created {STATE_PATH}")
+    print(f"Created {DEFAULT_ACTIVE_SLICE_MANIFEST_PATH}")
     return 0
 
 
 def command_start(args: argparse.Namespace) -> int:
+    if args.start_new and args.continue_slice:
+        print("ERROR: choose only one of --start-new or --continue-slice")
+        return 1
+    mode = "continue-slice" if args.continue_slice else "start-new"
     if not args.no_fetch and run_git("remote", "get-url", "origin"):
         try:
             subprocess.run(["git", "fetch", "origin", "--prune"], check=True)
@@ -296,7 +438,7 @@ def command_start(args: argparse.Namespace) -> int:
     print(
         "Project session-start report\n"
         "============================\n"
-        f"Branch: {state['branch']}\nHEAD: {state['head']}\nRemote baseline: {state['remote_ref']} at {state['remote_head']}\n"
+        f"Mode: {mode}\nBranch: {state['branch']}\nHEAD: {state['head']}\nRemote baseline: {state['remote_ref']} at {state['remote_head']}\n"
         f"Ahead/behind remote baseline: {state['ahead']}/{state['behind']}\n"
         f"Working tree dirty: {'yes' if state['dirty'] else 'no'}\n\n"
         f"Git status:\n{state['status']}\n\n"
@@ -304,13 +446,17 @@ def command_start(args: argparse.Namespace) -> int:
         f"- next: {attributes.get('next_area', '(missing)')} / {attributes.get('next_slice', '(missing)')}\n"
         f"- next_action: {attributes.get('next_action', '(missing)')}\n"
         f"- workflow_manifest: {attributes.get('workflow_manifest', '(missing)')}\n\n"
+        f"- permission_manifest: {attributes.get('permission_manifest', '(missing)')}\n"
+        f"- review_status: {attributes.get('review_status', '(missing)')}\n\n"
         "Required reading order:\n1. AGENTS.md and closest scoped instructions\n2. CLAUDE.md when applicable\n"
-        "3. docs/delivery/current-state.md\n4. latest handoff\n5. workflow manifest\n6. task-controlling sources"
+        "3. docs/delivery/current-state.md\n4. active-slice manifest\n5. latest handoff\n6. workflow manifest\n7. task-controlling sources"
     )
 
     errors = validate_state()
     if state["dirty"] and state["behind"] > 0:
         errors.append("working tree is dirty while the tracked remote has incoming commits")
+    if mode == "start-new" and state["dirty"]:
+        errors.append("new-session start requires a clean working tree; use --continue-slice only for the same bounded active slice after inspecting local changes")
     if errors:
         print("START GATE: BLOCKED")
         for error in errors:
@@ -328,16 +474,14 @@ def command_decide(args: argparse.Namespace) -> int:
     attributes, _, _ = read_state()
     state = repo_state()
     triggers: list[str] = []
+    area_changed = attributes.get("active_area") != attributes.get("next_area")
+    high_risk_next = attributes.get("next_high_risk") == "true" or HIGH_RISK.search(
+        f"{attributes.get('next_area', '')} {attributes.get('next_slice', '')}"
+    )
     if attributes.get("next_session_required_before_next_slice") == "true":
         triggers.append("current state requires a new session")
     if args.event in {"post-merge", "post-rewrite"}:
         triggers.append(f"Git lifecycle event '{args.event}' changed the baseline")
-    if attributes.get("active_area") != attributes.get("next_area"):
-        triggers.append("the next delivery area changes")
-    if attributes.get("next_high_risk") == "true" or HIGH_RISK.search(
-        f"{attributes.get('next_area', '')} {attributes.get('next_slice', '')}"
-    ):
-        triggers.append("the next slice is high risk")
     if args.corrections >= 2:
         triggers.append("two or more context-related corrections occurred")
     if args.context_stale:
@@ -350,6 +494,10 @@ def command_decide(args: argparse.Namespace) -> int:
     if not triggers:
         print("SESSION DECISION: CONTINUE_CURRENT_SESSION")
         print("Continue only for the same bounded slice and its review, fixes, or validation.")
+        if area_changed:
+            print("Area change detected. Rerun the start gate, reread controlling docs, update the active-slice manifest, and get explicit authorization before implementation.")
+        if high_risk_next:
+            print("High-risk next slice detected. Fresh controls and explicit authorization are required, but risk alone does not require another chat.")
         return 0
     print("SESSION DECISION: NEW_SESSION_REQUIRED")
     for trigger in triggers:
@@ -416,14 +564,15 @@ Continue this project in the repository:
 {Path.cwd().as_posix()}
 
 First run:
-python scripts/agent/session_continuity.py start
+python scripts/agent/session_continuity.py start --start-new
 
 Then read:
 1. AGENTS.md and the closest scoped AGENTS.md files
 2. docs/delivery/current-state.md
-3. the latest handoff referenced by current state
-4. project-documentation-manifest.json
-5. the task-controlling docs
+3. docs/delivery/active-slice-manifest.json
+4. the latest handoff referenced by current state
+5. project-documentation-manifest.json
+6. the task-controlling docs
 
 Continue only from this exact next permitted slice:
 {args.next}
@@ -434,8 +583,8 @@ Stop if the session-start gate blocks, the workflow manifest blocks the requeste
 ## Resume Instructions For The Next Agent
 1. Start a new session in this repository.
 2. Paste the prompt above.
-3. Run `python scripts/agent/session_continuity.py start` as the first command inside that session.
-4. Read agent instructions, current state, latest handoff, workflow manifest, and controlling sources.
+3. Run `python scripts/agent/session_continuity.py start --start-new` as the first command inside that session.
+4. Read agent instructions, current state, active-slice manifest, latest handoff, workflow manifest, and controlling sources.
 5. Confirm the exact next permitted action before editing.
 6. Do not duplicate completed work or bypass a blocked documentation phase.
 """
@@ -474,6 +623,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("init").set_defaults(func=command_init)
     start = subparsers.add_parser("start")
     start.add_argument("--no-fetch", action="store_true")
+    start.add_argument("--start-new", action="store_true")
+    start.add_argument("--continue-slice", action="store_true")
     start.add_argument("--pull-after-inspection", action="store_true")
     start.set_defaults(func=command_start)
     decide = subparsers.add_parser("decide")

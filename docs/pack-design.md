@@ -46,7 +46,7 @@ the presence and JSON validity of `pack.schema.json`.
 7. Create repo instructions.
 8. Add current state and session continuity.
 9. Start one bounded implementation slice.
-10. Offer parallel worktree lanes only when the workflow manifest permits coding and the task is material, high-risk, or naturally separable.
+10. Offer parallel worktree lanes only when the workflow manifest and active-slice manifest both permit coding and the task is material, high-risk, or naturally separable.
 11. Use the review, security, design, RCA, and validation skills when the task calls for them.
 12. Validate before completion.
 

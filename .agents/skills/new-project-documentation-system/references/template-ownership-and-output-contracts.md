@@ -19,7 +19,7 @@ Keep one authoritative owner for each detailed template. The orchestrator enforc
 | Alignment review | This skill asset | Record keep/correct/reject/defer decisions and drift |
 | Full repo docs | `technical-docs-pack/references/repo-docs-template.md` | Enforce stage fit and coverage |
 | Validation report | `artifact-validation-workflow` | Require pass/fail verdict and exact blockers |
-| Current state and session handoff | `project-session-continuity` | Keep coordination subordinate to the workflow manifest and controlling docs |
+| Current state, active-slice manifest, and session handoff | `project-session-continuity` | Keep coordination subordinate to the workflow manifest, active-slice manifest, and controlling docs |
 
 ## Seven-Doc Completeness Contract
 
@@ -44,4 +44,4 @@ Incorporate these durable controls from the Codex Coding OS process:
 - Separate user-facing deliverables from maintainer/process commentary.
 - Add a first vertical slice recommendation only after documentation approval.
 - Add a handoff note that reports actual state, validation, known issues, and the next permitted task.
-- Add a current-state file and automated session-start gate that refuse implementation when the manifest does not permit coding.
+- Add a current-state file, active-slice manifest, and automated session-start gate that refuse implementation when either manifest does not permit coding.

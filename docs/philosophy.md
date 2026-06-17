@@ -64,7 +64,7 @@ Validation should explain:
 
 Important state must survive the chat that created it. Controlled sources, open decisions, current delivery state, validation results, blockers, and handoffs belong in inspectable project files.
 
-Coordination state and handoff notes never override product, technical, security, or workflow-manifest authority. A new session must resume from the first blocked or incomplete phase and cannot reinterpret an incomplete workflow as permission to code.
+Coordination state, handoff notes, review markers, and notifications never override product, technical, security, workflow-manifest, or active-slice-manifest authority. A new session must resume from the first blocked or incomplete phase and cannot reinterpret an incomplete workflow as permission to code.
 
 ### Make Command Safety Explicit
 
