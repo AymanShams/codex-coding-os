@@ -135,6 +135,10 @@ Recommended hook uses:
 6. Run `python scripts/agent/worktree_lanes.py validate --current` before commit
    or push in projects that enable parallel worktree lanes. This validates the
    lane contract; it does not replace the lane's declared test or build commands.
+7. Add advisory capability-routing hints with
+   `hooks/capability-router/user_prompt_skill_router.py` after source review.
+   This reduces noisy skill/plugin suggestions but does not choose the final
+   capability or enable any plugin.
 
 ## Hook safety rules
 
@@ -143,6 +147,8 @@ Recommended hook uses:
 - Do not run hooks that upload source files or sensitive integration settings.
 - Keep hooks local and auditable.
 - Prefer hooks that validate, scan, or report instead of hooks that mutate code.
+- Treat advisory prompt hooks as hints only. They should fail open and must not
+  replace the `catalogue-router` task gate.
 
 ## Source notes
 

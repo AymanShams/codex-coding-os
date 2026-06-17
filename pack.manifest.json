@@ -94,6 +94,12 @@
     "tests/install-uninstall-smoke.sh",
     "tests/workflow-gates-smoke.py",
     "tests/worktree-lanes-smoke.py",
+    "hooks/capability-router/README.md",
+    "hooks/capability-router/_hook_io.py",
+    "hooks/capability-router/capability_index.py",
+    "hooks/capability-router/capability_index_cli.py",
+    "hooks/capability-router/user_prompt_skill_router.py",
+    "hooks/capability-router/test_capability_router.py",
     "hooks/worktree-lane-pre-commit.py",
     "hooks/worktree-lane-pre-push.py"
   ],

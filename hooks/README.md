@@ -11,6 +11,9 @@ Recommended hook candidates:
 5. External skill overlay reapply after optional external install.
 6. Parallel worktree lane validation with `hooks/worktree-lane-pre-commit.py`
    and `hooks/worktree-lane-pre-push.py` for projects that enable lane mode.
+7. Capability-router prompt hints with
+   `hooks/capability-router/user_prompt_skill_router.py` for users who want
+   reviewed prompt-time skill and plugin suggestions.
 
 Before enabling any hook, verify current Codex hook syntax and trust behavior in official Codex docs. For command approval policy, review `.codex/rules/default.rules` and `docs/codex-rules.md`.
 
@@ -22,3 +25,8 @@ permission, or lacks required lane state.
 If an active lane marker exists but `scripts/agent/worktree_lanes.py` is missing,
 the hooks fail closed. Passing this hook means the lane contract is valid; it does
 not replace the lane's declared tests, build, lint, or review commands.
+
+The capability-router hook is advisory and fail-open. It builds a local index,
+filters generic false positives, and adds routing hints only. It does not install
+skills, enable plugins, mutate files, or replace the `catalogue-router` decision
+gate.
