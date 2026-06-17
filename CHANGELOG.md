@@ -8,6 +8,7 @@ All notable package changes are recorded here. The authoritative package release
 
 - Added an active-slice manifest gate for project-session continuity so coding, handoffs, review markers, notifications, and new sessions cannot bypass the current slice permission boundary.
 - Added installer support for refreshing the copied capability index after installation.
+- Added deterministic active-slice enforcement for dirty files, required review approval, reviewed SHA matching, and repair of older current-state files that are missing active-slice fields.
 
 ### Changed
 

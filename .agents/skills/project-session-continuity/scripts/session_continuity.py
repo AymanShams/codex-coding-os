@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fnmatch
 import json
 import re
 import shutil
@@ -16,7 +17,7 @@ from pathlib import Path
 STATE_PATH = Path("docs/delivery/current-state.md")
 DEFAULT_MANIFEST_PATH = Path("project-documentation-manifest.json")
 DEFAULT_ACTIVE_SLICE_MANIFEST_PATH = Path("docs/delivery/active-slice-manifest.json")
-REQUIRED_STATE_FIELDS = {
+REQUIRED_STATE_FIELDS = (
     "state_version",
     "last_updated",
     "workflow_state",
@@ -34,7 +35,7 @@ REQUIRED_STATE_FIELDS = {
     "reviewed_sha",
     "review_applies_to_active_slice",
     "last_handoff",
-}
+)
 REQUIRED_STATE_HEADINGS = {
     "## Current Verified Repository State",
     "## Active Work",
@@ -195,6 +196,17 @@ def run_git(*args: str, check: bool = False) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def run_git_stdout(*args: str) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else ""
+
+
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     normalized = text.replace("\r\n", "\n")
     if not normalized.startswith("---\n"):
@@ -252,6 +264,38 @@ def repo_state() -> dict[str, object]:
     }
 
 
+def normalize_repo_path(value: str) -> str:
+    return value.replace("\\", "/").strip("/")
+
+
+def changed_repo_paths() -> list[str]:
+    paths: list[str] = []
+    for line in run_git_stdout("status", "--porcelain").splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            paths.extend(normalize_repo_path(part) for part in path.split(" -> ", 1))
+        else:
+            paths.append(normalize_repo_path(path))
+    return sorted({path for path in paths if path})
+
+
+def path_matches_allowed(path: str, patterns: list[str]) -> bool:
+    normalized = normalize_repo_path(path)
+    for raw_pattern in patterns:
+        pattern = normalize_repo_path(raw_pattern)
+        if not pattern:
+            continue
+        if pattern.endswith("/**"):
+            root = pattern[:-3].rstrip("/")
+            if normalized == root or normalized.startswith(f"{root}/"):
+                return True
+        if fnmatch.fnmatchcase(normalized, pattern):
+            return True
+    return False
+
+
 def manifest_allows_code(path: Path) -> tuple[bool, list[str]]:
     errors: list[str] = []
     if not path.exists():
@@ -286,15 +330,25 @@ def manifest_allows_code(path: Path) -> tuple[bool, list[str]]:
     return not errors, errors
 
 
-def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None = None) -> list[str]:
-    errors: list[str] = []
-    attributes = attributes or {}
+def read_active_slice_manifest(path: Path) -> tuple[dict[str, object] | None, list[str]]:
     if not path.exists():
-        return [f"active-slice manifest not found: {path}"]
+        return None, [f"active-slice manifest not found: {path}"]
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return [f"active-slice manifest cannot be read: {exc}"]
+        return None, [f"active-slice manifest cannot be read: {exc}"]
+    if not isinstance(data, dict):
+        return None, ["active-slice manifest must be a JSON object"]
+    return data, []
+
+
+def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None = None) -> list[str]:
+    errors: list[str] = []
+    attributes = attributes or {}
+    data, read_errors = read_active_slice_manifest(path)
+    if read_errors:
+        return read_errors
+    assert data is not None
 
     for field in (
         "schema_version",
@@ -316,26 +370,74 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
     if not isinstance(review, dict):
         errors.append("active-slice manifest review must be an object")
     else:
+        if not isinstance(review.get("required"), bool):
+            errors.append("active-slice manifest review.required must be true or false")
         if review.get("status") not in REVIEW_STATUSES:
             errors.append("active-slice manifest review.status is invalid")
         if review.get("status") in {"approved", "changes_required"} and review.get("reviewed_sha") in {None, "", "none"}:
             errors.append("active-slice manifest review.reviewed_sha is required for completed reviews")
+        if not isinstance(review.get("applies_to_active_slice"), bool):
+            errors.append("active-slice manifest review.applies_to_active_slice must be true or false")
     if attributes.get("active_area") and data.get("active_area") != attributes["active_area"]:
         errors.append("active-slice manifest active_area must match current state")
     if attributes.get("active_slice") and data.get("active_slice") != attributes["active_slice"]:
         errors.append("active-slice manifest active_slice must match current state")
+    if isinstance(review, dict) and attributes.get("review_required"):
+        expected = attributes["review_required"] == "true"
+        if isinstance(review.get("required"), bool) and review.get("required") is not expected:
+            errors.append("active-slice manifest review.required must match current state")
     if isinstance(review, dict) and attributes.get("review_status") and review.get("status") != attributes["review_status"]:
         errors.append("active-slice manifest review.status must match current state")
+    if isinstance(review, dict) and attributes.get("reviewed_sha") and str(review.get("reviewed_sha")) != attributes["reviewed_sha"]:
+        errors.append("active-slice manifest review.reviewed_sha must match current state")
+    if isinstance(review, dict) and attributes.get("review_applies_to_active_slice"):
+        expected = attributes["review_applies_to_active_slice"] == "true"
+        if isinstance(review.get("applies_to_active_slice"), bool) and review.get("applies_to_active_slice") is not expected:
+            errors.append("active-slice manifest review.applies_to_active_slice must match current state")
     return errors
 
 
-def active_slice_allows_code(path: Path) -> tuple[bool, list[str]]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return False, [f"active-slice manifest cannot be read: {exc}"]
+def active_slice_allows_code(path: Path, attributes: dict[str, str] | None = None, head: str | None = None) -> tuple[bool, list[str]]:
+    data, read_errors = read_active_slice_manifest(path)
+    if read_errors:
+        return False, read_errors
+    assert data is not None
+    attributes = attributes or {}
+    errors: list[str] = []
     if data.get("permission_state") not in {"coding_allowed", "same_slice_only"}:
-        return False, ["active-slice manifest permission_state does not allow coding"]
+        errors.append("active-slice manifest permission_state does not allow coding")
+
+    review = data.get("review", {})
+    manifest_review_required = isinstance(review, dict) and review.get("required") is True
+    state_review_required = attributes.get("review_required") == "true"
+    if manifest_review_required or state_review_required:
+        review_status = review.get("status") if isinstance(review, dict) else attributes.get("review_status")
+        if review_status != "approved":
+            errors.append("required active-slice review must be approved before coding")
+        applies = review.get("applies_to_active_slice") if isinstance(review, dict) else None
+        if applies is not True or attributes.get("review_applies_to_active_slice") != "true":
+            errors.append("required active-slice review must apply to the active slice")
+        reviewed_sha = str(review.get("reviewed_sha") or attributes.get("reviewed_sha") or "none") if isinstance(review, dict) else attributes.get("reviewed_sha", "none")
+        if reviewed_sha in {"", "none"}:
+            errors.append("required active-slice review must record reviewed_sha")
+        elif head and head != "(unavailable)" and reviewed_sha != head:
+            errors.append("required active-slice review reviewed_sha must match current HEAD")
+        elif not head or head == "(unavailable)":
+            errors.append("required active-slice review cannot be verified without current HEAD")
+    return not errors, errors
+
+
+def active_slice_allows_paths(path: Path, paths: list[str]) -> tuple[bool, list[str]]:
+    data, read_errors = read_active_slice_manifest(path)
+    if read_errors:
+        return False, read_errors
+    assert data is not None
+    patterns = data.get("allowed_files")
+    if not isinstance(patterns, list) or not all(isinstance(pattern, str) for pattern in patterns):
+        return False, ["active-slice manifest allowed_files must be a list of strings"]
+    outside = [repo_path for repo_path in paths if not path_matches_allowed(repo_path, patterns)]
+    if outside:
+        return False, [f"changed file is outside active-slice allowed_files: {repo_path}" for repo_path in outside]
     return True, []
 
 
@@ -382,10 +484,37 @@ def validate_state() -> list[str]:
         allowed, manifest_errors = manifest_allows_code(manifest_path)
         if not allowed:
             errors.extend(f"implementation is blocked: {error}" for error in manifest_errors)
-        active_allowed, active_errors = active_slice_allows_code(active_manifest)
+        active_allowed, active_errors = active_slice_allows_code(
+            active_manifest,
+            attributes,
+            repo_state()["head"],
+        )
         if not active_allowed:
             errors.extend(f"implementation is blocked: {error}" for error in active_errors)
+        changed_paths = changed_repo_paths()
+        if changed_paths:
+            paths_allowed, path_errors = active_slice_allows_paths(active_manifest, changed_paths)
+            if not paths_allowed:
+                errors.extend(f"implementation is blocked: {error}" for error in path_errors)
     return errors
+
+
+def load_active_slice_template() -> dict[str, object]:
+    active_template = Path(__file__).resolve().parent.parent / "assets" / "active-slice-manifest.template.json"
+    if active_template.exists():
+        return json.loads(active_template.read_text(encoding="utf-8"))
+    return dict(DEFAULT_ACTIVE_SLICE_MANIFEST)
+
+
+def write_default_active_slice_manifest(path: Path, attributes: dict[str, str]) -> None:
+    active_manifest = load_active_slice_template()
+    active_manifest["last_updated"] = dt.date.today().isoformat()
+    if attributes.get("active_area"):
+        active_manifest["active_area"] = attributes["active_area"]
+    if attributes.get("active_slice"):
+        active_manifest["active_slice"] = attributes["active_slice"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(active_manifest, indent=2) + "\n", encoding="utf-8")
 
 
 def command_init(_: argparse.Namespace) -> int:
@@ -404,15 +533,36 @@ def command_init(_: argparse.Namespace) -> int:
     attributes, body, _ = read_state()
     attributes["last_updated"] = dt.date.today().isoformat()
     write_state(attributes, body)
-    active_template = Path(__file__).resolve().parent.parent / "assets" / "active-slice-manifest.template.json"
-    if active_template.exists():
-        active_manifest = json.loads(active_template.read_text(encoding="utf-8"))
-    else:
-        active_manifest = DEFAULT_ACTIVE_SLICE_MANIFEST
-    active_manifest["last_updated"] = dt.date.today().isoformat()
-    DEFAULT_ACTIVE_SLICE_MANIFEST_PATH.write_text(json.dumps(active_manifest, indent=2) + "\n", encoding="utf-8")
+    write_default_active_slice_manifest(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH, attributes)
     print(f"Created {STATE_PATH}")
     print(f"Created {DEFAULT_ACTIVE_SLICE_MANIFEST_PATH}")
+    return 0
+
+
+def command_repair(_: argparse.Namespace) -> int:
+    attributes, body, content = read_state()
+    if not content:
+        print(f"ERROR: required current-state file is missing: {STATE_PATH}")
+        print("Run `python scripts/agent/session_continuity.py init` for a new project.")
+        return 1
+
+    default_attributes, _ = parse_frontmatter(DEFAULT_STATE_TEMPLATE)
+    changed_fields: list[str] = []
+    for field in REQUIRED_STATE_FIELDS:
+        if not attributes.get(field):
+            attributes[field] = default_attributes.get(field, "none")
+            changed_fields.append(field)
+    if changed_fields:
+        attributes["last_updated"] = dt.date.today().isoformat()
+        write_state(attributes, body)
+        print(f"Updated missing current-state fields: {', '.join(changed_fields)}")
+
+    active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+    if active_manifest.exists():
+        print(f"Active-slice manifest already exists: {active_manifest}")
+    else:
+        write_default_active_slice_manifest(active_manifest, attributes)
+        print(f"Created {active_manifest}")
     return 0
 
 
@@ -457,6 +607,11 @@ def command_start(args: argparse.Namespace) -> int:
         errors.append("working tree is dirty while the tracked remote has incoming commits")
     if mode == "start-new" and state["dirty"]:
         errors.append("new-session start requires a clean working tree; use --continue-slice only for the same bounded active slice after inspecting local changes")
+    if mode == "continue-slice" and state["dirty"]:
+        active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+        paths_allowed, path_errors = active_slice_allows_paths(active_manifest, changed_repo_paths())
+        if not paths_allowed:
+            errors.extend(path_errors)
     if errors:
         print("START GATE: BLOCKED")
         for error in errors:
@@ -621,6 +776,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init").set_defaults(func=command_init)
+    subparsers.add_parser("repair").set_defaults(func=command_repair)
     start = subparsers.add_parser("start")
     start.add_argument("--no-fetch", action="store_true")
     start.add_argument("--start-new", action="store_true")

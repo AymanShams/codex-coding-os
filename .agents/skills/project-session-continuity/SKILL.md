@@ -20,13 +20,20 @@ python scripts/agent/session_continuity.py validate
 
 Use `py -3` instead of `python` on Windows when needed.
 
+For an existing project that already has `docs/delivery/current-state.md` but is missing active-slice fields or `docs/delivery/active-slice-manifest.json`, run:
+
+```text
+python scripts/agent/session_continuity.py repair
+python scripts/agent/session_continuity.py validate
+```
+
 ## Start Or Resume
 
 For every new or resumed non-trivial session:
 
 1. Run `python scripts/agent/session_continuity.py start --start-new`.
 2. Stop if it reports `BLOCKED` or `INSPECTION_REQUIRED`.
-3. Use `python scripts/agent/session_continuity.py start --continue-slice` only when continuing the same bounded active slice with known dirty work after inspecting the local changes.
+3. Use `python scripts/agent/session_continuity.py start --continue-slice` only when continuing the same bounded active slice with known dirty work after inspecting the local changes. Dirty files outside `allowed_files` must block.
 4. Inspect incoming commits before pulling or building on them.
 5. Read root and scoped agent instructions.
 6. Read `docs/delivery/current-state.md`.
@@ -125,7 +132,7 @@ thread mode.
 ## Source And Gate Rules
 
 - `docs/delivery/current-state.md` is a coordination source, not a product or technical authority.
-- `docs/delivery/active-slice-manifest.json` is the current permission boundary for implementation files, forbidden actions, validation commands, review state, and stop conditions.
+- `docs/delivery/active-slice-manifest.json` is the current permission boundary for implementation files, forbidden actions, validation commands, review state, and stop conditions. Changed files must match `allowed_files` before same-slice continuation can pass.
 - Handoff notes record state. They do not approve requirements, architecture, security, or coding.
 - The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
 - Review state must be explicit. Use fields such as `review_required`, `review_status`, `reviewed_sha`, and `review_applies_to_active_slice`; never treat a retained marker string as review completion.
@@ -142,4 +149,5 @@ Do not call continuity ready unless:
 - workflow manifest path resolves when declared
 - active-slice manifest path resolves when declared
 - implementation next actions are blocked until both manifests permit coding
+- required active-slice review is approved, applies to the active slice, and records the current HEAD before coding
 - Git state and checks are reported honestly
