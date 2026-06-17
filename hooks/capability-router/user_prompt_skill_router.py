@@ -38,6 +38,71 @@ ROUTES = [
         "guidance": "For factual claims, verification, current docs, or source-quality review, use evidence-checker or the narrow official-doc skill when one applies.",
     },
     {
+        "skill": "catalogue-router",
+        "triggers": (
+            "capability router",
+            "capability routing",
+            "router",
+            "routing",
+            "which skill",
+            "which plugin",
+            "skill selection",
+            "plugin selection",
+            "tool selection",
+        ),
+        "guidance": "For capability, router, skill, plugin, or tool-selection work, use catalogue-router and treat index results as candidates, not authority.",
+    },
+    {
+        "skill": "codex-coding-os-master",
+        "triggers": (
+            "codex-coding-os",
+            "codex coding os",
+            "coding session",
+            "vibe coding",
+            "code_allowed",
+            "coding plans",
+            "new software project",
+        ),
+        "guidance": "For full coding-workflow orchestration, project gates, or code_allowed decisions, use codex-coding-os-master before narrower support skills.",
+    },
+    {
+        "skill": "github:github",
+        "triggers": (
+            "github",
+            "pull request",
+            "pr #",
+            " pr ",
+            " pr.",
+            " pr,",
+            " pr:",
+            "ci status",
+            "merge rule",
+            "merge protection",
+            "branch protection",
+            "review protection",
+            "admin-merge",
+            "admin merge",
+        ),
+        "guidance": "For GitHub, PR, CI, branch-protection, or merge-rule work, use the GitHub capability and do not merge, push, or rewrite history without explicit approval.",
+    },
+    {
+        "skill": "ai-coding-discipline",
+        "triggers": (
+            "existing repo",
+            "bug",
+            "bugfix",
+            "fix",
+            "run tests",
+            "health check",
+            "winerror",
+            "ci status",
+            "pr #",
+            "commit",
+            "push",
+        ),
+        "guidance": "For repo changes, run-health debugging, PR checks, bug fixes, or implementation, use ai-coding-discipline and keep edits bounded and verified.",
+    },
+    {
         "skill": "quant-review",
         "triggers": (
             "calculate",
@@ -58,7 +123,6 @@ ROUTES = [
             "audit this",
             "audit the",
             "challenge",
-            "validate",
             "review this",
             "what is wrong",
             "stress test",
@@ -92,7 +156,6 @@ ROUTES = [
             "vulnerability",
             "secret",
             "api key",
-            "permission",
             "auth",
             "privacy",
         ),
@@ -143,12 +206,42 @@ ROUTES = [
 def route_matches(route: dict, lowered: str) -> bool:
     if any(phrase in lowered for phrase in route.get("exclude_phrases", ())):
         return False
+    if route["skill"] == "ssot-drafter or ssot-auditor":
+        strong_terms = (
+            "sop",
+            "policy",
+            "playbook",
+            "operating model",
+            "governance",
+            "raci",
+            "daci",
+            "process map",
+        )
+        if "workflow" in lowered and not any(term in lowered for term in strong_terms):
+            return False
     return any(trigger in lowered for trigger in route["triggers"])
+
+
+def route_priority(route: dict) -> int:
+    priorities = {
+        "humanizer": 10,
+        "evidence-checker": 20,
+        "deep-critic": 30,
+        "catalogue-router": 40,
+        "github:github": 50,
+        "ai-coding-discipline": 60,
+        "security-best-practices or security-threat-model": 70,
+        "codex-coding-os-master": 80,
+    }
+    return priorities.get(route["skill"], 100)
 
 
 def matched_routes_for_prompt(prompt: str) -> list[dict]:
     lowered = prompt.lower()
-    return [route for route in ROUTES if route_matches(route, lowered)]
+    return sorted(
+        [route for route in ROUTES if route_matches(route, lowered)],
+        key=route_priority,
+    )
 
 
 def main() -> None:

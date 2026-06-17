@@ -53,6 +53,24 @@ FIXTURE_INDEX = {
         },
         {
             "kind": "skill",
+            "name": "github",
+            "description": "GitHub pull request, CI, merge, review protection, and branch protection workflows",
+            "status": "active-plugin",
+        },
+        {
+            "kind": "skill",
+            "name": "project-session-continuity",
+            "description": "Session starts, handoffs, blockers, manifests, and project continuity",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
+            "name": "security-best-practices",
+            "description": "Secure coding, authentication, authorization, secrets, privacy, and vulnerability review",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
             "name": "cli-creator",
             "description": "Create durable command-line tools and scripts",
             "status": "active-pack",
@@ -73,6 +91,30 @@ FIXTURE_INDEX = {
             "kind": "skill",
             "name": "skill-creator",
             "description": "Create, improve, test, and verify Codex skills",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
+            "name": "contract-review",
+            "description": "Review contracts, clauses, agreements, MSA, SLA, handover, and termination terms",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
+            "name": "quant-review",
+            "description": "Calculations, forecasts, models, statistics, ROI, and sensitivity analysis",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
+            "name": "public-equity-investing",
+            "description": "Public equity investment research and market analysis",
+            "status": "active-plugin",
+        },
+        {
+            "kind": "skill",
+            "name": "suggest-sales-next-step",
+            "description": "Suggest sales next steps for deals, buyers, leads, and pipeline",
             "status": "active-pack",
         },
         {
@@ -161,6 +203,78 @@ def test_verify_skill_does_not_trigger_evidence_checker() -> None:
         raise AssertionError(skills)
 
 
+def test_implementation_validate_does_not_trigger_deep_critic() -> None:
+    prompt = "Fix the Supabase row-level security policies, add tests, and validate the migration."
+    matches = prompt_router.matched_routes_for_prompt(prompt)
+    skills = {match["skill"] for match in matches}
+    if "deep-critic" in skills:
+        raise AssertionError(skills)
+    names = names_for(prompt)
+    if "deep-critic" in names:
+        raise AssertionError(names)
+
+
+def test_pr_ci_merge_rules_route_to_github_without_contract_noise() -> None:
+    prompt = "Review PR #5 CI status and merge rules. Do not admin-merge without approval."
+    matches = prompt_router.matched_routes_for_prompt(prompt)
+    skills = {match["skill"] for match in matches}
+    if "github:github" not in skills or "ai-coding-discipline" not in skills:
+        raise AssertionError(skills)
+    names = names_for(prompt)
+    if "github" not in names or "ai-coding-discipline" not in names:
+        raise AssertionError(names)
+    for noisy in ("contract-review", "quant-review"):
+        if noisy in names:
+            raise AssertionError(names)
+
+
+def test_repo_health_permission_error_routes_to_coding_not_security() -> None:
+    prompt = (
+        "In daily-intelligence-os, run the health check, preserve generated Markdown, "
+        "and stop if WinError 10013 socket permission blocks the run."
+    )
+    matches = prompt_router.matched_routes_for_prompt(prompt)
+    skills = {match["skill"] for match in matches}
+    if "security-best-practices or security-threat-model" in skills:
+        raise AssertionError(skills)
+    names = names_for(prompt)
+    if "ai-coding-discipline" not in names:
+        raise AssertionError(names)
+    if "security-best-practices" in names:
+        raise AssertionError(names)
+
+
+def test_router_failure_analysis_does_not_route_to_sales() -> None:
+    matches = prompt_router.matched_routes_for_prompt(
+        "Analyze the Codex router reasoning failure, run a simulation, report findings, and do not fix anything yet."
+    )
+    skills = {match["skill"] for match in matches}
+    if "catalogue-router" not in skills:
+        raise AssertionError(skills)
+    names = names_for(
+        "Analyze the Codex router reasoning failure, run a simulation, report findings, and do not fix anything yet."
+    )
+    if "suggest-sales-next-step" in names:
+        raise AssertionError(names)
+
+
+def test_public_repo_release_hygiene_does_not_route_to_public_equity() -> None:
+    names = names_for(
+        "Proceed with accepted public-release hygiene recommendations in the codex-coding-os repo."
+    )
+    if "public-equity-investing" in names:
+        raise AssertionError(names)
+
+
+def test_code_allowed_docs_prompt_routes_to_master_workflow() -> None:
+    matches = prompt_router.matched_routes_for_prompt(
+        "For ClientProject, review the full Docs corpus and coding plans. code_allowed is false."
+    )
+    skills = {match["skill"] for match in matches}
+    if "codex-coding-os-master" not in skills:
+        raise AssertionError(skills)
+
+
 def test_pptx_has_explicit_presentation_route() -> None:
     matches = prompt_router.matched_routes_for_prompt("Create a PPTX deck from this outline")
     skills = {match["skill"] for match in matches}
@@ -177,6 +291,12 @@ def main() -> int:
         test_audit_log_does_not_trigger_deep_critic,
         test_existing_repo_bugfix_routes_to_coding_discipline,
         test_verify_skill_does_not_trigger_evidence_checker,
+        test_implementation_validate_does_not_trigger_deep_critic,
+        test_pr_ci_merge_rules_route_to_github_without_contract_noise,
+        test_repo_health_permission_error_routes_to_coding_not_security,
+        test_router_failure_analysis_does_not_route_to_sales,
+        test_public_repo_release_hygiene_does_not_route_to_public_equity,
+        test_code_allowed_docs_prompt_routes_to_master_workflow,
         test_pptx_has_explicit_presentation_route,
     ]
     for test in tests:

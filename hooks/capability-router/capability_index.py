@@ -171,7 +171,14 @@ SKILL_AUTHORING_TERMS = {
 }
 SKILL_AUTHORING_ACTION_TERMS = SKILL_AUTHORING_TERMS - {"skill", "skills"}
 
-DOCUMENT_TERMS = {"doc", "docx", "document", "documents", "word"}
+DOCUMENT_TERMS = {
+    "docx",
+    "word",
+    "word document",
+    "document file",
+    "uploaded document",
+    "attached document",
+}
 PRESENTATION_TERMS = {
     "deck",
     "ppt",
@@ -292,6 +299,36 @@ BUSINESS_STRATEGY_TERMS = {
     "startup",
     "strategy",
 }
+SALES_TERMS = {
+    "account",
+    "buyer",
+    "deal",
+    "lead",
+    "pipeline",
+    "prospect",
+    "sales",
+}
+CONTRACT_TERMS = {
+    "agreement",
+    "clause",
+    "contract",
+    "handover",
+    "legal",
+    "msa",
+    "sla",
+    "termination",
+}
+QUANT_TERMS = {
+    "calculate",
+    "forecast",
+    "formula",
+    "model",
+    "numbers",
+    "roi",
+    "sensitivity",
+    "statistic",
+    "unit economics",
+}
 ARTIFACT_SYSTEM_TERMS = {
     "artifact",
     "controlled doc",
@@ -333,22 +370,72 @@ IMAGE_GENERATION_TERMS = {
     "visual",
 }
 CODING_DISCIPLINE_TERMS = {
+    "blocked",
     "bug",
     "bugfix",
+    "build",
+    "check",
+    "checks",
     "code",
     "coding",
+    "commit",
     "debug",
     "error",
     "existing",
     "failing",
     "feature",
     "fix",
+    "generated",
+    "health",
+    "healthcheck",
     "implementation",
+    "merge",
+    "pr",
+    "pull",
+    "push",
     "repo",
     "repository",
     "refactor",
+    "run",
+    "scheduled",
     "test",
     "tests",
+    "winerror",
+}
+PROJECT_CONTINUITY_TERMS = {
+    "active-slice",
+    "blocked",
+    "blocker",
+    "current-state",
+    "handoff",
+    "manifest",
+    "resume",
+    "session",
+}
+GITHUB_TERMS = {
+    "admin merge",
+    "admin-merge",
+    "branch protection",
+    "checks",
+    "ci",
+    "github",
+    "main",
+    "merge",
+    "merge rules",
+    "pr",
+    "pull request",
+    "review protection",
+    "status check",
+}
+WORKTREE_TERMS = {
+    "agent",
+    "agents",
+    "branch",
+    "lane",
+    "lanes",
+    "parallel",
+    "worktree",
+    "worktrees",
 }
 REACT_WEB_TERMS = {
     "component",
@@ -364,7 +451,6 @@ SECURITY_TERMS = {
     "auth",
     "authorization",
     "bypass",
-    "permission",
     "privacy",
     "secret",
     "secrets",
@@ -381,7 +467,6 @@ FORMAL_REVIEW_TERMS = {
     "review",
     "review this",
     "stress test",
-    "validate",
 }
 NEGATED_FORMAL_REVIEW_PHRASES = {
     "do not critique",
@@ -775,6 +860,8 @@ def guarded_out(entry: dict, prompt_lower: str, prompt_tokens: set[str]) -> bool
         "ssot-auditor",
     }:
         return not has_formal_review_request(prompt_lower, prompt_tokens)
+    if normalized_name == "deep-critic":
+        return not has_formal_review_request(prompt_lower, prompt_tokens)
     if normalized_name == "cli-creator":
         return not has_term(prompt_lower, prompt_tokens, CLI_TERMS)
     if normalized_name in {"grill-me", "grill-with-docs"}:
@@ -794,12 +881,21 @@ def guarded_out(entry: dict, prompt_lower: str, prompt_tokens: set[str]) -> bool
         "board-update",
         "competitor-analysis",
         "gtm-strategy",
+        "hormozi-growth-system",
+        "investment-banking",
         "market-sizing",
         "pricing-strategy",
+        "public-equity-investing",
         "stakeholder-map",
         "startup-context",
     }:
         return not has_term(prompt_lower, prompt_tokens, BUSINESS_STRATEGY_TERMS)
+    if normalized_name in {"contract-review", "contract-reviewer"}:
+        return not has_term(prompt_lower, prompt_tokens, CONTRACT_TERMS)
+    if normalized_name == "quant-review":
+        return not has_term(prompt_lower, prompt_tokens, QUANT_TERMS)
+    if normalized_name == "suggest-sales-next-step":
+        return not has_term(prompt_lower, prompt_tokens, SALES_TERMS)
     if normalized_name in {
         "artifact-system-designer",
         "artifact-validation-workflow",
@@ -887,6 +983,22 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
         coding_discipline_match = normalize(name) == "ai-coding-discipline" and len(
             prompt_tokens & CODING_DISCIPLINE_TERMS
         ) >= 2
+        project_continuity_match = normalize(name) == "project-session-continuity" and (
+            len(prompt_tokens & PROJECT_CONTINUITY_TERMS) >= 1
+            or "health check" in prompt_lower
+            or "stop if" in prompt_lower
+        )
+        github_match = normalize(name) in {
+            "github",
+            "gh-address-comments",
+            "gh-fix-ci",
+            "yeet",
+        } and has_term(prompt_lower, prompt_tokens, GITHUB_TERMS)
+        worktree_match = normalize(name) in {
+            "using-git-worktrees",
+            "dispatching-parallel-agents",
+            "subagent-driven-development",
+        } and has_term(prompt_lower, prompt_tokens, WORKTREE_TERMS)
         react_web_match = normalize(name) in {
             "frontend-app-builder",
             "frontend-testing-debugging",
@@ -908,6 +1020,9 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
             and not full_name_match
             and not capability_routing_match
             and not coding_discipline_match
+            and not project_continuity_match
+            and not github_match
+            and not worktree_match
             and not react_web_match
             and not security_match
             and not skill_authoring_match
@@ -927,6 +1042,12 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
             score += 35
         if coding_discipline_match:
             score += 35
+        if project_continuity_match:
+            score += 28
+        if github_match:
+            score += 40
+        if worktree_match:
+            score += 30
         if react_web_match:
             score += 25
         if security_match:
