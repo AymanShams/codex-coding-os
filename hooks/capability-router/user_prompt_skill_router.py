@@ -596,7 +596,7 @@ def detect_candidate_visibility(prompt_lower: str, prompt_tokens: set[str]) -> s
         return "active_only"
     if "install" in prompt_tokens or "installable" in prompt_tokens or "candidate" in prompt_tokens:
         return "include_install_candidates"
-    if "reference" in prompt_tokens:
+    if "reference" in prompt_tokens or "reference-only" in prompt_tokens or "reference only" in prompt_lower:
         return "include_reference"
     return "active_plus_catalogue_routes"
 
@@ -1121,8 +1121,38 @@ def candidate_visibility_includes_candidates(candidate_visibility: str) -> bool:
     return candidate_visibility in {"include_install_candidates", "include_project_local_pilots", "include_reference"}
 
 
+SESSION_ONLY_ENTRY_STATUSES = {
+    "catalogue-plugin-available",
+    "conditional-future-skill",
+    "install-or-run-candidate",
+    "project-local-pilot",
+    "reference-only",
+}
+SESSION_ONLY_ENTRY_ROLES = {"project-local-only", "reference-only"}
+ACTIVE_AUTOMATIC_ENTRY_STATUSES = {
+    "active-local",
+    "active-mcp",
+    "active-pack",
+    "active-plugin",
+    "active-user",
+    "catalogue-plugin-active",
+    "catalogue-route",
+    "session-available-plugin",
+}
+
+
 def normalized(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def requires_session_authorization(entry) -> bool:
+    if entry.get("kind") != "candidate" and entry.get("status", "") in ACTIVE_AUTOMATIC_ENTRY_STATUSES:
+        return False
+    return (
+        entry.get("kind") == "candidate"
+        or entry.get("status", "") in SESSION_ONLY_ENTRY_STATUSES
+        or entry.get("routing_role", "") in SESSION_ONLY_ENTRY_ROLES
+    )
 
 
 def entry_role(entry, context: PromptContext) -> str:
@@ -1138,14 +1168,14 @@ def entry_role(entry, context: PromptContext) -> str:
     source_tools = {normalized(tool) for tool in context.source_tool_requirements}
     if entry.get("kind") == "mcp" and normalized(name) in source_tools:
         return "Source/data access"
+    if requires_session_authorization(entry):
+        return "Gated session-only support"
     if primary_families & set(context.primary_family_candidates or set()):
         return "Primary candidate"
     if support_families & set(context.supporting_family_candidates):
         return "Supporting candidate"
     if primary_families & set(context.supporting_family_candidates):
         return "Supporting candidate"
-    if entry.get("kind") == "candidate":
-        return "Candidate not installed"
     return "Candidate"
 
 
@@ -1196,7 +1226,12 @@ def main():
         if len(lines) >= 7:
             break
 
-    for entry in indexed:
+    gated_indexed = [entry for entry in indexed if requires_session_authorization(entry)]
+    regular_indexed = [entry for entry in indexed if not requires_session_authorization(entry)]
+    reserve_gated_line = context.explicit_capability_selection and bool(gated_indexed)
+    regular_line_limit = 7 if reserve_gated_line else 8
+
+    for entry in regular_indexed:
         name = entry.get("name", "")
         if not name or name in seen or normalized(name) in seen:
             continue
@@ -1204,12 +1239,22 @@ def main():
         description = entry.get("description", "").replace("\n", " ")[:220]
         status = entry.get("status", "")
         kind = entry.get("kind", "capability")
-        if role == "Candidate not installed":
-            lines.append(f"- Candidate not installed `{name}` [{status}]: {description} Do not install or use automatically.")
+        if role == "Gated session-only support":
+            lines.append(f"- Gated session-only support `{name}` [{status}]: {description} Requires explicit authorization before use in this session only. Never install universally or treat as primary.")
         else:
             lines.append(f"- {role} {kind} `{name}` [{status}]: {description}")
         seen.add(name)
-        if len(lines) >= 8:
+        if len(lines) >= regular_line_limit:
+            break
+
+    if reserve_gated_line and len(lines) < 8:
+        for entry in gated_indexed:
+            name = entry.get("name", "")
+            if not name or name in seen or normalized(name) in seen:
+                continue
+            description = entry.get("description", "").replace("\n", " ")[:220]
+            status = entry.get("status", "")
+            lines.append(f"- Gated session-only support `{name}` [{status}]: {description} Requires explicit authorization before use in this session only. Never install universally or treat as primary.")
             break
 
     emit_additional_context("UserPromptSubmit", "\n".join(lines))
