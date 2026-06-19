@@ -95,6 +95,16 @@ Use routing candidates this way:
 - Primary family means likely workflow owner, not permission to act.
 - Supporting family means materially useful additional guidance, not a required
   second owner for every task.
+- Classify every non-trivial task through five layers: container, action,
+  domain, risk/validation, and authority. Container and action select the
+  primary workflow owner. Domain and risk/validation add support families.
+  Authority can override both.
+- For review, audit, validation, comparison, and rescue tasks, re-check routing
+  after inspecting the actual artifact, diff, file list, or source set. If the
+  material reveals frontend, security, data, controlled-document,
+  quantitative, evidence, creative, browser, or project-governance needs, add
+  the relevant support family without letting it steal ownership from the
+  primary container/action workflow.
 - Source/data tools provide evidence access. They are not primary or supporting
   skills.
 - Duplicate candidates should collapse to the canonical installed path.

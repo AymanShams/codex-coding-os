@@ -366,6 +366,66 @@ def test_github_no_merge_or_push_is_read_only() -> None:
         raise AssertionError(names)
 
 
+def test_github_frontend_pr_review_keeps_github_primary_with_frontend_support() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #36 for a Next.js React web scaffold in apps/web. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    if context.task_object != "github":
+        raise AssertionError(context)
+    if context.permission_mode != "read_only":
+        raise AssertionError(context)
+    if context.primary_family_candidates != frozenset({"github"}):
+        raise AssertionError(context)
+    if "frontend" not in context.supporting_family_candidates:
+        raise AssertionError(context)
+    if "critique" not in context.supporting_family_candidates:
+        raise AssertionError(context)
+    if "code_orchestration" not in context.denied_families:
+        raise AssertionError(context)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            denied_families=context.denied_families,
+            limit=8,
+        )
+    ]
+    if "github" not in names or "Build Web Apps" not in names:
+        raise AssertionError(names)
+    if "codex-coding-os-master" in names:
+        raise AssertionError(names)
+
+
+def test_github_security_pr_review_adds_security_support_without_code_ownership() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #7 for auth and authorization changes. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    if context.task_object != "github":
+        raise AssertionError(context)
+    if context.permission_mode != "read_only":
+        raise AssertionError(context)
+    if context.primary_family_candidates != frozenset({"github"}):
+        raise AssertionError(context)
+    if "security" not in context.supporting_family_candidates:
+        raise AssertionError(context)
+    if not {"code", "code_orchestration"} <= set(context.denied_families):
+        raise AssertionError(context)
+
+
+def test_generic_github_strategy_review_does_not_add_frontend_support() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #41 for website pricing strategy copy. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    if context.task_object != "github":
+        raise AssertionError(context)
+    if context.primary_family_candidates != frozenset({"github"}):
+        raise AssertionError(context)
+    if "frontend" in context.supporting_family_candidates:
+        raise AssertionError(context)
+
+
 def test_existing_repo_implementation_routes_to_master_with_code_support() -> None:
     patch_index()
     prompt = "In an existing repo, implement a bug fix in the auth API and run tests."
@@ -753,6 +813,9 @@ def main() -> int:
         test_capability_selection_routes_to_catalogue_router,
         test_campaign_service_prompt_routes_to_creative_not_code,
         test_github_no_merge_or_push_is_read_only,
+        test_github_frontend_pr_review_keeps_github_primary_with_frontend_support,
+        test_github_security_pr_review_adds_security_support_without_code_ownership,
+        test_generic_github_strategy_review_does_not_add_frontend_support,
         test_existing_repo_implementation_routes_to_master_with_code_support,
         test_new_software_project_routes_to_master_with_docs_and_continuity_support,
         test_business_project_documentation_does_not_route_to_coding_os,

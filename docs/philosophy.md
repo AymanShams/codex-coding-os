@@ -39,6 +39,20 @@ One primary agent or execution context owns each bounded slice. Supporting skill
 
 Independent assurance is separate from execution. Material work benefits from a fresh-context review. High-risk work may require a different model, provider, human reviewer, or domain expert because two agents using similar context can share the same blind spots.
 
+### Route Through Five Layers
+
+Every non-trivial task has five layers:
+
+- container: the outer work surface, such as repo, PR, document, spreadsheet, slide deck, dataset, browser app, or project
+- action: what the user wants done, such as review, edit, implement, compare, validate, summarize, merge, or publish
+- domain: the stack or subject inside the container, such as frontend, security, database, policy, pricing, evidence, healthcare, or creative work
+- risk/validation: the assurance needed, such as tests, browser rendering, source verification, calculation checks, privacy, security, compliance, or human review
+- authority: the source that controls the work, such as the latest user request, project instructions, manifests, source docs, live repo state, connector state, or explicit permission limits
+
+Container and action choose the primary workflow owner. Domain and risk add supporting lenses. Authority can override both.
+
+Review, audit, validation, comparison, and rescue tasks need a second routing pass after artifact or diff inspection. A PR review can remain GitHub-owned while adding frontend, security, data, controlled-document, quantitative, evidence, creative, browser, or project-governance support when the changed material proves that need.
+
 ### Stop Before Material Guessing
 
 The workflow must stop when an unresolved decision can materially change scope, users, workflows, data, architecture, identity, authorization, sensitive-data handling, integrations, deployment, cost, or validation.

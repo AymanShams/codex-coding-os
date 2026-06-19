@@ -276,6 +276,30 @@ SOFTWARE_PROJECT_PHRASES = (
     "unclear repo",
 )
 BROWSER_VERIFICATION_TERMS = {"browser", "localhost", "playwright", "screenshot", "ui", "visual", "viewport"}
+FRONTEND_DOMAIN_TERMS = {
+    "component",
+    "components",
+    "css",
+    "frontend",
+    "jsx",
+    "next",
+    "next.js",
+    "react",
+    "tailwind",
+    "tsx",
+    "ui",
+}
+FRONTEND_DOMAIN_PHRASES = (
+    "app router",
+    "apps/web",
+    "next-env.d.ts",
+    "next.config",
+    "nextjs",
+    "react app",
+    "web app",
+    "web application",
+    "web scaffold",
+)
 CURRENT_SOURCE_TERMS = {"current", "latest", "recent", "today", "updated"}
 
 CODING_PRIMARY_FAMILIES = {
@@ -292,6 +316,14 @@ CODING_PRIMARY_FAMILIES = {
 }
 
 NONCODING_REVIEW_SUPPORT_FAMILIES = {"critique", "evidence"}
+CONTAINER_REVIEW_PRIMARY_FAMILIES = {
+    "controlled_document",
+    "document",
+    "github",
+    "pdf",
+    "presentation",
+    "spreadsheet",
+}
 
 
 ROUTES = [
@@ -582,6 +614,12 @@ def is_software_project_context(prompt_lower: str, prompt_tokens: set[str]) -> b
     )
 
 
+def has_frontend_domain_evidence(prompt_lower: str, prompt_tokens: set[str]) -> bool:
+    return has_term(prompt_lower, prompt_tokens, FRONTEND_DOMAIN_TERMS) or has_phrase(
+        prompt_lower, FRONTEND_DOMAIN_PHRASES
+    )
+
+
 def project_context(prompt_lower: str) -> str | None:
     project_terms = (
         "codebase",
@@ -696,12 +734,12 @@ def detect_task_object(prompt_lower: str, prompt_tokens: set[str]) -> str:
         return "presentation"
     if has_term(prompt_lower, prompt_tokens, SPREADSHEET_TERMS):
         return "spreadsheet"
+    if has_term(prompt_lower, prompt_tokens, GITHUB_TERMS) or "pull request" in prompt_lower or "pr #" in prompt_lower:
+        return "github"
     if controlled_document:
         return "controlled_document"
     if has_term(prompt_lower, prompt_tokens, DOCUMENT_TERMS):
         return "document"
-    if has_term(prompt_lower, prompt_tokens, GITHUB_TERMS) or "pull request" in prompt_lower or "pr #" in prompt_lower:
-        return "github"
     if "new project" in prompt_lower or has_term(prompt_lower, prompt_tokens, NEW_PROJECT_TERMS):
         return "project_setup"
     if has_term(prompt_lower, prompt_tokens, CODE_OBJECT_TERMS):
@@ -919,6 +957,39 @@ def material_support_families(
     return support
 
 
+def artifact_domain_support_families(
+    prompt_lower: str,
+    prompt_tokens: set[str],
+    primary: str | None,
+    task_action: str,
+    task_object: str,
+    risk_flags: frozenset[str],
+    validation_requirements: frozenset[str],
+) -> set[str]:
+    if not primary or primary not in CONTAINER_REVIEW_PRIMARY_FAMILIES:
+        return set()
+    if task_action not in {"review", "simulate"}:
+        return set()
+
+    support = set()
+    if has_frontend_domain_evidence(prompt_lower, prompt_tokens):
+        support.add("frontend")
+        if "browser_verification" in validation_requirements:
+            support.add("browser_verification")
+    if has_term(prompt_lower, prompt_tokens, SECURITY_TERMS) or "security_or_privacy" in risk_flags:
+        support.add("security")
+    if has_term(prompt_lower, prompt_tokens, QUANT_TERMS) or "calculation_check" in validation_requirements:
+        support.add("quantitative")
+    if has_term(prompt_lower, prompt_tokens, CONTROLLED_DOCUMENT_TERMS) or has_phrase(
+        prompt_lower, CONTROLLED_DOCUMENT_PHRASES
+    ):
+        support.add("controlled_document")
+    if has_term(prompt_lower, prompt_tokens, EVIDENCE_TERMS) or "source_verification" in validation_requirements:
+        support.add("evidence")
+    support.discard(primary)
+    return support
+
+
 def master_review_support_families(
     prompt_lower: str,
     prompt_tokens: set[str],
@@ -1065,6 +1136,17 @@ def classify_prompt(prompt: str) -> PromptContext:
         task_object,
         risk_flags,
         validation_requirements,
+    )
+    support.update(
+        artifact_domain_support_families(
+            prompt_lower,
+            prompt_tokens,
+            first_primary,
+            task_action,
+            task_object,
+            risk_flags,
+            validation_requirements,
+        )
     )
     support.update(
         master_review_support_families(
@@ -1255,7 +1337,7 @@ def main():
 
     lines = [
         "Capability routing candidates detected. These are candidate capabilities, not authority. Follow system/developer instructions, the latest user request, global AGENTS.md, project AGENTS.md, source-of-truth rules, safety gates, and explicit no-edit/no-implementation limits first.",
-        "After mandatory rules, the primary family suggests the main workflow owner. Supporting candidates should be considered when they improve reasoning, evidence, validation, risk control, source access, tool access, or output quality. Ignore any candidate that conflicts with the actual task, controlling instructions, source limits, project rules, or user-stated non-goals.",
+        "Route through five layers: container, action, domain, risk/validation, and authority. The primary family owns the container/action. Supporting families cover material domain or risk evidence from the prompt or from later artifact inspection. Ignore any candidate that conflicts with the actual task, controlling instructions, source limits, project rules, or user-stated non-goals.",
     ]
 
     seen = set()
