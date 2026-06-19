@@ -986,7 +986,7 @@ def is_plugin_availability_context(prompt_lower: str, prompt_tokens: set[str]) -
     )
 
 
-def guarded_out(entry: dict, prompt_lower: str, prompt_tokens: set[str]) -> bool:
+def guarded_out(entry: dict, prompt_lower: str, prompt_tokens: set[str], allowed_families=None) -> bool:
     name = entry.get("name", "")
     normalized_name = normalize(name)
     name_lower = name.lower()
@@ -1005,6 +1005,8 @@ def guarded_out(entry: dict, prompt_lower: str, prompt_tokens: set[str]) -> bool
     if normalized_name in {"grill-me", "grill-with-docs"}:
         return not has_term(prompt_lower, prompt_tokens, GRILL_TERMS)
     if normalized_name == "new-project-documentation-system":
+        if allowed_families and "new_project_doc" in allowed_families:
+            return False
         return not has_term(prompt_lower, prompt_tokens, NEW_PROJECT_DOC_TERMS)
     if normalized_name == "technical-docs-pack":
         return not has_term(prompt_lower, prompt_tokens, TECHNICAL_DOC_TERMS)
@@ -1090,6 +1092,7 @@ def query_index(
     primary_families = normalize_family_values(primary_families)
     supporting_families = normalize_family_values(supporting_families)
     denied_families = normalize_family_values(denied_families)
+    selected_families = set(primary_families or set()) | set(supporting_families or set())
     source_tool_names = {normalize(str(tool)) for tool in (source_tool_requirements or set())}
     if is_audit_log_context(prompt_lower):
         if not has_formal_review_request(prompt_lower, prompt_tokens):
@@ -1133,7 +1136,7 @@ def query_index(
         if denied_families and {"code", "code_orchestration"} & denied_families:
             if normalize(name) in {"gh-fix-ci", "github-gh-fix-ci", "github-yeet", "yeet"}:
                 continue
-        if guarded_out(entry, prompt_lower, prompt_tokens):
+        if guarded_out(entry, prompt_lower, prompt_tokens, allowed_families=selected_families):
             continue
         entry_primary_families = primary_families_for_entry(entry)
         entry_support_families = support_families_for_entry(entry)
