@@ -29,13 +29,17 @@ Do not give the reviewer a persuasive summary that pre-decides the verdict.
 
 The reviewer must:
 
-1. Check source faithfulness and unsupported decisions.
-2. Challenge assumptions, evidence quality, and hidden scope.
-3. Inspect the actual artifact or diff.
-4. Check intended behavior, negative cases, and failure modes.
-5. Distinguish blocking defects from optional improvements.
-6. State what was not reviewed or could not be verified.
-7. Avoid rewriting unless the review request includes remediation.
+1. Classify the five task layers: container, action, domain, risk/validation, and authority.
+2. Check source faithfulness and unsupported decisions.
+3. Challenge assumptions, evidence quality, and hidden scope.
+4. Inspect the actual artifact or diff, then re-check whether the inspected material requires specialist support.
+5. Keep the primary owner tied to the container/action, but add domain and risk lenses when the diff proves them.
+6. Check intended behavior, negative cases, and failure modes.
+7. Distinguish blocking defects from optional improvements.
+8. State what was not reviewed or could not be verified.
+9. Avoid rewriting unless the review request includes remediation.
+
+Domain and risk lenses include frontend, security, data, controlled documents, quantitative logic, evidence/source quality, creative artifacts, browser rendering, project governance, and any project-specific source-of-truth boundary. They are not named-skill triggers. They are first-principles checks derived from what changed and what could fail.
 
 ## Required Output
 
