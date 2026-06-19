@@ -190,6 +190,7 @@ support_items=(
   templates
   docs
   codex-capabilities
+  capability-index
   external-skills
   hooks
   patches

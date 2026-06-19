@@ -207,6 +207,7 @@ $SupportItems = if ($PackManifest -and $PackManifest.support_items) {
     "templates",
     "docs",
     "codex-capabilities",
+    "capability-index",
     "external-skills",
     "hooks",
     "patches",

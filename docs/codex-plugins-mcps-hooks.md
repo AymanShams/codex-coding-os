@@ -139,6 +139,14 @@ Recommended hook uses:
    `hooks/capability-router/user_prompt_skill_router.py` after source review.
    This reduces noisy skill/plugin suggestions but does not choose the final
    capability or enable any plugin.
+8. Maintain local registry metadata with
+   `$CODEX_CAPABILITY_INDEX_DIR/canonical-registry.csv` or
+   `CODEX_CAPABILITY_REGISTRY`. The public sample registry is a schema example,
+   not a complete installed-state inventory.
+9. Create fresh-context review prompts with
+   `python scripts/agent/fresh_context_review.py --print-only` for dry runs or
+   `python scripts/agent/fresh_context_review.py` after the source worktree is
+   clean.
 
 ## Hook safety rules
 
@@ -149,6 +157,10 @@ Recommended hook uses:
 - Prefer hooks that validate, scan, or report instead of hooks that mutate code.
 - Treat advisory prompt hooks as hints only. They should fail open and must not
   replace the `catalogue-router` task gate.
+- Treat MCPs and source/data tools as evidence access. They do not become the
+  primary skill owner just because a project or task needs their data.
+- Keep private project names, paths, registry rows, and local installed-state
+  details out of the public sample registry.
 
 ## Source notes
 
