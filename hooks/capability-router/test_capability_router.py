@@ -110,6 +110,12 @@ FIXTURE_INDEX = {
         },
         {
             "kind": "skill",
+            "name": "new-project-documentation-system",
+            "description": "New software project documentation, PRD, TDD, workflow manifests, and implementation plans",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
             "name": "security-best-practices",
             "description": "Secure coding, authentication, authorization, secrets, privacy, and vulnerability review",
             "status": "active-pack",
@@ -230,6 +236,7 @@ FAMILY_FIXTURE = {
     "ai-coding-discipline": ("code", "github, process, project_continuity, security", "primary-capable", "material-only"),
     "github": ("github", "code, process", "primary-capable", "material-only"),
     "project-session-continuity": ("project_continuity", "code, process", "primary-capable", "material-only"),
+    "new-project-documentation-system": ("new_project_doc", "code_orchestration, project_continuity", "primary-capable", "material-only"),
     "security-best-practices": ("security", "code", "primary-capable", "material-only"),
     "cli-creator": ("code", "", "primary-capable", "material-only"),
     "grill-me": ("critique", "", "primary-capable", "material-only"),
@@ -383,6 +390,44 @@ def test_existing_repo_implementation_routes_to_master_with_code_support() -> No
         raise AssertionError(names)
     if "codex-coding-os-master" not in names or "ai-coding-discipline" not in names:
         raise AssertionError(names)
+
+
+def test_new_software_project_routes_to_master_with_docs_and_continuity_support() -> None:
+    patch_index()
+    prompt = "Start a new software project in an unclear repo and prepare coding plans before implementation."
+    context = prompt_router.classify_prompt(prompt)
+    if context.task_object != "project_setup":
+        raise AssertionError(context)
+    if context.primary_family_candidates != frozenset({"code_orchestration"}):
+        raise AssertionError(context)
+    if not {"code", "new_project_doc", "project_continuity"} <= set(context.supporting_family_candidates):
+        raise AssertionError(context)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            limit=8,
+        )
+    ]
+    if not names or names[0] != "codex-coding-os-master":
+        raise AssertionError(names)
+    for expected in {"ai-coding-discipline", "new-project-documentation-system", "project-session-continuity"}:
+        if expected not in names:
+            raise AssertionError(names)
+
+
+def test_business_project_documentation_does_not_route_to_coding_os() -> None:
+    patch_index()
+    prompt = "Create project documentation and a PRD for a business onboarding initiative."
+    context = prompt_router.classify_prompt(prompt)
+    if context.task_object != "project_setup":
+        raise AssertionError(context)
+    if context.primary_family_candidates != frozenset({"new_project_doc"}):
+        raise AssertionError(context)
+    if "code_orchestration" in context.primary_family_candidates:
+        raise AssertionError(context)
 
 
 def test_plugin_installability_query_suppresses_review_skill_noise() -> None:
@@ -709,6 +754,8 @@ def main() -> int:
         test_campaign_service_prompt_routes_to_creative_not_code,
         test_github_no_merge_or_push_is_read_only,
         test_existing_repo_implementation_routes_to_master_with_code_support,
+        test_new_software_project_routes_to_master_with_docs_and_continuity_support,
+        test_business_project_documentation_does_not_route_to_coding_os,
         test_plugin_installability_query_suppresses_review_skill_noise,
         test_reference_only_candidate_requires_explicit_session_authorization,
         test_active_explicit_support_is_not_session_only_gated,

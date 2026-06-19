@@ -242,6 +242,39 @@ HUMANIZER_TERMS = {"assignment", "essay", "humanize", "natural", "robotic"}
 SECURITY_TERMS = {"auth", "authorization", "bypass", "privacy", "secret", "security", "threat", "vulnerability"}
 HIGH_RISK_TERMS = {"clinical", "compliance", "financial", "legal", "medical", "phi", "privacy", "security"}
 NEW_PROJECT_TERMS = {"agents.md", "handoff", "prd", "project", "tdd"}
+SOFTWARE_PROJECT_TERMS = {
+    "api",
+    "architecture",
+    "backend",
+    "code",
+    "codebase",
+    "coding",
+    "frontend",
+    "module",
+    "package",
+    "repo",
+    "repository",
+    "software",
+    "test",
+    "tests",
+}
+SOFTWARE_PROJECT_PHRASES = (
+    "ai-assisted coding",
+    "architecture change",
+    "before implementation",
+    "coding workflow",
+    "existing repo",
+    "existing repository",
+    "material repo",
+    "new app",
+    "new application",
+    "new repo",
+    "new repository",
+    "new software project",
+    "tech stack",
+    "unclear existing repo",
+    "unclear repo",
+)
 BROWSER_VERIFICATION_TERMS = {"browser", "localhost", "playwright", "screenshot", "ui", "visual", "viewport"}
 CURRENT_SOURCE_TERMS = {"current", "latest", "recent", "today", "updated"}
 
@@ -540,6 +573,15 @@ def has_phrase(prompt_lower: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in prompt_lower for phrase in phrases)
 
 
+def is_software_project_context(prompt_lower: str, prompt_tokens: set[str]) -> bool:
+    if has_phrase(prompt_lower, SOFTWARE_PROJECT_PHRASES):
+        return True
+    return bool(
+        ("new project" in prompt_lower or "project" in prompt_tokens)
+        and has_term(prompt_lower, prompt_tokens, SOFTWARE_PROJECT_TERMS)
+    )
+
+
 def project_context(prompt_lower: str) -> str | None:
     project_terms = (
         "codebase",
@@ -783,6 +825,8 @@ def primary_options_from_frame(
     if task_object == "github":
         return ["github"]
     if task_object == "project_setup":
+        if is_software_project_context(prompt_lower, prompt_tokens):
+            return ["code_orchestration"]
         return ["new_project_doc"]
     if "skill" in prompt_tokens and has_term(prompt_lower, prompt_tokens, SKILL_AUTHORING_ACTION_TERMS):
         return ["skill_authoring"]
@@ -849,8 +893,10 @@ def material_support_families(
         or "security_or_privacy" in risk_flags
     ):
         support.add("security")
-    if primary == "code_orchestration" and task_object == "codebase":
+    if primary == "code_orchestration" and task_object in {"codebase", "project_setup"}:
         support.add("code")
+        if task_object == "project_setup":
+            support.update({"new_project_doc", "project_continuity"})
         if (
             has_term(prompt_lower, prompt_tokens, SECURITY_TERMS)
             or has_term(prompt_lower, prompt_tokens, CODE_POLICY_TERMS)
