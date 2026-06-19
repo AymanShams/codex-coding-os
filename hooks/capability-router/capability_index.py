@@ -527,7 +527,7 @@ def normalize_family(value: str) -> str:
 def normalize_family_values(value) -> set[str]:
     if not value:
         return set()
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (frozenset, list, tuple, set)):
         parts = value
     else:
         parts = re.split(r"[,|]+", str(value))
@@ -940,6 +940,18 @@ def wants_candidate_results(prompt_lower: str, prompt_tokens: set[str]) -> bool:
     return False
 
 
+def is_plugin_availability_context(prompt_lower: str, prompt_tokens: set[str]) -> bool:
+    if not ({"plugin", "plugins"} & prompt_tokens):
+        return False
+    return (
+        "available plugins" in prompt_lower
+        or "plugins available" in prompt_lower
+        or "available to install" in prompt_lower
+        or "installable plugins" in prompt_lower
+        or bool({"available", "installable", "list", "what", "which"} & prompt_tokens)
+    )
+
+
 def guarded_out(entry: dict, prompt_lower: str, prompt_tokens: set[str]) -> bool:
     name = entry.get("name", "")
     normalized_name = normalize(name)
@@ -1040,6 +1052,7 @@ def query_index(
     index = ensure_index()
     prompt_lower = prompt.lower()
     prompt_tokens = tokenize(prompt)
+    plugin_availability_context = is_plugin_availability_context(prompt_lower, prompt_tokens)
     primary_families = normalize_family_values(primary_families)
     supporting_families = normalize_family_values(supporting_families)
     denied_families = normalize_family_values(denied_families)
@@ -1073,17 +1086,26 @@ def query_index(
             continue
         if kind == "candidate" and not include_candidates:
             continue
+        if kind == "catalogue-plugin" and not plugin_availability_context:
+            continue
+        if plugin_availability_context and kind == "skill" and normalize(entry.get("name", "")) != "catalogue-router":
+            continue
         if candidate_visibility == "active_only" and routing_role in {"reference-only", "project-local-only"}:
             continue
 
         name = entry.get("name", "")
         description = entry.get("description", "")
+        if denied_families and {"code", "code_orchestration"} & denied_families:
+            if normalize(name) in {"gh-fix-ci", "github-gh-fix-ci", "github-yeet", "yeet"}:
+                continue
         if guarded_out(entry, prompt_lower, prompt_tokens):
             continue
         entry_primary_families = primary_families_for_entry(entry)
         entry_support_families = support_families_for_entry(entry)
         entry_all_families = all_families_for_entry(entry)
-        if denied_families and entry_primary_families & denied_families:
+        if denied_families and entry_primary_families & denied_families and not (
+            primary_families and entry_primary_families & (primary_families - denied_families)
+        ):
             continue
         source_tool_match = kind == "mcp" and normalize(name) in source_tool_names
         primary_family_routing_match = bool(primary_families and entry_primary_families & primary_families)
@@ -1104,12 +1126,27 @@ def query_index(
         normalized_name_tokens = tokenize(name.replace("-", " "))
         name_overlap = prompt_tokens & normalized_name_tokens
         full_name_match = bool(normalized_name_tokens and normalized_name_tokens <= prompt_tokens)
-        capability_routing_match = normalize(name) == "catalogue-router" and len(
-            prompt_tokens & CAPABILITY_ROUTING_TERMS
-        ) >= 2
+        if plugin_availability_context and kind in {"candidate", "catalogue-plugin", "plugin"}:
+            domain_terms = (
+                prompt_tokens
+                - CAPABILITY_ROUTING_TERMS
+                - CANDIDATE_TERMS
+                - GENERIC_MATCH_TERMS
+                - {"available", "install", "installable", "one", "should", "which"}
+            )
+            if domain_terms and not (overlap & domain_terms) and not name_in_prompt:
+                continue
+        capability_routing_match = normalize(name) == "catalogue-router" and (
+            len(prompt_tokens & CAPABILITY_ROUTING_TERMS) >= 2 or plugin_availability_context
+        )
         coding_discipline_match = normalize(name) == "ai-coding-discipline" and len(
             prompt_tokens & CODING_DISCIPLINE_TERMS
         ) >= 2
+        code_orchestration_match = (
+            normalize(name) == "codex-coding-os-master"
+            and primary_families
+            and "code_orchestration" in primary_families
+        )
         project_continuity_match = normalize(name) == "project-session-continuity" and (
             len(prompt_tokens & PROJECT_CONTINUITY_TERMS) >= 1
             or "health check" in prompt_lower
@@ -1147,6 +1184,7 @@ def query_index(
             and not full_name_match
             and not capability_routing_match
             and not coding_discipline_match
+            and not code_orchestration_match
             and not project_continuity_match
             and not github_match
             and not worktree_match
@@ -1172,6 +1210,8 @@ def query_index(
             score += 35
         if coding_discipline_match:
             score += 35
+        if code_orchestration_match:
+            score += 50
         if project_continuity_match:
             score += 28
         if github_match:

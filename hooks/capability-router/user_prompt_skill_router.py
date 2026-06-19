@@ -68,14 +68,22 @@ NEGATIVE_ACTION_PHRASES = (
     "do not edit",
     "do not fix",
     "do not implement",
+    "do not merge",
     "do not patch",
+    "do not push",
     "don't edit",
     "don't fix",
     "don't implement",
+    "don't merge",
     "don't patch",
+    "don't push",
     "no fixes",
     "no implementation",
+    "no merge",
+    "no merges",
     "no patches",
+    "no push",
+    "no pushes",
     "read-only",
     "review only",
     "simulate only",
@@ -172,7 +180,6 @@ CODE_OBJECT_TERMS = {
     "repo",
     "repository",
     "route",
-    "service",
     "test",
     "tests",
 }
@@ -316,6 +323,8 @@ ROUTES = [
             "vibe coding",
             "code_allowed",
             "coding plans",
+            "existing repo",
+            "existing repository",
             "new software project",
         ),
         "guidance": "For full coding-workflow orchestration, project gates, or code_allowed decisions, use codex-coding-os-master before narrower support skills.",
@@ -655,16 +664,16 @@ def detect_task_object(prompt_lower: str, prompt_tokens: set[str]) -> str:
         return "project_setup"
     if has_term(prompt_lower, prompt_tokens, CODE_OBJECT_TERMS):
         return "codebase"
-    if has_term(prompt_lower, prompt_tokens, BUSINESS_WORKFLOW_TERMS):
-        return "workflow"
+    if has_term(prompt_lower, prompt_tokens, CREATIVE_TERMS):
+        return "creative_asset"
     if has_term(prompt_lower, prompt_tokens, BUSINESS_STRATEGY_TERMS):
         return "strategy"
     if has_term(prompt_lower, prompt_tokens, QUANT_TERMS):
         return "quantitative_model"
     if has_term(prompt_lower, prompt_tokens, EVIDENCE_TERMS):
         return "source_claim"
-    if has_term(prompt_lower, prompt_tokens, CREATIVE_TERMS):
-        return "creative_asset"
+    if has_term(prompt_lower, prompt_tokens, BUSINESS_WORKFLOW_TERMS):
+        return "workflow"
     return "general"
 
 
@@ -729,7 +738,7 @@ def derive_denied_families(
 ) -> frozenset[str]:
     denied = set()
     if permission_mode in {"read_only", "approval_required"}:
-        denied.add("code")
+        denied.update({"code", "code_orchestration"})
     if permission_mode == "read_only":
         denied.add("code")
     if "source_limited" in authority_constraints:
@@ -784,6 +793,12 @@ def primary_options_from_frame(
             if has_term(prompt_lower, prompt_tokens, REVIEW_ACTION_TERMS):
                 return ["critique"]
             return []
+        if (
+            "existing repo" in prompt_lower
+            or "existing repository" in prompt_lower
+            or has_term(prompt_lower, prompt_tokens, {"codebase", "repo", "repository"})
+        ):
+            return ["code_orchestration"]
         return ["code"]
     if task_object == "controlled_document":
         return ["controlled_document"]
@@ -834,6 +849,14 @@ def material_support_families(
         or "security_or_privacy" in risk_flags
     ):
         support.add("security")
+    if primary == "code_orchestration" and task_object == "codebase":
+        support.add("code")
+        if (
+            has_term(prompt_lower, prompt_tokens, SECURITY_TERMS)
+            or has_term(prompt_lower, prompt_tokens, CODE_POLICY_TERMS)
+            or "security_or_privacy" in risk_flags
+        ):
+            support.add("security")
     if primary == "github" and (
         has_term(prompt_lower, prompt_tokens, {"branch", "ci", "commit", "merge", "push", "status", "test", "tests"})
         or "check" in prompt_tokens
@@ -860,6 +883,8 @@ def master_review_support_families(
     validation_requirements: frozenset[str],
 ) -> set[str]:
     if not primary or primary in CODING_PRIMARY_FAMILIES:
+        return set()
+    if primary == "capability_selection" or task_action == "install":
         return set()
     if task_object == "general" and task_action == "answer" and not risk_flags:
         return set()

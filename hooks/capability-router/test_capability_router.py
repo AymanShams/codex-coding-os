@@ -19,6 +19,12 @@ FIXTURE_INDEX = {
         },
         {
             "kind": "skill",
+            "name": "codex-coding-os-master",
+            "description": "Master workflow for existing repos, new software projects, manifests, and coding gates",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
             "name": "doc",
             "description": "Read DOCX and document source files",
             "status": "active-pack",
@@ -27,6 +33,30 @@ FIXTURE_INDEX = {
             "kind": "plugin",
             "name": "Presentations",
             "description": "Create and edit slide decks and PPTX files",
+            "status": "active-plugin",
+        },
+        {
+            "kind": "plugin",
+            "name": "Browser",
+            "description": "In-app browser automation for local targets and web UI checks",
+            "status": "active-plugin",
+        },
+        {
+            "kind": "plugin",
+            "name": "Chrome",
+            "description": "Chrome profile control, existing tabs, remote debugging, browser inspection, and automation",
+            "status": "active-plugin",
+        },
+        {
+            "kind": "plugin",
+            "name": "Computer Use",
+            "description": "Desktop UI automation and non-browser workflows with explicit user approval",
+            "status": "active-plugin",
+        },
+        {
+            "kind": "plugin",
+            "name": "Creative Production",
+            "description": "Campaign concepts, visual direction, images, moodboards, ads, logos, and scenes",
             "status": "active-plugin",
         },
         {
@@ -160,8 +190,13 @@ FIXTURE_INDEX = {
 
 FAMILY_FIXTURE = {
     "catalogue-router": ("capability_selection", "process", "primary-capable", "material-only"),
+    "codex-coding-os-master": ("code_orchestration", "code, process, project_continuity", "primary-capable", "material-only"),
     "doc": ("document", "", "primary-capable", "material-only"),
     "Presentations": ("presentation", "", "primary-capable", "material-only"),
+    "Browser": ("browser_verification", "", "primary-capable", "material-only"),
+    "Chrome": ("browser_verification", "frontend, mcp", "primary-capable", "material-only"),
+    "Computer Use": ("browser_verification", "process", "primary-capable", "material-only"),
+    "Creative Production": ("creative", "", "primary-capable", "material-only"),
     "react-native-skills": ("code", "frontend", "primary-capable", "material-only"),
     "agent-browser-verify": ("browser_verification", "frontend", "primary-capable", "material-only"),
     "pre-mortem": ("critique", "business_strategy, evidence, operational_rca, quantitative", "primary-capable, master-review-support", "default-for-noncoding"),
@@ -237,6 +272,125 @@ def test_capability_selection_routes_to_catalogue_router() -> None:
     names = names_for("Which skill or plugin should route this task?")
     if "catalogue-router" not in names:
         raise AssertionError(names)
+
+
+def test_campaign_service_prompt_routes_to_creative_not_code() -> None:
+    patch_index()
+    prompt = "Create a campaign concept and visual direction for a new service."
+    context = prompt_router.classify_prompt(prompt)
+    if context.task_object != "creative_asset":
+        raise AssertionError(context)
+    if context.primary_family_candidates != frozenset({"creative"}):
+        raise AssertionError(context)
+    if "code" in context.supporting_family_candidates or "code_orchestration" in context.supporting_family_candidates:
+        raise AssertionError(context)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            limit=6,
+        )
+    ]
+    if "Creative Production" not in names or "ai-coding-discipline" in names:
+        raise AssertionError(names)
+
+
+def test_github_no_merge_or_push_is_read_only() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #8 CI status and branch protection. Do not merge or push."
+    context = prompt_router.classify_prompt(prompt)
+    if context.permission_mode != "read_only":
+        raise AssertionError(context)
+    if context.primary_family_candidates != frozenset({"github"}):
+        raise AssertionError(context)
+    if not {"code", "code_orchestration"} <= set(context.denied_families):
+        raise AssertionError(context)
+    if {"code", "code_orchestration"} & set(context.supporting_family_candidates):
+        raise AssertionError(context)
+    skills = {match["skill"] for match in prompt_router.matched_routes_for_prompt(prompt, context)}
+    if "github:github" not in skills:
+        raise AssertionError(skills)
+    if "ai-coding-discipline" in skills or "codex-coding-os-master" in skills:
+        raise AssertionError(skills)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            denied_families=context.denied_families,
+            limit=6,
+        )
+    ]
+    if "github" not in names or "ai-coding-discipline" in names:
+        raise AssertionError(names)
+    if "yeet" in names or "gh-fix-ci" in names:
+        raise AssertionError(names)
+
+
+def test_existing_repo_implementation_routes_to_master_with_code_support() -> None:
+    patch_index()
+    prompt = "In an existing repo, implement a bug fix in the auth API and run tests."
+    context = prompt_router.classify_prompt(prompt)
+    if context.primary_family_candidates != frozenset({"code_orchestration"}):
+        raise AssertionError(context)
+    if not {"code", "security"} <= set(context.supporting_family_candidates):
+        raise AssertionError(context)
+    skills = {match["skill"] for match in prompt_router.matched_routes_for_prompt(prompt, context)}
+    if "codex-coding-os-master" not in skills or "ai-coding-discipline" not in skills:
+        raise AssertionError(skills)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            limit=6,
+        )
+    ]
+    if not names or names[0] != "codex-coding-os-master":
+        raise AssertionError(names)
+    if "codex-coding-os-master" not in names or "ai-coding-discipline" not in names:
+        raise AssertionError(names)
+
+
+def test_plugin_installability_query_suppresses_review_skill_noise() -> None:
+    patch_index()
+    prompt = "Which plugins are available to install for browser automation and should we install one?"
+    context = prompt_router.classify_prompt(prompt)
+    if context.primary_family_candidates != frozenset({"capability_selection"}):
+        raise AssertionError(context)
+    if context.candidate_visibility != "include_install_candidates":
+        raise AssertionError(context)
+    if context.supporting_family_candidates:
+        raise AssertionError(context)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            candidate_visibility=context.candidate_visibility,
+            include_candidates=True,
+            limit=8,
+        )
+    ]
+    for expected in {"catalogue-router", "Browser", "Chrome", "Computer Use"}:
+        if expected not in names:
+            raise AssertionError(names)
+    for noisy in {
+        "deep-critic",
+        "pre-mortem",
+        "quant-review",
+        "artifact-validation-workflow",
+        "example-external-tool",
+        "ai-coding-discipline",
+        "yeet",
+    }:
+        if noisy in names:
+            raise AssertionError(names)
 
 
 def test_audit_log_does_not_trigger_deep_critic() -> None:
@@ -417,7 +571,9 @@ def test_source_tool_is_source_access_not_skill_owner() -> None:
 def test_coding_prompt_does_not_pull_noncoding_master_review_by_default() -> None:
     patch_index()
     context = prompt_router.classify_prompt("Fix the auth bug in the existing repo and run tests.")
-    if context.primary_family_candidates != frozenset({"code"}):
+    if context.primary_family_candidates != frozenset({"code_orchestration"}):
+        raise AssertionError(context)
+    if not {"code", "security"} <= set(context.supporting_family_candidates):
         raise AssertionError(context)
     if "critique" in context.supporting_family_candidates:
         raise AssertionError(context)
@@ -430,6 +586,10 @@ def test_coding_prompt_does_not_pull_noncoding_master_review_by_default() -> Non
             limit=6,
         )
     ]
+    if not names or names[0] != "codex-coding-os-master":
+        raise AssertionError(names)
+    if "codex-coding-os-master" not in names or "ai-coding-discipline" not in names:
+        raise AssertionError(names)
     if "deep-critic" in names or "pre-mortem" in names:
         raise AssertionError(names)
 
@@ -440,6 +600,10 @@ def main() -> int:
         test_explicit_pptx_routes_to_presentations,
         test_skill_edit_routes_without_browser_noise,
         test_capability_selection_routes_to_catalogue_router,
+        test_campaign_service_prompt_routes_to_creative_not_code,
+        test_github_no_merge_or_push_is_read_only,
+        test_existing_repo_implementation_routes_to_master_with_code_support,
+        test_plugin_installability_query_suppresses_review_skill_noise,
         test_audit_log_does_not_trigger_deep_critic,
         test_existing_repo_bugfix_routes_to_coding_discipline,
         test_verify_skill_does_not_trigger_evidence_checker,

@@ -25,5 +25,8 @@ technical-docs-pack,skill,document,"code, controlled_document, process","code, c
 doc,skill,document,,document,active-pack,installed_pack_skill,keep-active,.agents/skills/doc/SKILL.md,codex-coding-os-pack,primary-capable,material-only
 pdf,skill,pdf,document,"document, pdf",active-pack,installed_pack_skill,keep-active,.agents/skills/pdf/SKILL.md,codex-coding-os-pack,primary-capable,material-only
 playwright,skill,browser_verification,"code, frontend","browser_verification, code, frontend",active-pack,installed_pack_skill,keep-active,.agents/skills/playwright/SKILL.md,codex-coding-os-pack,primary-capable,material-only
+Browser,plugin,browser_verification,,browser_verification,active-plugin,installed_plugin,keep-active,plugin:browser,codex-plugin,primary-capable,material-only
+Chrome,plugin,browser_verification,"frontend, mcp","browser_verification, frontend, mcp",active-plugin,installed_plugin,keep-active,plugin:chrome,codex-plugin,primary-capable,material-only
+Computer Use,plugin,browser_verification,process,"browser_verification, process",active-plugin,installed_plugin,keep-active,plugin:computer-use,codex-plugin,primary-capable,material-only
 skill-creator,skill,skill_authoring,critique,"critique, skill_authoring",active-pack,installed_pack_skill,keep-active,.agents/skills/skill-creator/SKILL.md,codex-coding-os-pack,primary-capable,material-only
 example-external-tool,candidate,reference,,reference,reference-only,not_installed_candidate,keep-reference,candidate:example,candidate-backlog,reference-only,explicit-request-only
