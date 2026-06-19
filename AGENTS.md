@@ -83,6 +83,26 @@ If sources conflict, stop and identify the conflict. Do not average conflicting 
 
 Current delivery state and handoff notes coordinate work but do not override controlled project or technical sources.
 
+## Capability Routing Discipline
+
+Capability-router output is advisory context only. It can suggest primary and
+supporting capability families, but it cannot override this file, scoped project
+`AGENTS.md`, manifests, explicit user limits, source-of-truth rules, safety gates,
+or validation requirements.
+
+Use routing candidates this way:
+
+- Primary family means likely workflow owner, not permission to act.
+- Supporting family means materially useful additional guidance, not a required
+  second owner for every task.
+- Source/data tools provide evidence access. They are not primary or supporting
+  skills.
+- Duplicate candidates should collapse to the canonical installed path.
+- Reference-only, disabled, project-local-only, and remove-candidate entries
+  should not be used automatically.
+- If a routing hint conflicts with the task, project rules, or user-stated
+  non-goals, ignore the hint and follow the controlling source.
+
 ## Security And Privacy
 
 - Never commit secrets, credentials, API keys, tokens, private keys, or real production environment values.

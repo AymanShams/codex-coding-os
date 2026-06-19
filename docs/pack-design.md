@@ -27,7 +27,9 @@ It bundles generic skills, templates, scripts, and repo instructions. External s
 | Third-party references | `THIRD_PARTY_SKILLS.md`, `patches/` | Links external skills and stores local overlay notes |
 | Validation | `scripts/validate-pack.ps1`, `scripts/release-safety-scan.ps1` | Checks manifest inventory, skill frontmatter, release exclusions, forbidden files, secret patterns, and optional Git history scanner runs |
 | Session continuity | `.agents/skills/project-session-continuity/` | Provides generic current-state, session-start, boundary-decision, and persistent-handoff controls |
+| Fresh-context review | `scripts/agent/fresh_context_review.py`, `templates/fresh-context-review.md` | Creates a detached review worktree for a clean commit and prints a paste-ready review prompt |
 | Parallel worktree lanes | `scripts/agent/worktree_lanes.py`, `docs/parallel-worktree-doctrine.md`, `templates/worktree-task-contract.md` | Offers, creates, validates, and closes bounded worktree lanes after manifest and user-approval gates pass |
+| Capability routing support | `hooks/capability-router/`, `capability-index/` | Optional advisory routing hints backed by public-safe registry metadata for primary families, supporting families, source tools, and reference-only entries |
 | Command policy templates | `.codex/rules/` | Optional Codex command approval rules for destructive commands, installs, deployments, migrations, and secret exposure |
 | CI | `.github/workflows/validate.yml` | Runs validation and install/uninstall smoke tests on Windows, Ubuntu, and macOS, then builds the package on Windows |
 
@@ -46,9 +48,10 @@ the presence and JSON validity of `pack.schema.json`.
 7. Create repo instructions.
 8. Add current state and session continuity.
 9. Start one bounded implementation slice.
-10. Offer parallel worktree lanes only when the workflow manifest and active-slice manifest both permit coding and the task is material, high-risk, or naturally separable.
-11. Use the review, security, design, RCA, and validation skills when the task calls for them.
-12. Validate before completion.
+10. Use fresh-context review for material single-slice work when a clean commit is ready.
+11. Offer parallel worktree lanes only when the workflow manifest and active-slice manifest both permit coding and the task is material, high-risk, or naturally separable.
+12. Use the review, security, design, RCA, and validation skills when the task calls for them.
+13. Validate before completion.
 
 ## Skill boundary
 

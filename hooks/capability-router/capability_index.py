@@ -9,6 +9,7 @@ is actually relevant to the user's task.
 from __future__ import annotations
 
 import hashlib
+import csv
 import json
 import os
 import re
@@ -49,6 +50,10 @@ CACHE_DIR = Path(
 )
 INDEX_PATH = CACHE_DIR / "capability-index.json"
 SUMMARY_PATH = CACHE_DIR / "capability-index-summary.md"
+REGISTRY_PATH = Path(
+    os.environ.get("CODEX_CAPABILITY_REGISTRY", str(CACHE_DIR / "canonical-registry.csv"))
+)
+PACK_REGISTRY_PATH = PACK_ROOT / "capability-index" / "canonical-registry.sample.csv"
 
 STOP_WORDS = {
     "a",
@@ -515,6 +520,88 @@ def normalize(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
+def normalize_family(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+
+
+def normalize_family_values(value) -> set[str]:
+    if not value:
+        return set()
+    if isinstance(value, (list, tuple, set)):
+        parts = value
+    else:
+        parts = re.split(r"[,|]+", str(value))
+    return {normalize_family(str(part).strip()) for part in parts if normalize_family(str(part).strip())}
+
+
+def join_family_values(values: set[str]) -> str:
+    return ", ".join(sorted(value for value in values if value))
+
+
+def registry_key(kind: str, name: str) -> tuple[str, str]:
+    return (kind or "", normalize(name or ""))
+
+
+def load_registry_file(path: Path) -> dict[tuple[str, str], dict]:
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError:
+        return {}
+    registry = {}
+    for row in rows:
+        key = registry_key(row.get("kind", ""), row.get("name", ""))
+        if key[1]:
+            registry[key] = row
+    return registry
+
+
+def load_canonical_registry() -> dict[tuple[str, str], dict]:
+    registry = load_registry_file(PACK_REGISTRY_PATH)
+    registry.update(load_registry_file(REGISTRY_PATH))
+    return registry
+
+
+def apply_registry_metadata(entries: list[dict], registry: dict[tuple[str, str], dict]) -> None:
+    for entry in entries:
+        row = registry.get(registry_key(entry.get("kind", ""), entry.get("name", "")))
+        if not row:
+            continue
+        primary = row.get("primary_families", "")
+        support = row.get("support_families", "")
+        all_families = row.get("all_families", "") or join_family_values(
+            normalize_family_values(primary) | normalize_family_values(support)
+        )
+        entry["primary_families"] = primary
+        entry["support_families"] = support
+        entry["all_families"] = all_families
+        entry["routing_role"] = row.get("routing_role", "")
+        entry["support_bias"] = row.get("support_bias", "")
+        entry["installed_state"] = row.get("installed_state", "")
+        entry["registry_decision"] = row.get("decision", "")
+
+
+def primary_families_for_entry(entry: dict) -> set[str]:
+    explicit = normalize_family_values(entry.get("primary_families"))
+    if explicit:
+        return explicit
+    return normalize_family_values(entry.get("family") or entry.get("families"))
+
+
+def support_families_for_entry(entry: dict) -> set[str]:
+    return normalize_family_values(entry.get("support_families"))
+
+
+def all_families_for_entry(entry: dict) -> set[str]:
+    return (
+        normalize_family_values(entry.get("all_families"))
+        | primary_families_for_entry(entry)
+        | support_families_for_entry(entry)
+    )
+
+
 def load_text(path: Path, max_chars: int | None = None) -> str:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -730,6 +817,9 @@ def build_index() -> dict:
             }
         )
 
+    registry = load_canonical_registry()
+    apply_registry_metadata(entries, registry)
+
     exact_local_duplicates = []
     active_exact_local_duplicates = []
     for name, group in local_groups.items():
@@ -757,6 +847,8 @@ def build_index() -> dict:
         "sources": {
             "config": str(CONFIG_PATH),
             "catalogue": str(CATALOGUE_PATH),
+            "canonical_registry": str(REGISTRY_PATH),
+            "pack_registry": str(PACK_REGISTRY_PATH),
             "skill_roots": [str(root) for root in skill_roots()],
         },
         "summary": summary,
@@ -935,10 +1027,23 @@ def guarded_out(entry: dict, prompt_lower: str, prompt_tokens: set[str]) -> bool
     return False
 
 
-def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = None) -> list[dict]:
+def query_index(
+    prompt: str,
+    limit: int = 5,
+    include_candidates: bool | None = None,
+    primary_families=None,
+    supporting_families=None,
+    source_tool_requirements=None,
+    denied_families=None,
+    candidate_visibility: str = "active_only",
+) -> list[dict]:
     index = ensure_index()
     prompt_lower = prompt.lower()
     prompt_tokens = tokenize(prompt)
+    primary_families = normalize_family_values(primary_families)
+    supporting_families = normalize_family_values(supporting_families)
+    denied_families = normalize_family_values(denied_families)
+    source_tool_names = {normalize(str(tool)) for tool in (source_tool_requirements or set())}
     if is_audit_log_context(prompt_lower):
         if not has_formal_review_request(prompt_lower, prompt_tokens):
             return []
@@ -956,19 +1061,41 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
         "stale-cache",
         "unknown",
     }
+    excluded_roles = {"disabled", "remove-candidate"}
     scored = []
     for entry in index.get("entries", []):
         status = entry.get("status", "")
         kind = entry.get("kind", "")
+        routing_role = entry.get("routing_role", "")
         if status in excluded_statuses:
             continue
+        if routing_role in excluded_roles or entry.get("support_bias") == "never-active":
+            continue
         if kind == "candidate" and not include_candidates:
+            continue
+        if candidate_visibility == "active_only" and routing_role in {"reference-only", "project-local-only"}:
             continue
 
         name = entry.get("name", "")
         description = entry.get("description", "")
         if guarded_out(entry, prompt_lower, prompt_tokens):
             continue
+        entry_primary_families = primary_families_for_entry(entry)
+        entry_support_families = support_families_for_entry(entry)
+        entry_all_families = all_families_for_entry(entry)
+        if denied_families and entry_primary_families & denied_families:
+            continue
+        source_tool_match = kind == "mcp" and normalize(name) in source_tool_names
+        primary_family_routing_match = bool(primary_families and entry_primary_families & primary_families)
+        support_family_routing_match = bool(supporting_families and entry_support_families & supporting_families)
+        fallback_support_match = bool(supporting_families and entry_primary_families & supporting_families)
+        family_routing_match = primary_family_routing_match or support_family_routing_match or fallback_support_match
+        default_support_match = bool(
+            entry.get("support_bias") == "default-for-noncoding"
+            and supporting_families
+            and entry_all_families
+            and entry_all_families & supporting_families
+        )
         search_text = f"{name} {description} {kind} {status}".lower()
         entry_tokens = tokenize(search_text)
         overlap = prompt_tokens & entry_tokens
@@ -1026,6 +1153,9 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
             and not react_web_match
             and not security_match
             and not skill_authoring_match
+            and not source_tool_match
+            and not family_routing_match
+            and not default_support_match
         ):
             continue
 
@@ -1054,6 +1184,16 @@ def query_index(prompt: str, limit: int = 5, include_candidates: bool | None = N
             score += 35
         if skill_authoring_match:
             score += 30
+        if source_tool_match:
+            score += 50
+        if primary_family_routing_match:
+            score += 45
+        if support_family_routing_match:
+            score += 24
+        if fallback_support_match:
+            score += 10
+        if default_support_match:
+            score += 12
         if name_in_prompt:
             score += 20
         if full_name_match:

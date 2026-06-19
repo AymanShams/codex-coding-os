@@ -47,6 +47,12 @@ Refresh the installed capability index after copying support files:
 
 Global Codex instructions are installed only when you pass `-InstallGlobalAgents`.
 
+Preview a fresh-context review prompt for the current commit:
+
+```powershell
+py -3 -B scripts\agent\fresh_context_review.py --print-only --label "slice review"
+```
+
 ## Fast path
 
 1. Install the pack.
@@ -129,6 +135,10 @@ confident but wrong code.
 - Templates for project docs, TDDs, repo instructions, handoffs, reviews,
   worktree-lane contracts, and validation reports.
 - Session-continuity tooling for non-trivial or multi-session projects.
+- A generic fresh-context review helper that creates a detached review worktree
+  and prints a paste-ready review prompt.
+- Optional registry-backed capability routing that separates primary workflow
+  families, supporting families, source/data tools, and reference-only entries.
 - Install, uninstall, validation, packaging, and optional external-skill scripts.
 - References for Codex plugins, MCPs, local tools, default skills, command rules,
   and external skill sources.
@@ -253,6 +263,13 @@ Advanced parallel worktree lanes are available for material or high-risk coding
 after the workflow manifest and active-slice manifest permit coding. The default is manual: Codex creates
 worktrees and paste-ready prompts, and the user opens each lane thread. See
 `docs/parallel-worktree-doctrine.md`.
+
+For material single-slice work, create an isolated review lane from the current
+commit after the implementation worktree is clean:
+
+```powershell
+py -3 -B scripts\agent\fresh_context_review.py --label "material slice review"
+```
 
 ## Included skills
 

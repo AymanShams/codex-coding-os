@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import capability_index as index
 import user_prompt_skill_router as prompt_router
 
@@ -107,6 +109,36 @@ FIXTURE_INDEX = {
         },
         {
             "kind": "skill",
+            "name": "market-sizing",
+            "description": "Market size, go-to-market, startup strategy, pricing, and business strategy",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
+            "name": "ssot-drafter",
+            "description": "Draft formal SOPs, policies, workflows, playbooks, and governance documents",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
+            "name": "ssot-auditor",
+            "description": "Audit formal SOPs, policies, workflows, playbooks, and governance documents",
+            "status": "active-pack",
+        },
+        {
+            "kind": "skill",
+            "name": "artifact-validation-workflow",
+            "description": "Validate controlled documents, readiness, acceptance checks, and handoff artifacts",
+            "status": "active-pack",
+        },
+        {
+            "kind": "mcp",
+            "name": "project-doc-search",
+            "description": "Project document search and source retrieval MCP",
+            "status": "active-mcp",
+        },
+        {
+            "kind": "skill",
             "name": "public-equity-investing",
             "description": "Public equity investment research and market analysis",
             "status": "active-plugin",
@@ -125,6 +157,41 @@ FIXTURE_INDEX = {
         },
     ]
 }
+
+FAMILY_FIXTURE = {
+    "catalogue-router": ("capability_selection", "process", "primary-capable", "material-only"),
+    "doc": ("document", "", "primary-capable", "material-only"),
+    "Presentations": ("presentation", "", "primary-capable", "material-only"),
+    "react-native-skills": ("code", "frontend", "primary-capable", "material-only"),
+    "agent-browser-verify": ("browser_verification", "frontend", "primary-capable", "material-only"),
+    "pre-mortem": ("critique", "business_strategy, evidence, operational_rca, quantitative", "primary-capable, master-review-support", "default-for-noncoding"),
+    "ai-coding-discipline": ("code", "github, process, project_continuity, security", "primary-capable", "material-only"),
+    "github": ("github", "code, process", "primary-capable", "material-only"),
+    "project-session-continuity": ("project_continuity", "code, process", "primary-capable", "material-only"),
+    "security-best-practices": ("security", "code", "primary-capable", "material-only"),
+    "cli-creator": ("code", "", "primary-capable", "material-only"),
+    "grill-me": ("critique", "", "primary-capable", "material-only"),
+    "deep-critic": ("critique", "business_strategy, controlled_document, creative, document, evidence, operational_rca, process, quantitative", "primary-capable, master-review-support", "default-for-noncoding"),
+    "skill-creator": ("skill_authoring", "critique", "primary-capable", "material-only"),
+    "contract-review": ("contract", "controlled_document", "primary-capable", "material-only"),
+    "quant-review": ("quantitative", "business_strategy, finance, spreadsheet", "primary-capable, master-review-support", "default-for-noncoding"),
+    "market-sizing": ("business_strategy", "quantitative", "primary-capable", "material-only"),
+    "ssot-drafter": ("controlled_document", "document, evidence, process", "primary-capable, master-review-support", "default-for-noncoding"),
+    "ssot-auditor": ("controlled_document", "critique, document, evidence, process", "primary-capable, master-review-support", "default-for-noncoding"),
+    "artifact-validation-workflow": ("controlled_document", "critique, document, evidence, process", "primary-capable, master-review-support", "default-for-noncoding"),
+    "project-doc-search": ("", "evidence, rag", "source-tool", "source-only"),
+    "public-equity-investing": ("finance", "business_strategy", "primary-capable", "material-only"),
+    "suggest-sales-next-step": ("sales", "business_strategy", "primary-capable", "material-only"),
+    "example-external-tool": ("reference", "", "reference-only", "explicit-request-only"),
+}
+
+for entry in FIXTURE_INDEX["entries"]:
+    primary, support, role, bias = FAMILY_FIXTURE.get(entry["name"], ("", "", "", ""))
+    entry["primary_families"] = primary
+    entry["support_families"] = support
+    entry["all_families"] = ", ".join(filter(None, [primary, support]))
+    entry["routing_role"] = role
+    entry["support_bias"] = bias
 
 
 def patch_index() -> None:
@@ -282,6 +349,91 @@ def test_pptx_has_explicit_presentation_route() -> None:
         raise AssertionError(skills)
 
 
+def test_strategy_prompt_gets_master_review_support_without_losing_primary() -> None:
+    patch_index()
+    context = prompt_router.classify_prompt("Build a pricing strategy and challenge the assumptions.")
+    if context.primary_family_candidates != frozenset({"business_strategy"}):
+        raise AssertionError(context)
+    if not {"critique", "evidence"} <= set(context.supporting_family_candidates):
+        raise AssertionError(context)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            "Build a pricing strategy and challenge the assumptions.",
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            limit=6,
+        )
+    ]
+    if "market-sizing" not in names or "deep-critic" not in names:
+        raise AssertionError(names)
+
+
+def test_sop_policy_surfaces_controlled_document_candidates() -> None:
+    patch_index()
+    context = prompt_router.classify_prompt("Draft an SOP policy and audit workflow for approvals.")
+    if context.primary_family_candidates != frozenset({"controlled_document"}):
+        raise AssertionError(context)
+    matches = prompt_router.matched_routes_for_prompt("Draft an SOP policy and audit workflow for approvals.", context)
+    route_text = {prompt_router.route_candidate_text(match) for match in matches}
+    if not any("ssot-drafter" in item and "ssot-auditor" in item for item in route_text):
+        raise AssertionError(route_text)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            "Draft an SOP policy and audit workflow for approvals.",
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            limit=6,
+        )
+    ]
+    for expected in {"ssot-drafter", "ssot-auditor", "artifact-validation-workflow"}:
+        if expected not in names:
+            raise AssertionError(names)
+
+
+def test_source_tool_is_source_access_not_skill_owner() -> None:
+    patch_index()
+    results = index.query_index(
+        "Use project source documents to verify the implementation plan.",
+        primary_families={"document"},
+        supporting_families={"evidence", "rag"},
+        source_tool_requirements={"project-doc-search"},
+        limit=5,
+    )
+    by_name = {entry["name"]: entry for entry in results}
+    source_tool = by_name.get("project-doc-search")
+    if not source_tool or source_tool.get("routing_role") != "source-tool":
+        raise AssertionError(results)
+    context = prompt_router.classify_prompt("Use project source documents to verify the implementation plan.")
+    role = prompt_router.entry_role(
+        source_tool,
+        replace(context, source_tool_requirements=frozenset({"project-doc-search"})),
+    )
+    if role != "Source/data access":
+        raise AssertionError(role)
+
+
+def test_coding_prompt_does_not_pull_noncoding_master_review_by_default() -> None:
+    patch_index()
+    context = prompt_router.classify_prompt("Fix the auth bug in the existing repo and run tests.")
+    if context.primary_family_candidates != frozenset({"code"}):
+        raise AssertionError(context)
+    if "critique" in context.supporting_family_candidates:
+        raise AssertionError(context)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            "Fix the auth bug in the existing repo and run tests.",
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            limit=6,
+        )
+    ]
+    if "deep-critic" in names or "pre-mortem" in names:
+        raise AssertionError(names)
+
+
 def main() -> int:
     tests = [
         test_generic_words_do_not_route_noisy_capabilities,
@@ -298,6 +450,10 @@ def main() -> int:
         test_public_repo_release_hygiene_does_not_route_to_public_equity,
         test_code_allowed_docs_prompt_routes_to_master_workflow,
         test_pptx_has_explicit_presentation_route,
+        test_strategy_prompt_gets_master_review_support_without_losing_primary,
+        test_sop_policy_surfaces_controlled_document_candidates,
+        test_source_tool_is_source_access_not_skill_owner,
+        test_coding_prompt_does_not_pull_noncoding_master_review_by_default,
     ]
     for test in tests:
         test()

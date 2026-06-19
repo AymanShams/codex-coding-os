@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex Coding OS Canonical Capability Registry",
+  "type": "object",
+  "required": ["entries"],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "primary_families",
+          "support_families",
+          "current_status",
+          "installed_state",
+          "decision",
+          "canonical_path",
+          "owner_source",
+          "routing_role",
+          "support_bias"
+        ],
+        "properties": {
+          "name": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["skill", "plugin", "plugin_config", "mcp", "tool", "route", "candidate"]
+          },
+          "primary_families": { "type": "string" },
+          "support_families": { "type": "string" },
+          "all_families": { "type": "string" },
+          "current_status": { "type": "string" },
+          "installed_state": { "type": "string" },
+          "decision": { "type": "string" },
+          "canonical_path": { "type": "string" },
+          "owner_source": { "type": "string" },
+          "routing_role": {
+            "type": "string",
+            "enum": [
+              "primary-capable",
+              "primary-capable, master-review-support",
+              "catalogue-route",
+              "tool-access",
+              "source-tool",
+              "source-guidance",
+              "reference-only",
+              "project-local-only",
+              "candidate",
+              "catalogue-only",
+              "disabled",
+              "remove-candidate"
+            ]
+          },
+          "support_bias": {
+            "type": "string",
+            "enum": [
+              "material-only",
+              "default-for-noncoding",
+              "candidate-guidance",
+              "source-only",
+              "explicit-request-only",
+              "project-context-only",
+              "never-active"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
