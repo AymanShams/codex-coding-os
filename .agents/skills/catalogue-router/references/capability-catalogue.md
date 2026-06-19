@@ -39,6 +39,12 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 
 - Use one primary skill by default.
 - Add supporting skills only when they materially change the answer or workflow.
+- Active installed capabilities are the only automatic primary owners.
+- Candidate, project-local, and reference-only entries may be consulted only
+  after active options have been checked, only when they materially improve the
+  current session, and only after explicit user authorization.
+- Candidate, project-local, and reference-only entries are session-only support.
+  They must never become primary skills or universal installs by default.
 - Do not stack critique, pre-mortem, evidence, validation, and grill skills unless the user asks for a formal review or the work is high-risk.
 - If two skills overlap, choose the skill whose description most directly matches the requested output.
 - Prefer execution skills for implementation tasks and critique skills for explicit review tasks.

@@ -98,8 +98,13 @@ Use routing candidates this way:
 - Source/data tools provide evidence access. They are not primary or supporting
   skills.
 - Duplicate candidates should collapse to the canonical installed path.
-- Reference-only, disabled, project-local-only, and remove-candidate entries
-  should not be used automatically.
+- Active installed capabilities are the only automatic owners.
+- Reference-only, candidate, disabled, project-local-only, and remove-candidate
+  entries must not become primary skills or automatic routes.
+- Candidate and reference-only entries may be considered only after active
+  installed options have been checked, only when they materially improve the
+  current session, and only after explicit user authorization. They must remain
+  session-only support and must never be installed universally by default.
 - If a routing hint conflicts with the task, project rules, or user-stated
   non-goals, ignore the hint and follow the controlling source.
 

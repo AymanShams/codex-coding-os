@@ -139,6 +139,8 @@ confident but wrong code.
   and prints a paste-ready review prompt.
 - Optional registry-backed capability routing that separates primary workflow
   families, supporting families, source/data tools, and reference-only entries.
+  Active installed capabilities are the only automatic owners; inactive
+  candidates can only be gated, session-only support after active options.
 - Install, uninstall, validation, packaging, and optional external-skill scripts.
 - References for Codex plugins, MCPs, local tools, default skills, command rules,
   and external skill sources.

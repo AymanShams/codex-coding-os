@@ -32,12 +32,17 @@ files in this folder.
 - Treats generated hints as candidates. They must not override system/developer
   instructions, the latest user request, global `AGENTS.md`, project `AGENTS.md`,
   source-of-truth rules, safety gates, no-edit limits, or validation standards.
+- Keeps active installed capabilities as the only automatic owners. Candidate,
+  project-local, and reference-only entries can only be appended after active
+  matches as gated session-only support, require explicit user authorization
+  before use, and must never be installed universally by default.
 
 ## Commands
 
 ```powershell
 py -3 -B hooks\capability-router\capability_index_cli.py --refresh
 py -3 -B hooks\capability-router\capability_index_cli.py --query "which skill should route this task"
+py -3 -B hooks\capability-router\capability_index_cli.py --query "browser automation" --include-inactive
 py -3 -B hooks\capability-router\test_capability_router.py
 .\scripts\install.ps1 -RefreshCapabilityIndex
 ./scripts/install.sh --refresh-capability-index

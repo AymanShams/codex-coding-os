@@ -7,7 +7,7 @@ metadata:
 
 # Catalogue Router
 
-Use this skill to choose the narrowest useful local skill, plugin, MCP server, installed tool, or project-local candidate before doing non-trivial work.
+Use this skill to choose the narrowest useful active local skill, enabled plugin, MCP server, or installed tool before doing non-trivial work. Candidate, project-local, and reference-only entries can be considered only as gated session-only support.
 
 Bundled catalogue:
 
@@ -52,7 +52,8 @@ For everything else, do a quick routing pass.
 5. Load only the matching section, not the whole catalogue.
 6. Choose the narrowest active capability first:
    local skill, enabled plugin skill, configured MCP server, then local installed tool.
-7. If the task may need a non-installed capability, check `Candidate Backlog` before recommending anything new.
+7. If active capabilities leave a material gap, check `Candidate Backlog` only as a second pass for session-only support.
+   Candidate, project-local, and reference-only items require explicit user authorization before use, must never be primary owners, and must never be installed universally by default.
 8. If no catalogue hit is useful, proceed normally and say nothing unless the missing capability affects the recommendation.
 
 ## Routing Hints
@@ -67,13 +68,14 @@ When starting or reviewing a project:
 2. Pick only 3-7 relevant capabilities.
 3. Add them to the project `AGENTS.md` or project context only when actively working in that project or when the user asks for project setup.
 4. Keep candidate tools labeled as `project-local pilot`, `reference only`, or `skip/avoid`.
-5. Do not promote candidates to global skills or plugins without a capability-delta review.
+5. Do not promote candidates to global skills or plugins. Use them only as authorized session-only support after active capabilities have been checked.
 
 ## Decision Rules
 
 - Installed active capability beats a new repo.
 - Project-local pilot beats global install when setup cost, licensing, API keys, privacy, or behavior drift are material.
 - Reference-only is correct for lists, prompt packs, broad skill packs, and design inspiration sources.
+- Candidate and reference-only items are never primary skills. Ask before using them and keep use bounded to the current session.
 - Skip/avoid is correct when legal, privacy, security, provenance, or execution risk dominates the likely benefit.
 
 ## Conflict Control

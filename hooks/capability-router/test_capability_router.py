@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import capability_index as index
+import capability_index_cli as index_cli
 import user_prompt_skill_router as prompt_router
 
 
@@ -52,6 +53,18 @@ FIXTURE_INDEX = {
             "name": "Computer Use",
             "description": "Desktop UI automation and non-browser workflows with explicit user approval",
             "status": "active-plugin",
+        },
+        {
+            "kind": "plugin",
+            "name": "Build Web Apps",
+            "description": "Frontend apps, browser testing, and UI implementation guidance",
+            "status": "catalogue-plugin-active",
+        },
+        {
+            "kind": "plugin",
+            "name": "Remote Browser Candidate",
+            "description": "Available remote browser automation plugin that is not active locally",
+            "status": "catalogue-plugin-available",
         },
         {
             "kind": "plugin",
@@ -185,6 +198,18 @@ FIXTURE_INDEX = {
             "description": "Candidate external tool for optional installation",
             "status": "install-or-run-candidate",
         },
+        {
+            "kind": "candidate",
+            "name": "browser-session-candidate",
+            "description": "Candidate browser automation helper for optional session-only support",
+            "status": "install-or-run-candidate",
+        },
+        {
+            "kind": "candidate",
+            "name": "browser-reference-guide",
+            "description": "Reference-only browser automation pattern library for session-only consultation",
+            "status": "reference-only",
+        },
     ]
 }
 
@@ -196,6 +221,8 @@ FAMILY_FIXTURE = {
     "Browser": ("browser_verification", "", "primary-capable", "material-only"),
     "Chrome": ("browser_verification", "frontend, mcp", "primary-capable", "material-only"),
     "Computer Use": ("browser_verification", "process", "primary-capable", "material-only"),
+    "Build Web Apps": ("frontend", "browser_verification", "primary-capable", "explicit-request-only"),
+    "Remote Browser Candidate": ("browser_verification", "", "primary-capable", "explicit-request-only"),
     "Creative Production": ("creative", "", "primary-capable", "material-only"),
     "react-native-skills": ("code", "frontend", "primary-capable", "material-only"),
     "agent-browser-verify": ("browser_verification", "frontend", "primary-capable", "material-only"),
@@ -218,6 +245,8 @@ FAMILY_FIXTURE = {
     "public-equity-investing": ("finance", "business_strategy", "primary-capable", "material-only"),
     "suggest-sales-next-step": ("sales", "business_strategy", "primary-capable", "material-only"),
     "example-external-tool": ("reference", "", "reference-only", "explicit-request-only"),
+    "browser-session-candidate": ("browser_verification", "", "reference-only", "explicit-request-only"),
+    "browser-reference-guide": ("browser_verification", "", "reference-only", "explicit-request-only"),
 }
 
 for entry in FIXTURE_INDEX["entries"]:
@@ -380,6 +409,24 @@ def test_plugin_installability_query_suppresses_review_skill_noise() -> None:
     for expected in {"catalogue-router", "Browser", "Chrome", "Computer Use"}:
         if expected not in names:
             raise AssertionError(names)
+    gated_names = {"browser-session-candidate", "Remote Browser Candidate"}
+    selected_gated = [name for name in names if name in gated_names]
+    if len(selected_gated) != 1:
+        raise AssertionError(names)
+    gated_name = selected_gated[0]
+    if names.index(gated_name) < names.index("Browser"):
+        raise AssertionError(names)
+    by_name = {entry["name"]: entry for entry in index.query_index(
+        prompt,
+        primary_families=context.primary_family_candidates,
+        supporting_families=context.supporting_family_candidates,
+        candidate_visibility=context.candidate_visibility,
+        include_candidates=True,
+        limit=8,
+    )}
+    role = prompt_router.entry_role(by_name[gated_name], context)
+    if role != "Gated session-only support":
+        raise AssertionError(role)
     for noisy in {
         "deep-critic",
         "pre-mortem",
@@ -391,6 +438,65 @@ def test_plugin_installability_query_suppresses_review_skill_noise() -> None:
     }:
         if noisy in names:
             raise AssertionError(names)
+
+
+def test_reference_only_candidate_requires_explicit_session_authorization() -> None:
+    patch_index()
+    prompt = "Which reference-only browser automation material could support this session after active tools?"
+    context = prompt_router.classify_prompt(prompt)
+    if context.primary_family_candidates != frozenset({"capability_selection"}):
+        raise AssertionError(context)
+    if context.candidate_visibility != "include_reference":
+        raise AssertionError(context)
+    results = index.query_index(
+        prompt,
+        primary_families=context.primary_family_candidates,
+        supporting_families=context.supporting_family_candidates,
+        candidate_visibility=context.candidate_visibility,
+        include_candidates=True,
+        limit=8,
+    )
+    names = [entry["name"] for entry in results]
+    if "Browser" not in names or "browser-reference-guide" not in names:
+        raise AssertionError(names)
+    if names.index("browser-reference-guide") < names.index("Browser"):
+        raise AssertionError(names)
+    role = prompt_router.entry_role({entry["name"]: entry for entry in results}["browser-reference-guide"], context)
+    if role != "Gated session-only support":
+        raise AssertionError(role)
+
+
+def test_active_explicit_support_is_not_session_only_gated() -> None:
+    patch_index()
+    context = prompt_router.classify_prompt(
+        "Which plugins are available to install for browser automation and should we install one?"
+    )
+    by_name = {entry["name"]: entry for entry in FIXTURE_INDEX["entries"]}
+    active_explicit = by_name["Build Web Apps"]
+    if index.is_session_only_candidate(active_explicit):
+        raise AssertionError(active_explicit)
+    if prompt_router.entry_role(active_explicit, context) == "Gated session-only support":
+        raise AssertionError(active_explicit)
+
+    available_remote = by_name["Remote Browser Candidate"]
+    if not index.is_session_only_candidate(available_remote):
+        raise AssertionError(available_remote)
+    role = prompt_router.entry_role(available_remote, context)
+    if role != "Gated session-only support":
+        raise AssertionError(role)
+
+
+def test_cli_inactive_mode_uses_prompt_specific_visibility() -> None:
+    plugin_visibility = index_cli.candidate_visibility_for_query(
+        "Which plugins are available to install for browser automation?"
+    )
+    if plugin_visibility != "include_install_candidates":
+        raise AssertionError(plugin_visibility)
+    reference_visibility = index_cli.candidate_visibility_for_query(
+        "Which reference-only browser automation material could support this session?"
+    )
+    if reference_visibility != "include_reference":
+        raise AssertionError(reference_visibility)
 
 
 def test_audit_log_does_not_trigger_deep_critic() -> None:
@@ -604,6 +710,9 @@ def main() -> int:
         test_github_no_merge_or_push_is_read_only,
         test_existing_repo_implementation_routes_to_master_with_code_support,
         test_plugin_installability_query_suppresses_review_skill_noise,
+        test_reference_only_candidate_requires_explicit_session_authorization,
+        test_active_explicit_support_is_not_session_only_gated,
+        test_cli_inactive_mode_uses_prompt_specific_visibility,
         test_audit_log_does_not_trigger_deep_critic,
         test_existing_repo_bugfix_routes_to_coding_discipline,
         test_verify_skill_does_not_trigger_evidence_checker,

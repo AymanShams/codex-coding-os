@@ -497,6 +497,7 @@ CANDIDATE_TERMS = {
 }
 CANDIDATE_ACTION_TERMS = {"add", "candidate", "install", "recommend"}
 CANDIDATE_OBJECT_TERMS = {"capability", "mcp", "plugin", "repo", "repository", "tool", "tools"}
+BROAD_CANDIDATE_DOMAIN_TERMS = {"automation", "material", "session", "support"}
 
 STATUS_PRIORITY = {
     "active-pack": 11,
@@ -510,6 +511,39 @@ STATUS_PRIORITY = {
     "conditional-future-skill": 1,
     "reference-only": 0,
 }
+
+
+SESSION_ONLY_CANDIDATE_STATUSES = {
+    "catalogue-plugin-available",
+    "conditional-future-skill",
+    "install-or-run-candidate",
+    "project-local-pilot",
+    "reference-only",
+}
+SESSION_ONLY_CANDIDATE_ROLES = {
+    "project-local-only",
+    "reference-only",
+}
+ACTIVE_AUTOMATIC_STATUSES = {
+    "active-local",
+    "active-mcp",
+    "active-pack",
+    "active-plugin",
+    "active-user",
+    "catalogue-plugin-active",
+    "catalogue-route",
+    "session-available-plugin",
+}
+
+
+def is_session_only_candidate(entry: dict) -> bool:
+    if entry.get("kind") != "candidate" and entry.get("status", "") in ACTIVE_AUTOMATIC_STATUSES:
+        return False
+    return (
+        entry.get("kind") == "candidate"
+        or entry.get("status", "") in SESSION_ONLY_CANDIDATE_STATUSES
+        or entry.get("routing_role", "") in SESSION_ONLY_CANDIDATE_ROLES
+    )
 
 
 def utc_now() -> str:
@@ -1080,11 +1114,12 @@ def query_index(
         status = entry.get("status", "")
         kind = entry.get("kind", "")
         routing_role = entry.get("routing_role", "")
+        session_only_candidate = is_session_only_candidate(entry)
         if status in excluded_statuses:
             continue
         if routing_role in excluded_roles or entry.get("support_bias") == "never-active":
             continue
-        if kind == "candidate" and not include_candidates:
+        if session_only_candidate and not include_candidates:
             continue
         if kind == "catalogue-plugin" and not plugin_availability_context:
             continue
@@ -1134,7 +1169,9 @@ def query_index(
                 - GENERIC_MATCH_TERMS
                 - {"available", "install", "installable", "one", "should", "which"}
             )
-            if domain_terms and not (overlap & domain_terms) and not name_in_prompt:
+            specific_domain_terms = domain_terms - BROAD_CANDIDATE_DOMAIN_TERMS
+            required_domain_terms = specific_domain_terms or domain_terms
+            if required_domain_terms and not (overlap & required_domain_terms) and not name_in_prompt:
                 continue
         capability_routing_match = normalize(name) == "catalogue-router" and (
             len(prompt_tokens & CAPABILITY_ROUTING_TERMS) >= 2 or plugin_availability_context
@@ -1197,7 +1234,7 @@ def query_index(
         ):
             continue
 
-        if kind == "candidate":
+        if session_only_candidate:
             domain_overlap = overlap - CANDIDATE_TERMS - {"new", "missing", "server"}
             meaningful_name_overlap = name_overlap - CANDIDATE_TERMS - {"app", "server", "skill"}
             score = len(domain_overlap) * 5 + len(overlap)
@@ -1238,11 +1275,15 @@ def query_index(
             score += 20
         if full_name_match:
             score += 10
+        if session_only_candidate and candidate_visibility == "include_reference":
+            score += 20 if status == "reference-only" else -10
+        if session_only_candidate and candidate_visibility == "include_install_candidates":
+            score += 10 if status != "reference-only" else -10
         score += STATUS_PRIORITY.get(status, 0)
-        if kind == "candidate":
+        if session_only_candidate:
             score -= 3
 
-        minimum_score = 4 if kind == "candidate" else 8
+        minimum_score = 4 if session_only_candidate else 8
         if score >= minimum_score:
             scored.append((score, entry))
 
@@ -1254,8 +1295,10 @@ def query_index(
             best_by_name[key] = (score, entry)
 
     results = sorted(best_by_name.values(), key=lambda item: item[0], reverse=True)
-    active = [item for item in results if item[1].get("kind") != "candidate"][:limit]
-    candidates = [item for item in results if item[1].get("kind") == "candidate"][:1]
+    active = [item for item in results if not is_session_only_candidate(item[1])][:limit]
+    candidates = [item for item in results if is_session_only_candidate(item[1])][:1]
+    if not include_candidates:
+        return [entry for _, entry in active]
     if not active and include_candidates:
         return [entry for _, entry in candidates]
     return [entry for _, entry in active] + [entry for _, entry in candidates]
