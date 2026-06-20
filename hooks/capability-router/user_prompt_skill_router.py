@@ -282,7 +282,6 @@ FRONTEND_DOMAIN_TERMS = {
     "css",
     "frontend",
     "jsx",
-    "next",
     "next.js",
     "react",
     "tailwind",

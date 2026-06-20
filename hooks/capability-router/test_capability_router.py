@@ -805,6 +805,48 @@ def test_coding_prompt_does_not_pull_noncoding_master_review_by_default() -> Non
         raise AssertionError(names)
 
 
+def test_generic_next_steps_does_not_surface_frontend_candidates() -> None:
+    patch_index()
+    prompt = "Suggest next steps for this work."
+    context = prompt_router.classify_prompt(prompt)
+    if "frontend" in context.primary_family_candidates or "frontend" in context.supporting_family_candidates:
+        raise AssertionError(context)
+    skills = {match["skill"] for match in prompt_router.matched_routes_for_prompt(prompt, context)}
+    if "build-web-apps:frontend-app-builder" in skills or "vercel:nextjs" in skills:
+        raise AssertionError(skills)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            limit=8,
+        )
+    ]
+    if "Build Web Apps" in names or "react-native-skills" in names:
+        raise AssertionError(names)
+
+
+def test_explicit_nextjs_prompt_keeps_frontend_support() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #42 for a Next.js React web scaffold in apps/web. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    if "frontend" not in context.supporting_family_candidates:
+        raise AssertionError(context)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            denied_families=context.denied_families,
+            limit=8,
+        )
+    ]
+    if "Build Web Apps" not in names:
+        raise AssertionError(names)
+
+
 def main() -> int:
     tests = [
         test_generic_words_do_not_route_noisy_capabilities,
@@ -837,6 +879,8 @@ def main() -> int:
         test_sop_policy_surfaces_controlled_document_candidates,
         test_source_tool_is_source_access_not_skill_owner,
         test_coding_prompt_does_not_pull_noncoding_master_review_by_default,
+        test_generic_next_steps_does_not_surface_frontend_candidates,
+        test_explicit_nextjs_prompt_keeps_frontend_support,
     ]
     for test in tests:
         test()

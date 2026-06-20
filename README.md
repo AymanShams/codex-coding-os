@@ -18,6 +18,10 @@ implementation, review, validation, and handoff.
 
 [Start here: five-minute setup and first project](docs/getting-started.md)
 
+Public beta feedback is welcome through
+[GitHub Issues](https://github.com/AymanShams/codex-coding-os/issues) or pull
+requests.
+
 Operating principles live in [docs/philosophy.md](docs/philosophy.md). Review rules
 live in [docs/review-doctrine.md](docs/review-doctrine.md).
 
