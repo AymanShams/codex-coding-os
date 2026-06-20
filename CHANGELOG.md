@@ -4,6 +4,14 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-06-20
+
+### Changed
+
+- Promoted the package status from public beta to public release.
+- Made routing hypotheses explicit by recording route-tree branch metadata and deterministic algorithm-step metadata.
+- Documented Tree of Thoughts and Algorithm of Thoughts as bounded routing discipline, not as free-form reasoning expansion.
+
 ## [0.8.3] - 2026-06-20
 
 ### Added

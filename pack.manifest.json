@@ -1,9 +1,9 @@
 {
   "$schema": "pack.schema.json",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "package_name": "codex-coding-os",
   "display_name": "Codex Coding OS",
-  "release_status": "public-beta",
+  "release_status": "public-release",
   "source_of_truth": {
     "bundled_skill_inventory": "docs/full-skill-inventory.md",
     "third_party_sources": "THIRD_PARTY_SKILLS.md",
