@@ -59,7 +59,7 @@ def resolve_commit(root: Path, ref: str) -> str:
 
 
 def default_worktree_path(root: Path, label: str, commit: str) -> Path:
-    stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d-%H%M%S")
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
     return root / ".codex" / "fresh-context-reviews" / f"{stamp}-{slug(label)}-{commit[:8]}"
 
 

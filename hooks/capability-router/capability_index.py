@@ -123,6 +123,7 @@ GENERIC_MATCH_TERMS = STOP_WORDS | {
     "log",
     "made",
     "make",
+    "next",
     "plugin",
     "plugins",
     "problem",
@@ -133,6 +134,8 @@ GENERIC_MATCH_TERMS = STOP_WORDS | {
     "skill",
     "skills",
     "solution",
+    "step",
+    "steps",
     "summarize",
     "summary",
     "system",
@@ -446,11 +449,36 @@ REACT_WEB_TERMS = {
     "component",
     "frontend",
     "jsx",
-    "next",
+    "next.config",
     "next.js",
+    "nextjs",
     "react",
     "tsx",
     "ui",
+}
+REACT_WEB_PHRASES = (
+    "app router",
+    "apps/web",
+    "next app",
+    "next-env.d.ts",
+    "pages router",
+    "react app",
+    "web app",
+    "web scaffold",
+)
+REACT_WEB_CONTEXTUAL_TERMS = {"next"}
+REACT_WEB_REQUIRED_CONTEXT_TERMS = {
+    "app",
+    "component",
+    "components",
+    "frontend",
+    "page",
+    "pages",
+    "react",
+    "route",
+    "routes",
+    "scaffold",
+    "web",
 }
 SECURITY_TERMS = {
     "auth",
@@ -956,6 +984,36 @@ def has_term(prompt_lower: str, prompt_tokens: set[str], terms: set[str]) -> boo
     return False
 
 
+def has_phrase(prompt_lower: str, phrases: tuple[str, ...]) -> bool:
+    return any(phrase in prompt_lower for phrase in phrases)
+
+
+def has_contextual_domain_evidence(
+    prompt_lower: str,
+    prompt_tokens: set[str],
+    exact_terms: set[str],
+    phrases: tuple[str, ...],
+    contextual_terms: set[str],
+    required_context_terms: set[str],
+) -> bool:
+    if has_term(prompt_lower, prompt_tokens, exact_terms):
+        return True
+    if has_phrase(prompt_lower, phrases):
+        return True
+    return bool(prompt_tokens & contextual_terms and prompt_tokens & required_context_terms)
+
+
+def has_react_web_evidence(prompt_lower: str, prompt_tokens: set[str]) -> bool:
+    return has_contextual_domain_evidence(
+        prompt_lower,
+        prompt_tokens,
+        REACT_WEB_TERMS,
+        REACT_WEB_PHRASES,
+        REACT_WEB_CONTEXTUAL_TERMS,
+        REACT_WEB_REQUIRED_CONTEXT_TERMS,
+    )
+
+
 def is_audit_log_context(prompt_lower: str) -> bool:
     return "audit log" in prompt_lower or "audit trail" in prompt_lower
 
@@ -1207,7 +1265,7 @@ def query_index(
             "frontend-app-builder",
             "frontend-testing-debugging",
             "react-best-practices",
-        } and has_term(prompt_lower, prompt_tokens, REACT_WEB_TERMS)
+        } and has_react_web_evidence(prompt_lower, prompt_tokens)
         security_match = normalize(name) in {
             "defensive-security-checklist",
             "security-best-practices",

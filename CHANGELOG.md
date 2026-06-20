@@ -4,16 +4,31 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-06-20
+
 ### Added
 
+- Added a concrete clinic follow-up workflow example to make the Coding OS use case more concrete for public beta readers.
 - Added an active-slice manifest gate for project-session continuity so coding, handoffs, review markers, notifications, and new sessions cannot bypass the current slice permission boundary.
 - Added installer support for refreshing the copied capability index after installation.
 - Added deterministic active-slice enforcement for dirty files, required review approval, reviewed SHA matching, and repair of older current-state files that are missing active-slice fields.
+- Added registry-backed and active-only capability routing support with canonical-family metadata.
+- Added five-layer routing support for container, action, domain, risk/validation, and authority framing.
 
 ### Changed
 
+- Clarified public beta feedback intake through GitHub Issues and pull requests.
+- Clarified that `codex-capabilities/` is a human/operator routing reference, not a layer for teaching Codex its own defaults.
+- Routed new software project starts more reliably through the Coding OS master workflow.
 - Updated new-project, handoff, repo-agent, and continuity instructions to require both the workflow manifest and active-slice manifest before coding or parallel worktree lanes.
 - Tightened session-start behavior so new-session starts fail closed on dirty working trees, while same-slice continuation remains explicit.
+- Stabilized README badges for validation, license, stars, and commit history.
+
+### Fixed
+
+- Avoided frontend capability routing from generic "next steps" wording while preserving explicit `Next.js` routing.
+- Replaced Python 3.11-only UTC construction in the fresh-context review helper with Python 3.10-compatible `datetime.timezone.utc`.
+- Hardened capability-router noise guards so generic audit, workflow, and release hygiene prompts do not pull unrelated skills.
 
 ## [0.8.2] - 2026-06-14
 

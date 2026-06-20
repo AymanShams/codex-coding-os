@@ -805,6 +805,110 @@ def test_coding_prompt_does_not_pull_noncoding_master_review_by_default() -> Non
         raise AssertionError(names)
 
 
+def test_generic_next_steps_does_not_surface_frontend_candidates() -> None:
+    patch_index()
+    prompt = "Suggest next steps for this work."
+    context = prompt_router.classify_prompt(prompt)
+    if "frontend" in context.primary_family_candidates or "frontend" in context.supporting_family_candidates:
+        raise AssertionError(context)
+    skills = {match["skill"] for match in prompt_router.matched_routes_for_prompt(prompt, context)}
+    if "build-web-apps:frontend-app-builder" in skills or "vercel:nextjs" in skills:
+        raise AssertionError(skills)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            limit=8,
+        )
+    ]
+    if "Build Web Apps" in names or "react-native-skills" in names:
+        raise AssertionError(names)
+
+
+def test_bare_next_steps_pr_review_does_not_add_frontend_support() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #41 and suggest next steps. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    if context.primary_family_candidates != frozenset({"github"}):
+        raise AssertionError(context)
+    if "frontend" in context.supporting_family_candidates:
+        raise AssertionError(context)
+    skills = {match["skill"] for match in prompt_router.matched_routes_for_prompt(prompt, context)}
+    if "build-web-apps:frontend-app-builder / frontend-testing-debugging / react-best-practices" in skills:
+        raise AssertionError(skills)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            denied_families=context.denied_families,
+            limit=8,
+        )
+    ]
+    if "Build Web Apps" in names or "react-best-practices" in names:
+        raise AssertionError(names)
+
+
+def test_contextual_next_app_keeps_frontend_support() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #42 for a Next app scaffold in apps/web. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    if context.primary_family_candidates != frozenset({"github"}):
+        raise AssertionError(context)
+    if "frontend" not in context.supporting_family_candidates:
+        raise AssertionError(context)
+    skills = {match["skill"] for match in prompt_router.matched_routes_for_prompt(prompt, context)}
+    if "build-web-apps:frontend-app-builder / frontend-testing-debugging / react-best-practices" not in skills:
+        raise AssertionError(skills)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            denied_families=context.denied_families,
+            limit=8,
+        )
+    ]
+    if "Build Web Apps" not in names:
+        raise AssertionError(names)
+
+
+def test_explicit_nextjs_prompt_keeps_frontend_support() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #42 for a Next.js React web scaffold in apps/web. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    if "frontend" not in context.supporting_family_candidates:
+        raise AssertionError(context)
+    names = [
+        entry["name"]
+        for entry in index.query_index(
+            prompt,
+            primary_families=context.primary_family_candidates,
+            supporting_families=context.supporting_family_candidates,
+            denied_families=context.denied_families,
+            limit=8,
+        )
+    ]
+    if "Build Web Apps" not in names:
+        raise AssertionError(names)
+
+
+def test_app_router_phrase_is_frontend_support_not_capability_selection() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #43 for a Next.js App Router web scaffold in apps/web. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    if context.primary_family_candidates != frozenset({"github"}):
+        raise AssertionError(context)
+    if "frontend" not in context.supporting_family_candidates:
+        raise AssertionError(context)
+    if "capability_selection" in context.primary_family_candidates:
+        raise AssertionError(context)
+
+
 def main() -> int:
     tests = [
         test_generic_words_do_not_route_noisy_capabilities,
@@ -837,6 +941,11 @@ def main() -> int:
         test_sop_policy_surfaces_controlled_document_candidates,
         test_source_tool_is_source_access_not_skill_owner,
         test_coding_prompt_does_not_pull_noncoding_master_review_by_default,
+        test_generic_next_steps_does_not_surface_frontend_candidates,
+        test_bare_next_steps_pr_review_does_not_add_frontend_support,
+        test_contextual_next_app_keeps_frontend_support,
+        test_explicit_nextjs_prompt_keeps_frontend_support,
+        test_app_router_phrase_is_frontend_support_not_capability_selection,
     ]
     for test in tests:
         test()

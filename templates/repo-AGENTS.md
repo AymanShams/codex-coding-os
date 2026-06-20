@@ -33,6 +33,7 @@ If support work starts generating more support work, stop and report the loop. C
 - Read `docs/delivery/current-state.md`, `docs/delivery/active-slice-manifest.json`, its latest handoff, and `project-documentation-manifest.json` before editing.
 - Classify non-trivial work through five layers: container, action, domain, risk/validation, and authority. Use container plus action for the primary workflow owner. Use material domain and risk evidence for supporting routes. Let project authority, manifests, source docs, and explicit user limits override routing hints.
 - For reviews, audits, validations, comparisons, and rescue work, re-check routing after inspecting the artifact, diff, file list, or source set. Add specialist support for material frontend, security, data, controlled-document, quantitative, evidence, creative, browser, or project-governance needs without changing the primary owner unless the initial classification was wrong.
+- Do not treat bare framework-adjacent words as domain evidence. Route domain support only from exact framework identifiers, filenames, framework phrases, changed files, or ordinary words paired with material domain context.
 - Read relevant files before writing code.
 - Make the smallest correct change.
 - Do not rewrite unrelated code.

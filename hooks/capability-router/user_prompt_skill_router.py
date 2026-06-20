@@ -64,6 +64,14 @@ class PromptContext:
         return "example_only" if "example_only" in self.authority_constraints else "task"
 
 
+@dataclass(frozen=True)
+class DomainEvidenceRule:
+    exact_terms: frozenset[str]
+    phrases: tuple[str, ...]
+    contextual_terms: frozenset[str] = frozenset()
+    required_context_terms: frozenset[str] = frozenset()
+
+
 NEGATIVE_ACTION_PHRASES = (
     "do not edit",
     "do not fix",
@@ -158,6 +166,21 @@ CAPABILITY_ACTION_TERMS = {
     "use",
     "which",
 }
+CAPABILITY_SELECTION_PHRASES = (
+    "available to install",
+    "capability failure",
+    "capability router",
+    "capability routing",
+    "installable plugin",
+    "installable plugins",
+    "plugin selection",
+    "router reasoning failure",
+    "routing failure",
+    "skill selection",
+    "tool selection",
+    "which plugin",
+    "which skill",
+)
 SKILL_AUTHORING_ACTION_TERMS = {"benchmark", "create", "edit", "evaluate", "improve", "modify", "test", "verify"}
 
 IMPLEMENT_ACTION_TERMS = {"build", "code", "debug", "fix", "implement", "patch", "run", "ship"}
@@ -282,7 +305,6 @@ FRONTEND_DOMAIN_TERMS = {
     "css",
     "frontend",
     "jsx",
-    "next",
     "next.js",
     "react",
     "tailwind",
@@ -292,13 +314,35 @@ FRONTEND_DOMAIN_TERMS = {
 FRONTEND_DOMAIN_PHRASES = (
     "app router",
     "apps/web",
+    "next app",
     "next-env.d.ts",
     "next.config",
     "nextjs",
+    "pages router",
     "react app",
     "web app",
     "web application",
     "web scaffold",
+)
+FRONTEND_DOMAIN_CONTEXTUAL_TERMS = {"next"}
+FRONTEND_DOMAIN_REQUIRED_CONTEXT_TERMS = {
+    "app",
+    "component",
+    "components",
+    "frontend",
+    "page",
+    "pages",
+    "react",
+    "route",
+    "routes",
+    "scaffold",
+    "web",
+}
+FRONTEND_DOMAIN_EVIDENCE = DomainEvidenceRule(
+    exact_terms=frozenset(FRONTEND_DOMAIN_TERMS),
+    phrases=FRONTEND_DOMAIN_PHRASES,
+    contextual_terms=frozenset(FRONTEND_DOMAIN_CONTEXTUAL_TERMS),
+    required_context_terms=frozenset(FRONTEND_DOMAIN_REQUIRED_CONTEXT_TERMS),
 )
 CURRENT_SOURCE_TERMS = {"current", "latest", "recent", "today", "updated"}
 
@@ -414,6 +458,25 @@ ROUTES = [
             "admin merge",
         ),
         "guidance": "For GitHub, PR, CI, branch-protection, or merge-rule work, use the GitHub capability and do not merge, push, or rewrite history without explicit approval.",
+    },
+    {
+        "family": "frontend",
+        "skill": "build-web-apps:frontend-app-builder / frontend-testing-debugging / react-best-practices",
+        "triggers": (
+            "app router",
+            "apps/web",
+            "frontend",
+            "next app",
+            "next-env.d.ts",
+            "next.config",
+            "next.js",
+            "nextjs",
+            "pages router",
+            "react",
+            "web app",
+            "web scaffold",
+        ),
+        "guidance": "For React, Next.js, web scaffold, or frontend UI material, add frontend support after the primary container/action owner. Do not let frontend support take over GitHub PR, repo, or project authority.",
     },
     {
         "family": "code",
@@ -605,6 +668,25 @@ def has_phrase(prompt_lower: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in prompt_lower for phrase in phrases)
 
 
+def has_domain_evidence(prompt_lower: str, prompt_tokens: set[str], rule: DomainEvidenceRule) -> bool:
+    if has_term(prompt_lower, prompt_tokens, set(rule.exact_terms)):
+        return True
+    if has_phrase(prompt_lower, rule.phrases):
+        return True
+    return bool(prompt_tokens & rule.contextual_terms and prompt_tokens & rule.required_context_terms)
+
+
+def has_capability_selection_evidence(prompt_lower: str, prompt_tokens: set[str]) -> bool:
+    if has_phrase(prompt_lower, CAPABILITY_SELECTION_PHRASES):
+        return True
+    capability_terms = set(prompt_tokens & CAPABILITY_TERMS)
+    if "router" in capability_terms and has_phrase(prompt_lower, ("app router", "pages router")):
+        capability_terms.discard("router")
+    if "router" in capability_terms and has_term(prompt_lower, prompt_tokens, OPERATIONAL_FAILURE_TERMS):
+        return True
+    return len(capability_terms) >= 2
+
+
 def is_software_project_context(prompt_lower: str, prompt_tokens: set[str]) -> bool:
     if has_phrase(prompt_lower, SOFTWARE_PROJECT_PHRASES):
         return True
@@ -615,9 +697,7 @@ def is_software_project_context(prompt_lower: str, prompt_tokens: set[str]) -> b
 
 
 def has_frontend_domain_evidence(prompt_lower: str, prompt_tokens: set[str]) -> bool:
-    return has_term(prompt_lower, prompt_tokens, FRONTEND_DOMAIN_TERMS) or has_phrase(
-        prompt_lower, FRONTEND_DOMAIN_PHRASES
-    )
+    return has_domain_evidence(prompt_lower, prompt_tokens, FRONTEND_DOMAIN_EVIDENCE)
 
 
 def project_context(prompt_lower: str) -> str | None:
@@ -845,7 +925,7 @@ def primary_options_from_frame(
         return []
     if candidate_visibility != "active_only":
         return ["capability_selection"]
-    if has_term(prompt_lower, prompt_tokens, CAPABILITY_TERMS) and (
+    if has_capability_selection_evidence(prompt_lower, prompt_tokens) and (
         task_action in {"review", "simulate"}
         or has_term(prompt_lower, prompt_tokens, OPERATIONAL_FAILURE_TERMS)
     ):

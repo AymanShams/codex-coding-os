@@ -105,6 +105,12 @@ Use routing candidates this way:
   quantitative, evidence, creative, browser, or project-governance needs, add
   the relevant support family without letting it steal ownership from the
   primary container/action workflow.
+- Bare framework-adjacent words are not domain evidence by themselves. Treat
+  ordinary words that also name frameworks, tools, files, or patterns as
+  contextual evidence only when paired with exact framework identifiers,
+  filenames, framework phrases, changed files, or material domain context from
+  the inspected artifact. Do not route from a single generic token such as
+  next, app, router, spring, go, rails, or flask without that context.
 - Source/data tools provide evidence access. They are not primary or supporting
   skills.
 - Duplicate candidates should collapse to the canonical installed path.
