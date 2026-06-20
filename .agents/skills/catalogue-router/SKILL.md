@@ -82,6 +82,11 @@ When starting or reviewing a project:
 
 - Choose one primary skill for the requested output or workflow.
 - Add supporting skills only when they materially change a defined phase.
+- Apply Tree of Thoughts and Algorithm of Thoughts as deterministic routing
+  controls. Generate competing route hypotheses, evaluate container/action,
+  domain/risk, authority, denied families, candidate visibility, source/data
+  tools, and final owner in order, then keep rejection reasons or decision-path
+  metadata when available.
 - Treat bare framework-adjacent words as noise unless they are exact framework
   identifiers, filenames, framework phrases, changed-file evidence, or ordinary
   words paired with material domain context. A single ambiguous token such as

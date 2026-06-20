@@ -15,6 +15,8 @@ class RouteHypothesis:
     score: int
     rejection_reasons: tuple[str, ...] = ()
     materiality_reasons: tuple[str, ...] = ()
+    route_tree_branch: str = ""
+    algorithm_steps: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1136,6 +1138,7 @@ def score_route_hypotheses(
     source_tools: frozenset[str],
     denied_families: frozenset[str],
     ambiguity_flags: frozenset[str],
+    candidate_visibility: str = "active_only",
 ) -> tuple[RouteHypothesis, ...]:
     if not primary_options:
         primary_options = [None]
@@ -1161,6 +1164,17 @@ def score_route_hypotheses(
         if len(candidate_support) > 5:
             rejection_reasons.append("too_many_supporting_families")
             score -= 20
+        algorithm_steps = ["container_action_primary"]
+        if candidate_support or "multi_support" in ambiguity_flags:
+            algorithm_steps.append("domain_risk_support")
+        if denied_families or "negative_constraints" in ambiguity_flags:
+            algorithm_steps.append("authority_filter")
+        algorithm_steps.append("candidate_visibility_gate" if candidate_visibility != "active_only" else "active_only_default")
+        if source_tools:
+            algorithm_steps.append("source_data_tool_separation")
+        if rejection_reasons:
+            algorithm_steps.append("reject_invalid_branch")
+        algorithm_steps.append("score_and_select_owner")
         hypotheses.append(
             RouteHypothesis(
                 primary_family=primary,
@@ -1169,6 +1183,8 @@ def score_route_hypotheses(
                 score=score,
                 rejection_reasons=tuple(rejection_reasons),
                 materiality_reasons=tuple(sorted(candidate_support)),
+                route_tree_branch=f"primary:{primary or 'none'}",
+                algorithm_steps=tuple(algorithm_steps),
             )
         )
     return tuple(sorted(hypotheses, key=lambda item: item.score, reverse=True))
@@ -1240,7 +1256,14 @@ def classify_prompt(prompt: str) -> PromptContext:
         )
     )
     ambiguity_flags = detect_ambiguity_flags(primary_options, support, risk_flags, authority_constraints, source_requirements)
-    hypotheses = score_route_hypotheses(primary_options, support, source_tools, denied_families, ambiguity_flags)
+    hypotheses = score_route_hypotheses(
+        primary_options,
+        support,
+        source_tools,
+        denied_families,
+        ambiguity_flags,
+        candidate_visibility,
+    )
     primary_families, supporting_families, confidence = choose_route_family_sets(hypotheses)
 
     if "source_limited" in authority_constraints and not primary_families and candidate_visibility == "active_only":

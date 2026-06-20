@@ -99,6 +99,11 @@ Use routing candidates this way:
   domain, risk/validation, and authority. Container and action select the
   primary workflow owner. Domain and risk/validation add support families.
   Authority can override both.
+- Apply Tree of Thoughts and Algorithm of Thoughts as deterministic routing
+  discipline. Generate competing route hypotheses, evaluate container/action,
+  domain/risk, authority, denied families, candidate visibility, source/data
+  tools, and final owner in order, and preserve rejection reasons or
+  decision-path metadata when the router supports it.
 - For review, audit, validation, comparison, and rescue tasks, re-check routing
   after inspecting the actual artifact, diff, file list, or source set. If the
   material reveals frontend, security, data, controlled-document,
