@@ -18,7 +18,7 @@ implementation, review, validation, and handoff.
 
 [Start here: five-minute setup and first project](docs/getting-started.md)
 
-Public beta feedback is welcome through
+Public feedback is welcome through
 [GitHub Issues](https://github.com/AymanShams/codex-coding-os/issues) or pull
 requests.
 
