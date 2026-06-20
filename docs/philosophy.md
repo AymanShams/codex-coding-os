@@ -53,6 +53,8 @@ Container and action choose the primary workflow owner. Domain and risk add supp
 
 Review, audit, validation, comparison, and rescue tasks need a second routing pass after artifact or diff inspection. A PR review can remain GitHub-owned while adding frontend, security, data, controlled-document, quantitative, evidence, creative, browser, or project-governance support when the changed material proves that need.
 
+Bare framework-adjacent words are not domain evidence by themselves. A word that is also an ordinary English term, file pattern, tool name, or framework shorthand counts only when it appears as an exact identifier, filename, framework phrase, changed-file signal, or with material domain context. `Next app`, `Next.js`, `next.config`, and `App Router` can support frontend routing. `suggest next steps` cannot.
+
 ### Stop Before Material Guessing
 
 The workflow must stop when an unresolved decision can materially change scope, users, workflows, data, architecture, identity, authorization, sensitive-data handling, integrations, deployment, cost, or validation.

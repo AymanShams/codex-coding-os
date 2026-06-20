@@ -82,6 +82,11 @@ When starting or reviewing a project:
 
 - Choose one primary skill for the requested output or workflow.
 - Add supporting skills only when they materially change a defined phase.
+- Treat bare framework-adjacent words as noise unless they are exact framework
+  identifiers, filenames, framework phrases, changed-file evidence, or ordinary
+  words paired with material domain context. A single ambiguous token such as
+  next, app, router, spring, go, rails, or flask must not select a domain family
+  by itself.
 - Keep skill and plugin selection active for non-trivial tasks, but do not
   accept a capability that only matched generic routing language.
 - The primary orchestrator controls sequence, stop gates, and completion claims. Supporting skills must not bypass it.
