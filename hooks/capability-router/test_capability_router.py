@@ -877,6 +877,30 @@ def test_contextual_next_app_keeps_frontend_support() -> None:
         raise AssertionError(names)
 
 
+def test_route_hypothesis_records_tree_and_algorithm_steps() -> None:
+    patch_index()
+    prompt = "Review GitHub PR #42 for a Next app scaffold in apps/web. Do not edit files."
+    context = prompt_router.classify_prompt(prompt)
+    best = context.route_hypotheses[0]
+    if best.primary_family != "github":
+        raise AssertionError(best)
+    if best.route_tree_branch != "primary:github":
+        raise AssertionError(best)
+    if "frontend" not in best.supporting_families:
+        raise AssertionError(best)
+    if "code_orchestration" in best.supporting_families:
+        raise AssertionError(best)
+    required_steps = {
+        "container_action_primary",
+        "domain_risk_support",
+        "authority_filter",
+        "active_only_default",
+        "score_and_select_owner",
+    }
+    if not required_steps <= set(best.algorithm_steps):
+        raise AssertionError(best)
+
+
 def test_explicit_nextjs_prompt_keeps_frontend_support() -> None:
     patch_index()
     prompt = "Review GitHub PR #42 for a Next.js React web scaffold in apps/web. Do not edit files."
@@ -944,6 +968,7 @@ def main() -> int:
         test_generic_next_steps_does_not_surface_frontend_candidates,
         test_bare_next_steps_pr_review_does_not_add_frontend_support,
         test_contextual_next_app_keeps_frontend_support,
+        test_route_hypothesis_records_tree_and_algorithm_steps,
         test_explicit_nextjs_prompt_keeps_frontend_support,
         test_app_router_phrase_is_frontend_support_not_capability_selection,
     ]

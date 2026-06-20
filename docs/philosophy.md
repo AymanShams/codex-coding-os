@@ -51,6 +51,8 @@ Every non-trivial task has five layers:
 
 Container and action choose the primary workflow owner. Domain and risk add supporting lenses. Authority can override both.
 
+Tree of Thoughts and Algorithm of Thoughts are implemented as deterministic routing discipline. The router should generate competing route hypotheses, evaluate container/action, domain/risk, authority, denied families, candidate visibility, source/data tools, and final owner in order, and preserve rejection reasons or decision-path metadata where the implementation supports it.
+
 Review, audit, validation, comparison, and rescue tasks need a second routing pass after artifact or diff inspection. A PR review can remain GitHub-owned while adding frontend, security, data, controlled-document, quantitative, evidence, creative, browser, or project-governance support when the changed material proves that need.
 
 Bare framework-adjacent words are not domain evidence by themselves. A word that is also an ordinary English term, file pattern, tool name, or framework shorthand counts only when it appears as an exact identifier, filename, framework phrase, changed-file signal, or with material domain context. `Next app`, `Next.js`, `next.config`, and `App Router` can support frontend routing. `suggest next steps` cannot.
