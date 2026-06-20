@@ -835,6 +835,9 @@ def test_bare_next_steps_pr_review_does_not_add_frontend_support() -> None:
         raise AssertionError(context)
     if "frontend" in context.supporting_family_candidates:
         raise AssertionError(context)
+    skills = {match["skill"] for match in prompt_router.matched_routes_for_prompt(prompt, context)}
+    if "build-web-apps:frontend-app-builder / frontend-testing-debugging / react-best-practices" in skills:
+        raise AssertionError(skills)
     names = [
         entry["name"]
         for entry in index.query_index(
@@ -857,6 +860,9 @@ def test_contextual_next_app_keeps_frontend_support() -> None:
         raise AssertionError(context)
     if "frontend" not in context.supporting_family_candidates:
         raise AssertionError(context)
+    skills = {match["skill"] for match in prompt_router.matched_routes_for_prompt(prompt, context)}
+    if "build-web-apps:frontend-app-builder / frontend-testing-debugging / react-best-practices" not in skills:
+        raise AssertionError(skills)
     names = [
         entry["name"]
         for entry in index.query_index(

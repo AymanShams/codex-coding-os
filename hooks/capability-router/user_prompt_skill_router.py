@@ -460,6 +460,25 @@ ROUTES = [
         "guidance": "For GitHub, PR, CI, branch-protection, or merge-rule work, use the GitHub capability and do not merge, push, or rewrite history without explicit approval.",
     },
     {
+        "family": "frontend",
+        "skill": "build-web-apps:frontend-app-builder / frontend-testing-debugging / react-best-practices",
+        "triggers": (
+            "app router",
+            "apps/web",
+            "frontend",
+            "next app",
+            "next-env.d.ts",
+            "next.config",
+            "next.js",
+            "nextjs",
+            "pages router",
+            "react",
+            "web app",
+            "web scaffold",
+        ),
+        "guidance": "For React, Next.js, web scaffold, or frontend UI material, add frontend support after the primary container/action owner. Do not let frontend support take over GitHub PR, repo, or project authority.",
+    },
+    {
         "family": "code",
         "skill": "ai-coding-discipline",
         "triggers": (
