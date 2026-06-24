@@ -7,6 +7,8 @@ Audit the artifact against the same standard used for SSOT drafting.
 
 For SSOT-style and high-stakes operational artifacts, the required standard is output aligned to the specified user company’s scope, culture, systems, and workflows, or all specified companies if explicitly requested, with complete, fully fleshed-out, granular, step-by-step instructions down to single-click level.
 
+If the user asks for a broad source-backed critique, recurring governance failure analysis, stress test, premortem, or the same 12-step structure, use `deep-critic` full mode with SSOT audit checks as a support lens.
+
 ## Required audit checks
 1. Does the artifact clearly fit its stated type, such as policy, process, SOP, work instruction, implementation guide, operating model, governance artifact, job aid, template, or matrix?
 2. Is it aligned to the company’s actual systems, workflows, roles, approvals, and constraints rather than generic filler?

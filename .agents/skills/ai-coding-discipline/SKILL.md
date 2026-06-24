@@ -19,6 +19,8 @@ Use the substance, but do not overstate the attribution.
 
 Classify the task before choosing a workflow:
 
+If the user asks for deep critique, source-backed audit, recurring coding-agent failure analysis, or the same 12-step structure, route to `deep-critic` full mode before execution planning.
+
 | Task Shape | Use |
 |---|---|
 | Tiny edit with obvious file and test | Normal repo workflow. Keep context small. |
@@ -81,7 +83,7 @@ These are the durable operating rules to apply before and during AI coding:
    - Read the diff, not only the model summary.
    - Do not request review from coordination drift alone. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state must be separated from actual diff risk.
    - Do not waive review because work is same-slice. Same-slice is a permission-boundary signal, not a risk classification.
-   - Treat Leheta PR #1 as the false-negative test case: same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
+   - Treat the first-slice authorization false-negative case as the review test case: same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.
    - Require "what changed and why" for non-trivial edits.
    - Reject unrequested scope expansion, speculative abstractions, silent dependency changes, and hidden behavior changes.
 

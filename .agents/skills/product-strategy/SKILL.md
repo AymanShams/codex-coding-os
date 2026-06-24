@@ -21,6 +21,8 @@ Your task is to create a detailed Product Strategy Canvas that outlines how the 
 - Company resources, constraints, and priorities
 - Any relevant business or market data
 
+If the user asks for a deep critique, source-backed audit, recurring strategy failure analysis, premortem, stress test, or the same 12-step structure, route to `deep-critic` full mode and use product-strategy as a support lens.
+
 ## Optional Strategy Pre-Flight
 Use this before the canvas when the prompt is vague, the team feels stuck, the brief assumes the answer, or the quality of the strategy depends on problem framing. Keep it brief and continue into the main template after choosing the strongest direction.
 

@@ -32,6 +32,8 @@ This pack includes the full local skills needed for the default workflow:
 | Platform and codebase tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli`, `chat-export-capability-miner`, `external-skill-overlay-pack` |
 | Document intake | `doc`, `pdf` |
 
+For deep critique, source-backed audit, recurring workflow failure analysis, premortem-style stress testing, or a requested 12-step critique, route to `deep-critic` full mode instead of duplicating the critique template here.
+
 ## Routing Workflow
 
 1. **Route first**
@@ -71,7 +73,7 @@ This pack includes the full local skills needed for the default workflow:
 - Do not allow a review marker, notification, current-state file, handoff, or new session to bypass the active-slice manifest.
 - Do not treat coordination drift as a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may narrow allowed actions or require reconciliation, but review need must come from the actual diff, controlled-source risk, or explicit user instruction.
 - Do not treat same-slice status as a review waiver. Same-slice means the work may be inside the permission boundary. It does not make auth, authorization, encryption, audit, protected-data, schema, OpenAPI, deployment, provider, secret, or controlled-source changes low risk.
-- Treat Leheta PR #1 as the false-negative test case for the anti-loop rule. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
+- Treat the first-slice authorization false-negative case as the anti-loop review test case. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.
 - No Silent Closeout: governed repo closeout must never be silent. Before the final response on a meaningful governed repo task, inspect current state, the active-slice manifest, the latest handoff, git status, and session-decision output when relevant. The final response must include `Recommended Next Action`. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required.
 - New-session starts require clean working trees when the project continuity gate supports start modes. Use continuation mode only for the same bounded slice after local dirty work is inspected.
 - Do not install broad third-party skill packs during the first run unless the user explicitly chooses that optional path.

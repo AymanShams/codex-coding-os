@@ -29,7 +29,7 @@ The machine-readable source of truth for validation is `pack.manifest.json`.
 | `doc` | Full local skill | DOCX intake and creation |
 | `pdf` | Full local skill | PDF intake |
 | `evidence-checker` | Full portable local skill | Source-quality and factual verification |
-| `deep-critic` | Full local skill | Skeptical critique |
+| `deep-critic` | Full local skill | Skeptical critique and full 12-step source-backed critique workflow |
 | `grill-me` | Full local skill | One-question-at-a-time pressure testing of plans, architectures, and decisions |
 | `grill-with-docs` | Full local skill | Pressure testing against codebase docs, ADRs, terminology, and domain model |
 | `pre-mortem` | Full local skill | Failure-first planning |

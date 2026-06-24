@@ -27,7 +27,7 @@ Coordination drift is not a review trigger by itself. Current-state drift, manif
 
 Same-slice status is not a review waiver. Same-slice means work may be inside the permission boundary. It does not make authorization, role or permission enforcement, encryption, audit, protected-data, schema, API, deployment, provider, secret, or controlled-source changes low risk.
 
-Leheta PR #1 is the false-negative test case for this rule. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
+The first-slice authorization false-negative case is the test case for this rule. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.
 
 Before turning a support step into a separate task, branch, pull request, artifact, or workflow, ask: does this directly complete the requested outcome, unblock it, satisfy a mandatory control, or prevent a concrete error? If not, record it as a note and return to the requested outcome.
 

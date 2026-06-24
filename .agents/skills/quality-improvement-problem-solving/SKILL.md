@@ -22,7 +22,7 @@ Use for:
 ## Do Not Use
 
 - Pre-failure risk analysis on a proposed plan. Use `pre-mortem`.
-- Broad skeptical critique of an artifact, argument, recommendation, or AI answer. Use `deep-critic`.
+- Broad skeptical critique of an artifact, argument, recommendation, workflow, recurring failure, or AI answer. Use `deep-critic`; for source-backed audits or the same 12-step structure, use `deep-critic` full mode and keep this skill as the RCA/FMEA/control-plan support lens.
 - Formal SOP, policy, playbook, workflow, RACI, or governance drafting. Use `ssot-drafter`.
 - Auditing an existing SOP, policy, workflow, or controlled artifact for completeness. Use `ssot-auditor`.
 - Pass/fail readiness, acceptance criteria, defect logs, or approval gates for a deliverable. Use `artifact-validation-workflow`.

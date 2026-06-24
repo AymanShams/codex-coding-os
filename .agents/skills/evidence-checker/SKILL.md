@@ -18,6 +18,8 @@ When making factual claims:
 
 If browsing or file access is unavailable or verification cannot be performed, say so explicitly and treat the answer as provisional.
 
+If the user asks for a broad critique, workflow audit, recurring failure analysis, stress test, or the same 12-step structure, use `deep-critic` full mode with evidence checking as a support lens.
+
 ## Required output sequence
 1. Direct answer
 2. Verified facts
