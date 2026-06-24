@@ -32,6 +32,7 @@ Use this order:
 - Treat review markers and notifications as evidence to inspect, not permission to merge, deploy, or bypass validation.
 - Coordination drift alone is not a review trigger. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may require inspection or reconciliation, but review need comes from actual diff risk, controlled-source risk, or explicit user instruction.
 - Same-slice status is not a review waiver.
+- Automation Coding Mode is opt-in only. Do not create automated child chats or worktrees unless the user explicitly approved the repo, run plan, thread or worktree creation, review expectations, stop conditions, and publication authority. Prefer a sequential session train when the work is linear: finish the current bounded task, provide one exact `Recommended Next Action`, include a paste-ready next prompt when needed, and stop.
 - Do not commit secrets, PHI, pilot records, medical files, generated credentials, or local tool metadata.
 - Do not treat development-stage tools as permanent architecture unless the docs say so.
 - Update documentation in the same change when API, database, config, security, workflow, or deployment behavior changes.
