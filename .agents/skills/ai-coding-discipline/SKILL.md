@@ -122,6 +122,29 @@ Review: Human or Codex reads diff and rationale before merge
 
 For Goose-like tools, add a `.gooseignore` or equivalent ignore policy, but do not treat it as a complete security boundary.
 
+## Opt-In Automation Coding Mode
+
+Automation Coding Mode is a governed orchestration pattern, not permission to run an
+agent freely on production code. Use it only after explicit approval of the repo,
+run plan, child thread or worktree creation, stop conditions, review expectations,
+and publication authority.
+
+Every child session must have one bounded contract: implement one approved slice,
+review one exact PR head, fix one reviewed finding set, or complete one explicitly
+authorized merge or publication step. Child sessions must rerun start gates, inspect
+live repo and PR state, read the actual diff, check automated GitHub Codex reviews
+and actionable inline comments when a PR exists, use code-review-graph only when the
+repo has it and the diff or risk warrants it, run or report required validation, and
+stop with `Recommended Next Action`.
+
+Prefer a sequential session train when the work is linear: close the current session
+with the exact next prompt, then start the next session only after that prompt is
+accepted or an approved thread tool is available. Use a parent/orchestrator session
+only when the user explicitly wants centralized administration across child threads.
+
+Automation mode must not pick unapproved slices, broaden scope, merge, deploy,
+bypass review, bypass validation, or turn support checks into a chain of new chats.
+
 ## Agent Harness Security Gates
 
 Use these gates when the work involves agent harnesses, skill packs, hooks, MCP servers, local coding agents, cloned repos, model workbenches, or any tool that can read files, run commands, call networks, persist memory, or edit code.
@@ -164,7 +187,7 @@ Use these gates when the work involves agent harnesses, skill packs, hooks, MCP 
 - One giant prompt: "build the whole app."
 - Coding before reading repo rules and current patterns.
 - Planning without concrete files or verification steps.
-- Letting an agent run in autonomous mode on real production code.
+- Letting an agent run unbounded or unapproved autonomous mode on real production code.
 - Passing sensitive regulated data, secrets, credentials, payment keys, or production database access to agent workflows.
 - Installing broad skill packs or coding-agent ecosystems before checking the local catalogue.
 - Letting a cloned repo, skill pack, MCP config, hook, or PR comment redefine the active instructions.

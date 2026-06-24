@@ -85,6 +85,13 @@ For deep critique, source-backed audit, recurring workflow failure analysis, pre
 - Treat parallel Codex work as bounded worktree lanes, not personas. Default to
   manual paste-ready lane prompts; use fully automated thread creation only after
   a clear risk warning and explicit user approval.
+- Treat Automation Coding Mode as opt-in orchestration only. Prefer a sequential
+  session train for linear work. Use parent/orchestrator mode only after explicit
+  approval of the repo, run plan, child thread or worktree creation, stop conditions,
+  review expectations, and publication authority. Every child session gets one
+  bounded contract and must rerun repo gates, inspect live Git and PR state, check
+  automated GitHub Codex reviews when a PR exists, and stop instead of creating
+  support-only churn.
 
 ## Fallbacks
 

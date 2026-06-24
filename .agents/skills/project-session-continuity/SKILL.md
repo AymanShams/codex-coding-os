@@ -103,6 +103,36 @@ Only the parent/orchestrator session may update `docs/delivery/current-state.md`
 merge lanes, or close the overall parallel run. Lane sessions must follow their
 task contract, stop when the contract is insufficient, and end with a lane handoff.
 
+## Opt-In Automation Coding Mode
+
+Automation Coding Mode is off by default. Use it only when the user explicitly
+approves the repository, run objective, maximum child sessions, thread or worktree
+creation, branch plan, review expectation, GitHub publication authority, and stop
+condition.
+
+Two shapes are allowed:
+
+- Sequential session train: the current session closes with a paste-ready prompt
+  for one exact next step. The user or an approved thread tool starts the next
+  session. Prefer this when automated thread creation is unavailable, repo helpers
+  are incomplete, or the next action needs human judgment.
+- Parent/orchestrator mode: one admin session coordinates child sessions or
+  worktrees. The parent does not edit product code. It verifies gates, assigns one
+  bounded contract, checks child outputs, GitHub PR checks, automated Codex reviews
+  and actionable inline comments, and code-review-graph status when applicable.
+
+Each child session must rerun the project start gate, read live controlling sources,
+inspect Git and PR state, classify review from the actual diff, run or report required
+validation, and end with `Recommended Next Action`. One child can implement one
+approved slice, review one exact PR head, fix one reviewed finding set, or complete
+one explicitly authorized merge or publication step.
+
+Automation mode cannot choose a next slice, update protected manifests, merge, deploy,
+bypass review, bypass validation, or treat a child summary as authority unless the
+repo rules and the user independently authorize that exact action. If the next action
+is not independently authorized, stop instead of creating another chat, handoff, or
+support-only workflow.
+
 ## End And Handoff
 
 When a trigger fires:
