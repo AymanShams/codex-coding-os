@@ -81,6 +81,7 @@ These are the durable operating rules to apply before and during AI coding:
    - Read the diff, not only the model summary.
    - Do not request review from coordination drift alone. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state must be separated from actual diff risk.
    - Do not waive review because work is same-slice. Same-slice is a permission-boundary signal, not a risk classification.
+   - Treat Leheta PR #1 as the false-negative test case: same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
    - Require "what changed and why" for non-trivial edits.
    - Reject unrequested scope expansion, speculative abstractions, silent dependency changes, and hidden behavior changes.
 
@@ -90,6 +91,7 @@ These are the durable operating rules to apply before and during AI coding:
    - Do not claim completion until the acceptance criteria have been checked or the unverified parts are clearly stated.
    - For deterministic logic bugs, create or run a minimal failing reproduction before changing code when feasible.
    - For visual, timing, environment, or integration bugs where a deterministic reproduction is not feasible, state why and collect equivalent evidence such as logs, screenshots, traces, or exact manual steps.
+   - No Silent Closeout: for meaningful governed repo tasks, final responses must include `Recommended Next Action`. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required.
 
 ## Extra Guardrails From The 12-Rule Expansion
 
@@ -175,4 +177,3 @@ Use these gates when the work involves agent harnesses, skill packs, hooks, MCP 
 - Large product build: establish core architecture manually first, then use agent milestones for repeated modules.
 - Multi-agent coding: one agent per isolated task, then integrate through human-reviewed diffs.
 - Sensitive or regulated work: keep governance and safety constraints active, especially sensitive regulated data, audit logs, authentication, authorization, and regulated safety claims.
-

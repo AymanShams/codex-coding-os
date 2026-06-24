@@ -120,7 +120,8 @@ Apply the outcome-control rule from `AGENTS.md` before creating or updating coor
 4. Replace every generated `[Agent must ...]` placeholder.
 5. Run `python scripts/agent/session_continuity.py validate`.
 6. Run relevant project validation and `git status -sb`.
-7. Give the user a paste-ready next-session prompt plus the first command to run inside that session.
+7. End with a final response that includes `Recommended Next Action`.
+8. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required.
 
 The next-session prompt must include the repository path, required reading order, latest current-state path, active-slice manifest path, handoff path, workflow manifest path, the exact next permitted action, and stop conditions. It must not imply that coding is permitted unless the workflow manifest and active-slice manifest independently permit coding.
 
@@ -138,6 +139,8 @@ thread mode.
 - Review state must be explicit. Use fields such as `review_required`, `review_status`, `reviewed_sha`, and `review_applies_to_active_slice`; never treat a retained marker string as review completion.
 - Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, and local dirty state may narrow allowed actions or require reconciliation, but they must not create review, handoff, new-session, or process churn unless a mandatory gate independently blocks the requested outcome.
 - Same-slice status is not a review waiver. Before recommending review or no review, inspect the actual changed files and classify review need from diff risk, controlled-source risk, or explicit user instruction.
+- Treat Leheta PR #1 as the false-negative test case for the anti-loop rule. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
+- No Silent Closeout: governed repo closeout must never be silent. Before the final response on a meaningful governed repo task, inspect current state, the active-slice manifest, the latest handoff, git status, and session-decision output when relevant. The final response must include `Recommended Next Action`. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required.
 - A fresh session must continue from the first blocked or incomplete documentation phase when coding is not permitted.
 - Notifications, review markers, or handoffs never grant permission to merge, deploy, or bypass validation.
 - If coordination work starts generating more coordination work, report the loop and return to the requested outcome, the mandatory control, or a clear blocker.

@@ -168,6 +168,8 @@ def main() -> int:
         )
         if "## Paste-Ready Next-Session Prompt" not in handoff.stdout:
             raise AssertionError(handoff.stdout)
+        if "## Recommended Next Action" not in handoff.stdout:
+            raise AssertionError(handoff.stdout)
         if "First run:" not in handoff.stdout or "python scripts/agent/session_continuity.py start --start-new" not in handoff.stdout:
             raise AssertionError(handoff.stdout)
 

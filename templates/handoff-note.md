@@ -38,6 +38,9 @@
 ## Work Explicitly Not Done
 - {{excluded_or_deferred_work}}
 
+## Recommended Next Action
+{{next_task}}
+
 ## Next Prompt
 ```text
 Continue this project in the repository containing this handoff.

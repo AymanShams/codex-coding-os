@@ -23,9 +23,17 @@ The requested outcome controls the work. Source checks, skills, frameworks, stat
 
 This does not override mandatory project gates, validation checks, source-of-truth checks, security controls, compliance controls, or explicit user instructions.
 
+Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, pull-request state, CI state, or local dirty state may narrow allowed actions or require reconciliation, but review need must come from the actual diff, controlled-source risk, or explicit user instruction.
+
+Same-slice status is not a review waiver. Same-slice means work may be inside the permission boundary. It does not make authorization, role or permission enforcement, encryption, audit, protected-data, schema, API, deployment, provider, secret, or controlled-source changes low risk.
+
+Leheta PR #1 is the false-negative test case for this rule. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
+
 Before turning a support step into a separate task, branch, pull request, artifact, or workflow, ask: does this directly complete the requested outcome, unblock it, satisfy a mandatory control, or prevent a concrete error? If not, record it as a note and return to the requested outcome.
 
 If support work starts generating more support work, stop and report the loop. Continue only by returning to the requested outcome, completing the mandatory control, asking for approval, or explaining why the real task is blocked.
+
+No Silent Closeout: governed repo closeout must never be silent. Before the final response on a meaningful governed repo task, inspect current state, the active-slice manifest, the latest handoff, git status, and session-decision output when relevant. The final response must include `Recommended Next Action`. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required. Do not create handoffs, new sessions, or review loops from coordination drift alone.
 
 ## Working Rules
 - At the start of a new or resumed non-trivial session, run `python scripts/agent/session_continuity.py start --start-new` when available.
@@ -73,5 +81,6 @@ Do not say a task is done unless:
 - Relevant tests or checks were run.
 - User-facing behavior is described.
 - Any remaining risk is stated.
+- `Recommended Next Action` is included.
 
 Before crossing into a different meaningful slice, run `python scripts/agent/session_continuity.py decide` when available and prepare the required persistent handoff.
