@@ -79,6 +79,8 @@ These are the durable operating rules to apply before and during AI coding:
 
 6. **Review**
    - Read the diff, not only the model summary.
+   - Do not request review from coordination drift alone. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state must be separated from actual diff risk.
+   - Do not waive review because work is same-slice. Same-slice is a permission-boundary signal, not a risk classification.
    - Require "what changed and why" for non-trivial edits.
    - Reject unrequested scope expansion, speculative abstractions, silent dependency changes, and hidden behavior changes.
 

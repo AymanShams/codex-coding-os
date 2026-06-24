@@ -30,6 +30,8 @@ Use this order:
 - Do not start coding unless the workflow manifest and active-slice manifest both permit coding.
 - Treat current state and handoffs as coordination records only. They cannot override controlled docs, the workflow manifest, or the active-slice manifest.
 - Treat review markers and notifications as evidence to inspect, not permission to merge, deploy, or bypass validation.
+- Coordination drift alone is not a review trigger. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may require inspection or reconciliation, but review need comes from actual diff risk, controlled-source risk, or explicit user instruction.
+- Same-slice status is not a review waiver.
 - Do not commit secrets, PHI, pilot records, medical files, generated credentials, or local tool metadata.
 - Do not treat development-stage tools as permanent architecture unless the docs say so.
 - Update documentation in the same change when API, database, config, security, workflow, or deployment behavior changes.

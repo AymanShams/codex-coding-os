@@ -69,6 +69,8 @@ This pack includes the full local skills needed for the default workflow:
 - Do not invent implementation details when docs are missing.
 - Do not allow a new session, current-state file, or handoff to bypass the workflow manifest.
 - Do not allow a review marker, notification, current-state file, handoff, or new session to bypass the active-slice manifest.
+- Do not treat coordination drift as a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may narrow allowed actions or require reconciliation, but review need must come from the actual diff, controlled-source risk, or explicit user instruction.
+- Do not treat same-slice status as a review waiver. Same-slice means the work may be inside the permission boundary. It does not make auth, authorization, encryption, audit, protected-data, schema, OpenAPI, deployment, provider, secret, or controlled-source changes low risk.
 - New-session starts require clean working trees when the project continuity gate supports start modes. Use continuation mode only for the same bounded slice after local dirty work is inspected.
 - Do not install broad third-party skill packs during the first run unless the user explicitly chooses that optional path.
 - Do not add paid services, external databases, auth providers, or deployment providers without user approval.

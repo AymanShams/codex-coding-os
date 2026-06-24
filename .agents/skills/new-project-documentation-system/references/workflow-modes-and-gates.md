@@ -70,3 +70,5 @@ Record approval only from:
 Silence, lack of response, or Codex inference is not approval.
 
 A handoff, new chat prompt, coordination-state update, review marker, or review notification is also not approval.
+
+Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may require inspection or reconciliation, but review need comes from actual diff risk, controlled-source risk, or explicit user instruction. Same-slice status is not a review waiver.

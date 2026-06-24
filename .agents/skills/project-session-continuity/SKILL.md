@@ -136,6 +136,8 @@ thread mode.
 - Handoff notes record state. They do not approve requirements, architecture, security, or coding.
 - The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
 - Review state must be explicit. Use fields such as `review_required`, `review_status`, `reviewed_sha`, and `review_applies_to_active_slice`; never treat a retained marker string as review completion.
+- Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, and local dirty state may narrow allowed actions or require reconciliation, but they must not create review, handoff, new-session, or process churn unless a mandatory gate independently blocks the requested outcome.
+- Same-slice status is not a review waiver. Before recommending review or no review, inspect the actual changed files and classify review need from diff risk, controlled-source risk, or explicit user instruction.
 - A fresh session must continue from the first blocked or incomplete documentation phase when coding is not permitted.
 - Notifications, review markers, or handoffs never grant permission to merge, deploy, or bypass validation.
 - If coordination work starts generating more coordination work, report the loop and return to the requested outcome, the mandatory control, or a clear blocker.

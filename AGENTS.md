@@ -32,6 +32,10 @@ The requested outcome controls the work. Source checks, skills, frameworks, stat
 
 This does not override mandatory project gates, validation checks, source-of-truth checks, security controls, compliance controls, or explicit user instructions.
 
+Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may narrow allowed actions or require reconciliation, but they must not create review, handoff, new-session, or process churn unless a mandatory gate independently blocks the requested outcome.
+
+Same-slice status is not a review waiver. Before saying review is or is not needed, inspect the actual changed files and classify the diff. Require or recommend review from actual code, API, schema, migration, authentication, authorization, encryption, audit, protected-data, deployment, provider, secret, or controlled-source risk, or from explicit user instruction.
+
 Before turning a support step into a separate task, branch, pull request, artifact, or workflow, ask: does this directly complete the requested outcome, unblock it, satisfy a mandatory control, or prevent a concrete error? If not, record it as a note and return to the requested outcome.
 
 If support work starts generating more support work, stop and report the loop. Continue only by returning to the requested outcome, completing the mandatory control, asking for approval, or explaining why the real task is blocked.
@@ -139,6 +143,8 @@ Use routing candidates this way:
 - Keep error messages safe for users and useful for logs.
 
 ## Review Gate
+
+Review is decided from the actual diff, controlled-source risk, or explicit user instruction. Do not request review from coordination drift alone. Do not bypass review because a change is same-slice.
 
 For every meaningful diff, check:
 

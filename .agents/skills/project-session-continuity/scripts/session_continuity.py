@@ -106,6 +106,8 @@ This file records coordination state only. Controlling product and technical sou
 ## Active Slice Manifest
 - The current permission boundary is `docs/delivery/active-slice-manifest.json`.
 - A current-state update, handoff, review marker, or new chat cannot authorize work outside that manifest.
+- Coordination drift alone is not a review trigger. Review need comes from actual diff risk, controlled-source risk, or explicit user instruction.
+- Same-slice status is not a review waiver.
 
 ## Current Verified Repository State
 - Record the verified branch, remote baseline, and working-tree state.
@@ -649,6 +651,7 @@ def command_decide(args: argparse.Namespace) -> int:
     if not triggers:
         print("SESSION DECISION: CONTINUE_CURRENT_SESSION")
         print("Continue only for the same bounded slice and its review, fixes, or validation.")
+        print("Coordination drift alone is not a review trigger. Classify review need from the actual diff, controlled-source risk, or explicit user instruction.")
         if area_changed:
             print("Area change detected. Rerun the start gate, reread controlling docs, update the active-slice manifest, and get explicit authorization before implementation.")
         if high_risk_next:
