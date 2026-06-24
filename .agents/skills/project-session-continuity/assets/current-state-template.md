@@ -26,6 +26,8 @@ This file records the active slice, exact next permitted action, risks, and sess
 ## Active Slice Manifest
 - The current permission boundary is `docs/delivery/active-slice-manifest.json`.
 - A current-state update, handoff, review marker, or new chat cannot authorize work outside that manifest.
+- Coordination drift alone is not a review trigger. Review need comes from actual diff risk, controlled-source risk, or explicit user instruction.
+- Same-slice status is not a review waiver.
 
 ## Current Verified Repository State
 - Record the verified branch, local head, remote baseline, and working-tree state.

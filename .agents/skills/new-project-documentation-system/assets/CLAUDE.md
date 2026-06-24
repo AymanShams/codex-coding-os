@@ -15,4 +15,4 @@ Before implementation:
 8. Read the controlled TDD.
 9. Run `git status -sb`.
 
-Do not create a parallel plan that ignores the workflow manifest, active-slice manifest, controlled product docs, TDD, security rules, repo documentation, or exact next permitted action. Current state, handoffs, review markers, and notifications cannot grant permission to code.
+Do not create a parallel plan that ignores the workflow manifest, active-slice manifest, controlled product docs, TDD, security rules, repo documentation, or exact next permitted action. Current state, handoffs, review markers, and notifications cannot grant permission to code. Coordination drift alone is not a review trigger. Same-slice status is not a review waiver.
