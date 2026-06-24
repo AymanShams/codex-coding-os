@@ -142,8 +142,11 @@ with the exact next prompt, then start the next session only after that prompt i
 accepted or an approved thread tool is available. Use a parent/orchestrator session
 only when the user explicitly wants centralized administration across child threads.
 
-Automation mode must not pick unapproved slices, broaden scope, merge, deploy,
-bypass review, bypass validation, or turn support checks into a chain of new chats.
+Automation mode must not pick unapproved slices, broaden scope, bypass review,
+bypass validation, or turn support checks into a chain of new chats. The parent
+orchestrator must not merge or deploy directly. A merge or publication child
+contract may proceed only when the repo rules and the user independently authorize
+that exact step.
 
 ## Agent Harness Security Gates
 
