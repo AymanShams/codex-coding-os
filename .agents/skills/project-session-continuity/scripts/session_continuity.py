@@ -108,6 +108,8 @@ This file records coordination state only. Controlling product and technical sou
 - A current-state update, handoff, review marker, or new chat cannot authorize work outside that manifest.
 - Coordination drift alone is not a review trigger. Review need comes from actual diff risk, controlled-source risk, or explicit user instruction.
 - Same-slice status is not a review waiver.
+- Leheta PR #1 is the false-negative test case: same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
+- Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 
 ## Current Verified Repository State
 - Record the verified branch, remote baseline, and working-tree state.
@@ -652,6 +654,7 @@ def command_decide(args: argparse.Namespace) -> int:
         print("SESSION DECISION: CONTINUE_CURRENT_SESSION")
         print("Continue only for the same bounded slice and its review, fixes, or validation.")
         print("Coordination drift alone is not a review trigger. Classify review need from the actual diff, controlled-source risk, or explicit user instruction.")
+        print("Recommended Next Action: continue the current bounded slice; do not request review, handoff, or a new session from coordination drift alone.")
         if area_changed:
             print("Area change detected. Rerun the start gate, reread controlling docs, update the active-slice manifest, and get explicit authorization before implementation.")
         if high_risk_next:
@@ -660,6 +663,7 @@ def command_decide(args: argparse.Namespace) -> int:
     print("SESSION DECISION: NEW_SESSION_REQUIRED")
     for trigger in triggers:
         print(f"- {trigger}")
+    print("Recommended Next Action: create or update the persistent handoff and include its complete paste-ready prompt in the final response.")
     return 0
 
 
@@ -714,6 +718,9 @@ Handoff reason: {args.reason}
 - [Agent must list excluded or deferred work.]
 
 ## Recommended Next Slice
+{args.next}
+
+## Recommended Next Action
 {args.next}
 
 ## Paste-Ready Next-Session Prompt

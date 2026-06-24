@@ -36,9 +36,13 @@ Coordination drift is not a review trigger by itself. Current-state drift, manif
 
 Same-slice status is not a review waiver. Before saying review is or is not needed, inspect the actual changed files and classify the diff. Require or recommend review from actual code, API, schema, migration, authentication, authorization, encryption, audit, protected-data, deployment, provider, secret, or controlled-source risk, or from explicit user instruction.
 
+Leheta PR #1 is the false-negative test case for this rule. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
+
 Before turning a support step into a separate task, branch, pull request, artifact, or workflow, ask: does this directly complete the requested outcome, unblock it, satisfy a mandatory control, or prevent a concrete error? If not, record it as a note and return to the requested outcome.
 
 If support work starts generating more support work, stop and report the loop. Continue only by returning to the requested outcome, completing the mandatory control, asking for approval, or explaining why the real task is blocked.
+
+No Silent Closeout: governed repo closeout must never be silent. Before the final response on a meaningful governed repo task, inspect current state, the active-slice manifest, the latest handoff, git status, and session-decision output when relevant. The final response must include `Recommended Next Action`. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required. Do not create handoffs, new sessions, or review loops from coordination drift alone.
 
 ## Working Method
 
@@ -145,6 +149,8 @@ Use routing candidates this way:
 ## Review Gate
 
 Review is decided from the actual diff, controlled-source risk, or explicit user instruction. Do not request review from coordination drift alone. Do not bypass review because a change is same-slice.
+
+Leheta PR #1 is the false-negative test case: same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
 
 For every meaningful diff, check:
 
