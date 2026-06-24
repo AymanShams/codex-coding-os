@@ -108,7 +108,7 @@ This file records coordination state only. Controlling product and technical sou
 - A current-state update, handoff, review marker, or new chat cannot authorize work outside that manifest.
 - Coordination drift alone is not a review trigger. Review need comes from actual diff risk, controlled-source risk, or explicit user instruction.
 - Same-slice status is not a review waiver.
-- Leheta PR #1 is the false-negative test case: same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen PR #1 from coordination drift alone.
+- The first-slice authorization false-negative case proves same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 
 ## Current Verified Repository State

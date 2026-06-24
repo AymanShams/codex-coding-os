@@ -11,6 +11,8 @@ Run a premortem by assuming the user's plan has already failed, then working bac
 
 Use this skill for product launches, business plans, pricing changes, go-to-market plans, hiring decisions, partnerships, operating models, SOPs, governance artifacts, strategy choices, and any commitment where being wrong would be costly.
 
+If the user asks for a full source-backed critique, recurring failure analysis, workflow audit, or the same 12-step structure, route to `deep-critic` full mode and use this premortem skill as the section 9 lens.
+
 ## Trigger Guidance
 
 Strong triggers include:
