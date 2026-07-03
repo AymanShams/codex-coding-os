@@ -72,7 +72,12 @@ def write_code_ready_manifest(project: Path) -> None:
     (project / "project-documentation-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
-def write_active_slice(project: Path, allowed_files: list[str], review: dict[str, object] | None = None) -> None:
+def write_active_slice(
+    project: Path,
+    allowed_files: list[str],
+    review: dict[str, object] | None = None,
+    extra: dict[str, object] | None = None,
+) -> None:
     active_path = project / "docs" / "delivery" / "active-slice-manifest.json"
     active = json.loads(active_path.read_text(encoding="utf-8"))
     active.update(
@@ -80,6 +85,30 @@ def write_active_slice(project: Path, allowed_files: list[str], review: dict[str
             "active_area": "implementation",
             "active_slice": "feature-a",
             "permission_state": "same_slice_only",
+            "automation_mode": "off",
+            "actor_role": "single_session",
+            "handoff_target": "manual_next_session",
+            "run_envelope": {
+                "repo": "",
+                "objective": "",
+                "allowed_next_slice_rule": "none",
+                "max_child_sessions": 0,
+                "child_sessions_used": 0,
+                "thread_or_worktree_creation": "not_approved",
+                "branch_plan": "not_approved",
+                "review_authority": "not_approved",
+                "publication_authority": "not_approved",
+                "control_only_pr_authorized": False,
+                "stop_conditions": ["Stop immediately if the user says to stop."],
+            },
+            "decision_records": [],
+            "scope_review": {
+                "acceptance_criteria": [],
+                "explicit_non_goals": [],
+                "unrequested_behavior": [],
+                "hidden_dependencies": [],
+                "assumptions_that_entered_code": [],
+            },
             "allowed_files": allowed_files,
             "review": review
             or {
@@ -90,6 +119,8 @@ def write_active_slice(project: Path, allowed_files: list[str], review: dict[str
             },
         }
     )
+    if extra:
+        active.update(extra)
     active_path.write_text(json.dumps(active, indent=2) + "\n", encoding="utf-8")
 
 
@@ -108,6 +139,38 @@ def configure_code_ready_state(project: Path, review_required: bool = False, rev
             "review_applies_to_active_slice": "true" if review_required else "false",
         },
     )
+
+
+def parent_automation_fields() -> dict[str, str]:
+    return {
+        "automation_mode": "parent_orchestrator",
+        "actor_role": "parent",
+        "handoff_target": "parent",
+    }
+
+
+def parent_automation_manifest_fields(project: Path, actor_role: str = "parent") -> dict[str, object]:
+    return {
+        "automation_mode": "parent_orchestrator",
+        "actor_role": actor_role,
+        "handoff_target": "parent",
+        "run_envelope": {
+            "repo": project.as_posix(),
+            "objective": "smoke parent automation",
+            "allowed_next_slice_rule": "continue approved smoke flow only",
+            "max_child_sessions": 2,
+            "child_sessions_used": 1,
+            "thread_or_worktree_creation": "approved",
+            "branch_plan": "approved",
+            "review_authority": "approved",
+            "publication_authority": "not_approved",
+            "control_only_pr_authorized": False,
+            "stop_conditions": [
+                "Stop if a human decision is required.",
+                "Stop immediately if the user says to stop.",
+            ],
+        },
+    }
 
 
 def main() -> int:
@@ -179,6 +242,23 @@ def main() -> int:
         run(["git", "add", "."], project, 0)
         run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "baseline"], project, 0)
 
+        docs_only_update = project / "docs" / "delivery" / "current-state.md"
+        docs_only_update.write_text(
+            docs_only_update.read_text(encoding="utf-8").replace(
+                "Resolve material project decisions before drafting controlled documents or coding.",
+                "Resolve material project decisions before drafting controlled documents or coding. Smoke update.",
+            ),
+            encoding="utf-8",
+        )
+        run(["git", "add", "."], project, 0)
+        run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "docs only coordination update"], project, 0)
+        docs_only = run([python, str(local_continuity), "diff-check", "--base", "HEAD~1"], project, 1)
+        if "docs-only slice-selection/current-state PR is blocked" not in docs_only.stdout:
+            raise AssertionError(docs_only.stdout)
+        bad_base = run([python, str(local_continuity), "diff-check", "--base", "missing-base-ref"], project, 1)
+        if "git diff failed for base ref" not in bad_base.stdout:
+            raise AssertionError(bad_base.stdout)
+
         outside_slice = project / "src" / "outside_slice.py"
         outside_slice.parent.mkdir(parents=True, exist_ok=True)
         outside_slice.write_text("print('outside allowed files')\n", encoding="utf-8")
@@ -190,6 +270,70 @@ def main() -> int:
         run([python, str(local_continuity), "start", "--continue-slice", "--no-fetch"], project, 0)
         run(["git", "add", "."], project, 0)
         run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "allowed slice work"], project, 0)
+
+        update_frontmatter_values(project / "docs" / "delivery" / "current-state.md", parent_automation_fields())
+        write_active_slice(project, ["docs/**", "src/**"], extra=parent_automation_manifest_fields(project))
+        parent_block = run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 2)
+        if "parent/orchestrator actor cannot perform next_action" not in parent_block.stdout:
+            raise AssertionError(parent_block.stdout)
+        parent_handoff = run(
+            [
+                python,
+                str(local_continuity),
+                "handoff",
+                "--topic",
+                "parent",
+                "--reason",
+                "child-complete",
+                "--next",
+                "start review child",
+                "--target",
+                "parent",
+            ],
+            project,
+            0,
+        )
+        if "Parent/orchestrator consumes this handoff internally" not in parent_handoff.stdout:
+            raise AssertionError(parent_handoff.stdout)
+        if "Fallback only if parent automation tooling is unavailable" not in parent_handoff.stdout:
+            raise AssertionError(parent_handoff.stdout)
+
+        update_frontmatter_values(
+            project / "docs" / "delivery" / "current-state.md",
+            {
+                "automation_mode": "off",
+                "actor_role": "single_session",
+                "handoff_target": "manual_next_session",
+                "next_session_required_before_next_slice": "false",
+                "last_handoff": "none",
+            },
+        )
+        write_active_slice(project, ["docs/**", "src/**"])
+
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                "decision_records": [
+                    {
+                        "decision": "Choose smoke implementation owner",
+                        "alternatives_rejected": ["Let the agent choose silently"],
+                        "reason": "Owner affects implementation authority",
+                        "owner": "Ayman",
+                        "approver": "Ayman",
+                        "revisit_trigger": "Owner changes",
+                        "evidence_test": "Decision is approved before coding",
+                        "status": "needs_human",
+                        "authority_source": "smoke test",
+                        "material": True,
+                    }
+                ]
+            },
+        )
+        unresolved_decision = run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 2)
+        if "material decision is unresolved" not in unresolved_decision.stdout:
+            raise AssertionError(unresolved_decision.stdout)
+        write_active_slice(project, ["docs/**", "src/**"])
 
         configure_code_ready_state(project, review_required=True, review_status="pending")
         write_active_slice(

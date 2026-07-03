@@ -461,7 +461,7 @@ Fix:
 
 Notes:
 
-* MDN describes SRI as a security feature enabling browsers to verify fetched resources (e.g., from a CDN) haven’t been manipulated by checking a cryptograsensitive regulated datac hash. ([MDN Web Docs][7])
+* MDN describes SRI as a security feature enabling browsers to verify fetched resources (e.g., from a CDN) haven’t been manipulated by checking a cryptographic hash. ([MDN Web Docs][7])
 * OWASP CSP guidance notes CSP can enforce SRI and is useful even on static sites. ([OWASP Cheat Sheet Series][2])
 
 ---
@@ -680,7 +680,7 @@ Fix:
 
 Notes:
 
-* Open redirects are frequently used in sensitive regulated datashing and can undermine SSO/OAuth flows.
+* Open redirects are frequently used in phishing and can undermine SSO/OAuth flows.
 
 ---
 
@@ -988,4 +988,3 @@ Sanitizer reference:
 [21]: https://docs.npmjs.com/cli/v10/commands/npm-ci "npm-ci | npm Docs"
 [22]: https://cheatsheetseries.owasp.org/cheatsheets/NPM_Security_Cheat_Sheet.html "NPM Security - OWASP Cheat Sheet Series"
 [23]: https://react.dev/blog/2024/12/05/react-19 "React v19 – React"
-

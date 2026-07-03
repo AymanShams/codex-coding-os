@@ -497,6 +497,7 @@ def contract_text(lane: Lane, run_id: str, branch: str, worktree_path: Path, bas
 - Do not change controlled source truth unless this contract explicitly allows it.
 - Do not merge this lane.
 - Do not update `docs/delivery/current-state.md`; the parent/orchestrator session owns it.
+- Do not turn this lane handoff into a user-facing new-session prompt when parent/orchestrator automation remains authorized.
 
 ## Controlling Sources
 - `project-documentation-manifest.json`
@@ -521,7 +522,9 @@ def contract_text(lane: Lane, run_id: str, branch: str, worktree_path: Path, bas
 
 ## Required Lane Handoff
 Before this lane is reviewed or merged, create a handoff using
-`templates/parallel-lane-handoff.md` and record validation evidence.
+`templates/parallel-lane-handoff.md` and record validation evidence. The default
+handoff target is the parent/orchestrator. The parent consumes the handoff
+internally unless a stop condition fired or automation tooling is unavailable.
 """
 
 
@@ -553,6 +556,8 @@ Forbidden files:
 Stop if the task needs files outside the contract, the workflow manifest blocks coding,
 source truth conflicts, validation is unavailable, or a material decision is discovered.
 Do not merge. End with a lane handoff using templates/parallel-lane-handoff.md.
+Set the handoff target to the parent/orchestrator unless a stop condition requires
+human judgment or automation tooling is unavailable.
 """
 
 

@@ -57,5 +57,4 @@ SET r.cochange_count = toInteger(row.cochange_count),
 
 - Use Neo4j Bloom or Browser with `MATCH (p:Person)-[r:TOUCHES]->(f:File) RETURN p,r,f`.
 - Filter by `f.sensitivity_score > 0` to highlight security-relevant clusters.
-- For Gesensitive regulated data, import `edges.csv` as edges and `files.csv` / `people.csv` as nodes.
-
+- For Gephi, import `edges.csv` as edges and `files.csv` / `people.csv` as nodes.

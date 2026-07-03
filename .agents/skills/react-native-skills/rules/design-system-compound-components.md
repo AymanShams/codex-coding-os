@@ -1,11 +1,11 @@
 ---
-title: Use Compound Components Over Polymorsensitive regulated datac Children
+title: Use Compound Components Over Polymorphic Children
 impact: MEDIUM
 impactDescription: flexible composition, clearer API
 tags: design-system, components, composition
 ---
 
-## Use Compound Components Over Polymorsensitive regulated datac Children
+## Use Compound Components Over Polymorphic Children
 
 Don't create components that can accept a string if they aren't a text node. If
 a component can receive a string child, it must be a dedicated `*Text`
@@ -13,7 +13,7 @@ component. For components like buttons, which can have both a View (or
 Pressable) together with text, use compound components, such a `Button`,
 `ButtonText`, and `ButtonIcon`.
 
-**Incorrect (polymorsensitive regulated datac children):**
+**Incorrect (polymorphic children):**
 
 ```tsx
 import { Pressable, Text } from 'react-native'
@@ -64,4 +64,3 @@ function ButtonIcon({ children }: { children: React.ReactNode }) {
   <ButtonText>Cancel</ButtonText>
 </Button>
 ```
-

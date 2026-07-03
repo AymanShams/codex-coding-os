@@ -9,6 +9,9 @@
 - The change matches the PRD.
 - The user flow still matches the app-flow doc.
 - No hidden feature was added without approval.
+- The final diff maps back to the original requested outcome and acceptance criteria.
+- Explicit non-goals stayed out of the diff.
+- Coordination updates did not become a docs-only slice-selection, current-state, manifest, or handoff PR unless explicitly authorized.
 
 ## Code Quality
 - The change is smaller than a rewrite.
@@ -16,6 +19,7 @@
 - New abstractions remove real complexity.
 - Error handling is explicit.
 - Naming is clear.
+- Material assumptions are recorded in the decision record before they affect code.
 
 ## Security
 - Protected actions are checked on the server.
@@ -23,6 +27,14 @@
 - Secrets are not committed.
 - Logs avoid secrets and sensitive user content.
 - Dependency changes are justified.
+
+## Scope Creep And Dependency Drift
+| Check | Evidence | Result |
+|---|---|---|
+| Added behavior was requested or explicitly approved | {{evidence}} | Pass, Fail, or Not reviewed |
+| Hidden dependency, provider, hook, service, or workflow was not added | {{evidence}} | Pass, Fail, or Not reviewed |
+| Unresolved decisions did not enter implementation | {{evidence}} | Pass, Fail, or Not reviewed |
+| Parent/orchestrator did not implement product code | {{evidence}} | Pass, Fail, or Not reviewed |
 
 ## Frontend
 - Mobile and desktop layouts were checked.

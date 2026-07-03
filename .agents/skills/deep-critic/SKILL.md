@@ -40,7 +40,7 @@ When full mode is triggered, read `templates/full-12-step-analysis.md` and use i
 Sections 11 and 12 are mandatory in full mode:
 
 - Section 11 must consider the canonical framework index without decorating the answer with unnecessary jargon. At minimum consider Root Cause Analysis, 5 Whys, FMEA, Bowtie analysis, Fault Tree Analysis, Poka-Yoke, Control Plan, PDCA or PDSA, OODA Loop, Cynefin, RACI or DACI where ownership matters, Second-order thinking, and Inversion.
-- Section 12 must provide the final verdict, source-backed findings, recommended rule wording, exact placement recommendations by repo and control surface when applicable, what not to change, acceptance tests, examples of correct and forbidden responses or behaviors, residual risks, and the specific next action for Ayman to approve or reject.
+- Section 12 must provide the final verdict, source-backed findings, recommended rule wording, exact placement recommendations by repo and control surface when applicable, what not to change, acceptance tests, examples of correct and forbidden responses or behaviors, residual risks, and the specific next action for the user to approve or reject.
 
 ## Source Discipline
 

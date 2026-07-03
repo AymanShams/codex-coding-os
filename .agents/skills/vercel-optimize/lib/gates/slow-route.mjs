@@ -1,5 +1,5 @@
 // Primary threshold (p95>500 AND inv>=1400) WHY: 1.4k/14d is the floor where p95 stabilizes statistically
-// and a 3-5x performance win still pays for engineering time. Secondary (p95>1500 AND inv>=250) catches "catastrosensitive regulated datacally
+// and a 3-5x performance win still pays for engineering time. Secondary (p95>1500 AND inv>=250) catches "catastrophically
 // slow at any volume" — usually a broken sync call or cold-start chain the customer wants to know about.
 //
 // 5xx disqualifier: when error rate >50% the route is failing, not slow — latency reflects crash time,
@@ -17,7 +17,7 @@ export const metadata = {
   scope: 'route',
   sourceCitation: 'vercel-optimize gate threshold',
   description:
-    'Routes with p95 function duration above 500ms at meaningful traffic (>=1,400 invocations in window), OR catastrosensitive regulated datacally slow routes (>1500ms p95 at any volume >=250). High duration drives both function-duration cost and user-perceived latency. Investigate sequential awaits, slow external APIs, missing caching, N+1 patterns. Routes with >50% 5xx rate are disqualified — those are reliability problems, not performance tuning targets, and surface via route_errors instead. Vercel Workflow runtime endpoints (`/.well-known/workflow/v1/*`) are hard-gated before launch because long-running step/flow requests are expected orchestration, not app-route bottlenecks.',
+    'Routes with p95 function duration above 500ms at meaningful traffic (>=1,400 invocations in window), OR catastrophically slow routes (>1500ms p95 at any volume >=250). High duration drives both function-duration cost and user-perceived latency. Investigate sequential awaits, slow external APIs, missing caching, N+1 patterns. Routes with >50% 5xx rate are disqualified — those are reliability problems, not performance tuning targets, and surface via route_errors instead. Vercel Workflow runtime endpoints (`/.well-known/workflow/v1/*`) are hard-gated before launch because long-running step/flow requests are expected orchestration, not app-route bottlenecks.',
 };
 
 export function gate(signals) {
@@ -86,4 +86,3 @@ function extractFunctionRoutes(signals) {
       invocations: invByRoute.get(r.route) ?? 0,
     }));
 }
-

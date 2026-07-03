@@ -116,7 +116,7 @@ When Fluid Compute is disabled on a project that shows cold-start pressure (high
 - **Scope**: account
 - **Source citation**: `vercel-optimize gate threshold`
 
-A single function region is pinned in `vercel.json` or per-route `preferredRegion`. Without per-region TTFB data (data gap), the gate can't quantify the geograsensitive regulated datac latency cost — but a single-region pin on a project with 20+ routes is worth auditing against Speed Insights traffic geo.
+A single function region is pinned in `vercel.json` or per-route `preferredRegion`. Without per-region TTFB data (data gap), the gate can't quantify the geographic latency cost — but a single-region pin on a project with 20+ routes is worth auditing against Speed Insights traffic geo.
 
 ---
 
@@ -149,7 +149,7 @@ Configured kinds emitted from scanner output. Each requires a minimum match coun
 - **Scope**: route
 - **Source citation**: `vercel-optimize gate threshold`
 
-Routes with p95 function duration above 500ms at meaningful traffic (>=1,400 invocations in window), OR catastrosensitive regulated datacally slow routes (>1500ms p95 at any volume >=250). High duration drives both function-duration cost and user-perceived latency. Investigate sequential awaits, slow external APIs, missing caching, N+1 patterns. Routes with >50% 5xx rate are disqualified — those are reliability problems, not performance tuning targets, and surface via route_errors instead. Vercel Workflow runtime endpoints (`/.well-known/workflow/v1/*`) are hard-gated before launch because long-running step/flow requests are expected orchestration, not app-route bottlenecks.
+Routes with p95 function duration above 500ms at meaningful traffic (>=1,400 invocations in window), OR catastrophically slow routes (>1500ms p95 at any volume >=250). High duration drives both function-duration cost and user-perceived latency. Investigate sequential awaits, slow external APIs, missing caching, N+1 patterns. Routes with >50% 5xx rate are disqualified — those are reliability problems, not performance tuning targets, and surface via route_errors instead. Vercel Workflow runtime endpoints (`/.well-known/workflow/v1/*`) are hard-gated before launch because long-running step/flow requests are expected orchestration, not app-route bottlenecks.
 
 ---
 
@@ -174,4 +174,3 @@ Routes serving > 500 requests/period at < 50% cache hit AND at least 20% GET tra
 A single day in the billing window deviates sharply from the window baseline. Triage branches: bot or AI crawler spike, viral moment, pricing-model migration (legacy SKU → new), code regression. Without daily-granularity data, this gate stays dormant.
 
 ---
-

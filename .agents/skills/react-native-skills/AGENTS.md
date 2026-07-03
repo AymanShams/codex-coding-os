@@ -60,7 +60,7 @@ Comprehensive performance optimization guide for React Native applications, desi
    - 9.8 [Use Native Modals Over JS-Based Bottom Sheets](#98-use-native-modals-over-js-based-bottom-sheets)
    - 9.9 [Use Pressable Instead of Touchable Components](#99-use-pressable-instead-of-touchable-components)
 10. [Design System](#10-design-system) — **MEDIUM**
-   - 10.1 [Use Compound Components Over Polymorsensitive regulated datac Children](#101-use-compound-components-over-polymorsensitive regulated datac-children)
+   - 10.1 [Use Compound Components Over Polymorphic Children](#101-use-compound-components-over-polymorphic-children)
 11. [Monorepo](#11-monorepo) — **LOW**
    - 11.1 [Install Native Dependencies in App Directory](#111-install-native-dependencies-in-app-directory)
    - 11.2 [Use Single Dependency Versions Across Monorepo](#112-use-single-dependency-versions-across-monorepo)
@@ -2528,7 +2528,7 @@ with Reanimated shared values instead of Pressable's style callback. See the
 Architecture patterns for building maintainable component
 libraries.
 
-### 10.1 Use Compound Components Over Polymorsensitive regulated datac Children
+### 10.1 Use Compound Components Over Polymorphic Children
 
 **Impact: MEDIUM (flexible composition, clearer API)**
 
@@ -2542,7 +2542,7 @@ Pressable) together with text, use compound components, such a `Button`,
 
 `ButtonText`, and `ButtonIcon`.
 
-**Incorrect: polymorsensitive regulated datac children**
+**Incorrect: polymorphic children**
 
 ```tsx
 import { Pressable, Text } from 'react-native'
@@ -2895,4 +2895,3 @@ native app.
 6. [https://legendapp.com/open-source/legend-list](https://legendapp.com/open-source/legend-list)
 7. [https://github.com/nandorojo/galeria](https://github.com/nandorojo/galeria)
 8. [https://zeego.dev](https://zeego.dev)
-

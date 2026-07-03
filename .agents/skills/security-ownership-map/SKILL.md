@@ -7,7 +7,7 @@ description: "Use when the user asks for security-oriented ownership analysis, b
 
 ## Overview
 
-Build a bipartite graph of people and files from git history, then compute ownership risk and export graph artifacts for Neo4j/Gesensitive regulated data. Also build a file co-change graph (Jaccard similarity on shared commits) to cluster files by how they move together while ignoring large, noisy commits.
+Build a bipartite graph of people and files from git history, then compute ownership risk and export graph artifacts for Neo4j/Gephi. Also build a file co-change graph (Jaccard similarity on shared commits) to cluster files by how they move together while ignoring large, noisy commits.
 
 ## Requirements
 
@@ -204,4 +204,3 @@ Use `references/neo4j-import.md` when you need to load the CSVs into Neo4j. It i
 - `bus_factor_hotspots` in `summary.json` lists sensitive files with low bus factor; `orphaned_sensitive_code` is the stale subset.
 - If `git log` is too large, narrow with `--since` or `--until`.
 - Compare `summary.json` against CODEOWNERS to highlight ownership drift.
-

@@ -5,6 +5,36 @@
   "active_slice": "project-intake",
   "permission_state": "documentation_only",
   "permission_summary": "Resolve material decisions and documentation phases. Coding is not allowed until the workflow manifest and this active-slice manifest both permit it.",
+  "automation_mode": "off",
+  "actor_role": "single_session",
+  "handoff_target": "manual_next_session",
+  "run_envelope": {
+    "repo": "",
+    "objective": "",
+    "allowed_next_slice_rule": "none",
+    "max_child_sessions": 0,
+    "child_sessions_used": 0,
+    "thread_or_worktree_creation": "not_approved",
+    "branch_plan": "not_approved",
+    "review_authority": "not_approved",
+    "publication_authority": "not_approved",
+    "control_only_pr_authorized": false,
+    "stop_conditions": [
+      "Stop if the approved run objective is complete.",
+      "Stop if a human decision is required.",
+      "Stop if the maximum child session count is reached.",
+      "Stop if validation, review, or source authority blocks continuation.",
+      "Stop immediately if the user says to stop."
+    ]
+  },
+  "decision_records": [],
+  "scope_review": {
+    "acceptance_criteria": [],
+    "explicit_non_goals": [],
+    "unrequested_behavior": [],
+    "hidden_dependencies": [],
+    "assumptions_that_entered_code": []
+  },
   "source_authority": [
     "project-documentation-manifest.json",
     "docs/delivery/current-state.md",
@@ -23,7 +53,9 @@
     "Do not start implementation.",
     "Do not deploy.",
     "Do not add paid services, providers, databases, auth systems, or production credentials without explicit approval.",
-    "Do not treat a handoff, review marker, notification, or new chat as permission to bypass the workflow manifest."
+    "Do not treat a handoff, review marker, notification, or new chat as permission to bypass the workflow manifest.",
+    "Do not create a docs-only slice-selection or current-state PR unless explicitly authorized.",
+    "Do not treat unresolved decisions as permission for the agent to choose."
   ],
   "validation_commands": [
     "python scripts/agent/session_continuity.py start --start-new",
@@ -39,6 +71,7 @@
     "Stop if the workflow manifest blocks the requested action.",
     "Stop if requested work is outside allowed_files.",
     "Stop if source authority is missing or conflicting.",
-    "Stop if coding is requested before coding_start approval."
+    "Stop if coding is requested before coding_start approval.",
+    "Stop immediately if the user says to stop."
   ]
 }

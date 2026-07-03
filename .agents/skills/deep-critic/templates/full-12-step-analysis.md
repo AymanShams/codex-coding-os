@@ -139,4 +139,4 @@ Provide:
 - examples of correct agent responses
 - examples of forbidden agent responses
 - residual risks
-- specific next action for Ayman to approve or reject
+- specific next action for the user to approve or reject

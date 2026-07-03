@@ -633,7 +633,7 @@ Fix:
 
 ---
 
-### GO-CRYPTO-001: Cryptograsensitive regulated datac randomness MUST come from crypto/rand
+### GO-CRYPTO-001: Cryptographic randomness MUST come from crypto/rand
 Severity: High (Critical if used for auth/session tokens or keys)
 
 Required:
