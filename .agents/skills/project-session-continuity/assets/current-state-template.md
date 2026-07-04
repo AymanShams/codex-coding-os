@@ -1,6 +1,10 @@
 ---
 state_version: 1
 last_updated: 1970-01-01
+automation_mode: off
+actor_role: single_session
+handoff_target: manual_next_session
+stop_latch: false
 workflow_state: documentation-intake
 workflow_manifest: project-documentation-manifest.json
 permission_manifest: docs/delivery/active-slice-manifest.json
@@ -30,6 +34,8 @@ This file records the active slice, exact next permitted action, risks, and sess
 - Same-slice status is not a review waiver.
 - The first-slice authorization false-negative case proves same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
+- In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
+- A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
 
 ## Current Verified Repository State
 - Record the verified branch, local head, remote baseline, and working-tree state.
@@ -46,6 +52,9 @@ This file records the active slice, exact next permitted action, risks, and sess
 ## Candidate Decisions Still Not Final
 - Record candidates that must not be treated as approved decisions.
 
+## Decision Record
+- Material decisions must be approved, rejected, or deferred out of scope before implementation. Absence of a decision is not permission to choose.
+
 ## Risks And Blockers
 - Record material risks, blocked checks, and unresolved conflicts.
 
@@ -54,7 +63,7 @@ This file records the active slice, exact next permitted action, risks, and sess
 
 ## New Session Start Instructions
 ```text
-Paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract

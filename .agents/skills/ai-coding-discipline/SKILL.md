@@ -126,8 +126,10 @@ For Goose-like tools, add a `.gooseignore` or equivalent ignore policy, but do n
 
 Automation Coding Mode is a governed orchestration pattern, not permission to run an
 agent freely on production code. Use it only after explicit approval of the repo,
-run plan, child thread or worktree creation, stop conditions, review expectations,
-and publication authority.
+run envelope, child thread or worktree creation, stop conditions, review expectations,
+and publication authority. The run envelope must state the objective, allowed
+next-slice rule, maximum child sessions, branch or worktree plan, review authority,
+publication authority, handoff target, and stop conditions.
 
 Every child session must have one bounded contract: implement one approved slice,
 review one exact PR head, fix one reviewed finding set, or complete one explicitly
@@ -141,12 +143,24 @@ Prefer a sequential session train when the work is linear: close the current ses
 with the exact next prompt, then start the next session only after that prompt is
 accepted or an approved thread tool is available. Use a parent/orchestrator session
 only when the user explicitly wants centralized administration across child threads.
+In parent/orchestrator mode, child handoffs are internal transition artifacts for
+the parent unless a stop condition fires. The parent consumes the handoff, reruns
+the fresh gate, and continues only to the next independently authorized child task.
+Do not dump a generic next-session prompt back to the user while automation
+authority remains active and tooling is available.
 
 Automation mode must not pick unapproved slices, broaden scope, bypass review,
-bypass validation, or turn support checks into a chain of new chats. The parent
-orchestrator must not merge or deploy directly. A merge or publication child
-contract may proceed only when the repo rules and the user independently authorize
-that exact step.
+bypass validation, turn support checks into a chain of new chats, or create
+docs-only slice-selection/current-state PRs unless explicitly authorized. The
+parent orchestrator may inspect, assign, monitor, verify, reconcile, and report.
+It must not implement product code, merge, deploy, publish, or treat child output
+as authority. A merge or publication child contract may proceed only when the repo
+rules and the user independently authorize that exact step.
+
+For every material slice, record the decision made, alternatives rejected, reason,
+owner, approver, revisit trigger, evidence test, status, and authority source.
+Unresolved material decisions block implementation. Absence of a decision is not
+permission for the agent to choose.
 
 ## Agent Harness Security Gates
 

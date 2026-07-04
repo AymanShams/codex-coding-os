@@ -6,6 +6,9 @@
 - Branch:
 - Base commit:
 - Local worktree path: keep in local runtime files only; do not copy into commit-safe summaries.
+- Automation mode:
+- Actor role:
+- Handoff target:
 - Integration owner: parent/orchestrator session
 - Current-state owner: parent/orchestrator session
 - Risk level: Routine / Material / High
@@ -38,6 +41,11 @@
 ## Controlled Files Explicitly Allowed
 - None by default.
 
+## Decision Record For This Lane
+| Decision | Alternatives rejected | Reason | Owner | Approver | Revisit trigger | Evidence test | Status | Authority source |
+|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  | Proposed, Approved, Rejected, Deferred, Needs human, or Superseded |  |
+
 ## Validation Commands
 -
 
@@ -53,6 +61,7 @@
 - Sources conflict.
 - The lane needs a forbidden or controlled file not explicitly allowed.
 - A material product, architecture, security, or data decision is discovered.
+- A handoff target or automation authority is unclear.
 - Validation cannot run or fails for reasons outside this lane's contract.
 
 ## Required Handoff

@@ -15,7 +15,7 @@ export const metadata = {
   scope: 'account',
   sourceCitation: 'vercel-optimize gate threshold',
   description:
-    "A single function region is pinned in `vercel.json` or per-route `preferredRegion`. Without per-region TTFB data (data gap), the gate can't quantify the geograsensitive regulated datac latency cost — but a single-region pin on a project with 20+ routes is worth auditing against Speed Insights traffic geo.",
+    "A single function region is pinned in `vercel.json` or per-route `preferredRegion`. Without per-region TTFB data (data gap), the gate can't quantify the geographic latency cost — but a single-region pin on a project with 20+ routes is worth auditing against Speed Insights traffic geo.",
 };
 
 const ROUTE_FLOOR = 20;
@@ -62,4 +62,3 @@ export function gate(signals) {
     },
   }];
 }
-

@@ -5,6 +5,13 @@
 - Exact next permitted action:
 - New session required: Yes or No
 
+## Handoff Routing
+- Automation mode: Off, Sequential manual, or Parent/orchestrator
+- Actor role: Single session, Parent, Implementer child, Review child, Fix child, or Publication child
+- Handoff target: Manual next session, User, Parent, Child, or None
+- Parent consumes next: Yes or No
+- Prompt is fallback only: Yes or No
+
 ## Current State
 {{what_is_true_now}}
 
@@ -13,8 +20,12 @@
 - Workflow-manifest path: `project-documentation-manifest.json`
 
 ## Decisions Made
-- {{decision_1}}
-- {{decision_2}}
+| Decision | Alternatives rejected | Reason | Owner | Approver | Revisit trigger | Evidence test | Status | Authority source |
+|---|---|---|---|---|---|---|---|---|
+| {{decision}} | {{alternatives}} | {{reason}} | {{owner}} | {{approver}} | {{revisit_trigger}} | {{evidence_test}} | Proposed, Approved, Rejected, Deferred, Needs human, or Superseded | {{source}} |
+
+## Material Decisions Still Needing Human Judgment
+- {{decision_or_none}}
 
 ## ADRs Created or Updated
 | ADR | Status | Summary |
@@ -43,6 +54,8 @@
 
 ## Next Prompt
 ```text
+Use this prompt only when the handoff target is Manual next session or when parent automation tooling is unavailable.
+
 Continue this project in the repository containing this handoff.
 
 First run:

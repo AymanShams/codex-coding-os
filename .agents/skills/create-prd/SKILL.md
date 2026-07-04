@@ -47,7 +47,7 @@ A well-structured PRD clearly communicates the what, why, and how of your produc
    **5. Market Segment(s)**
    - For whom are we building this?
    - What constraints exist?
-   - Note: Markets are defined by people's problems/jobs, not demograsensitive regulated datacs
+   - Note: Markets are defined by people's problems/jobs, not demographics
 
    **6. Value Proposition(s)**
    - What customer jobs/needs are we addressing?
@@ -87,4 +87,3 @@ A well-structured PRD clearly communicates the what, why, and how of your produc
 
 - [How to Write a Product Requirements Document? The Best PRD Template.](https://www.productcompass.pm/p/prd-template)
 - [A Proven AI PRD Template by Miqdad Jaffer (Product Lead @ OpenAI)](https://www.productcompass.pm/p/ai-prd-template)
-

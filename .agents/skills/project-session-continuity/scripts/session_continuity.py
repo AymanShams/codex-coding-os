@@ -20,6 +20,10 @@ DEFAULT_ACTIVE_SLICE_MANIFEST_PATH = Path("docs/delivery/active-slice-manifest.j
 REQUIRED_STATE_FIELDS = (
     "state_version",
     "last_updated",
+    "automation_mode",
+    "actor_role",
+    "handoff_target",
+    "stop_latch",
     "workflow_state",
     "workflow_manifest",
     "permission_manifest",
@@ -42,6 +46,7 @@ REQUIRED_STATE_HEADINGS = {
     "## Next Permitted Action",
     "## Work Explicitly Not Started",
     "## Candidate Decisions Still Not Final",
+    "## Decision Record",
     "## Risks And Blockers",
     "## New Session Decision",
     "## New Session Start Instructions",
@@ -49,6 +54,7 @@ REQUIRED_STATE_HEADINGS = {
 }
 REQUIRED_HANDOFF_HEADINGS = {
     "## Session Boundary Decision",
+    "## Handoff Routing",
     "## Git State",
     "## Work Completed",
     "## Validation Run",
@@ -62,6 +68,37 @@ REQUIRED_HANDOFF_HEADINGS = {
 }
 READY_TO_CODE = {"approved", "completed"}
 REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
+AUTOMATION_MODES = {"off", "sequential_manual", "parent_orchestrator"}
+ACTOR_ROLES = {
+    "single_session",
+    "parent",
+    "implementer_child",
+    "review_child",
+    "fix_child",
+    "publication_child",
+}
+HANDOFF_TARGETS = {"manual_next_session", "user", "parent", "child", "none"}
+DECISION_STATUSES = {"proposed", "approved", "rejected", "deferred", "needs_human", "superseded"}
+PARENT_FORBIDDEN_ACTIONS = {
+    "code",
+    "implement",
+    "fix",
+    "merge",
+    "publish",
+    "deploy",
+}
+COORDINATION_ONLY_PATTERNS = [
+    "project-documentation-manifest.json",
+    ".github/pull_request_template.md",
+    "templates/**",
+    "docs/delivery/current-state.md",
+    "docs/delivery/active-slice-manifest.json",
+    "docs/history/**",
+    "docs/review/**",
+    "docs/reviews/**",
+    "docs/delivery/*handoff*.md",
+    "docs/delivery/*review*.md",
+]
 REQUIRED_CODE_PHASES = {
     "0_route_scope",
     "1_source_inventory",
@@ -78,9 +115,17 @@ HIGH_RISK = re.compile(
     r"llm|protected-data|phi|privacy|break-glass|export|production",
     re.IGNORECASE,
 )
+IMPLEMENTATION_ACTION = re.compile(
+    r"\b(code|implement|implementation|fix|review[_-]?fix|merge|publish|deploy|release|ship|write|edit|modify|change)\b",
+    re.IGNORECASE,
+)
 DEFAULT_STATE_TEMPLATE = """---
 state_version: 1
 last_updated: 1970-01-01
+automation_mode: off
+actor_role: single_session
+handoff_target: manual_next_session
+stop_latch: false
 workflow_state: documentation-intake
 workflow_manifest: project-documentation-manifest.json
 permission_manifest: docs/delivery/active-slice-manifest.json
@@ -110,6 +155,8 @@ This file records coordination state only. Controlling product and technical sou
 - Same-slice status is not a review waiver.
 - The first-slice authorization false-negative case proves same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
+- In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
+- A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
 
 ## Current Verified Repository State
 - Record the verified branch, remote baseline, and working-tree state.
@@ -126,6 +173,9 @@ This file records coordination state only. Controlling product and technical sou
 ## Candidate Decisions Still Not Final
 - Record candidates that must not be treated as approved decisions.
 
+## Decision Record
+- Material decisions must be approved, rejected, or deferred out of scope before implementation. Absence of a decision is not permission to choose.
+
 ## Risks And Blockers
 - Record material risks, blocked checks, and unresolved conflicts.
 
@@ -134,7 +184,7 @@ This file records coordination state only. Controlling product and technical sou
 
 ## New Session Start Instructions
 ```text
-Paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract
@@ -148,6 +198,55 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
     "active_slice": "project-intake",
     "permission_state": "documentation_only",
     "permission_summary": "Resolve material decisions and documentation phases. Coding is not allowed until the workflow manifest and this active-slice manifest both permit it.",
+    "automation_mode": "off",
+    "actor_role": "single_session",
+    "actor_role_options": [
+        "single_session",
+        "parent",
+        "implementer_child",
+        "review_child",
+        "fix_child",
+        "publication_child",
+    ],
+    "handoff_target": "manual_next_session",
+    "run_envelope": {
+        "repo": "",
+        "objective": "",
+        "allowed_next_slice_rule": "none",
+        "max_child_sessions": 0,
+        "child_sessions_used": 0,
+        "thread_or_worktree_creation": "not_approved",
+        "branch_plan": "not_approved",
+        "review_authority": "not_approved",
+        "publication_authority": "not_approved",
+        "control_only_pr_authorized": False,
+        "stop_conditions": [
+            "Stop if the approved run objective is complete.",
+            "Stop if a human decision is required.",
+            "Stop if the maximum child session count is reached.",
+            "Stop if validation, review, or source authority blocks continuation.",
+            "Stop immediately if the user says to stop.",
+        ],
+    },
+    "decision_record_required_fields": [
+        "decision",
+        "alternatives_rejected",
+        "reason",
+        "owner",
+        "approver",
+        "revisit_trigger",
+        "evidence_test",
+        "status",
+        "authority_source",
+    ],
+    "decision_records": [],
+    "scope_review": {
+        "acceptance_criteria": [],
+        "explicit_non_goals": [],
+        "unrequested_behavior": [],
+        "hidden_dependencies": [],
+        "assumptions_that_entered_code": [],
+    },
     "source_authority": [
         "project-documentation-manifest.json",
         "docs/delivery/current-state.md",
@@ -167,6 +266,8 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
         "Do not deploy.",
         "Do not add paid services, providers, databases, auth systems, or production credentials without explicit approval.",
         "Do not treat a handoff, review marker, notification, or new chat as permission to bypass the workflow manifest.",
+        "Do not create a docs-only slice-selection or current-state PR unless explicitly authorized.",
+        "Do not treat unresolved decisions as permission for the agent to choose.",
     ],
     "validation_commands": [
         "python scripts/agent/session_continuity.py start --start-new",
@@ -183,6 +284,7 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
         "Stop if requested work is outside allowed_files.",
         "Stop if source authority is missing or conflicting.",
         "Stop if coding is requested before coding_start approval.",
+        "Stop immediately if the user says to stop.",
     ],
 }
 
@@ -359,17 +461,40 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
         "active_area",
         "active_slice",
         "permission_state",
+        "automation_mode",
+        "actor_role",
+        "handoff_target",
+        "run_envelope",
+        "decision_records",
+        "scope_review",
         "source_authority",
         "allowed_files",
         "forbidden_actions",
         "validation_commands",
         "stop_conditions",
     ):
-        if data.get(field) in (None, "", []):
+        if field not in data or data.get(field) in (None, ""):
+            errors.append(f"active-slice manifest is missing {field}")
+        elif field != "decision_records" and data.get(field) == []:
             errors.append(f"active-slice manifest is missing {field}")
     for field in ("source_authority", "allowed_files", "forbidden_actions", "validation_commands", "stop_conditions"):
         if not isinstance(data.get(field), list) or not data[field]:
             errors.append(f"active-slice manifest {field} must be a non-empty list")
+    errors.extend(validate_run_envelope(data, attributes))
+    errors.extend(validate_decision_records(data, implementation_action_requested(attributes)))
+    scope_review = data.get("scope_review", {})
+    if not isinstance(scope_review, dict):
+        errors.append("active-slice manifest scope_review must be an object")
+    else:
+        for field in (
+            "acceptance_criteria",
+            "explicit_non_goals",
+            "unrequested_behavior",
+            "hidden_dependencies",
+            "assumptions_that_entered_code",
+        ):
+            if not isinstance(scope_review.get(field), list):
+                errors.append(f"active-slice manifest scope_review.{field} must be a list")
     review = data.get("review", {})
     if not isinstance(review, dict):
         errors.append("active-slice manifest review must be an object")
@@ -445,6 +570,125 @@ def active_slice_allows_paths(path: Path, paths: list[str]) -> tuple[bool, list[
     return True, []
 
 
+def validate_decision_records(data: dict[str, object], implementation_requested: bool = False) -> list[str]:
+    errors: list[str] = []
+    records = data.get("decision_records", [])
+    if not isinstance(records, list):
+        return ["active-slice manifest decision_records must be a list"]
+    for index, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
+            errors.append(f"decision record {index} must be an object")
+            continue
+        status = str(record.get("status", "")).strip()
+        if status not in DECISION_STATUSES:
+            errors.append(f"decision record {index} status is invalid")
+        if implementation_requested and record.get("material") is True and status in {"proposed", "needs_human"}:
+            errors.append(f"implementation is blocked: material decision is unresolved: {record.get('decision', f'record {index}')}")
+        for field in (
+            "decision",
+            "alternatives_rejected",
+            "reason",
+            "owner",
+            "approver",
+            "revisit_trigger",
+            "authority_source",
+            "evidence_test",
+        ):
+            if record.get(field) in (None, ""):
+                errors.append(f"decision record {index} is missing {field}")
+    return errors
+
+
+def validate_run_envelope(data: dict[str, object], attributes: dict[str, str]) -> list[str]:
+    errors: list[str] = []
+    mode = str(data.get("automation_mode", attributes.get("automation_mode", "off")))
+    actor = str(data.get("actor_role", attributes.get("actor_role", "single_session")))
+    handoff_target = str(data.get("handoff_target", attributes.get("handoff_target", "manual_next_session")))
+    if mode not in AUTOMATION_MODES:
+        errors.append("active-slice manifest automation_mode is invalid")
+    if actor not in ACTOR_ROLES:
+        errors.append("active-slice manifest actor_role is invalid")
+    if handoff_target not in HANDOFF_TARGETS:
+        errors.append("active-slice manifest handoff_target is invalid")
+    if attributes.get("automation_mode") and mode != attributes["automation_mode"]:
+        errors.append("active-slice manifest automation_mode must match current state")
+    if attributes.get("actor_role") and actor != attributes["actor_role"]:
+        errors.append("active-slice manifest actor_role must match current state")
+    if attributes.get("handoff_target") and handoff_target != attributes["handoff_target"]:
+        errors.append("active-slice manifest handoff_target must match current state")
+    if mode != "parent_orchestrator" and handoff_target == "parent":
+        errors.append("handoff_target parent requires parent_orchestrator automation_mode")
+    if mode == "parent_orchestrator" and handoff_target == "manual_next_session":
+        errors.append("parent_orchestrator automation must route child handoffs to parent unless a stop condition fired")
+
+    envelope = data.get("run_envelope", {})
+    if not isinstance(envelope, dict):
+        return errors + ["active-slice manifest run_envelope must be an object"]
+    if mode == "parent_orchestrator":
+        for field in ("repo", "objective", "allowed_next_slice_rule", "stop_conditions"):
+            if envelope.get(field) in (None, "", []):
+                errors.append(f"parent_orchestrator run_envelope is missing {field}")
+        max_children = envelope.get("max_child_sessions")
+        used_children = envelope.get("child_sessions_used", 0)
+        if not isinstance(max_children, int) or max_children < 1:
+            errors.append("parent_orchestrator run_envelope max_child_sessions must be a positive integer")
+        if not isinstance(used_children, int) or used_children < 0:
+            errors.append("parent_orchestrator run_envelope child_sessions_used must be a non-negative integer")
+        if isinstance(max_children, int) and isinstance(used_children, int) and max_children >= 0 and used_children > max_children:
+            errors.append("parent_orchestrator run_envelope child_sessions_used exceeds max_child_sessions")
+    return errors
+
+
+def docs_only_control_change(paths: list[str]) -> bool:
+    return bool(paths) and all(
+        any(path_matches_allowed(path, [pattern]) for pattern in COORDINATION_ONLY_PATTERNS)
+        for path in paths
+    )
+
+
+def implementation_action_requested(attributes: dict[str, str]) -> bool:
+    action = attributes.get("next_action", "")
+    return action in PARENT_FORBIDDEN_ACTIONS or bool(IMPLEMENTATION_ACTION.search(action))
+
+
+def parent_mode_active(attributes: dict[str, str]) -> bool:
+    return (
+        attributes.get("automation_mode") == "parent_orchestrator"
+        and attributes.get("actor_role") == "parent"
+    )
+
+
+def parent_changed_file_errors(paths: list[str], attributes: dict[str, str]) -> list[str]:
+    if not parent_mode_active(attributes):
+        return []
+    if docs_only_control_change(paths):
+        return []
+    return [f"parent/orchestrator actor cannot change implementation file: {path}" for path in paths]
+
+
+def diff_paths(base_ref: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or "unknown git error"
+        raise RuntimeError(f"git diff failed for base ref {base_ref}: {detail}")
+    output = result.stdout
+    return sorted({normalize_repo_path(line) for line in output.splitlines() if line.strip()})
+
+
+def control_only_pr_authorized(active_manifest: Path) -> bool:
+    data, read_errors = read_active_slice_manifest(active_manifest)
+    if read_errors or data is None:
+        return False
+    envelope = data.get("run_envelope", {})
+    return isinstance(envelope, dict) and envelope.get("control_only_pr_authorized") is True
+
+
 def validate_state() -> list[str]:
     errors: list[str] = []
     attributes, _, content = read_state()
@@ -459,6 +703,23 @@ def validate_state() -> list[str]:
     for field in ("next_high_risk", "next_session_required_before_next_slice"):
         if attributes.get(field) not in {"true", "false"}:
             errors.append(f"current state {field} must be true or false")
+    if attributes.get("automation_mode") not in AUTOMATION_MODES:
+        errors.append("current state automation_mode is invalid")
+    if attributes.get("actor_role") not in ACTOR_ROLES:
+        errors.append("current state actor_role is invalid")
+    if attributes.get("handoff_target") not in HANDOFF_TARGETS:
+        errors.append("current state handoff_target is invalid")
+    if attributes.get("stop_latch") not in {"true", "false"}:
+        errors.append("current state stop_latch must be true or false")
+    if attributes.get("stop_latch") == "true":
+        errors.append("stop latch is active; no further automation or implementation is permitted")
+    if attributes.get("automation_mode") != "parent_orchestrator" and attributes.get("handoff_target") == "parent":
+        errors.append("current state handoff_target parent requires parent_orchestrator automation_mode")
+    if (
+        parent_mode_active(attributes)
+        and implementation_action_requested(attributes)
+    ):
+        errors.append(f"parent/orchestrator actor cannot perform next_action: {attributes.get('next_action')}")
     for field in ("review_required", "review_applies_to_active_slice"):
         if attributes.get(field) not in {"true", "false"}:
             errors.append(f"current state {field} must be true or false")
@@ -510,6 +771,20 @@ def load_active_slice_template() -> dict[str, object]:
     return dict(DEFAULT_ACTIVE_SLICE_MANIFEST)
 
 
+def merge_missing_defaults(data: dict[str, object], defaults: dict[str, object]) -> tuple[dict[str, object], list[str]]:
+    merged = dict(data)
+    added: list[str] = []
+    for key, value in defaults.items():
+        if key not in merged:
+            merged[key] = value
+            added.append(key)
+        elif isinstance(merged[key], dict) and isinstance(value, dict):
+            child, child_added = merge_missing_defaults(merged[key], value)
+            merged[key] = child
+            added.extend(f"{key}.{item}" for item in child_added)
+    return merged, added
+
+
 def write_default_active_slice_manifest(path: Path, attributes: dict[str, str]) -> None:
     active_manifest = load_active_slice_template()
     active_manifest["last_updated"] = dt.date.today().isoformat()
@@ -517,6 +792,12 @@ def write_default_active_slice_manifest(path: Path, attributes: dict[str, str]) 
         active_manifest["active_area"] = attributes["active_area"]
     if attributes.get("active_slice"):
         active_manifest["active_slice"] = attributes["active_slice"]
+    if attributes.get("automation_mode"):
+        active_manifest["automation_mode"] = attributes["automation_mode"]
+    if attributes.get("actor_role"):
+        active_manifest["actor_role"] = attributes["actor_role"]
+    if attributes.get("handoff_target"):
+        active_manifest["handoff_target"] = attributes["handoff_target"]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(active_manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -564,6 +845,16 @@ def command_repair(_: argparse.Namespace) -> int:
     active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
     if active_manifest.exists():
         print(f"Active-slice manifest already exists: {active_manifest}")
+        data, read_errors = read_active_slice_manifest(active_manifest)
+        if read_errors:
+            print(f"ERROR: {read_errors[0]}")
+            return 1
+        assert data is not None
+        merged, added = merge_missing_defaults(data, load_active_slice_template())
+        if added:
+            merged["last_updated"] = dt.date.today().isoformat()
+            active_manifest.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+            print(f"Updated missing active-slice manifest fields: {', '.join(added)}")
     else:
         write_default_active_slice_manifest(active_manifest, attributes)
         print(f"Created {active_manifest}")
@@ -599,6 +890,9 @@ def command_start(args: argparse.Namespace) -> int:
         f"Coordination state:\n- active: {attributes.get('active_area', '(missing)')} / {attributes.get('active_slice', '(missing)')}\n"
         f"- next: {attributes.get('next_area', '(missing)')} / {attributes.get('next_slice', '(missing)')}\n"
         f"- next_action: {attributes.get('next_action', '(missing)')}\n"
+        f"- automation_mode: {attributes.get('automation_mode', '(missing)')}\n"
+        f"- actor_role: {attributes.get('actor_role', '(missing)')}\n"
+        f"- handoff_target: {attributes.get('handoff_target', '(missing)')}\n"
         f"- workflow_manifest: {attributes.get('workflow_manifest', '(missing)')}\n\n"
         f"- permission_manifest: {attributes.get('permission_manifest', '(missing)')}\n"
         f"- review_status: {attributes.get('review_status', '(missing)')}\n\n"
@@ -654,11 +948,20 @@ def command_decide(args: argparse.Namespace) -> int:
         print("SESSION DECISION: CONTINUE_CURRENT_SESSION")
         print("Continue only for the same bounded slice and its review, fixes, or validation.")
         print("Coordination drift alone is not a review trigger. Classify review need from the actual diff, controlled-source risk, or explicit user instruction.")
-        print("Recommended Next Action: continue the current bounded slice; do not request review, handoff, or a new session from coordination drift alone.")
+        if attributes.get("automation_mode") == "parent_orchestrator" and attributes.get("handoff_target") == "parent":
+            print("Recommended Next Action: parent may consume child handoffs internally and continue only to the next authorized child task.")
+        else:
+            print("Recommended Next Action: continue the current bounded slice; do not request review, handoff, or a new session from coordination drift alone.")
         if area_changed:
             print("Area change detected. Rerun the start gate, reread controlling docs, update the active-slice manifest, and get explicit authorization before implementation.")
         if high_risk_next:
             print("High-risk next slice detected. Fresh controls and explicit authorization are required, but risk alone does not require another chat.")
+        return 0
+    if attributes.get("automation_mode") == "parent_orchestrator" and attributes.get("handoff_target") == "parent":
+        print("SESSION DECISION: FRESH_CHILD_OR_GATE_REQUIRED")
+        for trigger in triggers:
+            print(f"- {trigger}")
+        print("Recommended Next Action: parent/orchestrator consumes the handoff internally, reruns the fresh gate, and starts only the next authorized child task unless a stop condition or missing approval blocks continuation.")
         return 0
     print("SESSION DECISION: NEW_SESSION_REQUIRED")
     for trigger in triggers:
@@ -677,6 +980,18 @@ def slugify(value: str) -> str:
 def command_handoff(args: argparse.Namespace) -> int:
     attributes, body, _ = read_state()
     state = repo_state()
+    target = args.target or attributes.get("handoff_target", "manual_next_session")
+    if target not in HANDOFF_TARGETS:
+        print(f"ERROR: invalid handoff target: {target}")
+        return 1
+    if target == "parent" and attributes.get("automation_mode") != "parent_orchestrator":
+        print("ERROR: handoff target parent requires automation_mode parent_orchestrator")
+        return 1
+    boundary_decision = (
+        "Parent/orchestrator consumes this handoff internally. No user-facing next-session prompt is required unless a stop condition fired."
+        if target == "parent"
+        else "New session required before the next slice."
+    )
     output = Path("docs/history") / f"{dt.date.today().isoformat()}-project-session-handoff-{slugify(args.topic)}.md"
     content = f"""# Project Session Handoff: {args.topic}
 
@@ -684,9 +999,16 @@ Date: {dt.date.today().isoformat()}
 Handoff reason: {args.reason}
 
 ## Session Boundary Decision
-- Decision: New session required before the next slice.
+- Decision: {boundary_decision}
 - Trigger: {args.reason}
 - Next slice: {args.next}
+
+## Handoff Routing
+- Target: {target}
+- Automation mode: {attributes.get('automation_mode', 'off')}
+- Actor role: {attributes.get('actor_role', 'single_session')}
+- Parent consumes next: {'yes' if target == 'parent' else 'no'}
+- Prompt is fallback only: {'yes' if target == 'parent' else 'no'}
 
 ## Git State
 - Branch: `{state['branch']}`
@@ -725,6 +1047,8 @@ Handoff reason: {args.reason}
 
 ## Paste-Ready Next-Session Prompt
 ```text
+{"Fallback only if parent automation tooling is unavailable or the parent run envelope is no longer authorized." if target == "parent" else "Use this prompt to continue manually."}
+
 Continue this project in the repository:
 {Path.cwd().as_posix()}
 
@@ -763,7 +1087,8 @@ Stop if the session-start gate blocks, the workflow manifest blocks the requeste
     output.write_text(content, encoding="utf-8")
     attributes["last_updated"] = dt.date.today().isoformat()
     attributes["last_handoff"] = output.as_posix()
-    attributes["next_session_required_before_next_slice"] = "true"
+    attributes["handoff_target"] = target
+    attributes["next_session_required_before_next_slice"] = "false" if target == "parent" else "true"
     attributes["next_slice"] = args.next
     write_state(attributes, body)
     print(f"Created {output}")
@@ -779,6 +1104,50 @@ def command_validate(_: argparse.Namespace) -> int:
             print(f"- {error}")
         return 1
     print("SESSION CONTINUITY: PASS")
+    return 0
+
+
+def command_diff_check(args: argparse.Namespace) -> int:
+    attributes, _, _ = read_state()
+    active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+    paths = diff_paths(args.base)
+    errors: list[str] = []
+    if not paths:
+        print("DIFF CHECK: PASS")
+        print(f"No changed files since {args.base}.")
+        return 0
+    paths_allowed, path_errors = active_slice_allows_paths(active_manifest, paths)
+    if not paths_allowed:
+        errors.extend(path_errors)
+    errors.extend(parent_changed_file_errors(paths, attributes))
+    if docs_only_control_change(paths) and not (args.control_pr_authorized or control_only_pr_authorized(active_manifest)):
+        errors.append("docs-only slice-selection/current-state PR is blocked unless explicitly authorized")
+    if errors:
+        print("DIFF CHECK: FAIL")
+        for path in paths:
+            print(f"- changed: {path}")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    print("DIFF CHECK: PASS")
+    for path in paths:
+        print(f"- changed: {path}")
+    return 0
+
+
+def command_stop_latch(args: argparse.Namespace) -> int:
+    attributes, body, _ = read_state()
+    if not body:
+        print(f"ERROR: required current-state file is missing: {STATE_PATH}")
+        return 1
+    attributes["stop_latch"] = "true"
+    attributes["next_action"] = "stop"
+    attributes["next_session_required_before_next_slice"] = "false"
+    if args.reason:
+        attributes["workflow_state"] = f"stopped-{slugify(args.reason)}"
+    write_state(attributes, body)
+    print("STOP LATCH: ACTIVE")
+    print("No further automation or implementation is permitted until a human explicitly clears the latch.")
     return 0
 
 
@@ -803,8 +1172,16 @@ def build_parser() -> argparse.ArgumentParser:
     handoff.add_argument("--topic", required=True)
     handoff.add_argument("--reason", required=True)
     handoff.add_argument("--next", required=True)
+    handoff.add_argument("--target", choices=sorted(HANDOFF_TARGETS))
     handoff.add_argument("--write", action="store_true")
     handoff.set_defaults(func=command_handoff)
+    diff_check = subparsers.add_parser("diff-check")
+    diff_check.add_argument("--base", required=True)
+    diff_check.add_argument("--control-pr-authorized", action="store_true")
+    diff_check.set_defaults(func=command_diff_check)
+    stop_latch = subparsers.add_parser("stop-latch")
+    stop_latch.add_argument("--reason", default="user-stop")
+    stop_latch.set_defaults(func=command_stop_latch)
     subparsers.add_parser("validate").set_defaults(func=command_validate)
     return parser
 

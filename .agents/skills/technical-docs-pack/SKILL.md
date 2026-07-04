@@ -65,7 +65,7 @@ If enough context exists, produce Version 1 with assumptions instead of blocking
 4. Draft the requested files or templates.
 5. Add governance:
    - Definition of Done for PRs.
-   - owner mapping where needed.
+   - owner mapping where needed, including CODEOWNERS where appropriate.
    - Review cadence.
    - CI checks when practical.
    - Drift metrics.

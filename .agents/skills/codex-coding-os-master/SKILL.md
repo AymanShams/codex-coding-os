@@ -87,11 +87,27 @@ For deep critique, source-backed audit, recurring workflow failure analysis, pre
   a clear risk warning and explicit user approval.
 - Treat Automation Coding Mode as opt-in orchestration only. Prefer a sequential
   session train for linear work. Use parent/orchestrator mode only after explicit
-  approval of the repo, run plan, child thread or worktree creation, stop conditions,
-  review expectations, and publication authority. Every child session gets one
-  bounded contract and must rerun repo gates, inspect live Git and PR state, check
-  automated GitHub Codex reviews when a PR exists, and stop instead of creating
-  support-only churn.
+  approval of the repo, run envelope, child thread or worktree creation, stop
+  conditions, review expectations, and publication authority. The run envelope
+  must state the objective, allowed next-slice rule, maximum child sessions,
+  branch or worktree plan, review authority, publication authority, handoff target,
+  and stop conditions.
+- In parent/orchestrator mode, a child handoff, new-session trigger, or child
+  closeout is an internal transition artifact unless a stop condition fires. The
+  parent consumes it, reruns the fresh gate, and continues only to the next
+  independently authorized child task. Do not dump a generic next-session prompt
+  back to the user while automation authority remains active and tooling is
+  available.
+- The parent/orchestrator is admin-only: it may inspect, assign, monitor, verify,
+  reconcile, and report. It must not implement product code, merge, deploy, publish,
+  choose unapproved slices, bypass review, or treat child output as authority.
+- Do not create docs-only slice-selection, current-state, active-slice manifest,
+  handoff, or review-marker PRs unless the user explicitly authorizes that
+  control-only publication.
+- For every material slice, record the decision made, alternatives rejected,
+  reason, owner, approver, revisit trigger, evidence test, status, and authority
+  source. Absence of a recorded material decision is not permission for the agent
+  to choose.
 
 ## Fallbacks
 

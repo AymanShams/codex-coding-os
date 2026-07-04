@@ -12,7 +12,7 @@ Activate when a founder or team member needs to create customer-facing documenta
 
 ## Context Required
 - **From startup-context:** product type, target user technical level, existing documentation (if any), top support ticket categories, and tools used for docs hosting (e.g., Notion, GitBook, Zendesk, ReadMe).
-- **From the user:** the specific topic to document, the target audience (end users, admins, developers), the user's technical sosensitive regulated datastication, common failure modes or confusion points, and whether this is a new article or an update to existing content.
+- **From the user:** the specific topic to document, the target audience (end users, admins, developers), the user's technical sophistication, common failure modes or confusion points, and whether this is a new article or an update to existing content.
 
 ## Workflow
 1. **Identify document type** — Determine which template fits: help center article, FAQ, troubleshooting guide, API reference, or getting-started guide. Each serves a different user intent.
@@ -141,4 +141,3 @@ Every support document should follow this arc:
 **User:** "Document our webhook endpoint. It accepts POST requests with event data and returns 200 on success."
 
 **Good output approach:** Follow the API template precisely. Include authentication details, every parameter with type and required/optional, a working curl example, all response codes with descriptions, rate limits, and a retry policy. Developers will copy-paste from this doc, so every code snippet must actually work.
-

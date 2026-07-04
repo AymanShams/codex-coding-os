@@ -39,7 +39,7 @@ Use this before the canvas when the prompt is vague, the team feels stuck, the b
 - What values do we uphold?
 
 ### 2. Market Segments
-- Market defined by people's problems (not demograsensitive regulated datacs)
+- Market defined by people's problems (not demographics)
 - Jobs to Be Done (JTBD), desired outcomes, constraints
 - Who is our first segment?
 - Why this segment first?
@@ -120,4 +120,3 @@ For each target segment:
 - [Introducing the Product Strategy Canvas](https://www.productcompass.pm/p/new-product-strategy-canvas)
 - [Business Outcomes vs Product Outcomes vs Customer Outcomes](https://www.productcompass.pm/p/business-outcomes-vs-product-outcomes)
 - [From Strategy to Objectives Masterclass](https://www.productcompass.pm/p/product-vision-strategy-objectives-course) (video course)
-

@@ -575,7 +575,7 @@ Severity: Low
 
 Required:
 
-* SHOULD use SRI to ensure browsers only load third-party resources if they match an expected cryptograsensitive regulated datac hash. ([MDN Web Docs][12])
+* SHOULD use SRI to ensure browsers only load third-party resources if they match an expected cryptographic hash. ([MDN Web Docs][12])
 * MUST update SRI hashes whenever the underlying resource changes (pin versions; avoid “latest” URLs).
 
 Insecure patterns:
@@ -745,4 +745,3 @@ DOM clobbering:
 [19]: https://developer.mozilla.org/en-US/docs/Web/API/Element/innerHTML "https://developer.mozilla.org/en-US/docs/Web/API/Element/innerHTML"
 [20]: https://developer.mozilla.org/en-US/docs/Web/API/Element/insertAdjacentHTML "https://developer.mozilla.org/en-US/docs/Web/API/Element/insertAdjacentHTML"
 [21]: https://www.w3.org/TR/sri-2/ "https://www.w3.org/TR/sri-2/"
-

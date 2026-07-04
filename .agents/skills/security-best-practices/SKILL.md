@@ -25,6 +25,8 @@ If no relevant information is available in the skill's references directory, thi
 
 From there it can operate in a few ways.
 
+If the user needs a defensive checklist, hardening plan, NIST/MITRE control map, supply-chain checklist, cloud/IAM checklist, or agent/MCP checklist without code-specific review, use `defensive-security-checklist` instead.
+
 1. The primary mode is to just use the information to write secure by default code from this point forward. This is useful for starting a new project or when writing new code.
 
 2. The secondary mode is to passively detect vulnerabilities while working in the project and writing code for the user. Critical or very important vulnerabilities or major issues going against security guidance can be flagged and the user can be told about them. This passive mode should focus on the largest impact vulnerabilities and secure defaults.

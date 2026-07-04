@@ -106,9 +106,11 @@ task contract, stop when the contract is insufficient, and end with a lane hando
 ## Opt-In Automation Coding Mode
 
 Automation Coding Mode is off by default. Use it only when the user explicitly
-approves the repository, run objective, maximum child sessions, thread or worktree
-creation, branch plan, review expectation, GitHub publication authority, and stop
-condition.
+approves the repository, run envelope, maximum child sessions, thread or worktree
+creation, branch plan, review expectation, GitHub publication authority, handoff
+target, and stop condition. The run envelope must state the objective, allowed
+next-slice rule, maximum child sessions, branch or worktree plan, review authority,
+publication authority, handoff target, and stop conditions.
 
 Two shapes are allowed:
 
@@ -121,6 +123,16 @@ Two shapes are allowed:
   bounded contract, checks child outputs, GitHub PR checks, automated Codex reviews
   and actionable inline comments, and code-review-graph status when applicable.
 
+In parent/orchestrator mode, a child handoff, new-session trigger, or child closeout
+is an internal transition artifact unless a stop condition fires. The parent consumes
+it, reruns the fresh gate, and continues only to the next independently authorized
+child task. Do not dump a generic next-session prompt back to the user while the run
+envelope still authorizes continuation and thread or worktree tooling is available.
+
+The parent/orchestrator may inspect, assign, monitor, verify, reconcile, and report.
+It must not implement product code, merge, deploy, publish, choose unapproved slices,
+bypass review, or treat child output as authority.
+
 Each child session must rerun the project start gate, read live controlling sources,
 inspect Git and PR state, classify review from the actual diff, run or report required
 validation, and end with `Recommended Next Action`. One child can implement one
@@ -132,6 +144,15 @@ bypass review, bypass validation, or treat a child summary as authority unless t
 repo rules and the user independently authorize that exact action. If the next action
 is not independently authorized, stop instead of creating another chat, handoff, or
 support-only workflow.
+
+Do not create a separate docs-only pull request for slice selection, current-state
+updates, active-slice manifest updates, handoffs, or review markers unless the user
+explicitly authorizes that control-only publication.
+
+For every material slice, record the decision made, alternatives rejected, reason,
+owner, approver, revisit trigger, evidence test, status, and authority source.
+Unresolved material decisions block implementation. Absence of a decision is not
+permission for the agent to choose.
 
 ## End And Handoff
 
@@ -151,9 +172,9 @@ Apply the outcome-control rule from `AGENTS.md` before creating or updating coor
 5. Run `python scripts/agent/session_continuity.py validate`.
 6. Run relevant project validation and `git status -sb`.
 7. End with a final response that includes `Recommended Next Action`.
-8. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required.
+8. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required. In parent/orchestrator mode with `handoff_target: parent`, explicitly state that the parent consumes the handoff internally and no user prompt is required unless a stop condition fired.
 
-The next-session prompt must include the repository path, required reading order, latest current-state path, active-slice manifest path, handoff path, workflow manifest path, the exact next permitted action, and stop conditions. It must not imply that coding is permitted unless the workflow manifest and active-slice manifest independently permit coding.
+The next-session prompt must include the repository path, required reading order, latest current-state path, active-slice manifest path, handoff path, workflow manifest path, the exact next permitted action, and stop conditions. It must not imply that coding is permitted unless the workflow manifest and active-slice manifest independently permit coding. In parent/orchestrator automation, the same content may exist as fallback, but the controlling handoff target is the parent.
 
 For parallel lane work, the parent session must also give each lane its paste-ready
 prompt from `docs/delivery/parallel-worktrees/<run-id>/prompts/`, or create
@@ -164,8 +185,10 @@ thread mode.
 
 - `docs/delivery/current-state.md` is a coordination source, not a product or technical authority.
 - `docs/delivery/active-slice-manifest.json` is the current permission boundary for implementation files, forbidden actions, validation commands, review state, and stop conditions. Changed files must match `allowed_files` before same-slice continuation can pass.
+- `automation_mode`, `actor_role`, `handoff_target`, and `run_envelope` decide whether a handoff is a user stop point or an internal parent transition.
 - Handoff notes record state. They do not approve requirements, architecture, security, or coding.
 - The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
+- Decision records make material assumptions visible before code. A record with status `proposed` or `needs_human` blocks implementation when it is material.
 - Review state must be explicit. Use fields such as `review_required`, `review_status`, `reviewed_sha`, and `review_applies_to_active_slice`; never treat a retained marker string as review completion.
 - Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, and local dirty state may narrow allowed actions or require reconciliation, but they must not create review, handoff, new-session, or process churn unless a mandatory gate independently blocks the requested outcome.
 - Same-slice status is not a review waiver. Before recommending review or no review, inspect the actual changed files and classify review need from diff risk, controlled-source risk, or explicit user instruction.
