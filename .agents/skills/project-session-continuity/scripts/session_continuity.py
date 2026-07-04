@@ -69,6 +69,20 @@ REQUIRED_HANDOFF_HEADINGS = {
 READY_TO_CODE = {"approved", "completed"}
 REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
 AUTOMATION_MODES = {"off", "sequential_manual", "parent_orchestrator"}
+RUN_ENVELOPE_FIELDS = {
+    "repo",
+    "objective",
+    "allowed_next_slice_rule",
+    "max_child_sessions",
+    "child_sessions_used",
+    "thread_or_worktree_creation",
+    "branch_plan",
+    "review_authority",
+    "publication_authority",
+    "handoff_target",
+    "control_only_pr_authorized",
+    "stop_conditions",
+}
 ACTOR_ROLES = {
     "single_session",
     "parent",
@@ -210,8 +224,8 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
     ],
     "handoff_target": "manual_next_session",
     "run_envelope": {
-        "repo": "",
-        "objective": "",
+        "repo": "not_approved",
+        "objective": "none",
         "allowed_next_slice_rule": "none",
         "max_child_sessions": 0,
         "child_sessions_used": 0,
@@ -219,6 +233,7 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
         "branch_plan": "not_approved",
         "review_authority": "not_approved",
         "publication_authority": "not_approved",
+        "handoff_target": "manual_next_session",
         "control_only_pr_authorized": False,
         "stop_conditions": [
             "Stop if the approved run objective is complete.",
@@ -624,10 +639,16 @@ def validate_run_envelope(data: dict[str, object], attributes: dict[str, str]) -
     envelope = data.get("run_envelope", {})
     if not isinstance(envelope, dict):
         return errors + ["active-slice manifest run_envelope must be an object"]
+    for field in RUN_ENVELOPE_FIELDS:
+        if envelope.get(field) in (None, "", []):
+            errors.append(f"active-slice manifest run_envelope is missing {field}")
+    if envelope.get("handoff_target") and str(envelope.get("handoff_target")) != handoff_target:
+        errors.append("active-slice manifest run_envelope.handoff_target must match handoff_target")
+    if not isinstance(envelope.get("stop_conditions"), list) or not envelope["stop_conditions"]:
+        errors.append("active-slice manifest run_envelope.stop_conditions must be a non-empty list")
+    if not isinstance(envelope.get("control_only_pr_authorized"), bool):
+        errors.append("active-slice manifest run_envelope.control_only_pr_authorized must be true or false")
     if mode == "parent_orchestrator":
-        for field in ("repo", "objective", "allowed_next_slice_rule", "stop_conditions"):
-            if envelope.get(field) in (None, "", []):
-                errors.append(f"parent_orchestrator run_envelope is missing {field}")
         max_children = envelope.get("max_child_sessions")
         used_children = envelope.get("child_sessions_used", 0)
         if not isinstance(max_children, int) or max_children < 1:
@@ -907,9 +928,11 @@ def command_start(args: argparse.Namespace) -> int:
         errors.append("new-session start requires a clean working tree; use --continue-slice only for the same bounded active slice after inspecting local changes")
     if mode == "continue-slice" and state["dirty"]:
         active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
-        paths_allowed, path_errors = active_slice_allows_paths(active_manifest, changed_repo_paths())
+        changed_paths = changed_repo_paths()
+        paths_allowed, path_errors = active_slice_allows_paths(active_manifest, changed_paths)
         if not paths_allowed:
             errors.extend(path_errors)
+        errors.extend(parent_changed_file_errors(changed_paths, attributes))
     if errors:
         print("START GATE: BLOCKED")
         for error in errors:
