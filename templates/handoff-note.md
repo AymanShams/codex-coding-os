@@ -20,9 +20,9 @@
 - Workflow-manifest path: `project-documentation-manifest.json`
 
 ## Decisions Made
-| Decision | Alternatives rejected | Reason | Owner / approver | Revisit trigger | Evidence test | Status | Authority source |
-|---|---|---|---|---|---|---|---|
-| {{decision}} | {{alternatives}} | {{reason}} | {{owner_or_approver}} | {{revisit_trigger}} | {{evidence_test}} | Proposed, Approved, Rejected, Deferred, Needs human, or Superseded | {{source}} |
+| Decision | Alternatives rejected | Reason | Owner | Approver | Revisit trigger | Evidence test | Status | Authority source |
+|---|---|---|---|---|---|---|---|---|
+| {{decision}} | {{alternatives}} | {{reason}} | {{owner}} | {{approver}} | {{revisit_trigger}} | {{evidence_test}} | Proposed, Approved, Rejected, Deferred, Needs human, or Superseded | {{source}} |
 
 ## Material Decisions Still Needing Human Judgment
 - {{decision_or_none}}

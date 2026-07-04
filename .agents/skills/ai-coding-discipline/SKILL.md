@@ -158,7 +158,7 @@ as authority. A merge or publication child contract may proceed only when the re
 rules and the user independently authorize that exact step.
 
 For every material slice, record the decision made, alternatives rejected, reason,
-owner or approver, revisit trigger, evidence test, status, and authority source.
+owner, approver, revisit trigger, evidence test, status, and authority source.
 Unresolved material decisions block implementation. Absence of a decision is not
 permission for the agent to choose.
 

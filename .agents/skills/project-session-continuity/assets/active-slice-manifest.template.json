@@ -7,6 +7,14 @@
   "permission_summary": "Resolve material decisions and documentation phases. Coding is not allowed until the workflow manifest and this active-slice manifest both permit it.",
   "automation_mode": "off",
   "actor_role": "single_session",
+  "actor_role_options": [
+    "single_session",
+    "parent",
+    "implementer_child",
+    "review_child",
+    "fix_child",
+    "publication_child"
+  ],
   "handoff_target": "manual_next_session",
   "run_envelope": {
     "repo": "",
@@ -27,6 +35,17 @@
       "Stop immediately if the user says to stop."
     ]
   },
+  "decision_record_required_fields": [
+    "decision",
+    "alternatives_rejected",
+    "reason",
+    "owner",
+    "approver",
+    "revisit_trigger",
+    "evidence_test",
+    "status",
+    "authority_source"
+  ],
   "decision_records": [],
   "scope_review": {
     "acceptance_criteria": [],

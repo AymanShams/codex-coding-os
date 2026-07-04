@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_ROOT = ROOT / ".agents" / "skills" / "new-project-documentation-system"
 CONTINUITY = ROOT / ".agents" / "skills" / "project-session-continuity" / "scripts" / "session_continuity.py"
+FRESH_CONTEXT_REVIEW = ROOT / "templates" / "fresh-context-review.md"
 PHASES = [
     "0_route_scope",
     "1_source_inventory",
@@ -298,16 +299,33 @@ def main() -> int:
         if "Fallback only if parent automation tooling is unavailable" not in parent_handoff.stdout:
             raise AssertionError(parent_handoff.stdout)
 
+        parent_impl = project / "src" / "parent_impl.py"
+        parent_impl.write_text("print('parent implementation drift')\n", encoding="utf-8")
+        run(["git", "add", "."], project, 0)
+        run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "parent implementation drift"], project, 0)
+        parent_diff_block = run([python, str(local_continuity), "diff-check", "--base", "HEAD~1"], project, 1)
+        if "parent/orchestrator actor cannot change implementation file" not in parent_diff_block.stdout:
+            raise AssertionError(parent_diff_block.stdout)
+
+        stop_latch = run([python, str(local_continuity), "stop-latch", "--reason", "user stop"], project, 0)
+        if "STOP LATCH: ACTIVE" not in stop_latch.stdout:
+            raise AssertionError(stop_latch.stdout)
+        stopped = run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 2)
+        if "stop latch is active" not in stopped.stdout:
+            raise AssertionError(stopped.stdout)
+
         update_frontmatter_values(
             project / "docs" / "delivery" / "current-state.md",
             {
                 "automation_mode": "off",
                 "actor_role": "single_session",
                 "handoff_target": "manual_next_session",
+                "stop_latch": "false",
                 "next_session_required_before_next_slice": "false",
                 "last_handoff": "none",
             },
         )
+        configure_code_ready_state(project)
         write_active_slice(project, ["docs/**", "src/**"])
 
         write_active_slice(
@@ -330,6 +348,8 @@ def main() -> int:
                 ]
             },
         )
+        run(["git", "add", "."], project, 0)
+        run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "unresolved material decision"], project, 0)
         unresolved_decision = run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 2)
         if "material decision is unresolved" not in unresolved_decision.stdout:
             raise AssertionError(unresolved_decision.stdout)
@@ -368,6 +388,17 @@ def main() -> int:
         stale_review = run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 2)
         if "reviewed_sha must match current HEAD" not in stale_review.stdout:
             raise AssertionError(stale_review.stdout)
+
+        review_template = FRESH_CONTEXT_REVIEW.read_text(encoding="utf-8")
+        for required in (
+            "Original requested outcome",
+            "Final changed files",
+            "Scope-Creep And Hidden-Dependency Check",
+            "hidden dependency",
+            "Coordination updates did not become a docs-only PR loop",
+        ):
+            if required not in review_template:
+                raise AssertionError(f"fresh-context-review template is missing {required}")
 
     with tempfile.TemporaryDirectory(prefix="coding-os-session-repair-") as temp:
         project = Path(temp)

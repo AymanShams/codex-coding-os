@@ -150,7 +150,7 @@ updates, active-slice manifest updates, handoffs, or review markers unless the u
 explicitly authorizes that control-only publication.
 
 For every material slice, record the decision made, alternatives rejected, reason,
-owner or approver, revisit trigger, evidence test, status, and authority source.
+owner, approver, revisit trigger, evidence test, status, and authority source.
 Unresolved material decisions block implementation. Absence of a decision is not
 permission for the agent to choose.
 

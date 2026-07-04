@@ -42,9 +42,9 @@
 - None by default.
 
 ## Decision Record For This Lane
-| Decision | Alternatives rejected | Reason | Owner / approver | Revisit trigger | Evidence test | Status | Authority source |
-|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  | Proposed, Approved, Rejected, Deferred, Needs human, or Superseded |  |
+| Decision | Alternatives rejected | Reason | Owner | Approver | Revisit trigger | Evidence test | Status | Authority source |
+|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  | Proposed, Approved, Rejected, Deferred, Needs human, or Superseded |  |
 
 ## Validation Commands
 -

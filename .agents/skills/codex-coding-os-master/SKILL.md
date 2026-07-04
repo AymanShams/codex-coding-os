@@ -105,7 +105,7 @@ For deep critique, source-backed audit, recurring workflow failure analysis, pre
   handoff, or review-marker PRs unless the user explicitly authorizes that
   control-only publication.
 - For every material slice, record the decision made, alternatives rejected,
-  reason, owner or approver, revisit trigger, evidence test, status, and authority
+  reason, owner, approver, revisit trigger, evidence test, status, and authority
   source. Absence of a recorded material decision is not permission for the agent
   to choose.
 

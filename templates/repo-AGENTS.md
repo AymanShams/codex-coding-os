@@ -47,7 +47,7 @@ When parent/orchestrator mode is active and the run envelope still authorizes co
 
 Do not create a separate docs-only pull request for slice selection, current-state updates, active-slice manifest updates, handoffs, or review markers unless the user explicitly authorizes that control-only publication. Fold required coordination updates into the same authorized implementation or review flow when they are necessary for the requested outcome.
 
-For every material slice, record the decision made, alternatives rejected, reason, owner or approver, revisit trigger, and evidence test. An unresolved material decision is not permission for the agent to choose.
+For every material slice, record the decision made, alternatives rejected, reason, owner, approver, revisit trigger, evidence test, status, and authority source. An unresolved material decision is not permission for the agent to choose.
 
 ## Working Rules
 - At the start of a new or resumed non-trivial session, run `python scripts/agent/session_continuity.py start --start-new` when available.

@@ -89,9 +89,15 @@ PARENT_FORBIDDEN_ACTIONS = {
 }
 COORDINATION_ONLY_PATTERNS = [
     "project-documentation-manifest.json",
+    ".github/pull_request_template.md",
+    "templates/**",
     "docs/delivery/current-state.md",
     "docs/delivery/active-slice-manifest.json",
     "docs/history/**",
+    "docs/review/**",
+    "docs/reviews/**",
+    "docs/delivery/*handoff*.md",
+    "docs/delivery/*review*.md",
 ]
 REQUIRED_CODE_PHASES = {
     "0_route_scope",
@@ -107,6 +113,10 @@ REQUIRED_CODE_PHASES = {
 HIGH_RISK = re.compile(
     r"auth|iam|security|encryption|audit|payment|billing|migration|deployment|"
     r"llm|protected-data|phi|privacy|break-glass|export|production",
+    re.IGNORECASE,
+)
+IMPLEMENTATION_ACTION = re.compile(
+    r"\b(code|implement|implementation|fix|review[_-]?fix|merge|publish|deploy|release|ship|write|edit|modify|change)\b",
     re.IGNORECASE,
 )
 DEFAULT_STATE_TEMPLATE = """---
@@ -190,6 +200,14 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
     "permission_summary": "Resolve material decisions and documentation phases. Coding is not allowed until the workflow manifest and this active-slice manifest both permit it.",
     "automation_mode": "off",
     "actor_role": "single_session",
+    "actor_role_options": [
+        "single_session",
+        "parent",
+        "implementer_child",
+        "review_child",
+        "fix_child",
+        "publication_child",
+    ],
     "handoff_target": "manual_next_session",
     "run_envelope": {
         "repo": "",
@@ -210,6 +228,17 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
             "Stop immediately if the user says to stop.",
         ],
     },
+    "decision_record_required_fields": [
+        "decision",
+        "alternatives_rejected",
+        "reason",
+        "owner",
+        "approver",
+        "revisit_trigger",
+        "evidence_test",
+        "status",
+        "authority_source",
+    ],
     "decision_records": [],
     "scope_review": {
         "acceptance_criteria": [],
@@ -452,7 +481,7 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
         if not isinstance(data.get(field), list) or not data[field]:
             errors.append(f"active-slice manifest {field} must be a non-empty list")
     errors.extend(validate_run_envelope(data, attributes))
-    errors.extend(validate_decision_records(data, attributes.get("next_action") == "code"))
+    errors.extend(validate_decision_records(data, implementation_action_requested(attributes)))
     scope_review = data.get("scope_review", {})
     if not isinstance(scope_review, dict):
         errors.append("active-slice manifest scope_review must be an object")
@@ -617,6 +646,26 @@ def docs_only_control_change(paths: list[str]) -> bool:
     )
 
 
+def implementation_action_requested(attributes: dict[str, str]) -> bool:
+    action = attributes.get("next_action", "")
+    return action in PARENT_FORBIDDEN_ACTIONS or bool(IMPLEMENTATION_ACTION.search(action))
+
+
+def parent_mode_active(attributes: dict[str, str]) -> bool:
+    return (
+        attributes.get("automation_mode") == "parent_orchestrator"
+        and attributes.get("actor_role") == "parent"
+    )
+
+
+def parent_changed_file_errors(paths: list[str], attributes: dict[str, str]) -> list[str]:
+    if not parent_mode_active(attributes):
+        return []
+    if docs_only_control_change(paths):
+        return []
+    return [f"parent/orchestrator actor cannot change implementation file: {path}" for path in paths]
+
+
 def diff_paths(base_ref: str) -> list[str]:
     result = subprocess.run(
         ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
@@ -667,9 +716,8 @@ def validate_state() -> list[str]:
     if attributes.get("automation_mode") != "parent_orchestrator" and attributes.get("handoff_target") == "parent":
         errors.append("current state handoff_target parent requires parent_orchestrator automation_mode")
     if (
-        attributes.get("automation_mode") == "parent_orchestrator"
-        and attributes.get("actor_role") == "parent"
-        and attributes.get("next_action") in PARENT_FORBIDDEN_ACTIONS
+        parent_mode_active(attributes)
+        and implementation_action_requested(attributes)
     ):
         errors.append(f"parent/orchestrator actor cannot perform next_action: {attributes.get('next_action')}")
     for field in ("review_required", "review_applies_to_active_slice"):
@@ -1071,6 +1119,7 @@ def command_diff_check(args: argparse.Namespace) -> int:
     paths_allowed, path_errors = active_slice_allows_paths(active_manifest, paths)
     if not paths_allowed:
         errors.extend(path_errors)
+    errors.extend(parent_changed_file_errors(paths, attributes))
     if docs_only_control_change(paths) and not (args.control_pr_authorized or control_only_pr_authorized(active_manifest)):
         errors.append("docs-only slice-selection/current-state PR is blocked unless explicitly authorized")
     if errors:
@@ -1083,6 +1132,22 @@ def command_diff_check(args: argparse.Namespace) -> int:
     print("DIFF CHECK: PASS")
     for path in paths:
         print(f"- changed: {path}")
+    return 0
+
+
+def command_stop_latch(args: argparse.Namespace) -> int:
+    attributes, body, _ = read_state()
+    if not body:
+        print(f"ERROR: required current-state file is missing: {STATE_PATH}")
+        return 1
+    attributes["stop_latch"] = "true"
+    attributes["next_action"] = "stop"
+    attributes["next_session_required_before_next_slice"] = "false"
+    if args.reason:
+        attributes["workflow_state"] = f"stopped-{slugify(args.reason)}"
+    write_state(attributes, body)
+    print("STOP LATCH: ACTIVE")
+    print("No further automation or implementation is permitted until a human explicitly clears the latch.")
     return 0
 
 
@@ -1114,6 +1179,9 @@ def build_parser() -> argparse.ArgumentParser:
     diff_check.add_argument("--base", required=True)
     diff_check.add_argument("--control-pr-authorized", action="store_true")
     diff_check.set_defaults(func=command_diff_check)
+    stop_latch = subparsers.add_parser("stop-latch")
+    stop_latch.add_argument("--reason", default="user-stop")
+    stop_latch.set_defaults(func=command_stop_latch)
     subparsers.add_parser("validate").set_defaults(func=command_validate)
     return parser
 
