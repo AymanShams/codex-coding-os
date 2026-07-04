@@ -90,8 +90,8 @@ def write_active_slice(
             "actor_role": "single_session",
             "handoff_target": "manual_next_session",
             "run_envelope": {
-                "repo": "",
-                "objective": "",
+                "repo": project.as_posix(),
+                "objective": "smoke fixture",
                 "allowed_next_slice_rule": "none",
                 "max_child_sessions": 0,
                 "child_sessions_used": 0,
@@ -99,6 +99,7 @@ def write_active_slice(
                 "branch_plan": "not_approved",
                 "review_authority": "not_approved",
                 "publication_authority": "not_approved",
+                "handoff_target": "manual_next_session",
                 "control_only_pr_authorized": False,
                 "stop_conditions": ["Stop immediately if the user says to stop."],
             },
@@ -165,6 +166,7 @@ def parent_automation_manifest_fields(project: Path, actor_role: str = "parent")
             "branch_plan": "approved",
             "review_authority": "approved",
             "publication_authority": "not_approved",
+            "handoff_target": "parent",
             "control_only_pr_authorized": False,
             "stop_conditions": [
                 "Stop if a human decision is required.",
@@ -301,6 +303,9 @@ def main() -> int:
 
         parent_impl = project / "src" / "parent_impl.py"
         parent_impl.write_text("print('parent implementation drift')\n", encoding="utf-8")
+        parent_continue_block = run([python, str(local_continuity), "start", "--continue-slice", "--no-fetch"], project, 2)
+        if "parent/orchestrator actor cannot change implementation file" not in parent_continue_block.stdout:
+            raise AssertionError(parent_continue_block.stdout)
         run(["git", "add", "."], project, 0)
         run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "parent implementation drift"], project, 0)
         parent_diff_block = run([python, str(local_continuity), "diff-check", "--base", "HEAD~1"], project, 1)

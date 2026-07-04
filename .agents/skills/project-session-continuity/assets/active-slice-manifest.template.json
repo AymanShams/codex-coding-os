@@ -17,8 +17,8 @@
   ],
   "handoff_target": "manual_next_session",
   "run_envelope": {
-    "repo": "",
-    "objective": "",
+    "repo": "not_approved",
+    "objective": "none",
     "allowed_next_slice_rule": "none",
     "max_child_sessions": 0,
     "child_sessions_used": 0,
@@ -26,6 +26,7 @@
     "branch_plan": "not_approved",
     "review_authority": "not_approved",
     "publication_authority": "not_approved",
+    "handoff_target": "manual_next_session",
     "control_only_pr_authorized": false,
     "stop_conditions": [
       "Stop if the approved run objective is complete.",
