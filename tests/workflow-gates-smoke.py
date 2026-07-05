@@ -520,13 +520,15 @@ def main() -> int:
                         "review_authority": "current-head Codex review plus configured independent review",
                         "review_authority_count": "2 current-head reviews",
                         "metadata_only_check_retrigger": "documentation-governance pending after metadata-only PR body edit",
-                        "bounded_wait_result": "bounded wait timed out",
+                        "bounded_wait_result": "checks cancelled",
                     },
                 ),
             },
         )
         parent_metadata_retrigger_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "publication_stabilization.metadata_only_check_retrigger records blocker state" not in parent_metadata_retrigger_block.stdout:
+            raise AssertionError(parent_metadata_retrigger_block.stdout)
+        if "publication_stabilization.bounded_wait_result records blocker state" not in parent_metadata_retrigger_block.stdout:
             raise AssertionError(parent_metadata_retrigger_block.stdout)
         write_active_slice(
             project,
@@ -631,7 +633,7 @@ def main() -> int:
                         "review_authority": "current-head Codex review plus configured independent review",
                         "review_authority_count": "2 current-head reviews",
                         "metadata_only_check_retrigger": "no pending metadata-only PR body check retrigger",
-                        "bounded_wait_result": "no bounded wait timed out",
+                        "bounded_wait_result": "not pending after bounded wait",
                     },
                 ),
             },
@@ -691,6 +693,58 @@ def main() -> int:
             raise AssertionError(parent_authority_not_applicable_block.stdout)
         if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_not_applicable_block.stdout:
             raise AssertionError(parent_authority_not_applicable_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": True,
+                        "review_authority_count": "0",
+                        "metadata_only_check_retrigger": "not_applicable",
+                        "bounded_wait_result": "not_applicable",
+                    },
+                ),
+            },
+        )
+        parent_authority_type_and_zero_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority must be text" not in parent_authority_type_and_zero_block.stdout:
+            raise AssertionError(parent_authority_type_and_zero_block.stdout)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_type_and_zero_block.stdout:
+            raise AssertionError(parent_authority_type_and_zero_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "none",
+                        "review_authority_count": "0",
+                        "metadata_only_check_retrigger": "not_applicable",
+                        "bounded_wait_result": "not_applicable",
+                    },
+                ),
+            },
+        )
+        parent_authority_zero_review_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_zero_review_block.stdout:
+            raise AssertionError(parent_authority_zero_review_block.stdout)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_zero_review_block.stdout:
+            raise AssertionError(parent_authority_zero_review_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],

@@ -159,26 +159,42 @@ PUBLICATION_STABILIZATION_BAD_VALUES = {
     "",
     "unknown",
     "not_checked",
+    "not_required",
     "pending",
     "in_progress",
     "queued",
     "unstable",
+    "cancelled",
+    "canceled",
+    "error",
     "failed",
     "failure",
+    "not_run",
+    "changes_required",
     "timed_out",
     "timeout",
     "blocked",
     "ambiguous",
 }
-PUBLICATION_STABILIZATION_AUTHORITY_BAD_VALUES = PUBLICATION_STABILIZATION_BAD_VALUES | {"not_applicable"}
+PUBLICATION_STABILIZATION_AUTHORITY_BAD_VALUES = PUBLICATION_STABILIZATION_BAD_VALUES | {
+    "not_applicable",
+    "none",
+    "zero",
+}
 PUBLICATION_STABILIZATION_BLOCKER_MARKERS = (
     "pending",
     "in_progress",
     "not_checked",
+    "not_required",
     "queued",
     "unstable",
+    "cancelled",
+    "canceled",
+    "error",
     "failed",
     "failure",
+    "not_run",
+    "changes_required",
     "timed_out",
     "timeout",
     "blocked",
@@ -188,7 +204,10 @@ PUBLICATION_STABILIZATION_BLOCKER_MARKERS = (
 PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS = {
     "metadata_only_check_retrigger": {
         "body",
+        "after",
+        "blocked",
         "check",
+        "checks",
         "metadata",
         "only",
         "pending",
@@ -198,6 +217,8 @@ PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS = {
         "retriggering",
     },
     "bounded_wait_result": {
+        "after",
+        "blocked",
         "bounded",
         "check",
         "checks",
@@ -209,6 +230,7 @@ PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS = {
     },
 }
 PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS = {
+    "blocked",
     "pending",
     "retrigger",
     "retriggered",
@@ -216,7 +238,7 @@ PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS = {
     "timed",
     "timeout",
 }
-PARENT_CLOSEOUT_SIGNAL_NEGATIONS = {"no", "none", "zero", "without"}
+PARENT_CLOSEOUT_SIGNAL_NEGATIONS = {"no", "none", "not", "zero", "without"}
 PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS = {
     "current_inline_comments": {
         "actionable",
@@ -906,6 +928,11 @@ def publication_stabilization_authority_value_is_blocking(value: object) -> bool
     )
 
 
+def publication_stabilization_review_count_is_valid(value: str) -> bool:
+    counts = [int(match) for match in re.findall(r"\d+", value)]
+    return any(count > 0 for count in counts)
+
+
 def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:
     errors: list[str] = []
     pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
@@ -963,11 +990,19 @@ def validate_publication_stabilization(reconciliation: dict[str, object], live_h
         elif value.strip().lower() != live_head.lower():
             errors.append(f"parent closeout reconciliation publication_stabilization.{field} must match live HEAD")
 
-    if publication_stabilization_authority_value_is_blocking(stabilization.get("review_authority")):
+    review_authority = stabilization.get("review_authority")
+    if not isinstance(review_authority, str):
+        errors.append("parent closeout reconciliation publication_stabilization.review_authority must be text")
+    elif publication_stabilization_authority_value_is_blocking(review_authority):
         errors.append("parent closeout reconciliation publication_stabilization.review_authority must record the exact current-head review authority")
 
-    review_authority_count = str(stabilization.get("review_authority_count", "")).strip()
-    if publication_stabilization_authority_value_is_blocking(review_authority_count) or not re.search(r"\d", review_authority_count):
+    review_authority_count = stabilization.get("review_authority_count")
+    if not isinstance(review_authority_count, str):
+        errors.append("parent closeout reconciliation publication_stabilization.review_authority_count must be text")
+    elif (
+        publication_stabilization_authority_value_is_blocking(review_authority_count)
+        or not publication_stabilization_review_count_is_valid(review_authority_count)
+    ):
         errors.append("parent closeout reconciliation publication_stabilization.review_authority_count must record the exact required review count")
 
     for field in ("metadata_only_check_retrigger", "bounded_wait_result"):
