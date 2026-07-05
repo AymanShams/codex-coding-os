@@ -664,6 +664,38 @@ def infer_recorded_dirty_state(recorded_state: object, live_status: str, live_di
     return None
 
 
+def field_is_not_applicable(value: object) -> bool:
+    return isinstance(value, str) and value.strip().lower() == "not_applicable"
+
+
+def evidence_has_non_pr_closeout(evidence: object) -> bool:
+    if not isinstance(evidence, list):
+        return False
+    evidence_text = "\n".join(str(item).lower() for item in evidence)
+    has_non_pr = any(marker in evidence_text for marker in ("non-pr", "non pr", "no pr", "no open pr"))
+    return has_non_pr and "not_applicable" in evidence_text
+
+
+def validate_parent_closeout_pr_head(reconciliation: dict[str, object], live_head: str) -> list[str]:
+    errors: list[str] = []
+    pr_head = reconciliation.get("pr_head_sha")
+    if not isinstance(pr_head, str):
+        return ["parent closeout reconciliation pr_head_sha must be text"]
+    normalized = pr_head.strip().lower()
+    if normalized in ("", "not_checked", "unknown"):
+        return errors
+    if normalized == "not_applicable":
+        for field in ("current_inline_comments", "issue_comments", "required_checks"):
+            if not field_is_not_applicable(reconciliation.get(field)):
+                errors.append(f"parent closeout reconciliation {field} must be not_applicable when pr_head_sha is not_applicable")
+        if not evidence_has_non_pr_closeout(reconciliation.get("evidence")):
+            errors.append("parent closeout reconciliation must include explicit non-PR evidence when pr_head_sha is not_applicable")
+        return errors
+    if normalized != live_head.lower():
+        errors.append("parent closeout reconciliation pr_head_sha must match live HEAD for PR closeout")
+    return errors
+
+
 def validate_parent_closeout_live_git_state(reconciliation: dict[str, object]) -> list[str]:
     errors: list[str] = []
     live_head = run_git("rev-parse", "HEAD")
@@ -674,6 +706,7 @@ def validate_parent_closeout_live_git_state(reconciliation: dict[str, object]) -
         elif recorded_head not in ("", "not_checked", "unknown"):
             if recorded_head.strip().lower() != live_head.lower():
                 errors.append("parent closeout reconciliation local_head_sha must match live HEAD")
+        errors.extend(validate_parent_closeout_pr_head(reconciliation, live_head))
     else:
         errors.append("parent closeout reconciliation cannot verify live HEAD")
 

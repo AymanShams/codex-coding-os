@@ -184,22 +184,27 @@ def parent_closeout_reconciliation(
     status: str = "pass",
     conflict: bool = False,
     stale: bool = False,
+    pr_head_sha: str = "abc123",
     local_head_sha: str = "abc123",
     local_branch_state: str = "clean",
+    current_inline_comments: str = "none_current_head",
+    issue_comments: str = "latest_review_clean",
+    required_checks: str = "success",
+    evidence: list[str] | None = None,
 ) -> dict[str, object]:
     return {
         "parent_closeout_reconciliation": {
             "required_before_parent_closeout": True,
             "status": status,
-            "pr_head_sha": "abc123",
+            "pr_head_sha": pr_head_sha,
             "local_head_sha": local_head_sha,
             "local_branch_state": local_branch_state,
-            "current_inline_comments": "none_current_head",
-            "issue_comments": "latest_review_clean",
-            "required_checks": "success",
+            "current_inline_comments": current_inline_comments,
+            "issue_comments": issue_comments,
+            "required_checks": required_checks,
             "conflicting_review_signals": conflict,
             "stale_closeout_detected": stale,
-            "evidence": ["smoke closeout evidence"],
+            "evidence": evidence or ["smoke closeout evidence"],
         }
     }
 
@@ -395,7 +400,11 @@ def main() -> int:
             ["docs/**", "src/**"],
             extra={
                 **parent_automation_manifest_fields(project),
-                **parent_closeout_reconciliation(local_head_sha="stale-head", local_branch_state="dirty"),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha="stale-head",
+                    local_branch_state="dirty",
+                ),
             },
         )
         parent_stale_head_block = run([python, str(local_continuity), "closeout-check"], project, 1)
@@ -406,7 +415,11 @@ def main() -> int:
             ["docs/**", "src/**"],
             extra={
                 **parent_automation_manifest_fields(project),
-                **parent_closeout_reconciliation(local_head_sha=parent_live_head, local_branch_state="clean"),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="clean",
+                ),
             },
         )
         parent_stale_branch_block = run([python, str(local_continuity), "closeout-check"], project, 1)
@@ -415,7 +428,63 @@ def main() -> int:
         write_active_slice(
             project,
             ["docs/**", "src/**"],
-            extra=parent_closeout_reconciliation(local_head_sha=parent_live_head, local_branch_state="dirty"),
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha="stale-pr-head",
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_stale_pr_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "pr_head_sha must match live HEAD for PR closeout" not in parent_stale_pr_block.stdout:
+            raise AssertionError(parent_stale_pr_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha="not_applicable",
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    current_inline_comments="not_applicable",
+                    issue_comments="not_applicable",
+                    required_checks="not_applicable",
+                ),
+            },
+        )
+        parent_non_pr_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "explicit non-PR evidence" not in parent_non_pr_evidence_block.stdout:
+            raise AssertionError(parent_non_pr_evidence_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha="not_applicable",
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    current_inline_comments="not_applicable",
+                    issue_comments="not_applicable",
+                    required_checks="not_applicable",
+                    evidence=["non-PR closeout: pr_head_sha not_applicable because no open PR exists"],
+                ),
+            },
+        )
+        parent_non_pr_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_non_pr_pass.stdout:
+            raise AssertionError(parent_non_pr_pass.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra=parent_closeout_reconciliation(
+                pr_head_sha=parent_live_head,
+                local_head_sha=parent_live_head,
+                local_branch_state="dirty",
+            ),
         )
         parent_manifest_drift_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "active-slice manifest automation_mode must match current state" not in parent_manifest_drift_block.stdout:
@@ -425,7 +494,11 @@ def main() -> int:
             ["docs/**", "src/**"],
             extra={
                 **parent_automation_manifest_fields(project),
-                **parent_closeout_reconciliation(local_head_sha=parent_live_head, local_branch_state="dirty"),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
             },
         )
         parent_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
@@ -439,6 +512,7 @@ def main() -> int:
                 **parent_closeout_reconciliation(
                     status="ambiguous",
                     conflict=True,
+                    pr_head_sha=parent_live_head,
                     local_head_sha=parent_live_head,
                     local_branch_state="dirty",
                 ),
