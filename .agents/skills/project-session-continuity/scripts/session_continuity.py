@@ -555,7 +555,6 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
         "run_envelope",
         "decision_records",
         "scope_review",
-        "parent_closeout_reconciliation",
         "source_authority",
         "allowed_files",
         "forbidden_actions",
@@ -622,6 +621,11 @@ def validate_parent_closeout_reconciliation(
     require_complete: bool,
 ) -> list[str]:
     errors: list[str] = []
+    if "parent_closeout_reconciliation" not in data:
+        if require_complete or parent_mode_active(attributes):
+            return ["active-slice manifest is missing parent_closeout_reconciliation"]
+        return []
+
     reconciliation = data.get("parent_closeout_reconciliation", {})
     if not isinstance(reconciliation, dict):
         return ["active-slice manifest parent_closeout_reconciliation must be an object"]
@@ -1428,7 +1432,9 @@ def command_closeout_check(_: argparse.Namespace) -> int:
                 errors.append(error)
     else:
         assert data is not None
-        errors.extend(validate_parent_closeout_reconciliation(data, attributes, require_complete=True))
+        for error in validate_parent_closeout_reconciliation(data, attributes, require_complete=True):
+            if error not in errors:
+                errors.append(error)
     if errors:
         print("PARENT CLOSEOUT CHECK: FAIL")
         for error in errors:

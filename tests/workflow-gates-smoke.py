@@ -683,6 +683,26 @@ def main() -> int:
             if required not in parent_prompt:
                 raise AssertionError(f"parent orchestrator prompt template is missing {required}")
 
+    with tempfile.TemporaryDirectory(prefix="coding-os-legacy-non-parent-") as temp:
+        project = Path(temp)
+        subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.DEVNULL)
+        local_continuity = project / "scripts" / "agent" / "session_continuity.py"
+        local_continuity.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(CONTINUITY, local_continuity)
+        run([python, str(local_continuity), "init"], project, 0)
+        active_path = project / "docs" / "delivery" / "active-slice-manifest.json"
+        active = json.loads(active_path.read_text(encoding="utf-8"))
+        active.pop("parent_closeout_reconciliation", None)
+        active_path.write_text(json.dumps(active, indent=2) + "\n", encoding="utf-8")
+
+        run([python, str(local_continuity), "validate"], project, 0)
+        run(["git", "add", "."], project, 0)
+        run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "legacy non-parent manifest"], project, 0)
+        run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 0)
+        legacy_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "active-slice manifest is missing parent_closeout_reconciliation" not in legacy_closeout_block.stdout:
+            raise AssertionError(legacy_closeout_block.stdout)
+
     with tempfile.TemporaryDirectory(prefix="coding-os-session-repair-") as temp:
         project = Path(temp)
         subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.DEVNULL)
