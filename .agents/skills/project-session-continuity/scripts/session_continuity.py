@@ -808,6 +808,44 @@ def validate_parent_closeout_live_git_state(reconciliation: dict[str, object]) -
     return errors
 
 
+def validate_required_review_for_closeout(
+    data: dict[str, object],
+    attributes: dict[str, str],
+    head: str | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    review = data.get("review", {})
+    manifest_review_required = isinstance(review, dict) and review.get("required") is True
+    state_review_required = attributes.get("review_required") == "true"
+    if not (manifest_review_required or state_review_required):
+        return errors
+
+    statuses: list[object] = []
+    applies_values: list[object] = []
+    reviewed_shas: list[str] = []
+    if manifest_review_required and isinstance(review, dict):
+        statuses.append(review.get("status"))
+        applies_values.append(review.get("applies_to_active_slice"))
+        reviewed_shas.append(str(review.get("reviewed_sha") or "none"))
+    if state_review_required:
+        statuses.append(attributes.get("review_status"))
+        applies_values.append(attributes.get("review_applies_to_active_slice") == "true")
+        reviewed_shas.append(attributes.get("reviewed_sha", "none"))
+
+    if any(status != "approved" for status in statuses):
+        errors.append("required active-slice review must be approved before parent closeout")
+    if any(applies is not True for applies in applies_values):
+        errors.append("required active-slice review must apply to the active slice before parent closeout")
+    if any(reviewed_sha in {"", "none"} for reviewed_sha in reviewed_shas):
+        errors.append("required active-slice review must record reviewed_sha before parent closeout")
+    elif head and head != "(unavailable)":
+        if any(reviewed_sha != head for reviewed_sha in reviewed_shas):
+            errors.append("required active-slice review reviewed_sha must match current HEAD before parent closeout")
+    else:
+        errors.append("required active-slice review cannot be verified without current HEAD before parent closeout")
+    return errors
+
+
 def active_slice_allows_code(path: Path, attributes: dict[str, str] | None = None, head: str | None = None) -> tuple[bool, list[str]]:
     data, read_errors = read_active_slice_manifest(path)
     if read_errors:
@@ -1432,6 +1470,9 @@ def command_closeout_check(_: argparse.Namespace) -> int:
                 errors.append(error)
     else:
         assert data is not None
+        for error in validate_required_review_for_closeout(data, attributes, run_git("rev-parse", "HEAD")):
+            if error not in errors:
+                errors.append(error)
         for error in validate_parent_closeout_reconciliation(data, attributes, require_complete=True):
             if error not in errors:
                 errors.append(error)

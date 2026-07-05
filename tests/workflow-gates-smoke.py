@@ -552,6 +552,75 @@ def main() -> int:
         parent_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
         if "PARENT CLOSEOUT CHECK: PASS" not in parent_closeout_pass.stdout:
             raise AssertionError(parent_closeout_pass.stdout)
+        update_frontmatter_values(
+            project / "docs" / "delivery" / "current-state.md",
+            {
+                "review_required": "true",
+                "review_status": "pending",
+                "reviewed_sha": "none",
+                "review_applies_to_active_slice": "true",
+            },
+        )
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            {
+                "required": True,
+                "status": "pending",
+                "reviewed_sha": "none",
+                "applies_to_active_slice": True,
+            },
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_pending_review_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "required active-slice review must be approved before parent closeout" not in parent_pending_review_closeout_block.stdout:
+            raise AssertionError(parent_pending_review_closeout_block.stdout)
+        update_frontmatter_values(
+            project / "docs" / "delivery" / "current-state.md",
+            {
+                "review_required": "true",
+                "review_status": "approved",
+                "reviewed_sha": parent_live_head,
+                "review_applies_to_active_slice": "true",
+            },
+        )
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            {
+                "required": True,
+                "status": "approved",
+                "reviewed_sha": parent_live_head,
+                "applies_to_active_slice": True,
+            },
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_approved_review_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_approved_review_closeout_pass.stdout:
+            raise AssertionError(parent_approved_review_closeout_pass.stdout)
+        update_frontmatter_values(
+            project / "docs" / "delivery" / "current-state.md",
+            {
+                "review_required": "false",
+                "review_status": "not_required",
+                "reviewed_sha": "none",
+                "review_applies_to_active_slice": "false",
+            },
+        )
         write_active_slice(
             project,
             ["docs/**", "src/**"],
