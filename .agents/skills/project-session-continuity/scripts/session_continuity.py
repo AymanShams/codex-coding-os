@@ -170,9 +170,11 @@ PUBLICATION_STABILIZATION_BAD_VALUES = {
     "blocked",
     "ambiguous",
 }
+PUBLICATION_STABILIZATION_AUTHORITY_BAD_VALUES = PUBLICATION_STABILIZATION_BAD_VALUES | {"not_applicable"}
 PUBLICATION_STABILIZATION_BLOCKER_MARKERS = (
     "pending",
     "in_progress",
+    "not_checked",
     "queued",
     "unstable",
     "failed",
@@ -897,6 +899,13 @@ def publication_stabilization_value_is_negated_clean(field: str, normalized: str
     return any(token in PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS for token in signal_tokens)
 
 
+def publication_stabilization_authority_value_is_blocking(value: object) -> bool:
+    normalized = normalize_closeout_signal(str(value or ""))
+    return normalized in PUBLICATION_STABILIZATION_AUTHORITY_BAD_VALUES or "not_applicable" in normalized or any(
+        marker in normalized for marker in PUBLICATION_STABILIZATION_BLOCKER_MARKERS
+    )
+
+
 def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:
     errors: list[str] = []
     pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
@@ -954,12 +963,11 @@ def validate_publication_stabilization(reconciliation: dict[str, object], live_h
         elif value.strip().lower() != live_head.lower():
             errors.append(f"parent closeout reconciliation publication_stabilization.{field} must match live HEAD")
 
-    review_authority = str(stabilization.get("review_authority", "")).strip().lower()
-    if review_authority in PUBLICATION_STABILIZATION_BAD_VALUES:
+    if publication_stabilization_authority_value_is_blocking(stabilization.get("review_authority")):
         errors.append("parent closeout reconciliation publication_stabilization.review_authority must record the exact current-head review authority")
 
-    review_authority_count = str(stabilization.get("review_authority_count", "")).strip().lower()
-    if review_authority_count in PUBLICATION_STABILIZATION_BAD_VALUES or not re.search(r"\d", review_authority_count):
+    review_authority_count = str(stabilization.get("review_authority_count", "")).strip()
+    if publication_stabilization_authority_value_is_blocking(review_authority_count) or not re.search(r"\d", review_authority_count):
         errors.append("parent closeout reconciliation publication_stabilization.review_authority_count must record the exact required review count")
 
     for field in ("metadata_only_check_retrigger", "bounded_wait_result"):

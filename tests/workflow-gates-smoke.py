@@ -648,6 +648,58 @@ def main() -> int:
                     pr_head_sha=parent_live_head,
                     local_head_sha=parent_live_head,
                     local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "not checked",
+                        "review_authority_count": "in progress 2",
+                        "metadata_only_check_retrigger": "not_applicable",
+                        "bounded_wait_result": "not_applicable",
+                    },
+                ),
+            },
+        )
+        parent_authority_placeholder_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_placeholder_block.stdout:
+            raise AssertionError(parent_authority_placeholder_block.stdout)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_placeholder_block.stdout:
+            raise AssertionError(parent_authority_placeholder_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "not applicable",
+                        "review_authority_count": "not applicable 1",
+                        "metadata_only_check_retrigger": "not_applicable",
+                        "bounded_wait_result": "not_applicable",
+                    },
+                ),
+            },
+        )
+        parent_authority_not_applicable_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_not_applicable_block.stdout:
+            raise AssertionError(parent_authority_not_applicable_block.stdout)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_not_applicable_block.stdout:
+            raise AssertionError(parent_authority_not_applicable_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
                     current_inline_comments="no open comments but unresolved finding",
                 ),
             },
