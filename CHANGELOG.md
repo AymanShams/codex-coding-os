@@ -4,6 +4,15 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+### Added
+
+- Added separate sequential manual and parent/orchestrator automation prompt templates.
+- Added a parent-orchestrator closeout reconciliation gate for current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale closeout detection.
+
+### Changed
+
+- Treat conflicting GitHub review signals as blocking ambiguity when a current-head inline finding conflicts with a later no-major-issues summary.
+
 ## [0.8.4] - 2026-06-20
 
 ### Changed

@@ -38,6 +38,10 @@ def run(args: list[str], cwd: Path, expected: int) -> subprocess.CompletedProces
     return result
 
 
+def git_stdout(project: Path, *args: str) -> str:
+    return run(["git", *args], project, 0).stdout.strip()
+
+
 def update_frontmatter(path: Path, key: str, value: str) -> None:
     update_frontmatter_values(path, {key: value})
 
@@ -176,6 +180,82 @@ def parent_automation_manifest_fields(project: Path, actor_role: str = "parent")
     }
 
 
+def parent_closeout_reconciliation(
+    status: str = "pass",
+    conflict: bool = False,
+    stale: bool = False,
+    pr_head_sha: str = "abc123",
+    local_head_sha: str = "abc123",
+    local_branch_state: str = "clean",
+    current_inline_comments: str = "none_current_head",
+    issue_comments: str = "latest_review_clean",
+    required_checks: str = "success",
+    evidence: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "parent_closeout_reconciliation": {
+            "required_before_parent_closeout": True,
+            "status": status,
+            "pr_head_sha": pr_head_sha,
+            "local_head_sha": local_head_sha,
+            "local_branch_state": local_branch_state,
+            "current_inline_comments": current_inline_comments,
+            "issue_comments": issue_comments,
+            "required_checks": required_checks,
+            "conflicting_review_signals": conflict,
+            "stale_closeout_detected": stale,
+            "evidence": evidence or ["smoke closeout evidence"],
+        }
+    }
+
+
+def write_legacy_handoff(project: Path, name: str = "legacy-handoff.md") -> Path:
+    handoff = project / "docs" / "history" / name
+    handoff.parent.mkdir(parents=True, exist_ok=True)
+    handoff.write_text(
+        """# Project Session Handoff: Legacy
+
+## Session Boundary Decision
+Continue.
+
+## Handoff Routing
+Manual next session.
+
+## Git State
+Clean.
+
+## Work Completed
+None.
+
+## Validation Run
+None.
+
+## Source Documents Read Or Changed
+None.
+
+## Candidate Decisions Still Not Final
+None.
+
+## Risks And Blockers
+None.
+
+## Work Explicitly Not Done
+None.
+
+## Recommended Next Slice
+Continue.
+
+## Paste-Ready Next-Session Prompt
+Continue.
+
+## Resume Instructions For The Next Agent
+Run the session start gate.
+""",
+        encoding="utf-8",
+    )
+    return handoff
+
+
 def main() -> int:
     python = sys.executable
     with tempfile.TemporaryDirectory(prefix="coding-os-workflow-gates-") as temp:
@@ -213,6 +293,10 @@ def main() -> int:
         if not (project / "docs" / "delivery" / "active-slice-manifest.json").exists():
             raise AssertionError("active-slice manifest was not created")
         run([python, str(local_continuity), "validate"], project, 0)
+        legacy_handoff = write_legacy_handoff(project)
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", legacy_handoff.as_posix())
+        run([python, str(local_continuity), "validate"], project, 0)
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", "none")
         update_frontmatter(project / "docs" / "delivery" / "current-state.md", "next_action", "code")
         blocked_start = run([python, str(local_continuity), "start", "--no-fetch"], project, 2)
         if "workflow manifest" not in blocked_start.stdout:
@@ -276,6 +360,12 @@ def main() -> int:
 
         update_frontmatter_values(project / "docs" / "delivery" / "current-state.md", parent_automation_fields())
         write_active_slice(project, ["docs/**", "src/**"], extra=parent_automation_manifest_fields(project))
+        parent_legacy_handoff = write_legacy_handoff(project, "legacy-parent-handoff.md")
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", parent_legacy_handoff.as_posix())
+        parent_legacy_block = run([python, str(local_continuity), "validate"], project, 1)
+        if "Parent-Orchestrator Closeout Reconciliation" not in parent_legacy_block.stdout:
+            raise AssertionError(parent_legacy_block.stdout)
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", "none")
         parent_block = run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 2)
         if "parent/orchestrator actor cannot perform next_action" not in parent_block.stdout:
             raise AssertionError(parent_block.stdout)
@@ -300,6 +390,289 @@ def main() -> int:
             raise AssertionError(parent_handoff.stdout)
         if "Fallback only if parent automation tooling is unavailable" not in parent_handoff.stdout:
             raise AssertionError(parent_handoff.stdout)
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "next_action", "closeout")
+        parent_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "parent closeout reconciliation must pass before parent closeout" not in parent_closeout_block.stdout:
+            raise AssertionError(parent_closeout_block.stdout)
+        parent_live_head = git_stdout(project, "rev-parse", "HEAD")
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha="stale-head",
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_stale_head_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "local_head_sha must match live HEAD" not in parent_stale_head_block.stdout:
+            raise AssertionError(parent_stale_head_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="clean",
+                ),
+            },
+        )
+        parent_stale_branch_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "local_branch_state must match live working tree state: dirty" not in parent_stale_branch_block.stdout:
+            raise AssertionError(parent_stale_branch_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha="stale-pr-head",
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_stale_pr_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "pr_head_sha must match live HEAD for PR closeout" not in parent_stale_pr_block.stdout:
+            raise AssertionError(parent_stale_pr_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha="not_applicable",
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    current_inline_comments="not_applicable",
+                    issue_comments="not_applicable",
+                    required_checks="not_applicable",
+                ),
+            },
+        )
+        parent_non_pr_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "explicit non-PR evidence" not in parent_non_pr_evidence_block.stdout:
+            raise AssertionError(parent_non_pr_evidence_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha="not_applicable",
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    current_inline_comments="not_applicable",
+                    issue_comments="not_applicable",
+                    required_checks="not_applicable",
+                    evidence=["non-PR closeout: no open PR; PR head not applicable"],
+                ),
+            },
+        )
+        parent_non_pr_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_non_pr_pass.stdout:
+            raise AssertionError(parent_non_pr_pass.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    required_checks="pending",
+                ),
+            },
+        )
+        parent_pending_checks_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "required_checks records blocker state: pending" not in parent_pending_checks_block.stdout:
+            raise AssertionError(parent_pending_checks_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    current_inline_comments="open actionable findings",
+                ),
+            },
+        )
+        parent_actionable_findings_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "current_inline_comments records blocker state: open actionable findings" not in parent_actionable_findings_block.stdout:
+            raise AssertionError(parent_actionable_findings_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    current_inline_comments="no open current-head inline comments",
+                    issue_comments="no open issue comments",
+                    required_checks="all required checks passed",
+                ),
+            },
+        )
+        parent_no_open_comments_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_no_open_comments_pass.stdout:
+            raise AssertionError(parent_no_open_comments_pass.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    current_inline_comments="no open comments but unresolved finding",
+                ),
+            },
+        )
+        parent_mixed_clean_blocker_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "current_inline_comments records blocker state: no open comments but unresolved finding" not in parent_mixed_clean_blocker_block.stdout:
+            raise AssertionError(parent_mixed_clean_blocker_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    issue_comments="not_applicable",
+                ),
+            },
+        )
+        parent_pr_not_applicable_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "issue_comments may be not_applicable only for non-PR closeout" not in parent_pr_not_applicable_block.stdout:
+            raise AssertionError(parent_pr_not_applicable_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra=parent_closeout_reconciliation(
+                pr_head_sha=parent_live_head,
+                local_head_sha=parent_live_head,
+                local_branch_state="dirty",
+            ),
+        )
+        parent_manifest_drift_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "active-slice manifest automation_mode must match current state" not in parent_manifest_drift_block.stdout:
+            raise AssertionError(parent_manifest_drift_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_closeout_pass.stdout:
+            raise AssertionError(parent_closeout_pass.stdout)
+        update_frontmatter_values(
+            project / "docs" / "delivery" / "current-state.md",
+            {
+                "review_required": "true",
+                "review_status": "pending",
+                "reviewed_sha": "none",
+                "review_applies_to_active_slice": "true",
+            },
+        )
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            {
+                "required": True,
+                "status": "pending",
+                "reviewed_sha": "none",
+                "applies_to_active_slice": True,
+            },
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_pending_review_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "required active-slice review must be approved before parent closeout" not in parent_pending_review_closeout_block.stdout:
+            raise AssertionError(parent_pending_review_closeout_block.stdout)
+        update_frontmatter_values(
+            project / "docs" / "delivery" / "current-state.md",
+            {
+                "review_required": "true",
+                "review_status": "approved",
+                "reviewed_sha": parent_live_head,
+                "review_applies_to_active_slice": "true",
+            },
+        )
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            {
+                "required": True,
+                "status": "approved",
+                "reviewed_sha": parent_live_head,
+                "applies_to_active_slice": True,
+            },
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_approved_review_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_approved_review_closeout_pass.stdout:
+            raise AssertionError(parent_approved_review_closeout_pass.stdout)
+        update_frontmatter_values(
+            project / "docs" / "delivery" / "current-state.md",
+            {
+                "review_required": "false",
+                "review_status": "not_required",
+                "reviewed_sha": "none",
+                "review_applies_to_active_slice": "false",
+            },
+        )
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    status="ambiguous",
+                    conflict=True,
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
+        )
+        parent_conflict_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "conflicting GitHub review signals make review-state ambiguous" not in parent_conflict_block.stdout:
+            raise AssertionError(parent_conflict_block.stdout)
+        write_active_slice(project, ["docs/**", "src/**"], extra=parent_automation_manifest_fields(project))
 
         parent_impl = project / "src" / "parent_impl.py"
         parent_impl.write_text("print('parent implementation drift')\n", encoding="utf-8")
@@ -404,6 +777,45 @@ def main() -> int:
         ):
             if required not in review_template:
                 raise AssertionError(f"fresh-context-review template is missing {required}")
+        sequential_prompt = (ROOT / "templates" / "sequential-manual-prompt.md").read_text(encoding="utf-8")
+        parent_prompt = (ROOT / "templates" / "parent-orchestrator-prompt.md").read_text(encoding="utf-8")
+        for required in ("sequential_manual", "handoff_target: manual_next_session", "exactly one paste-ready next prompt"):
+            if required not in sequential_prompt:
+                raise AssertionError(f"sequential manual prompt template is missing {required}")
+        for required in ("parent_orchestrator", "closeout-check", "current PR head", "conflicting_review_signals"):
+            if required not in parent_prompt:
+                raise AssertionError(f"parent orchestrator prompt template is missing {required}")
+        continuity_skill = (ROOT / ".agents" / "skills" / "project-session-continuity" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "final parent/orchestrator closeout",
+            "intermediate child handoff",
+            "do not run `closeout-check`",
+            "parent consumes the handoff internally",
+        ):
+            if required not in continuity_skill:
+                raise AssertionError(f"project-session-continuity skill is missing {required}")
+
+    with tempfile.TemporaryDirectory(prefix="coding-os-legacy-non-parent-") as temp:
+        project = Path(temp)
+        subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.DEVNULL)
+        local_continuity = project / "scripts" / "agent" / "session_continuity.py"
+        local_continuity.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(CONTINUITY, local_continuity)
+        run([python, str(local_continuity), "init"], project, 0)
+        active_path = project / "docs" / "delivery" / "active-slice-manifest.json"
+        active = json.loads(active_path.read_text(encoding="utf-8"))
+        active.pop("parent_closeout_reconciliation", None)
+        active_path.write_text(json.dumps(active, indent=2) + "\n", encoding="utf-8")
+
+        run([python, str(local_continuity), "validate"], project, 0)
+        run(["git", "add", "."], project, 0)
+        run(["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "legacy non-parent manifest"], project, 0)
+        run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 0)
+        legacy_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "active-slice manifest is missing parent_closeout_reconciliation" not in legacy_closeout_block.stdout:
+            raise AssertionError(legacy_closeout_block.stdout)
 
     with tempfile.TemporaryDirectory(prefix="coding-os-session-repair-") as temp:
         project = Path(temp)

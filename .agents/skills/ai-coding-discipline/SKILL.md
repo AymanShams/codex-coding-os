@@ -149,6 +149,15 @@ the fresh gate, and continues only to the next independently authorized child ta
 Do not dump a generic next-session prompt back to the user while automation
 authority remains active and tooling is available.
 
+Before parent/orchestrator final closeout, the parent must re-check and record the
+current PR head, current-head inline comments, issue comments, required checks,
+local branch state, working-tree state, and stale-closeout status. If the repo uses
+`scripts/agent/session_continuity.py`, record the evidence in the active-slice
+manifest and run `python scripts/agent/session_continuity.py closeout-check`.
+Conflicting GitHub review signals are blocking ambiguity: a current-head inline
+finding plus a later no-major-issues summary must stop until resolved by evidence or
+review authority.
+
 Automation mode must not pick unapproved slices, broaden scope, bypass review,
 bypass validation, turn support checks into a chain of new chats, or create
 docs-only slice-selection/current-state PRs unless explicitly authorized. The

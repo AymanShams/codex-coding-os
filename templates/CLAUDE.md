@@ -22,6 +22,8 @@ The controlled docs in `docs/` override chat memory and old assumptions.
 - Automation Coding Mode is opt-in only. Do not create automated child chats or worktrees unless the user explicitly approved the repo, run envelope, thread or worktree creation, stop conditions, review expectations, and publication authority.
 - In sequential manual mode, finish the current bounded task, provide one exact `Recommended Next Action`, include a paste-ready next prompt when needed, and stop.
 - In parent/orchestrator mode, child handoffs are internal transition artifacts for the parent unless a stop condition fires. The parent may inspect, assign, monitor, verify, reconcile, and report, but must not implement product code, merge, deploy, or publish directly.
+- Before parent/orchestrator final closeout, re-check the current PR head, current-head inline comments, issue comments, required checks, local branch state, working-tree state, and stale-closeout status. If `scripts/agent/session_continuity.py` exists, record that evidence in the active-slice manifest and run `python scripts/agent/session_continuity.py closeout-check`.
+- If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
 - Do not create docs-only slice-selection, current-state, manifest, or handoff PRs unless explicitly authorized.
 - Unresolved material decisions are blockers, not permission for the agent to choose.
 

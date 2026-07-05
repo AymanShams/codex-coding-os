@@ -33,6 +33,8 @@ Use this order:
 - Coordination drift alone is not a review trigger. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may require inspection or reconciliation, but review need comes from actual diff risk, controlled-source risk, or explicit user instruction.
 - Same-slice status is not a review waiver.
 - Automation Coding Mode is opt-in only. Do not create automated child chats or worktrees unless the user explicitly approved the repo, run plan, thread or worktree creation, review expectations, stop conditions, and publication authority. Prefer a sequential session train when the work is linear: finish the current bounded task, provide one exact `Recommended Next Action`, include a paste-ready next prompt when needed, and stop.
+- Before parent/orchestrator final closeout, re-check the current PR head, current-head inline comments, issue comments, required checks, local branch state, working-tree state, and stale-closeout status. If `scripts/agent/session_continuity.py` exists, record that evidence in the active-slice manifest and run `python scripts/agent/session_continuity.py closeout-check`.
+- If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
 - Do not commit secrets, PHI, pilot records, medical files, generated credentials, or local tool metadata.
 - Do not treat development-stage tools as permanent architecture unless the docs say so.
 - Update documentation in the same change when API, database, config, security, workflow, or deployment behavior changes.

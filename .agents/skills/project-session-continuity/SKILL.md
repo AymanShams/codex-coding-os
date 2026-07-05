@@ -129,6 +129,15 @@ it, reruns the fresh gate, and continues only to the next independently authoriz
 child task. Do not dump a generic next-session prompt back to the user while the run
 envelope still authorizes continuation and thread or worktree tooling is available.
 
+Before a parent/orchestrator gives a final closeout, it must reconcile live state one
+last time. Record the current PR head, current-head inline comments, issue comments,
+required checks, local branch state, and stale-closeout status in
+`docs/delivery/active-slice-manifest.json`, then run
+`python scripts/agent/session_continuity.py closeout-check`. If current-head inline
+findings conflict with a later no-major-issues summary, classify the review state as
+ambiguous and stop. A direct deployment status or child summary does not override a
+pending required GitHub check or a current-head inline finding.
+
 The parent/orchestrator may inspect, assign, monitor, verify, reconcile, and report.
 It must not implement product code, merge, deploy, publish, choose unapproved slices,
 bypass review, or treat child output as authority.
@@ -171,8 +180,9 @@ Apply the outcome-control rule from `AGENTS.md` before creating or updating coor
 4. Replace every generated `[Agent must ...]` placeholder.
 5. Run `python scripts/agent/session_continuity.py validate`.
 6. Run relevant project validation and `git status -sb`.
-7. End with a final response that includes `Recommended Next Action`.
-8. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required. In parent/orchestrator mode with `handoff_target: parent`, explicitly state that the parent consumes the handoff internally and no user prompt is required unless a stop condition fired.
+7. If this is final parent/orchestrator closeout, record live PR/review/check/local-branch evidence in the active-slice manifest and run `python scripts/agent/session_continuity.py closeout-check`. If this is an intermediate child handoff or lane handoff, do not run `closeout-check`. State that the parent consumes the handoff internally unless a stop condition fired.
+8. End with a final response that includes `Recommended Next Action`.
+9. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required. In parent/orchestrator mode with `handoff_target: parent`, explicitly state that the parent consumes the handoff internally and no user prompt is required unless a stop condition fired.
 
 The next-session prompt must include the repository path, required reading order, latest current-state path, active-slice manifest path, handoff path, workflow manifest path, the exact next permitted action, and stop conditions. It must not imply that coding is permitted unless the workflow manifest and active-slice manifest independently permit coding. In parent/orchestrator automation, the same content may exist as fallback, but the controlling handoff target is the parent.
 
@@ -190,6 +200,8 @@ thread mode.
 - The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
 - Decision records make material assumptions visible before code. A record with status `proposed` or `needs_human` blocks implementation when it is material.
 - Review state must be explicit. Use fields such as `review_required`, `review_status`, `reviewed_sha`, and `review_applies_to_active_slice`; never treat a retained marker string as review completion.
+- Parent/orchestrator final closeout requires a final-state reconciliation over current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout detection.
+- Conflicting GitHub review signals are blocking ambiguity. A current-head inline finding plus a later no-major-issues summary must stop until the finding is fixed, dismissed as stale with evidence, or explicitly resolved by the review authority.
 - Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, and local dirty state may narrow allowed actions or require reconciliation, but they must not create review, handoff, new-session, or process churn unless a mandatory gate independently blocks the requested outcome.
 - Same-slice status is not a review waiver. Before recommending review or no review, inspect the actual changed files and classify review need from diff risk, controlled-source risk, or explicit user instruction.
 - Treat the first-slice authorization false-negative case as the anti-loop review test case. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.

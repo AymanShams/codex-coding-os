@@ -66,9 +66,130 @@ REQUIRED_HANDOFF_HEADINGS = {
     "## Paste-Ready Next-Session Prompt",
     "## Resume Instructions For The Next Agent",
 }
+PARENT_CLOSEOUT_HANDOFF_HEADINGS = {
+    "## Parent-Orchestrator Closeout Reconciliation",
+}
 READY_TO_CODE = {"approved", "completed"}
 REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
 AUTOMATION_MODES = {"off", "sequential_manual", "parent_orchestrator"}
+PARENT_CLOSEOUT_STATUSES = {"not_started", "pass", "blocked", "ambiguous", "not_applicable"}
+PARENT_CLOSEOUT_SIGNAL_PASS_VALUES = {
+    "current_inline_comments": {
+        "pass",
+        "clean",
+        "none",
+        "none_current_head",
+        "none_current_head_comments",
+        "none_current_head_findings",
+        "no_actionable_findings",
+        "no_current_head_findings",
+        "no_current_head_inline_comments",
+        "no_current_head_open_comments",
+        "no_current_head_open_findings",
+        "no_current_head_open_inline_comments",
+        "no_current_head_unresolved_comments",
+        "no_current_head_unresolved_findings",
+        "no_open_comments",
+        "no_open_findings",
+        "no_open_inline_comments",
+        "no_unresolved_comments",
+        "no_unresolved_findings",
+        "no_unresolved_inline_comments",
+        "resolved",
+    },
+    "issue_comments": {
+        "pass",
+        "clean",
+        "latest_review_clean",
+        "no_actionable_comments",
+        "no_blocking_comments",
+        "no_open_comments",
+        "no_open_issue_comments",
+        "no_unresolved_comments",
+        "no_unresolved_issue_comments",
+        "none",
+        "resolved",
+    },
+    "required_checks": {
+        "pass",
+        "passed",
+        "success",
+        "successful",
+        "all_required_checks_passed",
+        "all_required_checks_success",
+        "all_checks_success",
+        "all_success",
+        "checks_success",
+        "required_checks_passed",
+        "required_checks_success",
+        "green",
+    },
+}
+PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS = {
+    "actionable",
+    "block",
+    "blocked",
+    "blocking",
+    "cancelled",
+    "changes_required",
+    "error",
+    "fail",
+    "failed",
+    "failure",
+    "in_progress",
+    "missing",
+    "not_run",
+    "open",
+    "pending",
+    "queued",
+    "review_required",
+    "timed_out",
+    "unresolved",
+}
+PARENT_CLOSEOUT_SIGNAL_NEGATIONS = {"no", "none", "zero", "without"}
+PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS = {
+    "current_inline_comments": {
+        "actionable",
+        "blocker",
+        "blockers",
+        "blocking",
+        "comment",
+        "comments",
+        "current",
+        "finding",
+        "findings",
+        "head",
+        "inline",
+        "open",
+        "review",
+        "reviews",
+        "unresolved",
+    },
+    "issue_comments": {
+        "actionable",
+        "blocker",
+        "blockers",
+        "blocking",
+        "comment",
+        "comments",
+        "issue",
+        "issues",
+        "open",
+        "review",
+        "reviews",
+        "unresolved",
+    },
+}
+PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_NOUNS = {
+    "comment",
+    "comments",
+    "finding",
+    "findings",
+    "issue",
+    "issues",
+    "review",
+    "reviews",
+}
 RUN_ENVELOPE_FIELDS = {
     "repo",
     "objective",
@@ -171,6 +292,8 @@ This file records coordination state only. Controlling product and technical sou
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 - In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
 - A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
+- Before final parent/orchestrator closeout, run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout check in the active-slice manifest.
+- If current-head inline findings conflict with a later no-major-issues summary, mark `conflicting_review_signals` true, classify review state as ambiguous, and stop.
 
 ## Current Verified Repository State
 - Record the verified branch, remote baseline, and working-tree state.
@@ -198,7 +321,7 @@ This file records coordination state only. Controlling product and technical sou
 
 ## New Session Start Instructions
 ```text
-If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, record current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout status in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract
@@ -261,6 +384,19 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
         "unrequested_behavior": [],
         "hidden_dependencies": [],
         "assumptions_that_entered_code": [],
+    },
+    "parent_closeout_reconciliation": {
+        "required_before_parent_closeout": True,
+        "status": "not_started",
+        "pr_head_sha": "not_checked",
+        "local_head_sha": "not_checked",
+        "local_branch_state": "not_checked",
+        "current_inline_comments": "not_checked",
+        "issue_comments": "not_checked",
+        "required_checks": "not_checked",
+        "conflicting_review_signals": False,
+        "stale_closeout_detected": False,
+        "evidence": [],
     },
     "source_authority": [
         "project-documentation-manifest.json",
@@ -510,6 +646,7 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
         ):
             if not isinstance(scope_review.get(field), list):
                 errors.append(f"active-slice manifest scope_review.{field} must be a list")
+    errors.extend(validate_parent_closeout_reconciliation(data, attributes, require_complete=False))
     review = data.get("review", {})
     if not isinstance(review, dict):
         errors.append("active-slice manifest review must be an object")
@@ -538,6 +675,251 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
         expected = attributes["review_applies_to_active_slice"] == "true"
         if isinstance(review.get("applies_to_active_slice"), bool) and review.get("applies_to_active_slice") is not expected:
             errors.append("active-slice manifest review.applies_to_active_slice must match current state")
+    return errors
+
+
+def validate_parent_closeout_reconciliation(
+    data: dict[str, object],
+    attributes: dict[str, str],
+    require_complete: bool,
+) -> list[str]:
+    errors: list[str] = []
+    if "parent_closeout_reconciliation" not in data:
+        if require_complete or parent_mode_active(attributes):
+            return ["active-slice manifest is missing parent_closeout_reconciliation"]
+        return []
+
+    reconciliation = data.get("parent_closeout_reconciliation", {})
+    if not isinstance(reconciliation, dict):
+        return ["active-slice manifest parent_closeout_reconciliation must be an object"]
+
+    required_fields = (
+        "required_before_parent_closeout",
+        "status",
+        "pr_head_sha",
+        "local_head_sha",
+        "local_branch_state",
+        "current_inline_comments",
+        "issue_comments",
+        "required_checks",
+        "conflicting_review_signals",
+        "stale_closeout_detected",
+        "evidence",
+    )
+    for field in required_fields:
+        if field not in reconciliation:
+            errors.append(f"active-slice manifest parent_closeout_reconciliation is missing {field}")
+
+    if not isinstance(reconciliation.get("required_before_parent_closeout"), bool):
+        errors.append("active-slice manifest parent_closeout_reconciliation.required_before_parent_closeout must be true or false")
+    if reconciliation.get("status") not in PARENT_CLOSEOUT_STATUSES:
+        errors.append("active-slice manifest parent_closeout_reconciliation.status is invalid")
+    if not isinstance(reconciliation.get("conflicting_review_signals"), bool):
+        errors.append("active-slice manifest parent_closeout_reconciliation.conflicting_review_signals must be true or false")
+    if not isinstance(reconciliation.get("stale_closeout_detected"), bool):
+        errors.append("active-slice manifest parent_closeout_reconciliation.stale_closeout_detected must be true or false")
+    if not isinstance(reconciliation.get("evidence"), list):
+        errors.append("active-slice manifest parent_closeout_reconciliation.evidence must be a list")
+
+    if not require_complete:
+        return errors
+
+    if not parent_mode_active(attributes):
+        return errors
+    if reconciliation.get("required_before_parent_closeout") is not True:
+        errors.append("parent closeout reconciliation must be required before parent closeout")
+    if reconciliation.get("status") != "pass":
+        errors.append("parent closeout reconciliation must pass before parent closeout")
+    for field in (
+        "pr_head_sha",
+        "local_head_sha",
+        "local_branch_state",
+        "current_inline_comments",
+        "issue_comments",
+        "required_checks",
+    ):
+        if reconciliation.get(field) in (None, "", "not_checked", "unknown"):
+            errors.append(f"parent closeout reconciliation must record {field}")
+    if reconciliation.get("conflicting_review_signals") is True:
+        errors.append("conflicting GitHub review signals make review-state ambiguous; stop instead of closing out or merging")
+    if reconciliation.get("stale_closeout_detected") is True:
+        errors.append("stale parent closeout detected; re-check current PR head, review signals, required checks, and local branch state")
+    evidence = reconciliation.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        errors.append("parent closeout reconciliation must include evidence")
+    errors.extend(validate_parent_closeout_review_check_signals(reconciliation))
+    errors.extend(validate_parent_closeout_live_git_state(reconciliation))
+    return errors
+
+
+def infer_recorded_dirty_state(recorded_state: object, live_status: str, live_dirty: bool) -> bool | None:
+    if not isinstance(recorded_state, str):
+        return None
+    normalized = recorded_state.strip().lower()
+    if not normalized:
+        return None
+    if recorded_state.strip() == live_status.strip():
+        return live_dirty
+    status_prefixes = (" M", "M ", " A", "A ", " D", "D ", " R", "R ", " C", "C ", "UU", "??")
+    if any(line.startswith(status_prefixes) for line in recorded_state.splitlines()):
+        return True
+    dirty_markers = (
+        "dirty",
+        "uncommitted",
+        "modified",
+        "untracked",
+        "changes not staged",
+        "changes to be committed",
+        "??",
+        "\n m ",
+        "\nm ",
+        "\n a ",
+        "\na ",
+        "\n d ",
+        "\nd ",
+    )
+    clean_markers = ("clean", "nothing to commit", "working tree clean")
+    if any(marker in normalized for marker in dirty_markers):
+        return True
+    if any(marker in normalized for marker in clean_markers):
+        return False
+    return None
+
+
+def field_is_not_applicable(value: object) -> bool:
+    return isinstance(value, str) and value.strip().lower() == "not_applicable"
+
+
+def normalize_closeout_signal(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
+
+
+def closeout_signal_is_negated_clean(field: str, normalized: str) -> bool:
+    allowed_tokens = PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS.get(field)
+    if not allowed_tokens:
+        return False
+    tokens = tuple(token for token in normalized.split("_") if token)
+    if len(tokens) < 2 or tokens[0] not in PARENT_CLOSEOUT_SIGNAL_NEGATIONS:
+        return False
+    signal_tokens = tokens[1:]
+    if any(token not in allowed_tokens for token in signal_tokens):
+        return False
+    return any(token in PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_NOUNS for token in signal_tokens)
+
+
+def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
+    for field, pass_values in PARENT_CLOSEOUT_SIGNAL_PASS_VALUES.items():
+        value = reconciliation.get(field)
+        if value in (None, "", "not_checked", "unknown"):
+            continue
+        if not isinstance(value, str):
+            errors.append(f"parent closeout reconciliation {field} must be text")
+            continue
+        normalized = normalize_closeout_signal(value)
+        if normalized == "not_applicable":
+            if not pr_head_not_applicable:
+                errors.append(f"parent closeout reconciliation {field} may be not_applicable only for non-PR closeout")
+            continue
+        if normalized in pass_values or closeout_signal_is_negated_clean(field, normalized):
+            continue
+        if any(marker in normalized for marker in PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS):
+            errors.append(f"parent closeout reconciliation {field} records blocker state: {value}")
+        else:
+            errors.append(f"parent closeout reconciliation {field} must record pass or not_applicable")
+    return errors
+
+
+def evidence_has_non_pr_closeout(evidence: object) -> bool:
+    if not isinstance(evidence, list):
+        return False
+    evidence_text = "\n".join(str(item).lower() for item in evidence)
+    normalized_evidence = normalize_closeout_signal(evidence_text)
+    has_non_pr = any(marker in evidence_text for marker in ("non-pr", "non pr", "no pr", "no open pr"))
+    return has_non_pr and "not_applicable" in normalized_evidence
+
+
+def validate_parent_closeout_pr_head(reconciliation: dict[str, object], live_head: str) -> list[str]:
+    errors: list[str] = []
+    pr_head = reconciliation.get("pr_head_sha")
+    if not isinstance(pr_head, str):
+        return ["parent closeout reconciliation pr_head_sha must be text"]
+    normalized = pr_head.strip().lower()
+    if normalized in ("", "not_checked", "unknown"):
+        return errors
+    if normalized == "not_applicable":
+        for field in ("current_inline_comments", "issue_comments", "required_checks"):
+            if not field_is_not_applicable(reconciliation.get(field)):
+                errors.append(f"parent closeout reconciliation {field} must be not_applicable when pr_head_sha is not_applicable")
+        if not evidence_has_non_pr_closeout(reconciliation.get("evidence")):
+            errors.append("parent closeout reconciliation must include explicit non-PR evidence when pr_head_sha is not_applicable")
+        return errors
+    if normalized != live_head.lower():
+        errors.append("parent closeout reconciliation pr_head_sha must match live HEAD for PR closeout")
+    return errors
+
+
+def validate_parent_closeout_live_git_state(reconciliation: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    live_head = run_git("rev-parse", "HEAD")
+    recorded_head = reconciliation.get("local_head_sha")
+    if live_head:
+        if not isinstance(recorded_head, str):
+            errors.append("parent closeout reconciliation local_head_sha must be text")
+        elif recorded_head not in ("", "not_checked", "unknown"):
+            if recorded_head.strip().lower() != live_head.lower():
+                errors.append("parent closeout reconciliation local_head_sha must match live HEAD")
+        errors.extend(validate_parent_closeout_pr_head(reconciliation, live_head))
+    else:
+        errors.append("parent closeout reconciliation cannot verify live HEAD")
+
+    live_status = run_git("status", "-sb")
+    live_dirty = bool(run_git("status", "--porcelain"))
+    recorded_dirty = infer_recorded_dirty_state(reconciliation.get("local_branch_state"), live_status, live_dirty)
+    if recorded_dirty is None:
+        errors.append("parent closeout reconciliation local_branch_state must record clean, dirty, or exact live git status")
+    elif recorded_dirty is not live_dirty:
+        expected = "dirty" if live_dirty else "clean"
+        errors.append(f"parent closeout reconciliation local_branch_state must match live working tree state: {expected}")
+    return errors
+
+
+def validate_required_review_for_closeout(
+    data: dict[str, object],
+    attributes: dict[str, str],
+    head: str | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    review = data.get("review", {})
+    manifest_review_required = isinstance(review, dict) and review.get("required") is True
+    state_review_required = attributes.get("review_required") == "true"
+    if not (manifest_review_required or state_review_required):
+        return errors
+
+    statuses: list[object] = []
+    applies_values: list[object] = []
+    reviewed_shas: list[str] = []
+    if manifest_review_required and isinstance(review, dict):
+        statuses.append(review.get("status"))
+        applies_values.append(review.get("applies_to_active_slice"))
+        reviewed_shas.append(str(review.get("reviewed_sha") or "none"))
+    if state_review_required:
+        statuses.append(attributes.get("review_status"))
+        applies_values.append(attributes.get("review_applies_to_active_slice") == "true")
+        reviewed_shas.append(attributes.get("reviewed_sha", "none"))
+
+    if any(status != "approved" for status in statuses):
+        errors.append("required active-slice review must be approved before parent closeout")
+    if any(applies is not True for applies in applies_values):
+        errors.append("required active-slice review must apply to the active slice before parent closeout")
+    if any(reviewed_sha in {"", "none"} for reviewed_sha in reviewed_shas):
+        errors.append("required active-slice review must record reviewed_sha before parent closeout")
+    elif head and head != "(unavailable)":
+        if any(reviewed_sha != head for reviewed_sha in reviewed_shas):
+            errors.append("required active-slice review reviewed_sha must match current HEAD before parent closeout")
+    else:
+        errors.append("required active-slice review cannot be verified without current HEAD before parent closeout")
     return errors
 
 
@@ -679,6 +1061,10 @@ def parent_mode_active(attributes: dict[str, str]) -> bool:
     )
 
 
+def parent_handoff_required(attributes: dict[str, str]) -> bool:
+    return parent_mode_active(attributes) and attributes.get("handoff_target") == "parent"
+
+
 def parent_changed_file_errors(paths: list[str], attributes: dict[str, str]) -> list[str]:
     if not parent_mode_active(attributes):
         return []
@@ -761,7 +1147,10 @@ def validate_state() -> list[str]:
             handoff_text = handoff.read_text(encoding="utf-8")
             if "[Agent must" in handoff_text:
                 errors.append(f"latest handoff contains generated placeholders: {handoff}")
-            for heading in REQUIRED_HANDOFF_HEADINGS:
+            required_handoff_headings = set(REQUIRED_HANDOFF_HEADINGS)
+            if parent_handoff_required(attributes):
+                required_handoff_headings.update(PARENT_CLOSEOUT_HANDOFF_HEADINGS)
+            for heading in required_handoff_headings:
                 if heading not in handoff_text:
                     errors.append(f"latest handoff is missing '{heading}': {handoff}")
 
@@ -1099,6 +1488,20 @@ Stop if the session-start gate blocks, the workflow manifest blocks the requeste
 4. Read agent instructions, current state, active-slice manifest, latest handoff, workflow manifest, and controlling sources.
 5. Confirm the exact next permitted action before editing.
 6. Do not duplicate completed work or bypass a blocked documentation phase.
+
+## Parent-Orchestrator Closeout Reconciliation
+Complete this section before a parent/orchestrator final closeout.
+
+| Check | Evidence | Status |
+|---|---|---|
+| Current PR head was re-checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Current-head inline comments were checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Issue comments were checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Required checks were checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Local branch, local HEAD, and working tree were checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Stale closeout was ruled out |  | Pass, Block, Ambiguous, or Not applicable |
+
+If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
 """
     if not args.write:
         print(content)
@@ -1127,6 +1530,40 @@ def command_validate(_: argparse.Namespace) -> int:
             print(f"- {error}")
         return 1
     print("SESSION CONTINUITY: PASS")
+    return 0
+
+
+def command_closeout_check(_: argparse.Namespace) -> int:
+    attributes, _, content = read_state()
+    if not content:
+        print(f"ERROR: required current-state file is missing: {STATE_PATH}")
+        return 1
+    active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+    errors = validate_state()
+    data, read_errors = read_active_slice_manifest(active_manifest)
+    if read_errors:
+        for error in read_errors:
+            if error not in errors:
+                errors.append(error)
+    else:
+        assert data is not None
+        for error in validate_required_review_for_closeout(data, attributes, run_git("rev-parse", "HEAD")):
+            if error not in errors:
+                errors.append(error)
+        for error in validate_parent_closeout_reconciliation(data, attributes, require_complete=True):
+            if error not in errors:
+                errors.append(error)
+    if errors:
+        print("PARENT CLOSEOUT CHECK: FAIL")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    if parent_mode_active(attributes):
+        print("PARENT CLOSEOUT CHECK: PASS")
+        print("Final parent closeout may report only after the recorded live PR head, review signals, required checks, and local branch state are still current.")
+    else:
+        print("PARENT CLOSEOUT CHECK: NOT_APPLICABLE")
+        print("Parent/orchestrator mode is not active.")
     return 0
 
 
@@ -1205,6 +1642,7 @@ def build_parser() -> argparse.ArgumentParser:
     stop_latch = subparsers.add_parser("stop-latch")
     stop_latch.add_argument("--reason", default="user-stop")
     stop_latch.set_defaults(func=command_stop_latch)
+    subparsers.add_parser("closeout-check").set_defaults(func=command_closeout_check)
     subparsers.add_parser("validate").set_defaults(func=command_validate)
     return parser
 

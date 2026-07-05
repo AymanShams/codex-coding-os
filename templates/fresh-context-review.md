@@ -31,6 +31,15 @@ Reason:
 | Assumptions are recorded before they become code |  | Pass, Revise, or Block |
 | Coordination updates did not become a docs-only PR loop |  | Pass, Revise, or Block |
 
+## PR Review Signal Reconciliation
+| Check | Evidence | Verdict |
+|---|---|---|
+| Current PR head was verified before relying on review or check state |  | Pass, Revise, Block, or Not applicable |
+| Current-head inline comments were checked |  | Pass, Revise, Block, or Not applicable |
+| Issue comments and summary reviews were checked |  | Pass, Revise, Block, or Not applicable |
+| Required checks and mergeability were checked on the current head |  | Pass, Revise, Block, or Not applicable |
+| Current-head inline findings do not conflict with a later no-major-issues summary |  | Pass, Ambiguous, Block, or Not applicable |
+
 ## Validation Evidence Reviewed
 | Check | Result | What it proves | What it does not prove |
 |---|---|---|---|

@@ -36,6 +36,8 @@ This file records the active slice, exact next permitted action, risks, and sess
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 - In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
 - A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
+- Before final parent/orchestrator closeout, run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout check in the active-slice manifest.
+- If current-head inline findings conflict with a later no-major-issues summary, mark `conflicting_review_signals` true, classify review state as ambiguous, and stop.
 
 ## Current Verified Repository State
 - Record the verified branch, local head, remote baseline, and working-tree state.
@@ -63,7 +65,7 @@ This file records the active slice, exact next permitted action, risks, and sess
 
 ## New Session Start Instructions
 ```text
-If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, record current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout status in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract

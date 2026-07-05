@@ -74,3 +74,17 @@ Handle only this next permitted task:
 
 If the workflow manifest or active-slice manifest does not permit coding, continue from its first blocked or incomplete phase. Before editing, summarize the affected files and validation plan.
 ```
+
+## Parent-Orchestrator Closeout Reconciliation
+Complete this section before a parent/orchestrator final closeout.
+
+| Check | Evidence | Status |
+|---|---|---|
+| Current PR head was re-checked | {{sha_or_not_applicable}} | Pass, Block, Ambiguous, or Not applicable |
+| Current-head inline comments were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Issue comments were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Required checks were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Local branch, local HEAD, and working tree were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Stale closeout was ruled out | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+
+If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
