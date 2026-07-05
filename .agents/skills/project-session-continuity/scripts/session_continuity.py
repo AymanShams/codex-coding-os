@@ -759,8 +759,9 @@ def evidence_has_non_pr_closeout(evidence: object) -> bool:
     if not isinstance(evidence, list):
         return False
     evidence_text = "\n".join(str(item).lower() for item in evidence)
+    normalized_evidence = normalize_closeout_signal(evidence_text)
     has_non_pr = any(marker in evidence_text for marker in ("non-pr", "non pr", "no pr", "no open pr"))
-    return has_non_pr and "not_applicable" in evidence_text
+    return has_non_pr and "not_applicable" in normalized_evidence
 
 
 def validate_parent_closeout_pr_head(reconciliation: dict[str, object], live_head: str) -> list[str]:

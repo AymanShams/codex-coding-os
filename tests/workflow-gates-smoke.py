@@ -470,7 +470,7 @@ def main() -> int:
                     current_inline_comments="not_applicable",
                     issue_comments="not_applicable",
                     required_checks="not_applicable",
-                    evidence=["non-PR closeout: pr_head_sha not_applicable because no open PR exists"],
+                    evidence=["non-PR closeout: no open PR; PR head not applicable"],
                 ),
             },
         )
