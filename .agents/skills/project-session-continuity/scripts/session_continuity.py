@@ -84,6 +84,17 @@ PARENT_CLOSEOUT_SIGNAL_PASS_VALUES = {
         "no_actionable_findings",
         "no_current_head_findings",
         "no_current_head_inline_comments",
+        "no_current_head_open_comments",
+        "no_current_head_open_findings",
+        "no_current_head_open_inline_comments",
+        "no_current_head_unresolved_comments",
+        "no_current_head_unresolved_findings",
+        "no_open_comments",
+        "no_open_findings",
+        "no_open_inline_comments",
+        "no_unresolved_comments",
+        "no_unresolved_findings",
+        "no_unresolved_inline_comments",
         "resolved",
     },
     "issue_comments": {
@@ -92,6 +103,10 @@ PARENT_CLOSEOUT_SIGNAL_PASS_VALUES = {
         "latest_review_clean",
         "no_actionable_comments",
         "no_blocking_comments",
+        "no_open_comments",
+        "no_open_issue_comments",
+        "no_unresolved_comments",
+        "no_unresolved_issue_comments",
         "none",
         "resolved",
     },
@@ -100,9 +115,13 @@ PARENT_CLOSEOUT_SIGNAL_PASS_VALUES = {
         "passed",
         "success",
         "successful",
+        "all_required_checks_passed",
+        "all_required_checks_success",
         "all_checks_success",
         "all_success",
         "checks_success",
+        "required_checks_passed",
+        "required_checks_success",
         "green",
     },
 }
@@ -229,7 +248,7 @@ This file records coordination state only. Controlling product and technical sou
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 - In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
 - A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
-- Before parent/orchestrator closeout, run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout check in the active-slice manifest.
+- Before final parent/orchestrator closeout, run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout check in the active-slice manifest.
 - If current-head inline findings conflict with a later no-major-issues summary, mark `conflicting_review_signals` true, classify review state as ambiguous, and stop.
 
 ## Current Verified Repository State

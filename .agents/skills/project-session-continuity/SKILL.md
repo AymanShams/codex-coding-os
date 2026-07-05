@@ -180,7 +180,7 @@ Apply the outcome-control rule from `AGENTS.md` before creating or updating coor
 4. Replace every generated `[Agent must ...]` placeholder.
 5. Run `python scripts/agent/session_continuity.py validate`.
 6. Run relevant project validation and `git status -sb`.
-7. In parent/orchestrator mode, record live PR/review/check/local-branch evidence in the active-slice manifest and run `python scripts/agent/session_continuity.py closeout-check`.
+7. If this is final parent/orchestrator closeout, record live PR/review/check/local-branch evidence in the active-slice manifest and run `python scripts/agent/session_continuity.py closeout-check`. If this is an intermediate child handoff or lane handoff, do not run `closeout-check`. State that the parent consumes the handoff internally unless a stop condition fired.
 8. End with a final response that includes `Recommended Next Action`.
 9. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required. In parent/orchestrator mode with `handoff_target: parent`, explicitly state that the parent consumes the handoff internally and no user prompt is required unless a stop condition fired.
 

@@ -518,6 +518,24 @@ def main() -> int:
                     pr_head_sha=parent_live_head,
                     local_head_sha=parent_live_head,
                     local_branch_state="dirty",
+                    current_inline_comments="no open inline comments",
+                    issue_comments="no open comments",
+                    required_checks="all required checks passed",
+                ),
+            },
+        )
+        parent_no_open_comments_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_no_open_comments_pass.stdout:
+            raise AssertionError(parent_no_open_comments_pass.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
                     issue_comments="not_applicable",
                 ),
             },
@@ -751,6 +769,17 @@ def main() -> int:
         for required in ("parent_orchestrator", "closeout-check", "current PR head", "conflicting_review_signals"):
             if required not in parent_prompt:
                 raise AssertionError(f"parent orchestrator prompt template is missing {required}")
+        continuity_skill = (ROOT / ".agents" / "skills" / "project-session-continuity" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "final parent/orchestrator closeout",
+            "intermediate child handoff",
+            "do not run `closeout-check`",
+            "parent consumes the handoff internally",
+        ):
+            if required not in continuity_skill:
+                raise AssertionError(f"project-session-continuity skill is missing {required}")
 
     with tempfile.TemporaryDirectory(prefix="coding-os-legacy-non-parent-") as temp:
         project = Path(temp)
