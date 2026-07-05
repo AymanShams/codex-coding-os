@@ -66,6 +66,15 @@
     "required_checks": "not_checked",
     "conflicting_review_signals": false,
     "stale_closeout_detected": false,
+    "publication_stabilization": {
+      "post_review_fix_reconciled": false,
+      "pr_body_head_sha": "not_checked",
+      "review_evidence_head_sha": "not_checked",
+      "review_authority": "not_checked",
+      "review_authority_count": "not_checked",
+      "metadata_only_check_retrigger": "not_checked",
+      "bounded_wait_result": "not_checked"
+    },
     "evidence": []
   },
   "source_authority": [

@@ -146,6 +146,43 @@ PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS = {
     "timed_out",
     "unresolved",
 }
+PUBLICATION_STABILIZATION_FIELDS = (
+    "post_review_fix_reconciled",
+    "pr_body_head_sha",
+    "review_evidence_head_sha",
+    "review_authority",
+    "review_authority_count",
+    "metadata_only_check_retrigger",
+    "bounded_wait_result",
+)
+PUBLICATION_STABILIZATION_BAD_VALUES = {
+    "",
+    "unknown",
+    "not_checked",
+    "pending",
+    "in_progress",
+    "queued",
+    "unstable",
+    "failed",
+    "failure",
+    "timed_out",
+    "timeout",
+    "blocked",
+    "ambiguous",
+}
+PUBLICATION_STABILIZATION_BLOCKER_MARKERS = (
+    "pending",
+    "in_progress",
+    "queued",
+    "unstable",
+    "failed",
+    "failure",
+    "timed_out",
+    "timeout",
+    "blocked",
+    "ambiguous",
+    "unresolved",
+)
 PARENT_CLOSEOUT_SIGNAL_NEGATIONS = {"no", "none", "zero", "without"}
 PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS = {
     "current_inline_comments": {
@@ -321,7 +358,7 @@ This file records coordination state only. Controlling product and technical sou
 
 ## New Session Start Instructions
 ```text
-If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, record current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout status in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, record current PR head, current-head inline comments, issue comments, required checks, local branch state, stale-closeout status, and publication stabilization evidence in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract
@@ -396,6 +433,15 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
         "required_checks": "not_checked",
         "conflicting_review_signals": False,
         "stale_closeout_detected": False,
+        "publication_stabilization": {
+            "post_review_fix_reconciled": False,
+            "pr_body_head_sha": "not_checked",
+            "review_evidence_head_sha": "not_checked",
+            "review_authority": "not_checked",
+            "review_authority_count": "not_checked",
+            "metadata_only_check_retrigger": "not_checked",
+            "bounded_wait_result": "not_checked",
+        },
         "evidence": [],
     },
     "source_authority": [
@@ -840,6 +886,52 @@ def evidence_has_non_pr_closeout(evidence: object) -> bool:
     return has_non_pr and "not_applicable" in normalized_evidence
 
 
+def validate_publication_stabilization(reconciliation: dict[str, object], live_head: str) -> list[str]:
+    errors: list[str] = []
+    stabilization = reconciliation.get("publication_stabilization")
+    if not isinstance(stabilization, dict):
+        return ["parent closeout reconciliation publication_stabilization must be an object"]
+
+    for field in PUBLICATION_STABILIZATION_FIELDS:
+        if field not in stabilization:
+            errors.append(f"parent closeout reconciliation publication_stabilization is missing {field}")
+
+    pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
+    if pr_head_not_applicable:
+        return errors
+
+    if stabilization.get("post_review_fix_reconciled") is not True:
+        errors.append("parent closeout reconciliation publication_stabilization.post_review_fix_reconciled must be true")
+
+    for field in ("pr_body_head_sha", "review_evidence_head_sha"):
+        value = stabilization.get(field)
+        if not isinstance(value, str):
+            errors.append(f"parent closeout reconciliation publication_stabilization.{field} must be text")
+        elif value.strip().lower() != live_head.lower():
+            errors.append(f"parent closeout reconciliation publication_stabilization.{field} must match live HEAD")
+
+    review_authority = str(stabilization.get("review_authority", "")).strip().lower()
+    if review_authority in PUBLICATION_STABILIZATION_BAD_VALUES:
+        errors.append("parent closeout reconciliation publication_stabilization.review_authority must record the exact current-head review authority")
+
+    review_authority_count = str(stabilization.get("review_authority_count", "")).strip().lower()
+    if review_authority_count in PUBLICATION_STABILIZATION_BAD_VALUES or not re.search(r"\d", review_authority_count):
+        errors.append("parent closeout reconciliation publication_stabilization.review_authority_count must record the exact required review count")
+
+    for field in ("metadata_only_check_retrigger", "bounded_wait_result"):
+        value = stabilization.get(field)
+        if not isinstance(value, str):
+            errors.append(f"parent closeout reconciliation publication_stabilization.{field} must be text")
+            continue
+        normalized = normalize_closeout_signal(value)
+        if normalized in PUBLICATION_STABILIZATION_BAD_VALUES or any(
+            marker in normalized for marker in PUBLICATION_STABILIZATION_BLOCKER_MARKERS
+        ):
+            errors.append(f"parent closeout reconciliation publication_stabilization.{field} records blocker state: {value}")
+
+    return errors
+
+
 def validate_parent_closeout_pr_head(reconciliation: dict[str, object], live_head: str) -> list[str]:
     errors: list[str] = []
     pr_head = reconciliation.get("pr_head_sha")
@@ -871,6 +963,7 @@ def validate_parent_closeout_live_git_state(reconciliation: dict[str, object]) -
             if recorded_head.strip().lower() != live_head.lower():
                 errors.append("parent closeout reconciliation local_head_sha must match live HEAD")
         errors.extend(validate_parent_closeout_pr_head(reconciliation, live_head))
+        errors.extend(validate_publication_stabilization(reconciliation, live_head))
     else:
         errors.append("parent closeout reconciliation cannot verify live HEAD")
 

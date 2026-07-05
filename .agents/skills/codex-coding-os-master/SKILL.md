@@ -100,9 +100,14 @@ For deep critique, source-backed audit, recurring workflow failure analysis, pre
   available.
 - Before a parent/orchestrator final closeout, re-check and record the current PR
   head, current-head inline comments, issue comments, required checks, local branch
-  state, working-tree state, and stale-closeout status. If the repo uses the
-  session-continuity helper, record that evidence in the active-slice manifest and
-  run `python scripts/agent/session_continuity.py closeout-check`.
+  state, working-tree state, stale-closeout status, and publication stabilization
+  evidence. Publication stabilization evidence must record PR body head metadata,
+  reviewed-head evidence, exact review authority count, post-review-fix
+  reconciliation status, and metadata-only PR body check retrigger state. If a
+  review-fix push changes the PR head, reconcile those fields before starting
+  another review or publication child. If the repo uses the session-continuity
+  helper, record that evidence in the active-slice manifest and run
+  `python scripts/agent/session_continuity.py closeout-check`.
 - If current-head inline findings conflict with a later no-major-issues summary,
   classify review state as ambiguous and stop until the finding is fixed, proven
   stale with evidence, or explicitly resolved by the review authority.

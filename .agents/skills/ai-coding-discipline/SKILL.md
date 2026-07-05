@@ -151,9 +151,14 @@ authority remains active and tooling is available.
 
 Before parent/orchestrator final closeout, the parent must re-check and record the
 current PR head, current-head inline comments, issue comments, required checks,
-local branch state, working-tree state, and stale-closeout status. If the repo uses
-`scripts/agent/session_continuity.py`, record the evidence in the active-slice
-manifest and run `python scripts/agent/session_continuity.py closeout-check`.
+local branch state, working-tree state, stale-closeout status, and publication
+stabilization evidence. Publication stabilization evidence must record PR body head
+metadata, reviewed-head evidence, exact review authority count, post-review-fix
+reconciliation status, and any metadata-only PR body check retrigger state. If a
+review-fix push changes the PR head, reconcile those fields before starting another
+review or publication child. If the repo uses `scripts/agent/session_continuity.py`,
+record the evidence in the active-slice manifest and run
+`python scripts/agent/session_continuity.py closeout-check`.
 Conflicting GitHub review signals are blocking ambiguity: a current-head inline
 finding plus a later no-major-issues summary must stop until resolved by evidence or
 review authority.

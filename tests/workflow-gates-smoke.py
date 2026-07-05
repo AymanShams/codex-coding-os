@@ -190,8 +190,30 @@ def parent_closeout_reconciliation(
     current_inline_comments: str = "none_current_head",
     issue_comments: str = "latest_review_clean",
     required_checks: str = "success",
+    publication_stabilization: dict[str, object] | None = None,
     evidence: list[str] | None = None,
 ) -> dict[str, object]:
+    if publication_stabilization is None:
+        if pr_head_sha == "not_applicable":
+            publication_stabilization = {
+                "post_review_fix_reconciled": False,
+                "pr_body_head_sha": "not_applicable",
+                "review_evidence_head_sha": "not_applicable",
+                "review_authority": "not_applicable",
+                "review_authority_count": "not_applicable",
+                "metadata_only_check_retrigger": "not_applicable",
+                "bounded_wait_result": "not_applicable",
+            }
+        else:
+            publication_stabilization = {
+                "post_review_fix_reconciled": True,
+                "pr_body_head_sha": pr_head_sha,
+                "review_evidence_head_sha": pr_head_sha,
+                "review_authority": "current-head Codex review plus configured independent review",
+                "review_authority_count": "2 current-head reviews",
+                "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
+                "bounded_wait_result": "not_applicable",
+            }
     return {
         "parent_closeout_reconciliation": {
             "required_before_parent_closeout": True,
@@ -204,6 +226,7 @@ def parent_closeout_reconciliation(
             "required_checks": required_checks,
             "conflicting_review_signals": conflict,
             "stale_closeout_detected": stale,
+            "publication_stabilization": publication_stabilization,
             "evidence": evidence or ["smoke closeout evidence"],
         }
     }
@@ -440,6 +463,71 @@ def main() -> int:
         parent_stale_pr_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "pr_head_sha must match live HEAD for PR closeout" not in parent_stale_pr_block.stdout:
             raise AssertionError(parent_stale_pr_block.stdout)
+        missing_publication_stabilization = parent_closeout_reconciliation(
+            pr_head_sha=parent_live_head,
+            local_head_sha=parent_live_head,
+            local_branch_state="dirty",
+        )["parent_closeout_reconciliation"]
+        missing_publication_stabilization.pop("publication_stabilization")
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                "parent_closeout_reconciliation": missing_publication_stabilization,
+            },
+        )
+        parent_missing_publication_stabilization_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization must be an object" not in parent_missing_publication_stabilization_block.stdout:
+            raise AssertionError(parent_missing_publication_stabilization_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": "stale-pr-body-head",
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
+                        "bounded_wait_result": "not_applicable",
+                    },
+                ),
+            },
+        )
+        parent_stale_pr_body_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.pr_body_head_sha must match live HEAD" not in parent_stale_pr_body_block.stdout:
+            raise AssertionError(parent_stale_pr_body_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "documentation-governance pending after metadata-only PR body edit",
+                        "bounded_wait_result": "bounded wait timed out",
+                    },
+                ),
+            },
+        )
+        parent_metadata_retrigger_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.metadata_only_check_retrigger records blocker state" not in parent_metadata_retrigger_block.stdout:
+            raise AssertionError(parent_metadata_retrigger_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -782,7 +870,14 @@ def main() -> int:
         for required in ("sequential_manual", "handoff_target: manual_next_session", "exactly one paste-ready next prompt"):
             if required not in sequential_prompt:
                 raise AssertionError(f"sequential manual prompt template is missing {required}")
-        for required in ("parent_orchestrator", "closeout-check", "current PR head", "conflicting_review_signals"):
+        for required in (
+            "parent_orchestrator",
+            "closeout-check",
+            "current PR head",
+            "conflicting_review_signals",
+            "publication stabilization evidence",
+            "metadata-only PR body edit",
+        ):
             if required not in parent_prompt:
                 raise AssertionError(f"parent orchestrator prompt template is missing {required}")
         continuity_skill = (ROOT / ".agents" / "skills" / "project-session-continuity" / "SKILL.md").read_text(
@@ -793,6 +888,7 @@ def main() -> int:
             "intermediate child handoff",
             "do not run `closeout-check`",
             "parent consumes the handoff internally",
+            "stabilization evidence",
         ):
             if required not in continuity_skill:
                 raise AssertionError(f"project-session-continuity skill is missing {required}")

@@ -57,7 +57,8 @@ Use the sequential manual prompt family when the user will start each next
 session manually. Use the parent/orchestrator prompt family only after the user
 explicitly approves centralized parent automation. Parent/orchestrator closeout
 must reconcile current PR head, current-head inline comments, issue comments,
-required checks, local branch state, and stale-closeout status before reporting
+required checks, local branch state, stale-closeout status, and publication
+stabilization evidence before reporting
 clean completion.
 
 Sequential manual structure:
@@ -104,5 +105,5 @@ Run envelope:
 
 The parent must not implement product code. It may start one bounded child task at a time, consume child handoffs internally, and continue only while the run envelope independently authorizes the next child task.
 
-Before final parent closeout, record the current PR head, current-head inline comments, issue comments, required checks, local branch state, working-tree state, and stale-closeout status in `docs/delivery/active-slice-manifest.json`, then run `python scripts/agent/session_continuity.py closeout-check`. If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
+Before final parent closeout, record the current PR head, current-head inline comments, issue comments, required checks, local branch state, working-tree state, stale-closeout status, and publication stabilization evidence in `docs/delivery/active-slice-manifest.json`, then run `python scripts/agent/session_continuity.py closeout-check`. Publication stabilization evidence records PR body head metadata, reviewed-head evidence, exact review authority count, post-review-fix reconciliation status, and metadata-only PR body check retrigger state. After any review-fix push, reconcile those fields before starting another review or publication child. If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
 ```

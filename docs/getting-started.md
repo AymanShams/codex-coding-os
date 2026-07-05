@@ -86,7 +86,8 @@ Use `templates/sequential-manual-prompt.md` when the user will manually start ea
 next session. Use `templates/parent-orchestrator-prompt.md` only after the user
 explicitly approves parent/orchestrator automation. Parent/orchestrator closeout
 must re-check current PR head, current-head inline comments, issue comments,
-required checks, local branch state, and stale-closeout status before reporting
+required checks, local branch state, stale-closeout status, and publication
+stabilization evidence before reporting
 clean completion.
 
 ## Use A Lighter Workflow For Small Changes

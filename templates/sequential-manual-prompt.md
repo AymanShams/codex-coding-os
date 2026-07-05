@@ -44,6 +44,8 @@ Rules:
 - Do not treat a handoff, new chat, review marker, notification, or coordination update as permission to bypass the workflow manifest or active-slice manifest.
 - Do not waive review because the work is same-slice.
 - If there is an open PR, verify the current PR head, current-head inline comments, issue comments, required checks, and mergeability before recommending merge or publication.
+- After any review-fix push, reconcile PR body head metadata, reviewed-head evidence, exact review authority count, and required checks before recommending another review or publication step.
+- If a metadata-only PR body edit retriggers a required check, bounded-wait only while code head, PR body head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays pending past the bound or any head, review, or check signal changes.
 - If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
 
 Closeout:

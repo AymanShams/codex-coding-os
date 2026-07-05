@@ -131,12 +131,19 @@ envelope still authorizes continuation and thread or worktree tooling is availab
 
 Before a parent/orchestrator gives a final closeout, it must reconcile live state one
 last time. Record the current PR head, current-head inline comments, issue comments,
-required checks, local branch state, and stale-closeout status in
-`docs/delivery/active-slice-manifest.json`, then run
-`python scripts/agent/session_continuity.py closeout-check`. If current-head inline
-findings conflict with a later no-major-issues summary, classify the review state as
-ambiguous and stop. A direct deployment status or child summary does not override a
-pending required GitHub check or a current-head inline finding.
+required checks, local branch state, stale-closeout status, and publication
+stabilization evidence in `docs/delivery/active-slice-manifest.json`, then run
+`python scripts/agent/session_continuity.py closeout-check`. Publication
+stabilization evidence must record PR body head metadata, reviewed-head evidence,
+exact review authority count, post-review-fix reconciliation status, and any
+metadata-only PR body check retrigger state. After any review-fix push, reconcile
+those fields before starting another review or publication child. If a metadata-only
+PR body edit retriggers a required check, bounded-poll only while code head, PR body
+head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays
+pending past the bound or any head, review, or check signal changes. If current-head
+inline findings conflict with a later no-major-issues summary, classify the review
+state as ambiguous and stop. A direct deployment status or child summary does not
+override a pending required GitHub check or a current-head inline finding.
 
 The parent/orchestrator may inspect, assign, monitor, verify, reconcile, and report.
 It must not implement product code, merge, deploy, publish, choose unapproved slices,
