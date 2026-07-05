@@ -212,6 +212,8 @@ PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS = {
         "blocked",
         "check",
         "checks",
+        "did",
+        "edit",
         "metadata",
         "only",
         "pending",
@@ -226,11 +228,14 @@ PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS = {
         "bounded",
         "check",
         "checks",
+        "completed",
         "out",
         "pending",
+        "required",
         "timed",
         "timeout",
         "wait",
+        "with",
     },
 }
 PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS = {
@@ -917,12 +922,16 @@ def publication_stabilization_value_is_negated_clean(field: str, normalized: str
     if not allowed_tokens:
         return False
     tokens = tuple(token for token in normalized.split("_") if token)
-    if len(tokens) < 2 or tokens[0] not in PARENT_CLOSEOUT_SIGNAL_NEGATIONS:
+    if len(tokens) < 2:
         return False
-    signal_tokens = tokens[1:]
-    if any(token not in allowed_tokens for token in signal_tokens):
+    if any(token not in allowed_tokens and token not in PARENT_CLOSEOUT_SIGNAL_NEGATIONS for token in tokens):
         return False
-    return any(token in PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS for token in signal_tokens)
+    for index, token in enumerate(tokens):
+        if token in PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS and any(
+            previous in PARENT_CLOSEOUT_SIGNAL_NEGATIONS for previous in tokens[:index]
+        ):
+            return True
+    return False
 
 
 def publication_stabilization_authority_value_is_blocking(value: object) -> bool:
