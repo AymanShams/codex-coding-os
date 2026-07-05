@@ -624,6 +624,65 @@ def validate_parent_closeout_reconciliation(
     evidence = reconciliation.get("evidence")
     if not isinstance(evidence, list) or not evidence:
         errors.append("parent closeout reconciliation must include evidence")
+    errors.extend(validate_parent_closeout_live_git_state(reconciliation))
+    return errors
+
+
+def infer_recorded_dirty_state(recorded_state: object, live_status: str, live_dirty: bool) -> bool | None:
+    if not isinstance(recorded_state, str):
+        return None
+    normalized = recorded_state.strip().lower()
+    if not normalized:
+        return None
+    if recorded_state.strip() == live_status.strip():
+        return live_dirty
+    status_prefixes = (" M", "M ", " A", "A ", " D", "D ", " R", "R ", " C", "C ", "UU", "??")
+    if any(line.startswith(status_prefixes) for line in recorded_state.splitlines()):
+        return True
+    dirty_markers = (
+        "dirty",
+        "uncommitted",
+        "modified",
+        "untracked",
+        "changes not staged",
+        "changes to be committed",
+        "??",
+        "\n m ",
+        "\nm ",
+        "\n a ",
+        "\na ",
+        "\n d ",
+        "\nd ",
+    )
+    clean_markers = ("clean", "nothing to commit", "working tree clean")
+    if any(marker in normalized for marker in dirty_markers):
+        return True
+    if any(marker in normalized for marker in clean_markers):
+        return False
+    return None
+
+
+def validate_parent_closeout_live_git_state(reconciliation: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    live_head = run_git("rev-parse", "HEAD")
+    recorded_head = reconciliation.get("local_head_sha")
+    if live_head:
+        if not isinstance(recorded_head, str):
+            errors.append("parent closeout reconciliation local_head_sha must be text")
+        elif recorded_head not in ("", "not_checked", "unknown"):
+            if recorded_head.strip().lower() != live_head.lower():
+                errors.append("parent closeout reconciliation local_head_sha must match live HEAD")
+    else:
+        errors.append("parent closeout reconciliation cannot verify live HEAD")
+
+    live_status = run_git("status", "-sb")
+    live_dirty = bool(run_git("status", "--porcelain"))
+    recorded_dirty = infer_recorded_dirty_state(reconciliation.get("local_branch_state"), live_status, live_dirty)
+    if recorded_dirty is None:
+        errors.append("parent closeout reconciliation local_branch_state must record clean, dirty, or exact live git status")
+    elif recorded_dirty is not live_dirty:
+        expected = "dirty" if live_dirty else "clean"
+        errors.append(f"parent closeout reconciliation local_branch_state must match live working tree state: {expected}")
     return errors
 
 

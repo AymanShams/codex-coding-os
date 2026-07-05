@@ -38,6 +38,10 @@ def run(args: list[str], cwd: Path, expected: int) -> subprocess.CompletedProces
     return result
 
 
+def git_stdout(project: Path, *args: str) -> str:
+    return run(["git", *args], project, 0).stdout.strip()
+
+
 def update_frontmatter(path: Path, key: str, value: str) -> None:
     update_frontmatter_values(path, {key: value})
 
@@ -176,14 +180,20 @@ def parent_automation_manifest_fields(project: Path, actor_role: str = "parent")
     }
 
 
-def parent_closeout_reconciliation(status: str = "pass", conflict: bool = False, stale: bool = False) -> dict[str, object]:
+def parent_closeout_reconciliation(
+    status: str = "pass",
+    conflict: bool = False,
+    stale: bool = False,
+    local_head_sha: str = "abc123",
+    local_branch_state: str = "clean",
+) -> dict[str, object]:
     return {
         "parent_closeout_reconciliation": {
             "required_before_parent_closeout": True,
             "status": status,
             "pr_head_sha": "abc123",
-            "local_head_sha": "abc123",
-            "local_branch_state": "clean",
+            "local_head_sha": local_head_sha,
+            "local_branch_state": local_branch_state,
             "current_inline_comments": "none_current_head",
             "issue_comments": "latest_review_clean",
             "required_checks": "success",
@@ -321,10 +331,36 @@ def main() -> int:
         parent_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "parent closeout reconciliation must pass before parent closeout" not in parent_closeout_block.stdout:
             raise AssertionError(parent_closeout_block.stdout)
+        parent_live_head = git_stdout(project, "rev-parse", "HEAD")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
-            extra={**parent_automation_manifest_fields(project), **parent_closeout_reconciliation()},
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(local_head_sha="stale-head", local_branch_state="dirty"),
+            },
+        )
+        parent_stale_head_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "local_head_sha must match live HEAD" not in parent_stale_head_block.stdout:
+            raise AssertionError(parent_stale_head_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(local_head_sha=parent_live_head, local_branch_state="clean"),
+            },
+        )
+        parent_stale_branch_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "local_branch_state must match live working tree state: dirty" not in parent_stale_branch_block.stdout:
+            raise AssertionError(parent_stale_branch_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(local_head_sha=parent_live_head, local_branch_state="dirty"),
+            },
         )
         parent_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
         if "PARENT CLOSEOUT CHECK: PASS" not in parent_closeout_pass.stdout:
@@ -332,7 +368,15 @@ def main() -> int:
         write_active_slice(
             project,
             ["docs/**", "src/**"],
-            extra={**parent_automation_manifest_fields(project), **parent_closeout_reconciliation(status="ambiguous", conflict=True)},
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    status="ambiguous",
+                    conflict=True,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                ),
+            },
         )
         parent_conflict_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "conflicting GitHub review signals make review-state ambiguous" not in parent_conflict_block.stdout:
