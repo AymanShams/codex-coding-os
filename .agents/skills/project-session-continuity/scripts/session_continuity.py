@@ -73,6 +73,60 @@ READY_TO_CODE = {"approved", "completed"}
 REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
 AUTOMATION_MODES = {"off", "sequential_manual", "parent_orchestrator"}
 PARENT_CLOSEOUT_STATUSES = {"not_started", "pass", "blocked", "ambiguous", "not_applicable"}
+PARENT_CLOSEOUT_SIGNAL_PASS_VALUES = {
+    "current_inline_comments": {
+        "pass",
+        "clean",
+        "none",
+        "none_current_head",
+        "none_current_head_comments",
+        "none_current_head_findings",
+        "no_actionable_findings",
+        "no_current_head_findings",
+        "no_current_head_inline_comments",
+        "resolved",
+    },
+    "issue_comments": {
+        "pass",
+        "clean",
+        "latest_review_clean",
+        "no_actionable_comments",
+        "no_blocking_comments",
+        "none",
+        "resolved",
+    },
+    "required_checks": {
+        "pass",
+        "passed",
+        "success",
+        "successful",
+        "all_checks_success",
+        "all_success",
+        "checks_success",
+        "green",
+    },
+}
+PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS = {
+    "actionable",
+    "block",
+    "blocked",
+    "blocking",
+    "cancelled",
+    "changes_required",
+    "error",
+    "fail",
+    "failed",
+    "failure",
+    "in_progress",
+    "missing",
+    "not_run",
+    "open",
+    "pending",
+    "queued",
+    "review_required",
+    "timed_out",
+    "unresolved",
+}
 RUN_ENVELOPE_FIELDS = {
     "repo",
     "objective",
@@ -626,6 +680,7 @@ def validate_parent_closeout_reconciliation(
     evidence = reconciliation.get("evidence")
     if not isinstance(evidence, list) or not evidence:
         errors.append("parent closeout reconciliation must include evidence")
+    errors.extend(validate_parent_closeout_review_check_signals(reconciliation))
     errors.extend(validate_parent_closeout_live_git_state(reconciliation))
     return errors
 
@@ -666,6 +721,34 @@ def infer_recorded_dirty_state(recorded_state: object, live_status: str, live_di
 
 def field_is_not_applicable(value: object) -> bool:
     return isinstance(value, str) and value.strip().lower() == "not_applicable"
+
+
+def normalize_closeout_signal(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
+
+
+def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
+    for field, pass_values in PARENT_CLOSEOUT_SIGNAL_PASS_VALUES.items():
+        value = reconciliation.get(field)
+        if value in (None, "", "not_checked", "unknown"):
+            continue
+        if not isinstance(value, str):
+            errors.append(f"parent closeout reconciliation {field} must be text")
+            continue
+        normalized = normalize_closeout_signal(value)
+        if normalized == "not_applicable":
+            if not pr_head_not_applicable:
+                errors.append(f"parent closeout reconciliation {field} may be not_applicable only for non-PR closeout")
+            continue
+        if normalized in pass_values:
+            continue
+        if any(marker in normalized for marker in PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS):
+            errors.append(f"parent closeout reconciliation {field} records blocker state: {value}")
+        else:
+            errors.append(f"parent closeout reconciliation {field} must record pass or not_applicable")
+    return errors
 
 
 def evidence_has_non_pr_closeout(evidence: object) -> bool:

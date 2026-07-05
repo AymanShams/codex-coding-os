@@ -480,6 +480,54 @@ def main() -> int:
         write_active_slice(
             project,
             ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    required_checks="pending",
+                ),
+            },
+        )
+        parent_pending_checks_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "required_checks records blocker state: pending" not in parent_pending_checks_block.stdout:
+            raise AssertionError(parent_pending_checks_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    current_inline_comments="open actionable findings",
+                ),
+            },
+        )
+        parent_actionable_findings_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "current_inline_comments records blocker state: open actionable findings" not in parent_actionable_findings_block.stdout:
+            raise AssertionError(parent_actionable_findings_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    issue_comments="not_applicable",
+                ),
+            },
+        )
+        parent_pr_not_applicable_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "issue_comments may be not_applicable only for non-PR closeout" not in parent_pr_not_applicable_block.stdout:
+            raise AssertionError(parent_pr_not_applicable_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
             extra=parent_closeout_reconciliation(
                 pr_head_sha=parent_live_head,
                 local_head_sha=parent_live_head,
