@@ -80,6 +80,15 @@ python scripts/agent/session_continuity.py start --start-new
 
 The command reports Git and coordination state, requires incoming work inspection, blocks dirty new-session starts, and blocks an implementation next action when either manifest does not permit coding.
 
+## Automation Prompt Families
+
+Use `templates/sequential-manual-prompt.md` when the user will manually start each
+next session. Use `templates/parent-orchestrator-prompt.md` only after the user
+explicitly approves parent/orchestrator automation. Parent/orchestrator closeout
+must re-check current PR head, current-head inline comments, issue comments,
+required checks, local branch state, and stale-closeout status before reporting
+clean completion.
+
 ## Use A Lighter Workflow For Small Changes
 
 The full project workflow is for new products, unclear repositories, material architecture or product decisions, shared behavior, sensitive data, and other work where a wrong assumption has meaningful cost.

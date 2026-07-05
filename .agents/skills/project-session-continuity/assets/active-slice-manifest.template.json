@@ -55,6 +55,19 @@
     "hidden_dependencies": [],
     "assumptions_that_entered_code": []
   },
+  "parent_closeout_reconciliation": {
+    "required_before_parent_closeout": true,
+    "status": "not_started",
+    "pr_head_sha": "not_checked",
+    "local_head_sha": "not_checked",
+    "local_branch_state": "not_checked",
+    "current_inline_comments": "not_checked",
+    "issue_comments": "not_checked",
+    "required_checks": "not_checked",
+    "conflicting_review_signals": false,
+    "stale_closeout_detected": false,
+    "evidence": []
+  },
   "source_authority": [
     "project-documentation-manifest.json",
     "docs/delivery/current-state.md",

@@ -36,6 +36,15 @@
 | Unresolved decisions did not enter implementation | {{evidence}} | Pass, Fail, or Not reviewed |
 | Parent/orchestrator did not implement product code | {{evidence}} | Pass, Fail, or Not reviewed |
 
+## PR Review Signal Reconciliation
+| Check | Evidence | Result |
+|---|---|---|
+| Current PR head was verified before relying on review or check state | {{evidence}} | Pass, Fail, or Not reviewed |
+| Current-head inline comments were checked | {{evidence}} | Pass, Fail, or Not reviewed |
+| Issue comments and summary reviews were checked | {{evidence}} | Pass, Fail, or Not reviewed |
+| Required checks and mergeability were checked on the current head | {{evidence}} | Pass, Fail, or Not reviewed |
+| Current-head inline findings do not conflict with a later no-major-issues summary | {{evidence}} | Pass, Fail, Ambiguous, or Not reviewed |
+
 ## Frontend
 - Mobile and desktop layouts were checked.
 - Loading, empty, and error states exist where needed.

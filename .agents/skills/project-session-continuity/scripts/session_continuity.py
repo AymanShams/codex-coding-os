@@ -65,10 +65,12 @@ REQUIRED_HANDOFF_HEADINGS = {
     "## Recommended Next Slice",
     "## Paste-Ready Next-Session Prompt",
     "## Resume Instructions For The Next Agent",
+    "## Parent-Orchestrator Closeout Reconciliation",
 }
 READY_TO_CODE = {"approved", "completed"}
 REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
 AUTOMATION_MODES = {"off", "sequential_manual", "parent_orchestrator"}
+PARENT_CLOSEOUT_STATUSES = {"not_started", "pass", "blocked", "ambiguous", "not_applicable"}
 RUN_ENVELOPE_FIELDS = {
     "repo",
     "objective",
@@ -171,6 +173,8 @@ This file records coordination state only. Controlling product and technical sou
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 - In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
 - A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
+- Before parent/orchestrator closeout, run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout check in the active-slice manifest.
+- If current-head inline findings conflict with a later no-major-issues summary, mark `conflicting_review_signals` true, classify review state as ambiguous, and stop.
 
 ## Current Verified Repository State
 - Record the verified branch, remote baseline, and working-tree state.
@@ -198,7 +202,7 @@ This file records coordination state only. Controlling product and technical sou
 
 ## New Session Start Instructions
 ```text
-If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, record current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout status in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract
@@ -261,6 +265,19 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
         "unrequested_behavior": [],
         "hidden_dependencies": [],
         "assumptions_that_entered_code": [],
+    },
+    "parent_closeout_reconciliation": {
+        "required_before_parent_closeout": True,
+        "status": "not_started",
+        "pr_head_sha": "not_checked",
+        "local_head_sha": "not_checked",
+        "local_branch_state": "not_checked",
+        "current_inline_comments": "not_checked",
+        "issue_comments": "not_checked",
+        "required_checks": "not_checked",
+        "conflicting_review_signals": False,
+        "stale_closeout_detected": False,
+        "evidence": [],
     },
     "source_authority": [
         "project-documentation-manifest.json",
@@ -482,6 +499,7 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
         "run_envelope",
         "decision_records",
         "scope_review",
+        "parent_closeout_reconciliation",
         "source_authority",
         "allowed_files",
         "forbidden_actions",
@@ -510,6 +528,7 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
         ):
             if not isinstance(scope_review.get(field), list):
                 errors.append(f"active-slice manifest scope_review.{field} must be a list")
+    errors.extend(validate_parent_closeout_reconciliation(data, attributes, require_complete=False))
     review = data.get("review", {})
     if not isinstance(review, dict):
         errors.append("active-slice manifest review must be an object")
@@ -538,6 +557,73 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
         expected = attributes["review_applies_to_active_slice"] == "true"
         if isinstance(review.get("applies_to_active_slice"), bool) and review.get("applies_to_active_slice") is not expected:
             errors.append("active-slice manifest review.applies_to_active_slice must match current state")
+    return errors
+
+
+def validate_parent_closeout_reconciliation(
+    data: dict[str, object],
+    attributes: dict[str, str],
+    require_complete: bool,
+) -> list[str]:
+    errors: list[str] = []
+    reconciliation = data.get("parent_closeout_reconciliation", {})
+    if not isinstance(reconciliation, dict):
+        return ["active-slice manifest parent_closeout_reconciliation must be an object"]
+
+    required_fields = (
+        "required_before_parent_closeout",
+        "status",
+        "pr_head_sha",
+        "local_head_sha",
+        "local_branch_state",
+        "current_inline_comments",
+        "issue_comments",
+        "required_checks",
+        "conflicting_review_signals",
+        "stale_closeout_detected",
+        "evidence",
+    )
+    for field in required_fields:
+        if field not in reconciliation:
+            errors.append(f"active-slice manifest parent_closeout_reconciliation is missing {field}")
+
+    if not isinstance(reconciliation.get("required_before_parent_closeout"), bool):
+        errors.append("active-slice manifest parent_closeout_reconciliation.required_before_parent_closeout must be true or false")
+    if reconciliation.get("status") not in PARENT_CLOSEOUT_STATUSES:
+        errors.append("active-slice manifest parent_closeout_reconciliation.status is invalid")
+    if not isinstance(reconciliation.get("conflicting_review_signals"), bool):
+        errors.append("active-slice manifest parent_closeout_reconciliation.conflicting_review_signals must be true or false")
+    if not isinstance(reconciliation.get("stale_closeout_detected"), bool):
+        errors.append("active-slice manifest parent_closeout_reconciliation.stale_closeout_detected must be true or false")
+    if not isinstance(reconciliation.get("evidence"), list):
+        errors.append("active-slice manifest parent_closeout_reconciliation.evidence must be a list")
+
+    if not require_complete:
+        return errors
+
+    if not parent_mode_active(attributes):
+        return errors
+    if reconciliation.get("required_before_parent_closeout") is not True:
+        errors.append("parent closeout reconciliation must be required before parent closeout")
+    if reconciliation.get("status") != "pass":
+        errors.append("parent closeout reconciliation must pass before parent closeout")
+    for field in (
+        "pr_head_sha",
+        "local_head_sha",
+        "local_branch_state",
+        "current_inline_comments",
+        "issue_comments",
+        "required_checks",
+    ):
+        if reconciliation.get(field) in (None, "", "not_checked", "unknown"):
+            errors.append(f"parent closeout reconciliation must record {field}")
+    if reconciliation.get("conflicting_review_signals") is True:
+        errors.append("conflicting GitHub review signals make review-state ambiguous; stop instead of closing out or merging")
+    if reconciliation.get("stale_closeout_detected") is True:
+        errors.append("stale parent closeout detected; re-check current PR head, review signals, required checks, and local branch state")
+    evidence = reconciliation.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        errors.append("parent closeout reconciliation must include evidence")
     return errors
 
 
@@ -1099,6 +1185,20 @@ Stop if the session-start gate blocks, the workflow manifest blocks the requeste
 4. Read agent instructions, current state, active-slice manifest, latest handoff, workflow manifest, and controlling sources.
 5. Confirm the exact next permitted action before editing.
 6. Do not duplicate completed work or bypass a blocked documentation phase.
+
+## Parent-Orchestrator Closeout Reconciliation
+Complete this section before a parent/orchestrator final closeout.
+
+| Check | Evidence | Status |
+|---|---|---|
+| Current PR head was re-checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Current-head inline comments were checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Issue comments were checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Required checks were checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Local branch, local HEAD, and working tree were checked |  | Pass, Block, Ambiguous, or Not applicable |
+| Stale closeout was ruled out |  | Pass, Block, Ambiguous, or Not applicable |
+
+If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
 """
     if not args.write:
         print(content)
@@ -1127,6 +1227,34 @@ def command_validate(_: argparse.Namespace) -> int:
             print(f"- {error}")
         return 1
     print("SESSION CONTINUITY: PASS")
+    return 0
+
+
+def command_closeout_check(_: argparse.Namespace) -> int:
+    attributes, _, content = read_state()
+    if not content:
+        print(f"ERROR: required current-state file is missing: {STATE_PATH}")
+        return 1
+    active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+    data, read_errors = read_active_slice_manifest(active_manifest)
+    if read_errors:
+        print("PARENT CLOSEOUT CHECK: FAIL")
+        for error in read_errors:
+            print(f"- {error}")
+        return 1
+    assert data is not None
+    errors = validate_parent_closeout_reconciliation(data, attributes, require_complete=True)
+    if errors:
+        print("PARENT CLOSEOUT CHECK: FAIL")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    if parent_mode_active(attributes):
+        print("PARENT CLOSEOUT CHECK: PASS")
+        print("Final parent closeout may report only after the recorded live PR head, review signals, required checks, and local branch state are still current.")
+    else:
+        print("PARENT CLOSEOUT CHECK: NOT_APPLICABLE")
+        print("Parent/orchestrator mode is not active.")
     return 0
 
 
@@ -1205,6 +1333,7 @@ def build_parser() -> argparse.ArgumentParser:
     stop_latch = subparsers.add_parser("stop-latch")
     stop_latch.add_argument("--reason", default="user-stop")
     stop_latch.set_defaults(func=command_stop_latch)
+    subparsers.add_parser("closeout-check").set_defaults(func=command_closeout_check)
     subparsers.add_parser("validate").set_defaults(func=command_validate)
     return parser
 

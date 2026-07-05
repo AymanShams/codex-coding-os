@@ -98,6 +98,14 @@ For deep critique, source-backed audit, recurring workflow failure analysis, pre
   independently authorized child task. Do not dump a generic next-session prompt
   back to the user while automation authority remains active and tooling is
   available.
+- Before a parent/orchestrator final closeout, re-check and record the current PR
+  head, current-head inline comments, issue comments, required checks, local branch
+  state, working-tree state, and stale-closeout status. If the repo uses the
+  session-continuity helper, record that evidence in the active-slice manifest and
+  run `python scripts/agent/session_continuity.py closeout-check`.
+- If current-head inline findings conflict with a later no-major-issues summary,
+  classify review state as ambiguous and stop until the finding is fixed, proven
+  stale with evidence, or explicitly resolved by the review authority.
 - The parent/orchestrator is admin-only: it may inspect, assign, monitor, verify,
   reconcile, and report. It must not implement product code, merge, deploy, publish,
   choose unapproved slices, bypass review, or treat child output as authority.

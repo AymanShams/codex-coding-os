@@ -176,6 +176,24 @@ def parent_automation_manifest_fields(project: Path, actor_role: str = "parent")
     }
 
 
+def parent_closeout_reconciliation(status: str = "pass", conflict: bool = False, stale: bool = False) -> dict[str, object]:
+    return {
+        "parent_closeout_reconciliation": {
+            "required_before_parent_closeout": True,
+            "status": status,
+            "pr_head_sha": "abc123",
+            "local_head_sha": "abc123",
+            "local_branch_state": "clean",
+            "current_inline_comments": "none_current_head",
+            "issue_comments": "latest_review_clean",
+            "required_checks": "success",
+            "conflicting_review_signals": conflict,
+            "stale_closeout_detected": stale,
+            "evidence": ["smoke closeout evidence"],
+        }
+    }
+
+
 def main() -> int:
     python = sys.executable
     with tempfile.TemporaryDirectory(prefix="coding-os-workflow-gates-") as temp:
@@ -300,6 +318,26 @@ def main() -> int:
             raise AssertionError(parent_handoff.stdout)
         if "Fallback only if parent automation tooling is unavailable" not in parent_handoff.stdout:
             raise AssertionError(parent_handoff.stdout)
+        parent_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "parent closeout reconciliation must pass before parent closeout" not in parent_closeout_block.stdout:
+            raise AssertionError(parent_closeout_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={**parent_automation_manifest_fields(project), **parent_closeout_reconciliation()},
+        )
+        parent_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_closeout_pass.stdout:
+            raise AssertionError(parent_closeout_pass.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={**parent_automation_manifest_fields(project), **parent_closeout_reconciliation(status="ambiguous", conflict=True)},
+        )
+        parent_conflict_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "conflicting GitHub review signals make review-state ambiguous" not in parent_conflict_block.stdout:
+            raise AssertionError(parent_conflict_block.stdout)
+        write_active_slice(project, ["docs/**", "src/**"], extra=parent_automation_manifest_fields(project))
 
         parent_impl = project / "src" / "parent_impl.py"
         parent_impl.write_text("print('parent implementation drift')\n", encoding="utf-8")
@@ -404,6 +442,14 @@ def main() -> int:
         ):
             if required not in review_template:
                 raise AssertionError(f"fresh-context-review template is missing {required}")
+        sequential_prompt = (ROOT / "templates" / "sequential-manual-prompt.md").read_text(encoding="utf-8")
+        parent_prompt = (ROOT / "templates" / "parent-orchestrator-prompt.md").read_text(encoding="utf-8")
+        for required in ("sequential_manual", "handoff_target: manual_next_session", "exactly one paste-ready next prompt"):
+            if required not in sequential_prompt:
+                raise AssertionError(f"sequential manual prompt template is missing {required}")
+        for required in ("parent_orchestrator", "closeout-check", "current PR head", "conflicting_review_signals"):
+            if required not in parent_prompt:
+                raise AssertionError(f"parent orchestrator prompt template is missing {required}")
 
     with tempfile.TemporaryDirectory(prefix="coding-os-session-repair-") as temp:
         project = Path(temp)

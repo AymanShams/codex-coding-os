@@ -53,7 +53,14 @@ The handoff note must include:
 
 ## New Chat Prompt
 
-Use this structure:
+Use the sequential manual prompt family when the user will start each next
+session manually. Use the parent/orchestrator prompt family only after the user
+explicitly approves centralized parent automation. Parent/orchestrator closeout
+must reconcile current PR head, current-head inline comments, issue comments,
+required checks, local branch state, and stale-closeout status before reporting
+clean completion.
+
+Sequential manual structure:
 
 ```text
 We are starting implementation for <Project Name> in Codex.
@@ -74,4 +81,28 @@ Before coding:
 10. Run git status -sb and confirm whether the local repo is synced with origin/main.
 
 If the workflow manifest or active-slice manifest is not ready for coding, continue from its first blocked or incomplete phase. Propose the first implementation slice only when both manifests permit coding.
+```
+
+Parent/orchestrator structure:
+
+```text
+We are starting a parent/orchestrator run for <Project Name> in Codex.
+
+Repo path:
+<absolute repo path>
+
+Run envelope:
+- automation_mode: parent_orchestrator
+- actor_role: parent
+- handoff_target: parent
+- objective: <bounded objective>
+- allowed_next_slice_rule: <exact next-slice rule>
+- maximum child sessions: <positive integer>
+- review authority: <review authority>
+- publication authority: <none or exact authorized action>
+- stop conditions: stop for missing authority, failed validation, required-check blocker, review ambiguity, exhausted child count, unavailable tooling, or user stop.
+
+The parent must not implement product code. It may start one bounded child task at a time, consume child handoffs internally, and continue only while the run envelope independently authorizes the next child task.
+
+Before final parent closeout, record the current PR head, current-head inline comments, issue comments, required checks, local branch state, working-tree state, and stale-closeout status in `docs/delivery/active-slice-manifest.json`, then run `python scripts/agent/session_continuity.py closeout-check`. If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
 ```

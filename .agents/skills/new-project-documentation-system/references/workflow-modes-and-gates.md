@@ -72,3 +72,5 @@ Silence, lack of response, or Codex inference is not approval.
 A handoff, new chat prompt, coordination-state update, review marker, or review notification is also not approval.
 
 Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may require inspection or reconciliation, but review need comes from actual diff risk, controlled-source risk, or explicit user instruction. Same-slice status is not a review waiver.
+
+Parent/orchestrator final closeout requires one last live-state reconciliation: current PR head, current-head inline comments, issue comments, required checks, local branch state, working-tree state, and stale-closeout status. If current-head inline findings conflict with a later no-major-issues summary, the review state is ambiguous and the parent must stop until the finding is fixed, proven stale with evidence, or explicitly resolved by the review authority.
