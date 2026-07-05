@@ -204,6 +204,53 @@ def parent_closeout_reconciliation(
     }
 
 
+def write_legacy_handoff(project: Path, name: str = "legacy-handoff.md") -> Path:
+    handoff = project / "docs" / "history" / name
+    handoff.parent.mkdir(parents=True, exist_ok=True)
+    handoff.write_text(
+        """# Project Session Handoff: Legacy
+
+## Session Boundary Decision
+Continue.
+
+## Handoff Routing
+Manual next session.
+
+## Git State
+Clean.
+
+## Work Completed
+None.
+
+## Validation Run
+None.
+
+## Source Documents Read Or Changed
+None.
+
+## Candidate Decisions Still Not Final
+None.
+
+## Risks And Blockers
+None.
+
+## Work Explicitly Not Done
+None.
+
+## Recommended Next Slice
+Continue.
+
+## Paste-Ready Next-Session Prompt
+Continue.
+
+## Resume Instructions For The Next Agent
+Run the session start gate.
+""",
+        encoding="utf-8",
+    )
+    return handoff
+
+
 def main() -> int:
     python = sys.executable
     with tempfile.TemporaryDirectory(prefix="coding-os-workflow-gates-") as temp:
@@ -241,6 +288,10 @@ def main() -> int:
         if not (project / "docs" / "delivery" / "active-slice-manifest.json").exists():
             raise AssertionError("active-slice manifest was not created")
         run([python, str(local_continuity), "validate"], project, 0)
+        legacy_handoff = write_legacy_handoff(project)
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", legacy_handoff.as_posix())
+        run([python, str(local_continuity), "validate"], project, 0)
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", "none")
         update_frontmatter(project / "docs" / "delivery" / "current-state.md", "next_action", "code")
         blocked_start = run([python, str(local_continuity), "start", "--no-fetch"], project, 2)
         if "workflow manifest" not in blocked_start.stdout:
@@ -304,6 +355,12 @@ def main() -> int:
 
         update_frontmatter_values(project / "docs" / "delivery" / "current-state.md", parent_automation_fields())
         write_active_slice(project, ["docs/**", "src/**"], extra=parent_automation_manifest_fields(project))
+        parent_legacy_handoff = write_legacy_handoff(project, "legacy-parent-handoff.md")
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", parent_legacy_handoff.as_posix())
+        parent_legacy_block = run([python, str(local_continuity), "validate"], project, 1)
+        if "Parent-Orchestrator Closeout Reconciliation" not in parent_legacy_block.stdout:
+            raise AssertionError(parent_legacy_block.stdout)
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", "none")
         parent_block = run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 2)
         if "parent/orchestrator actor cannot perform next_action" not in parent_block.stdout:
             raise AssertionError(parent_block.stdout)
@@ -328,6 +385,7 @@ def main() -> int:
             raise AssertionError(parent_handoff.stdout)
         if "Fallback only if parent automation tooling is unavailable" not in parent_handoff.stdout:
             raise AssertionError(parent_handoff.stdout)
+        update_frontmatter(project / "docs" / "delivery" / "current-state.md", "next_action", "closeout")
         parent_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "parent closeout reconciliation must pass before parent closeout" not in parent_closeout_block.stdout:
             raise AssertionError(parent_closeout_block.stdout)
@@ -354,6 +412,14 @@ def main() -> int:
         parent_stale_branch_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "local_branch_state must match live working tree state: dirty" not in parent_stale_branch_block.stdout:
             raise AssertionError(parent_stale_branch_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra=parent_closeout_reconciliation(local_head_sha=parent_live_head, local_branch_state="dirty"),
+        )
+        parent_manifest_drift_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "active-slice manifest automation_mode must match current state" not in parent_manifest_drift_block.stdout:
+            raise AssertionError(parent_manifest_drift_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],

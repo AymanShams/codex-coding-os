@@ -65,6 +65,8 @@ REQUIRED_HANDOFF_HEADINGS = {
     "## Recommended Next Slice",
     "## Paste-Ready Next-Session Prompt",
     "## Resume Instructions For The Next Agent",
+}
+PARENT_CLOSEOUT_HANDOFF_HEADINGS = {
     "## Parent-Orchestrator Closeout Reconciliation",
 }
 READY_TO_CODE = {"approved", "completed"}
@@ -824,6 +826,10 @@ def parent_mode_active(attributes: dict[str, str]) -> bool:
     )
 
 
+def parent_handoff_required(attributes: dict[str, str]) -> bool:
+    return parent_mode_active(attributes) and attributes.get("handoff_target") == "parent"
+
+
 def parent_changed_file_errors(paths: list[str], attributes: dict[str, str]) -> list[str]:
     if not parent_mode_active(attributes):
         return []
@@ -906,7 +912,10 @@ def validate_state() -> list[str]:
             handoff_text = handoff.read_text(encoding="utf-8")
             if "[Agent must" in handoff_text:
                 errors.append(f"latest handoff contains generated placeholders: {handoff}")
-            for heading in REQUIRED_HANDOFF_HEADINGS:
+            required_handoff_headings = set(REQUIRED_HANDOFF_HEADINGS)
+            if parent_handoff_required(attributes):
+                required_handoff_headings.update(PARENT_CLOSEOUT_HANDOFF_HEADINGS)
+            for heading in required_handoff_headings:
                 if heading not in handoff_text:
                     errors.append(f"latest handoff is missing '{heading}': {handoff}")
 
@@ -1295,14 +1304,15 @@ def command_closeout_check(_: argparse.Namespace) -> int:
         print(f"ERROR: required current-state file is missing: {STATE_PATH}")
         return 1
     active_manifest = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+    errors = validate_state()
     data, read_errors = read_active_slice_manifest(active_manifest)
     if read_errors:
-        print("PARENT CLOSEOUT CHECK: FAIL")
         for error in read_errors:
-            print(f"- {error}")
-        return 1
-    assert data is not None
-    errors = validate_parent_closeout_reconciliation(data, attributes, require_complete=True)
+            if error not in errors:
+                errors.append(error)
+    else:
+        assert data is not None
+        errors.extend(validate_parent_closeout_reconciliation(data, attributes, require_complete=True))
     if errors:
         print("PARENT CLOSEOUT CHECK: FAIL")
         for error in errors:
