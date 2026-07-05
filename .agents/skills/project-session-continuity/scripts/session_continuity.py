@@ -933,8 +933,8 @@ def publication_stabilization_authority_value_is_blocking(value: object) -> bool
 
 
 def publication_stabilization_review_count_is_valid(value: str) -> bool:
-    counts = [int(match) for match in re.findall(r"\d+", value)]
-    return any(count > 0 for count in counts)
+    normalized = normalize_closeout_signal(value)
+    return re.match(r"^[1-9]\d*_(current_head_)?reviews?(_|$)", normalized) is not None
 
 
 def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:

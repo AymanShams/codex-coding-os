@@ -780,6 +780,30 @@ def main() -> int:
                     pr_head_sha=parent_live_head,
                     local_head_sha=parent_live_head,
                     local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "abc123",
+                        "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
+                        "bounded_wait_result": "not pending after bounded wait",
+                    },
+                ),
+            },
+        )
+        parent_authority_copied_id_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_copied_id_block.stdout:
+            raise AssertionError(parent_authority_copied_id_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
                     current_inline_comments="no open comments but unresolved finding",
                 ),
             },
