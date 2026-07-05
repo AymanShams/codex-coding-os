@@ -146,6 +146,50 @@ PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS = {
     "timed_out",
     "unresolved",
 }
+PARENT_CLOSEOUT_SIGNAL_NEGATIONS = {"no", "none", "zero", "without"}
+PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS = {
+    "current_inline_comments": {
+        "actionable",
+        "blocker",
+        "blockers",
+        "blocking",
+        "comment",
+        "comments",
+        "current",
+        "finding",
+        "findings",
+        "head",
+        "inline",
+        "open",
+        "review",
+        "reviews",
+        "unresolved",
+    },
+    "issue_comments": {
+        "actionable",
+        "blocker",
+        "blockers",
+        "blocking",
+        "comment",
+        "comments",
+        "issue",
+        "issues",
+        "open",
+        "review",
+        "reviews",
+        "unresolved",
+    },
+}
+PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_NOUNS = {
+    "comment",
+    "comments",
+    "finding",
+    "findings",
+    "issue",
+    "issues",
+    "review",
+    "reviews",
+}
 RUN_ENVELOPE_FIELDS = {
     "repo",
     "objective",
@@ -750,6 +794,19 @@ def normalize_closeout_signal(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
 
 
+def closeout_signal_is_negated_clean(field: str, normalized: str) -> bool:
+    allowed_tokens = PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS.get(field)
+    if not allowed_tokens:
+        return False
+    tokens = tuple(token for token in normalized.split("_") if token)
+    if len(tokens) < 2 or tokens[0] not in PARENT_CLOSEOUT_SIGNAL_NEGATIONS:
+        return False
+    signal_tokens = tokens[1:]
+    if any(token not in allowed_tokens for token in signal_tokens):
+        return False
+    return any(token in PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_NOUNS for token in signal_tokens)
+
+
 def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:
     errors: list[str] = []
     pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
@@ -765,7 +822,7 @@ def validate_parent_closeout_review_check_signals(reconciliation: dict[str, obje
             if not pr_head_not_applicable:
                 errors.append(f"parent closeout reconciliation {field} may be not_applicable only for non-PR closeout")
             continue
-        if normalized in pass_values:
+        if normalized in pass_values or closeout_signal_is_negated_clean(field, normalized):
             continue
         if any(marker in normalized for marker in PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS):
             errors.append(f"parent closeout reconciliation {field} records blocker state: {value}")
