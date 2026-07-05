@@ -1021,6 +1021,10 @@ def validate_publication_stabilization(reconciliation: dict[str, object], live_h
             marker in normalized for marker in PUBLICATION_STABILIZATION_BLOCKER_MARKERS
         ):
             errors.append(f"parent closeout reconciliation publication_stabilization.{field} records blocker state: {value}")
+        else:
+            errors.append(
+                f"parent closeout reconciliation publication_stabilization.{field} must record explicit clean wait/retrigger evidence"
+            )
 
     return errors
 

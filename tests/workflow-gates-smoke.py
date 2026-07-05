@@ -562,6 +562,32 @@ def main() -> int:
             extra={
                 **parent_automation_manifest_fields(project),
                 **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "see above",
+                        "bounded_wait_result": "unchecked",
+                    },
+                ),
+            },
+        )
+        parent_unknown_publication_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.metadata_only_check_retrigger must record explicit clean wait/retrigger evidence" not in parent_unknown_publication_evidence_block.stdout:
+            raise AssertionError(parent_unknown_publication_evidence_block.stdout)
+        if "publication_stabilization.bounded_wait_result must record explicit clean wait/retrigger evidence" not in parent_unknown_publication_evidence_block.stdout:
+            raise AssertionError(parent_unknown_publication_evidence_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
                     pr_head_sha="not_applicable",
                     local_head_sha=parent_live_head,
                     local_branch_state="dirty",
