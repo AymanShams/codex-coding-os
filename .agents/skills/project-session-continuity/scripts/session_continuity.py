@@ -183,6 +183,37 @@ PUBLICATION_STABILIZATION_BLOCKER_MARKERS = (
     "ambiguous",
     "unresolved",
 )
+PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS = {
+    "metadata_only_check_retrigger": {
+        "body",
+        "check",
+        "metadata",
+        "only",
+        "pending",
+        "pr",
+        "retrigger",
+        "retriggered",
+        "retriggering",
+    },
+    "bounded_wait_result": {
+        "bounded",
+        "check",
+        "checks",
+        "out",
+        "pending",
+        "timed",
+        "timeout",
+        "wait",
+    },
+}
+PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS = {
+    "pending",
+    "retrigger",
+    "retriggered",
+    "retriggering",
+    "timed",
+    "timeout",
+}
 PARENT_CLOSEOUT_SIGNAL_NEGATIONS = {"no", "none", "zero", "without"}
 PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS = {
     "current_inline_comments": {
@@ -853,6 +884,19 @@ def closeout_signal_is_negated_clean(field: str, normalized: str) -> bool:
     return any(token in PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_NOUNS for token in signal_tokens)
 
 
+def publication_stabilization_value_is_negated_clean(field: str, normalized: str) -> bool:
+    allowed_tokens = PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS.get(field)
+    if not allowed_tokens:
+        return False
+    tokens = tuple(token for token in normalized.split("_") if token)
+    if len(tokens) < 2 or tokens[0] not in PARENT_CLOSEOUT_SIGNAL_NEGATIONS:
+        return False
+    signal_tokens = tokens[1:]
+    if any(token not in allowed_tokens for token in signal_tokens):
+        return False
+    return any(token in PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS for token in signal_tokens)
+
+
 def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:
     errors: list[str] = []
     pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
@@ -924,6 +968,8 @@ def validate_publication_stabilization(reconciliation: dict[str, object], live_h
             errors.append(f"parent closeout reconciliation publication_stabilization.{field} must be text")
             continue
         normalized = normalize_closeout_signal(value)
+        if publication_stabilization_value_is_negated_clean(field, normalized):
+            continue
         if normalized in PUBLICATION_STABILIZATION_BAD_VALUES or any(
             marker in normalized for marker in PUBLICATION_STABILIZATION_BLOCKER_MARKERS
         ):

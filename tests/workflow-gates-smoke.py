@@ -624,6 +624,30 @@ def main() -> int:
                     pr_head_sha=parent_live_head,
                     local_head_sha=parent_live_head,
                     local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "no pending metadata-only PR body check retrigger",
+                        "bounded_wait_result": "no bounded wait timed out",
+                    },
+                ),
+            },
+        )
+        parent_negated_publication_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_negated_publication_pass.stdout:
+            raise AssertionError(parent_negated_publication_pass.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
                     current_inline_comments="no open comments but unresolved finding",
                 ),
             },
