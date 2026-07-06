@@ -130,19 +130,27 @@ child task. Do not dump a generic next-session prompt back to the user while the
 envelope still authorizes continuation and thread or worktree tooling is available.
 
 Before a parent/orchestrator gives a final closeout, it must reconcile live state one
-last time. Record the current PR head, current-head inline comments, issue comments,
-required checks, local branch state, stale-closeout status, and publication
-stabilization evidence in `docs/delivery/active-slice-manifest.json`, then run
+last time. Run `python scripts/agent/session_continuity.py review-state --pr <number>`
+when the helper exists, then record the current PR head, review commit, current-head
+inline comments, issue comments, required checks, local branch state, stale-closeout
+status, publication stabilization evidence, and review-loop breaker evidence in
+`docs/delivery/active-slice-manifest.json`. Then run
 `python scripts/agent/session_continuity.py closeout-check`. Publication
 stabilization evidence must record PR body head metadata, reviewed-head evidence,
-exact review authority count, post-review-fix reconciliation status, and any
-metadata-only PR body check retrigger state. After any review-fix push, reconcile
-those fields before starting another review or publication child. If a metadata-only
-PR body edit retriggers a required check, bounded-poll only while code head, PR body
+exact review authority count, post-review-fix reconciliation status, and typed
+metadata-only PR body check retrigger state. `metadata_only_check_retrigger` must be
+`not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result` must
+be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text
+clean phrases are not closeout evidence. After any review-fix push, reconcile those
+fields before starting another review or publication child. If a metadata-only PR
+body edit retriggers a required check, bounded-poll only while code head, PR body
 head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays
 pending past the bound or any head, review, or check signal changes. If current-head
 inline findings conflict with a later no-major-issues summary, classify the review
-state as ambiguous and stop. A direct deployment status or child summary does not
+state as ambiguous and stop. After two automated review-fix rounds on the same PR,
+or after three findings in the same validator area, stop and require a batch
+root-cause analysis plus adversarial test matrix before authorizing exactly one
+further automated review. A direct deployment status or child summary does not
 override a pending required GitHub check or a current-head inline finding.
 
 The parent/orchestrator may inspect, assign, monitor, verify, reconcile, and report.
@@ -207,8 +215,9 @@ thread mode.
 - The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
 - Decision records make material assumptions visible before code. A record with status `proposed` or `needs_human` blocks implementation when it is material.
 - Review state must be explicit. Use fields such as `review_required`, `review_status`, `reviewed_sha`, and `review_applies_to_active_slice`; never treat a retained marker string as review completion.
-- Parent/orchestrator final closeout requires a final-state reconciliation over current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout detection.
+- Parent/orchestrator final closeout requires a final-state reconciliation over current PR head, current-head inline comments, issue comments, required checks, local branch state, stale-closeout detection, publication stabilization typed states, and review-loop breaker evidence.
 - Conflicting GitHub review signals are blocking ambiguity. A current-head inline finding plus a later no-major-issues summary must stop until the finding is fixed, dismissed as stale with evidence, or explicitly resolved by the review authority.
+- Review-fix loops are hard stops. After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one more automated review.
 - Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, and local dirty state may narrow allowed actions or require reconciliation, but they must not create review, handoff, new-session, or process churn unless a mandatory gate independently blocks the requested outcome.
 - Same-slice status is not a review waiver. Before recommending review or no review, inspect the actual changed files and classify review need from diff risk, controlled-source risk, or explicit user instruction.
 - Treat the first-slice authorization false-negative case as the anti-loop review test case. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.

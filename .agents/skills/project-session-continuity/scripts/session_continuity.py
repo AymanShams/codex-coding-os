@@ -155,6 +155,28 @@ PUBLICATION_STABILIZATION_FIELDS = (
     "metadata_only_check_retrigger",
     "bounded_wait_result",
 )
+REVIEW_LOOP_BREAKER_FIELDS = (
+    "status",
+    "automated_review_fix_rounds",
+    "max_automated_review_fix_rounds",
+    "validator_area_findings",
+    "batch_rca_completed",
+    "adversarial_test_matrix_completed",
+    "next_review_authorized",
+)
+REVIEW_LOOP_BREAKER_STATUSES = {"not_started", "pass", "blocked", "not_applicable"}
+REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS = 2
+REVIEW_LOOP_MAX_VALIDATOR_AREA_FINDINGS = 3
+PUBLICATION_STABILIZATION_PASS_STATES = {
+    "metadata_only_check_retrigger": {
+        "not_retriggered",
+        "retriggered_required_checks_passed",
+    },
+    "bounded_wait_result": {
+        "not_required_no_retrigger",
+        "completed_required_checks_success",
+    },
+}
 PUBLICATION_STABILIZATION_BAD_VALUES = {
     "",
     "unknown",
@@ -506,6 +528,15 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
             "metadata_only_check_retrigger": "not_checked",
             "bounded_wait_result": "not_checked",
         },
+        "review_loop_breaker": {
+            "status": "not_started",
+            "automated_review_fix_rounds": 0,
+            "max_automated_review_fix_rounds": 2,
+            "validator_area_findings": {},
+            "batch_rca_completed": False,
+            "adversarial_test_matrix_completed": False,
+            "next_review_authorized": False,
+        },
         "evidence": [],
     },
     "source_authority": [
@@ -572,6 +603,151 @@ def run_git_stdout(*args: str) -> str:
         check=False,
     )
     return result.stdout if result.returncode == 0 else ""
+
+
+def run_gh_json(args: list[str]) -> object:
+    result = subprocess.run(
+        ["gh", *args],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or f"gh {' '.join(args)} failed")
+    return json.loads(result.stdout or "null")
+
+
+def current_repo_name_with_owner() -> str:
+    data = run_gh_json(["repo", "view", "--json", "nameWithOwner"])
+    if not isinstance(data, dict) or not isinstance(data.get("nameWithOwner"), str):
+        raise RuntimeError("cannot resolve current GitHub repository")
+    return data["nameWithOwner"]
+
+
+def reviewed_commit_from_body(body: str) -> str | None:
+    for pattern in (
+        r"Reviewed commit:\*{0,2}\s*`?([0-9a-f]{7,40})",
+        r"Reviewed SHA:\*{0,2}\s*`?([0-9a-f]{7,40})",
+        r"Reviewed current PR head:\*{0,2}\s*`?([0-9a-f]{7,40})",
+    ):
+        match = re.search(pattern, body, re.IGNORECASE)
+        if match:
+            return match.group(1).lower()
+    return None
+
+
+def body_reports_no_major_issues(body: str) -> bool:
+    normalized = body.lower()
+    return (
+        "no major issues" in normalized
+        or "didn't find any major issues" in normalized
+        or "didn’t find any major issues" in normalized
+        or "did not find any major issues" in normalized
+    )
+
+
+def check_summary(check: dict[str, object]) -> dict[str, object]:
+    name = str(check.get("name") or check.get("context") or "(unnamed)")
+    state = str(check.get("conclusion") or check.get("state") or check.get("status") or "UNKNOWN")
+    return {
+        "name": name,
+        "state": state,
+        "blocking": state.upper() not in {"SUCCESS", "SKIPPED", "NEUTRAL"},
+    }
+
+
+def summarize_current_head_review_state(pr: dict[str, object], inline_comments: list[dict[str, object]]) -> dict[str, object]:
+    head = str(pr.get("headRefOid") or "")
+    reviews = [review for review in pr.get("reviews", []) if isinstance(review, dict)]
+    issue_comments = [comment for comment in pr.get("comments", []) if isinstance(comment, dict)]
+    review_records = [
+        {
+            "review_commit": str(((review.get("commit") or {}).get("oid")) or ""),
+            "submitted_at": review.get("submittedAt"),
+            "state": review.get("state"),
+            "author": ((review.get("author") or {}).get("login")),
+        }
+        for review in reviews
+    ]
+    current_head_reviews = [record for record in review_records if record["review_commit"].lower() == head.lower()]
+    clean_summaries = []
+    for comment in issue_comments:
+        body = str(comment.get("body") or "")
+        reviewed_commit = reviewed_commit_from_body(body)
+        if reviewed_commit and body_reports_no_major_issues(body):
+            clean_summaries.append(
+                {
+                    "clean_summary_commit": reviewed_commit,
+                    "created_at": comment.get("createdAt"),
+                    "author": ((comment.get("author") or {}).get("login")),
+                    "url": comment.get("url"),
+                    "current_head": head.lower().startswith(reviewed_commit) or reviewed_commit == head.lower(),
+                }
+            )
+    latest_current_clean = next(
+        (item for item in sorted(clean_summaries, key=lambda item: str(item.get("created_at") or ""), reverse=True) if item["current_head"]),
+        None,
+    )
+    inline_report = [
+        {
+            "path": comment.get("path"),
+            "line": comment.get("line"),
+            "original_commit_id": comment.get("original_commit_id"),
+            "commit_id": comment.get("commit_id"),
+            "created_at": comment.get("created_at") or comment.get("createdAt"),
+            "url": comment.get("url"),
+        }
+        for comment in inline_comments
+    ]
+    current_original = [
+        comment for comment in inline_report if str(comment.get("original_commit_id") or "").lower() == head.lower()
+    ]
+    current_commit = [comment for comment in inline_report if str(comment.get("commit_id") or "").lower() == head.lower()]
+    ambiguity = False
+    if latest_current_clean and current_original:
+        clean_created = str(latest_current_clean.get("created_at") or "")
+        ambiguity = any(str(comment.get("created_at") or "") <= clean_created for comment in current_original)
+    checks = [check_summary(check) for check in pr.get("statusCheckRollup", []) if isinstance(check, dict)]
+    return {
+        "pr_head": head,
+        "review_commit": review_records[-1]["review_commit"] if review_records else None,
+        "current_head_review_records": len(current_head_reviews),
+        "clean_summary_commit": latest_current_clean.get("clean_summary_commit") if latest_current_clean else None,
+        "current_head_clean_summary": bool(latest_current_clean),
+        "inline_comments": inline_report,
+        "current_head_original_commit_comments": len(current_original),
+        "current_head_commit_comments": len(current_commit),
+        "required_checks": checks,
+        "required_checks_blocking": [check for check in checks if check["blocking"]],
+        "ambiguous": ambiguity,
+    }
+
+
+def collect_current_head_review_state(repo: str, pr_number: str) -> dict[str, object]:
+    pr = run_gh_json(
+        [
+            "pr",
+            "view",
+            pr_number,
+            "--repo",
+            repo,
+            "--json",
+            "headRefOid,statusCheckRollup,comments,reviews,url",
+        ]
+    )
+    if not isinstance(pr, dict):
+        raise RuntimeError("gh pr view returned invalid data")
+    inline_comments = run_gh_json(["api", f"repos/{repo}/pulls/{pr_number}/comments", "--paginate"])
+    if not isinstance(inline_comments, list):
+        raise RuntimeError("gh api pull comments returned invalid data")
+    summary = summarize_current_head_review_state(pr, inline_comments)
+    summary["repo"] = repo
+    summary["pr"] = pr_number
+    summary["url"] = pr.get("url")
+    return summary
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -814,6 +990,7 @@ def validate_parent_closeout_reconciliation(
         "required_checks",
         "conflicting_review_signals",
         "stale_closeout_detected",
+        "review_loop_breaker",
         "evidence",
     )
     for field in required_fields:
@@ -859,6 +1036,7 @@ def validate_parent_closeout_reconciliation(
         errors.append("parent closeout reconciliation must include evidence")
     errors.extend(validate_parent_closeout_review_check_signals(reconciliation))
     errors.extend(validate_parent_closeout_live_git_state(reconciliation))
+    errors.extend(validate_review_loop_breaker(reconciliation))
     return errors
 
 
@@ -946,6 +1124,31 @@ def publication_stabilization_review_count_is_valid(value: str) -> bool:
     return re.match(r"^[1-9]\d*_(current_head_)?reviews?(_|$)", normalized) is not None
 
 
+def publication_stabilization_state_is_pass(field: str, value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    return normalize_closeout_signal(value) in PUBLICATION_STABILIZATION_PASS_STATES.get(field, set())
+
+
+def publication_stabilization_state_options(field: str) -> str:
+    return ", ".join(sorted(PUBLICATION_STABILIZATION_PASS_STATES.get(field, set())))
+
+
+def validate_publication_stabilization_state_pair(stabilization: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    retrigger = normalize_closeout_signal(stabilization.get("metadata_only_check_retrigger"))
+    wait = normalize_closeout_signal(stabilization.get("bounded_wait_result"))
+    if retrigger == "not_retriggered" and wait != "not_required_no_retrigger":
+        errors.append(
+            "parent closeout reconciliation publication_stabilization.bounded_wait_result must be not_required_no_retrigger when metadata_only_check_retrigger is not_retriggered"
+        )
+    if retrigger == "retriggered_required_checks_passed" and wait != "completed_required_checks_success":
+        errors.append(
+            "parent closeout reconciliation publication_stabilization.bounded_wait_result must be completed_required_checks_success when metadata_only_check_retrigger is retriggered_required_checks_passed"
+        )
+    return errors
+
+
 def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:
     errors: list[str] = []
     pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
@@ -1024,7 +1227,12 @@ def validate_publication_stabilization(reconciliation: dict[str, object], live_h
             errors.append(f"parent closeout reconciliation publication_stabilization.{field} must be text")
             continue
         normalized = normalize_closeout_signal(value)
+        if publication_stabilization_state_is_pass(field, value):
+            continue
         if publication_stabilization_value_is_negated_clean(field, normalized):
+            errors.append(
+                f"parent closeout reconciliation publication_stabilization.{field} must use accepted state: {publication_stabilization_state_options(field)}"
+            )
             continue
         if normalized in PUBLICATION_STABILIZATION_BAD_VALUES or any(
             marker in normalized for marker in PUBLICATION_STABILIZATION_BLOCKER_MARKERS
@@ -1032,8 +1240,65 @@ def validate_publication_stabilization(reconciliation: dict[str, object], live_h
             errors.append(f"parent closeout reconciliation publication_stabilization.{field} records blocker state: {value}")
         else:
             errors.append(
-                f"parent closeout reconciliation publication_stabilization.{field} must record explicit clean wait/retrigger evidence"
+                f"parent closeout reconciliation publication_stabilization.{field} must use accepted state: {publication_stabilization_state_options(field)}"
             )
+
+    errors.extend(validate_publication_stabilization_state_pair(stabilization))
+    return errors
+
+
+def validate_review_loop_breaker(reconciliation: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    breaker = reconciliation.get("review_loop_breaker")
+    if not isinstance(breaker, dict):
+        return ["parent closeout reconciliation review_loop_breaker must be an object"]
+
+    for field in REVIEW_LOOP_BREAKER_FIELDS:
+        if field not in breaker:
+            errors.append(f"parent closeout reconciliation review_loop_breaker is missing {field}")
+
+    if breaker.get("status") not in REVIEW_LOOP_BREAKER_STATUSES:
+        errors.append("parent closeout reconciliation review_loop_breaker.status is invalid")
+
+    rounds = breaker.get("automated_review_fix_rounds")
+    if not isinstance(rounds, int) or rounds < 0:
+        errors.append("parent closeout reconciliation review_loop_breaker.automated_review_fix_rounds must be a non-negative integer")
+        rounds = 0
+
+    max_rounds = breaker.get("max_automated_review_fix_rounds")
+    if not isinstance(max_rounds, int) or max_rounds != REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS:
+        errors.append("parent closeout reconciliation review_loop_breaker.max_automated_review_fix_rounds must be 2")
+        max_rounds = REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS
+
+    validator_area_findings = breaker.get("validator_area_findings")
+    max_area_findings = 0
+    if not isinstance(validator_area_findings, dict):
+        errors.append("parent closeout reconciliation review_loop_breaker.validator_area_findings must be an object")
+    else:
+        for area, count in validator_area_findings.items():
+            if not isinstance(area, str) or not area.strip():
+                errors.append("parent closeout reconciliation review_loop_breaker.validator_area_findings keys must be non-empty text")
+            if not isinstance(count, int) or count < 0:
+                errors.append(f"parent closeout reconciliation review_loop_breaker.validator_area_findings.{area} must be a non-negative integer")
+            else:
+                max_area_findings = max(max_area_findings, count)
+
+    for field in ("batch_rca_completed", "adversarial_test_matrix_completed", "next_review_authorized"):
+        if not isinstance(breaker.get(field), bool):
+            errors.append(f"parent closeout reconciliation review_loop_breaker.{field} must be true or false")
+
+    threshold_crossed = rounds >= max_rounds or max_area_findings >= REVIEW_LOOP_MAX_VALIDATOR_AREA_FINDINGS
+    if threshold_crossed:
+        if breaker.get("status") != "pass":
+            errors.append("review loop breaker triggered; status must be pass only after batch RCA and adversarial test matrix are complete")
+        if breaker.get("batch_rca_completed") is not True:
+            errors.append("review loop breaker triggered; batch RCA is required before another automated review")
+        if breaker.get("adversarial_test_matrix_completed") is not True:
+            errors.append("review loop breaker triggered; adversarial test matrix is required before another automated review")
+        if breaker.get("next_review_authorized") is not True:
+            errors.append("review loop breaker triggered; exactly one next automated review must be explicitly authorized")
+    elif breaker.get("status") not in {"pass", "not_started", "not_applicable"}:
+        errors.append("parent closeout reconciliation review_loop_breaker.status must not be blocked before loop thresholds are reached")
 
     return errors
 
@@ -1810,6 +2075,41 @@ def command_stop_latch(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_review_state(args: argparse.Namespace) -> int:
+    try:
+        repo = args.repo or current_repo_name_with_owner()
+        summary = collect_current_head_review_state(repo, str(args.pr))
+    except RuntimeError as exc:
+        print("CURRENT-HEAD REVIEW STATE: FAIL")
+        print(f"- {exc}")
+        return 1
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
+    print("CURRENT-HEAD REVIEW STATE")
+    print(f"repo: {summary['repo']}")
+    print(f"pr: {summary['pr']}")
+    print(f"pr_head: {summary['pr_head']}")
+    print(f"latest_review_commit: {summary['review_commit'] or 'none'}")
+    print(f"current_head_review_records: {summary['current_head_review_records']}")
+    print(f"clean_summary_commit: {summary['clean_summary_commit'] or 'none'}")
+    print(f"current_head_clean_summary: {summary['current_head_clean_summary']}")
+    print(f"current_head_original_commit_comments: {summary['current_head_original_commit_comments']}")
+    print(f"current_head_commit_comments: {summary['current_head_commit_comments']}")
+    print(f"ambiguous: {summary['ambiguous']}")
+    print("required_checks:")
+    for check in summary["required_checks"]:
+        print(f"- {check['name']}: {check['state']}")
+    print("inline_comment_commits:")
+    for comment in summary["inline_comments"]:
+        print(
+            f"- original_commit_id={comment.get('original_commit_id') or 'none'} "
+            f"commit_id={comment.get('commit_id') or 'none'} "
+            f"path={comment.get('path') or 'none'}"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1841,6 +2141,11 @@ def build_parser() -> argparse.ArgumentParser:
     stop_latch = subparsers.add_parser("stop-latch")
     stop_latch.add_argument("--reason", default="user-stop")
     stop_latch.set_defaults(func=command_stop_latch)
+    review_state = subparsers.add_parser("review-state")
+    review_state.add_argument("--repo", default="")
+    review_state.add_argument("--pr", required=True)
+    review_state.add_argument("--json", action="store_true")
+    review_state.set_defaults(func=command_review_state)
     subparsers.add_parser("closeout-check").set_defaults(func=command_closeout_check)
     subparsers.add_parser("validate").set_defaults(func=command_validate)
     return parser

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -40,6 +41,63 @@ def run(args: list[str], cwd: Path, expected: int) -> subprocess.CompletedProces
 
 def git_stdout(project: Path, *args: str) -> str:
     return run(["git", *args], project, 0).stdout.strip()
+
+
+def assert_review_state_collector_fixture() -> None:
+    spec = importlib.util.spec_from_file_location("session_continuity_under_test", CONTINUITY)
+    if spec is None or spec.loader is None:
+        raise AssertionError("Cannot import session continuity helper for collector fixture")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    head = "a" * 40
+    pr = {
+        "headRefOid": head,
+        "reviews": [
+            {
+                "commit": {"oid": head},
+                "submittedAt": "2026-07-06T00:00:00Z",
+                "state": "COMMENTED",
+                "author": {"login": "chatgpt-codex-connector"},
+            }
+        ],
+        "comments": [
+            {
+                "body": "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`",
+                "createdAt": "2026-07-06T00:02:00Z",
+                "author": {"login": "chatgpt-codex-connector"},
+                "url": "https://example.invalid/comment",
+            }
+        ],
+        "statusCheckRollup": [
+            {"name": "validate", "conclusion": "SUCCESS"},
+            {"context": "Vercel", "state": "PENDING"},
+        ],
+    }
+    inline_comments = [
+        {
+            "path": "scripts/agent/session_continuity.py",
+            "line": 1,
+            "original_commit_id": head,
+            "commit_id": head,
+            "created_at": "2026-07-06T00:01:00Z",
+            "url": "https://example.invalid/inline",
+        }
+    ]
+    summary = module.summarize_current_head_review_state(pr, inline_comments)
+    if summary["pr_head"] != head:
+        raise AssertionError(summary)
+    if summary["review_commit"] != head:
+        raise AssertionError(summary)
+    if summary["current_head_review_records"] != 1:
+        raise AssertionError(summary)
+    if summary["clean_summary_commit"] != "aaaaaaaaaa":
+        raise AssertionError(summary)
+    if summary["current_head_original_commit_comments"] != 1 or summary["current_head_commit_comments"] != 1:
+        raise AssertionError(summary)
+    if len(summary["required_checks_blocking"]) != 1:
+        raise AssertionError(summary)
+    if summary["ambiguous"] is not True:
+        raise AssertionError(summary)
 
 
 def update_frontmatter(path: Path, key: str, value: str) -> None:
@@ -211,8 +269,8 @@ def parent_closeout_reconciliation(
                 "review_evidence_head_sha": pr_head_sha,
                 "review_authority": "current-head Codex review plus configured independent review",
                 "review_authority_count": "2 current-head reviews",
-                "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
-                "bounded_wait_result": "not pending after bounded wait",
+                "metadata_only_check_retrigger": "not_retriggered",
+                "bounded_wait_result": "not_required_no_retrigger",
             }
     return {
         "parent_closeout_reconciliation": {
@@ -227,6 +285,15 @@ def parent_closeout_reconciliation(
             "conflicting_review_signals": conflict,
             "stale_closeout_detected": stale,
             "publication_stabilization": publication_stabilization,
+            "review_loop_breaker": {
+                "status": "not_started",
+                "automated_review_fix_rounds": 0,
+                "max_automated_review_fix_rounds": 2,
+                "validator_area_findings": {},
+                "batch_rca_completed": False,
+                "adversarial_test_matrix_completed": False,
+                "next_review_authorized": False,
+            },
             "evidence": evidence or ["smoke closeout evidence"],
         }
     }
@@ -281,6 +348,7 @@ Run the session start gate.
 
 def main() -> int:
     python = sys.executable
+    assert_review_state_collector_fixture()
     with tempfile.TemporaryDirectory(prefix="coding-os-workflow-gates-") as temp:
         project = Path(temp)
         subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.DEVNULL)
@@ -495,8 +563,8 @@ def main() -> int:
                         "review_evidence_head_sha": parent_live_head,
                         "review_authority": "current-head Codex review plus configured independent review",
                         "review_authority_count": "2 current-head reviews",
-                        "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
-                        "bounded_wait_result": "not pending after bounded wait",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
                     },
                 ),
             },
@@ -578,9 +646,9 @@ def main() -> int:
             },
         )
         parent_unknown_publication_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.metadata_only_check_retrigger must record explicit clean wait/retrigger evidence" not in parent_unknown_publication_evidence_block.stdout:
+        if "publication_stabilization.metadata_only_check_retrigger must use accepted state" not in parent_unknown_publication_evidence_block.stdout:
             raise AssertionError(parent_unknown_publication_evidence_block.stdout)
-        if "publication_stabilization.bounded_wait_result must record explicit clean wait/retrigger evidence" not in parent_unknown_publication_evidence_block.stdout:
+        if "publication_stabilization.bounded_wait_result must use accepted state" not in parent_unknown_publication_evidence_block.stdout:
             raise AssertionError(parent_unknown_publication_evidence_block.stdout)
         write_active_slice(
             project,
@@ -690,9 +758,87 @@ def main() -> int:
                 ),
             },
         )
-        parent_negated_publication_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
-        if "PARENT CLOSEOUT CHECK: PASS" not in parent_negated_publication_pass.stdout:
-            raise AssertionError(parent_negated_publication_pass.stdout)
+        parent_negated_publication_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.metadata_only_check_retrigger must use accepted state" not in parent_negated_publication_block.stdout:
+            raise AssertionError(parent_negated_publication_block.stdout)
+        if "publication_stabilization.bounded_wait_result must use accepted state" not in parent_negated_publication_block.stdout:
+            raise AssertionError(parent_negated_publication_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "retriggered_required_checks_passed",
+                        "bounded_wait_result": "completed_required_checks_success",
+                    },
+                ),
+            },
+        )
+        parent_enum_publication_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_enum_publication_pass.stdout:
+            raise AssertionError(parent_enum_publication_pass.stdout)
+        loop_triggered_without_rca = parent_closeout_reconciliation(
+            pr_head_sha=parent_live_head,
+            local_head_sha=parent_live_head,
+            local_branch_state="dirty",
+        )
+        loop_triggered_without_rca["parent_closeout_reconciliation"]["review_loop_breaker"] = {
+            "status": "blocked",
+            "automated_review_fix_rounds": 2,
+            "max_automated_review_fix_rounds": 2,
+            "validator_area_findings": {"publication_stabilization": 3},
+            "batch_rca_completed": False,
+            "adversarial_test_matrix_completed": False,
+            "next_review_authorized": False,
+        }
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **loop_triggered_without_rca,
+            },
+        )
+        parent_review_loop_without_rca_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "review loop breaker triggered; batch RCA is required before another automated review" not in parent_review_loop_without_rca_block.stdout:
+            raise AssertionError(parent_review_loop_without_rca_block.stdout)
+        if "review loop breaker triggered; adversarial test matrix is required before another automated review" not in parent_review_loop_without_rca_block.stdout:
+            raise AssertionError(parent_review_loop_without_rca_block.stdout)
+        loop_triggered_with_rca = parent_closeout_reconciliation(
+            pr_head_sha=parent_live_head,
+            local_head_sha=parent_live_head,
+            local_branch_state="dirty",
+        )
+        loop_triggered_with_rca["parent_closeout_reconciliation"]["review_loop_breaker"] = {
+            "status": "pass",
+            "automated_review_fix_rounds": 2,
+            "max_automated_review_fix_rounds": 2,
+            "validator_area_findings": {"publication_stabilization": 3},
+            "batch_rca_completed": True,
+            "adversarial_test_matrix_completed": True,
+            "next_review_authorized": True,
+        }
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **loop_triggered_with_rca,
+            },
+        )
+        parent_review_loop_with_rca_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_review_loop_with_rca_pass.stdout:
+            raise AssertionError(parent_review_loop_with_rca_pass.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -708,8 +854,8 @@ def main() -> int:
                         "review_evidence_head_sha": parent_live_head,
                         "review_authority": "not checked",
                         "review_authority_count": "in progress 2",
-                        "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
-                        "bounded_wait_result": "not pending after bounded wait",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
                     },
                 ),
             },
@@ -734,8 +880,8 @@ def main() -> int:
                         "review_evidence_head_sha": parent_live_head,
                         "review_authority": "not applicable",
                         "review_authority_count": "not applicable 1",
-                        "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
-                        "bounded_wait_result": "not pending after bounded wait",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
                     },
                 ),
             },
@@ -760,8 +906,8 @@ def main() -> int:
                         "review_evidence_head_sha": parent_live_head,
                         "review_authority": True,
                         "review_authority_count": "0",
-                        "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
-                        "bounded_wait_result": "not pending after bounded wait",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
                     },
                 ),
             },
@@ -786,8 +932,8 @@ def main() -> int:
                         "review_evidence_head_sha": parent_live_head,
                         "review_authority": "none",
                         "review_authority_count": "0",
-                        "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
-                        "bounded_wait_result": "not pending after bounded wait",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
                     },
                 ),
             },
@@ -812,8 +958,8 @@ def main() -> int:
                         "review_evidence_head_sha": parent_live_head,
                         "review_authority": "current-head Codex review plus configured independent review",
                         "review_authority_count": "abc123",
-                        "metadata_only_check_retrigger": "no metadata-only PR body check retrigger",
-                        "bounded_wait_result": "not pending after bounded wait",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
                     },
                 ),
             },

@@ -43,10 +43,12 @@ Rules:
 - Do not create a docs-only slice-selection, current-state, active-slice manifest, handoff, or review-marker PR unless explicitly authorized.
 - Do not treat a handoff, new chat, review marker, notification, or coordination update as permission to bypass the workflow manifest or active-slice manifest.
 - Do not waive review because the work is same-slice.
-- If there is an open PR, verify the current PR head, current-head inline comments, issue comments, required checks, and mergeability before recommending merge or publication.
+- If there is an open PR, run the review-state collector when present and verify the current PR head, review commit, current-head inline comments, issue comments, required checks, and mergeability before recommending merge or publication.
 - After any review-fix push, reconcile PR body head metadata, reviewed-head evidence, exact review authority count, and required checks before recommending another review or publication step.
+- Use typed publication states. `metadata_only_check_retrigger` must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result` must be `not_required_no_retrigger` or `completed_required_checks_success`.
 - If a metadata-only PR body edit retriggers a required check, bounded-wait only while code head, PR body head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays pending past the bound or any head, review, or check signal changes.
 - If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
+- After two automated review-fix rounds on this PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one further automated review.
 
 Closeout:
 - Run the required validation for this bounded task.

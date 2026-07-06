@@ -47,11 +47,15 @@ Parent duties:
 
 Review and publication gates:
 - Verify the current PR head before relying on any review, check, or mergeability state.
-- Compare current-head inline comments, issue comments, required checks, and mergeability together.
-- After any review-fix push, reconcile PR body head metadata, reviewed-head evidence, exact review authority count, and required checks before starting another review or publication child.
+- Run the review-state collector when the repo provides one, then compare review commit, PR head, inline comment `original_commit_id`, inline comment `commit_id`, issue comments, required checks, and mergeability together.
+- After any review-fix push, reconcile PR body head metadata, reviewed-head evidence, exact review authority count, required checks, and review-loop breaker evidence before starting another review or publication child.
+- Treat `metadata_only_check_retrigger` as valid only when it is `not_retriggered` or `retriggered_required_checks_passed`.
+- Treat `bounded_wait_result` as valid only when it is `not_required_no_retrigger` or `completed_required_checks_success`.
+- Free-text clean phrases are not closeout evidence.
 - If a metadata-only PR body edit retriggers a required check, bounded-poll only while code head, PR body head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays pending past the bound or any head, review, or check signal changes.
 - A direct deployment or provider status does not override a pending required GitHub check.
 - If current-head inline findings conflict with a later no-major-issues summary, set `conflicting_review_signals` to true, classify review state as ambiguous, and stop.
+- After two automated review-fix rounds on this PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one further automated review.
 - Do not merge, deploy, or publish unless that exact action is independently authorized and all required checks/reviews are clean.
 
 Parent final closeout:
@@ -63,7 +67,8 @@ Parent final closeout:
    - local branch and local HEAD
    - working-tree status
    - stale-closeout risk
-   - publication stabilization evidence: PR body head, reviewed-head evidence, exact review authority count, post-review-fix reconciliation status, and metadata-only check retrigger status
+   - publication stabilization evidence: PR body head, reviewed-head evidence, exact review authority count, post-review-fix reconciliation status, and typed metadata-only check retrigger status
+   - review-loop breaker evidence: automated review-fix rounds, validator-area finding counts, batch RCA status, adversarial test matrix status, and whether exactly one further review is authorized
 2. Record that evidence in `docs/delivery/active-slice-manifest.json` under `parent_closeout_reconciliation`.
 3. Run `python scripts/agent/session_continuity.py closeout-check`.
 4. If `closeout-check` fails, stop and report the blocker. Do not close out as clean.

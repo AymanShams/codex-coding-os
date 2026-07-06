@@ -40,10 +40,12 @@
 | Check | Evidence | Result |
 |---|---|---|
 | Current PR head was verified before relying on review or check state | {{evidence}} | Pass, Fail, or Not reviewed |
+| Review-state collector recorded review commit, PR head, original_commit_id, commit_id, clean-summary commit, required checks, and ambiguity | {{evidence}} | Pass, Fail, or Not reviewed |
 | Current-head inline comments were checked | {{evidence}} | Pass, Fail, or Not reviewed |
 | Issue comments and summary reviews were checked | {{evidence}} | Pass, Fail, or Not reviewed |
 | Required checks and mergeability were checked on the current head | {{evidence}} | Pass, Fail, or Not reviewed |
 | Current-head inline findings do not conflict with a later no-major-issues summary | {{evidence}} | Pass, Fail, Ambiguous, or Not reviewed |
+| Review-loop breaker threshold was not crossed, or batch RCA and adversarial test matrix are complete before exactly one further review | {{evidence}} | Pass, Fail, Ambiguous, or Not reviewed |
 
 ## Frontend
 - Mobile and desktop layouts were checked.
