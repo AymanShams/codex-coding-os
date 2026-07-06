@@ -99,13 +99,25 @@ For deep critique, source-backed audit, recurring workflow failure analysis, pre
   back to the user while automation authority remains active and tooling is
   available.
 - Before a parent/orchestrator final closeout, re-check and record the current PR
-  head, current-head inline comments, issue comments, required checks, local branch
-  state, working-tree state, and stale-closeout status. If the repo uses the
-  session-continuity helper, record that evidence in the active-slice manifest and
-  run `python scripts/agent/session_continuity.py closeout-check`.
+  head, review commit, current-head inline comments, issue comments, required checks,
+  local branch state, working-tree state, stale-closeout status, publication
+  stabilization evidence, and review-loop breaker evidence. Run
+  `python scripts/agent/session_continuity.py review-state --pr <number>` when the
+  helper exists. Publication stabilization evidence must record PR body head metadata,
+  reviewed-head evidence, exact review authority count, post-review-fix reconciliation
+  status, and typed metadata-only PR body check retrigger state. `metadata_only_check_retrigger`
+  must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result`
+  must be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text
+  clean phrases are not closeout evidence. If a review-fix push changes the PR head,
+  reconcile those fields before starting another review or publication child. If the
+  repo uses the session-continuity helper, record that evidence in the active-slice
+  manifest and run `python scripts/agent/session_continuity.py closeout-check`.
 - If current-head inline findings conflict with a later no-major-issues summary,
   classify review state as ambiguous and stop until the finding is fixed, proven
   stale with evidence, or explicitly resolved by the review authority.
+- After two automated review-fix rounds on the same PR, or after three findings in
+  the same validator area, stop for batch root-cause analysis and an adversarial test
+  matrix before authorizing exactly one further automated review.
 - The parent/orchestrator is admin-only: it may inspect, assign, monitor, verify,
   reconcile, and report. It must not implement product code, merge, deploy, publish,
   choose unapproved slices, bypass review, or treat child output as authority.

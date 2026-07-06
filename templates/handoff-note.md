@@ -86,5 +86,7 @@ Complete this section before a parent/orchestrator final closeout.
 | Required checks were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
 | Local branch, local HEAD, and working tree were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
 | Stale closeout was ruled out | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Review-state collector recorded review commit, PR head, original_commit_id, commit_id, clean-summary commit, required checks, and ambiguity | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Review-loop breaker threshold was not crossed, or batch RCA and adversarial test matrix are complete before exactly one further review | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
 
 If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.

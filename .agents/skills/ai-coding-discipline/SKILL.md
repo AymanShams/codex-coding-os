@@ -150,13 +150,25 @@ Do not dump a generic next-session prompt back to the user while automation
 authority remains active and tooling is available.
 
 Before parent/orchestrator final closeout, the parent must re-check and record the
-current PR head, current-head inline comments, issue comments, required checks,
-local branch state, working-tree state, and stale-closeout status. If the repo uses
-`scripts/agent/session_continuity.py`, record the evidence in the active-slice
-manifest and run `python scripts/agent/session_continuity.py closeout-check`.
+current PR head, review commit, current-head inline comments, issue comments,
+required checks, local branch state, working-tree state, stale-closeout status,
+publication stabilization evidence, and review-loop breaker evidence. Run
+`python scripts/agent/session_continuity.py review-state --pr <number>` when the
+helper exists. Publication stabilization evidence must record PR body head metadata,
+reviewed-head evidence, exact review authority count, post-review-fix reconciliation
+status, and typed metadata-only PR body check retrigger state. `metadata_only_check_retrigger`
+must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result`
+must be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text
+clean phrases are not closeout evidence. If a review-fix push changes the PR head,
+reconcile those fields before starting another review or publication child. If the
+repo uses `scripts/agent/session_continuity.py`, record the evidence in the
+active-slice manifest and run `python scripts/agent/session_continuity.py closeout-check`.
 Conflicting GitHub review signals are blocking ambiguity: a current-head inline
 finding plus a later no-major-issues summary must stop until resolved by evidence or
 review authority.
+After two automated review-fix rounds on the same PR, or after three findings in the
+same validator area, stop for batch root-cause analysis and an adversarial test matrix
+before authorizing exactly one further automated review.
 
 Automation mode must not pick unapproved slices, broaden scope, bypass review,
 bypass validation, turn support checks into a chain of new chats, or create

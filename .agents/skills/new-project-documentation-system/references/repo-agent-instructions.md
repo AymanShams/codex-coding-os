@@ -56,9 +56,10 @@ The handoff note must include:
 Use the sequential manual prompt family when the user will start each next
 session manually. Use the parent/orchestrator prompt family only after the user
 explicitly approves centralized parent automation. Parent/orchestrator closeout
-must reconcile current PR head, current-head inline comments, issue comments,
-required checks, local branch state, and stale-closeout status before reporting
-clean completion.
+must reconcile current PR head, review commit, current-head inline comments, issue
+comments, required checks, local branch state, stale-closeout status, publication
+stabilization typed states, and review-loop breaker evidence before reporting clean
+completion.
 
 Sequential manual structure:
 
@@ -104,5 +105,5 @@ Run envelope:
 
 The parent must not implement product code. It may start one bounded child task at a time, consume child handoffs internally, and continue only while the run envelope independently authorizes the next child task.
 
-Before final parent closeout, record the current PR head, current-head inline comments, issue comments, required checks, local branch state, working-tree state, and stale-closeout status in `docs/delivery/active-slice-manifest.json`, then run `python scripts/agent/session_continuity.py closeout-check`. If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
+Before final parent closeout, run the review-state collector when present, record the current PR head, review commit, current-head inline comments, issue comments, required checks, local branch state, working-tree state, stale-closeout status, publication stabilization evidence, and review-loop breaker evidence in `docs/delivery/active-slice-manifest.json`, then run `python scripts/agent/session_continuity.py closeout-check`. Publication stabilization evidence records PR body head metadata, reviewed-head evidence, exact review authority count, post-review-fix reconciliation status, and typed metadata-only PR body check retrigger state. `metadata_only_check_retrigger` must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result` must be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text clean phrases are not closeout evidence. After any review-fix push, reconcile those fields before starting another review or publication child. If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop. After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one further automated review.
 ```

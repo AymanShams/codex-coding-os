@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -40,6 +41,141 @@ def run(args: list[str], cwd: Path, expected: int) -> subprocess.CompletedProces
 
 def git_stdout(project: Path, *args: str) -> str:
     return run(["git", *args], project, 0).stdout.strip()
+
+
+def assert_review_state_collector_fixture() -> None:
+    spec = importlib.util.spec_from_file_location("session_continuity_under_test", CONTINUITY)
+    if spec is None or spec.loader is None:
+        raise AssertionError("Cannot import session continuity helper for collector fixture")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    head = "a" * 40
+    stale_head = "b" * 40
+    pr = {
+        "headRefOid": head,
+        "reviews": [
+            {
+                "commit": {"oid": head},
+                "submittedAt": "2026-07-06T00:00:00Z",
+                "state": "COMMENTED",
+                "author": {"login": "chatgpt-codex-connector"},
+            }
+        ],
+        "comments": [
+            {
+                "body": "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`",
+                "createdAt": "2026-07-06T00:02:00Z",
+                "author": {"login": "chatgpt-codex-connector"},
+                "url": "https://example.invalid/comment",
+            }
+        ],
+        "statusCheckRollup": [
+            {"name": "validate", "conclusion": "SUCCESS"},
+            {"context": "Vercel", "state": "PENDING"},
+        ],
+        "requiredCheckRollup": [
+            {"name": "validate", "state": "SUCCESS"},
+        ],
+    }
+    inline_comments = [
+        {
+            "path": "scripts/agent/session_continuity.py",
+            "line": 1,
+            "original_commit_id": head,
+            "commit_id": head,
+            "created_at": "2026-07-06T00:01:00Z",
+            "url": "https://example.invalid/inline",
+        }
+    ]
+    summary = module.summarize_current_head_review_state(pr, inline_comments)
+    if summary["pr_head"] != head:
+        raise AssertionError(summary)
+    if summary["review_commit"] != head:
+        raise AssertionError(summary)
+    if summary["current_head_review_records"] != 1:
+        raise AssertionError(summary)
+    if summary["clean_summary_commit"] != "aaaaaaaaaa":
+        raise AssertionError(summary)
+    if summary["current_head_original_commit_comments"] != 1 or summary["current_head_commit_comments"] != 1:
+        raise AssertionError(summary)
+    if len(summary["required_checks_blocking"]) != 0:
+        raise AssertionError(summary)
+    required_blocking_summary = module.summarize_current_head_review_state(
+        {
+            **pr,
+            "requiredCheckRollup": [
+                {"name": "Vercel", "state": "PENDING"},
+            ],
+        },
+        inline_comments,
+    )
+    if len(required_blocking_summary["required_checks_blocking"]) != 1:
+        raise AssertionError(required_blocking_summary)
+    if summary["ambiguous"] is not True:
+        raise AssertionError(summary)
+    commit_only_summary = module.summarize_current_head_review_state(
+        pr,
+        [
+            {
+                "path": "scripts/agent/session_continuity.py",
+                "line": 2,
+                "original_commit_id": stale_head,
+                "commit_id": head,
+                "created_at": "2026-07-06T00:01:00Z",
+                "url": "https://example.invalid/inline-commit-only",
+            }
+        ],
+    )
+    if commit_only_summary["current_head_original_commit_comments"] != 0:
+        raise AssertionError(commit_only_summary)
+    if commit_only_summary["current_head_commit_comments"] != 1:
+        raise AssertionError(commit_only_summary)
+    if commit_only_summary["ambiguous"] is not True:
+        raise AssertionError(commit_only_summary)
+    paginated_reviews = module.flatten_gh_paginated_json(
+        [
+            [
+                {
+                    "commit_id": stale_head,
+                    "submitted_at": "2026-07-05T23:59:00Z",
+                    "state": "COMMENTED",
+                    "user": {"login": "chatgpt-codex-connector"},
+                }
+            ],
+            [
+                {
+                    "commit_id": head,
+                    "submitted_at": "2026-07-06T00:03:00Z",
+                    "state": "COMMENTED",
+                    "user": {"login": "chatgpt-codex-connector"},
+                }
+            ],
+        ]
+    )
+    paginated_inline = module.flatten_gh_paginated_json([[inline_comments[0]]])
+    if len(paginated_reviews) != 2 or len(paginated_inline) != 1:
+        raise AssertionError("paginated gh API fixtures were not flattened")
+    pr_without_graphql_reviews = dict(pr)
+    pr_without_graphql_reviews.pop("reviews", None)
+    pr_without_graphql_reviews["comments"] = [
+        {
+            "body": "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`",
+            "created_at": "2026-07-06T00:02:00Z",
+            "user": {"login": "chatgpt-codex-connector"},
+            "url": "https://example.invalid/comment",
+        }
+    ]
+    api_summary = module.summarize_current_head_review_state(
+        pr_without_graphql_reviews,
+        paginated_inline,
+        paginated_reviews,
+    )
+    if api_summary["current_head_review_records"] != 1:
+        raise AssertionError(api_summary)
+    if api_summary["review_commit"] != head:
+        raise AssertionError(api_summary)
+    if api_summary["clean_summary_commit"] != "aaaaaaaaaa":
+        raise AssertionError(api_summary)
 
 
 def update_frontmatter(path: Path, key: str, value: str) -> None:
@@ -190,8 +326,30 @@ def parent_closeout_reconciliation(
     current_inline_comments: str = "none_current_head",
     issue_comments: str = "latest_review_clean",
     required_checks: str = "success",
+    publication_stabilization: dict[str, object] | None = None,
     evidence: list[str] | None = None,
 ) -> dict[str, object]:
+    if publication_stabilization is None:
+        if pr_head_sha == "not_applicable":
+            publication_stabilization = {
+                "post_review_fix_reconciled": False,
+                "pr_body_head_sha": "not_applicable",
+                "review_evidence_head_sha": "not_applicable",
+                "review_authority": "not_applicable",
+                "review_authority_count": "not_applicable",
+                "metadata_only_check_retrigger": "not_applicable",
+                "bounded_wait_result": "not_applicable",
+            }
+        else:
+            publication_stabilization = {
+                "post_review_fix_reconciled": True,
+                "pr_body_head_sha": pr_head_sha,
+                "review_evidence_head_sha": pr_head_sha,
+                "review_authority": "current-head Codex review plus configured independent review",
+                "review_authority_count": "2 current-head reviews",
+                "metadata_only_check_retrigger": "not_retriggered",
+                "bounded_wait_result": "not_required_no_retrigger",
+            }
     return {
         "parent_closeout_reconciliation": {
             "required_before_parent_closeout": True,
@@ -204,6 +362,16 @@ def parent_closeout_reconciliation(
             "required_checks": required_checks,
             "conflicting_review_signals": conflict,
             "stale_closeout_detected": stale,
+            "publication_stabilization": publication_stabilization,
+            "review_loop_breaker": {
+                "status": "not_started",
+                "automated_review_fix_rounds": 0,
+                "max_automated_review_fix_rounds": 2,
+                "validator_area_findings": {},
+                "batch_rca_completed": False,
+                "adversarial_test_matrix_completed": False,
+                "next_review_authorized": False,
+            },
             "evidence": evidence or ["smoke closeout evidence"],
         }
     }
@@ -258,6 +426,7 @@ Run the session start gate.
 
 def main() -> int:
     python = sys.executable
+    assert_review_state_collector_fixture()
     with tempfile.TemporaryDirectory(prefix="coding-os-workflow-gates-") as temp:
         project = Path(temp)
         subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.DEVNULL)
@@ -440,6 +609,154 @@ def main() -> int:
         parent_stale_pr_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "pr_head_sha must match live HEAD for PR closeout" not in parent_stale_pr_block.stdout:
             raise AssertionError(parent_stale_pr_block.stdout)
+        missing_publication_stabilization = parent_closeout_reconciliation(
+            pr_head_sha=parent_live_head,
+            local_head_sha=parent_live_head,
+            local_branch_state="dirty",
+        )["parent_closeout_reconciliation"]
+        missing_publication_stabilization.pop("publication_stabilization")
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                "parent_closeout_reconciliation": missing_publication_stabilization,
+            },
+        )
+        parent_missing_publication_stabilization_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization must be an object" not in parent_missing_publication_stabilization_block.stdout:
+            raise AssertionError(parent_missing_publication_stabilization_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "bounded_wait_result": False,
+                    },
+                ),
+            },
+        )
+        parent_malformed_publication_stabilization_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "PARENT CLOSEOUT CHECK: FAIL" not in parent_malformed_publication_stabilization_block.stdout:
+            raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
+        if "publication_stabilization is missing metadata_only_check_retrigger" not in parent_malformed_publication_stabilization_block.stdout:
+            raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
+        if "publication_stabilization.bounded_wait_result must be text" not in parent_malformed_publication_stabilization_block.stdout:
+            raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
+        if "Traceback" in parent_malformed_publication_stabilization_block.stdout:
+            raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": "stale-pr-body-head",
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
+                    },
+                ),
+            },
+        )
+        parent_stale_pr_body_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.pr_body_head_sha must match live HEAD" not in parent_stale_pr_body_block.stdout:
+            raise AssertionError(parent_stale_pr_body_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "documentation-governance pending after metadata-only PR body edit",
+                        "bounded_wait_result": "checks cancelled",
+                    },
+                ),
+            },
+        )
+        parent_metadata_retrigger_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.metadata_only_check_retrigger records blocker state" not in parent_metadata_retrigger_block.stdout:
+            raise AssertionError(parent_metadata_retrigger_block.stdout)
+        if "publication_stabilization.bounded_wait_result records blocker state" not in parent_metadata_retrigger_block.stdout:
+            raise AssertionError(parent_metadata_retrigger_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "not_applicable",
+                        "bounded_wait_result": "stale required checks",
+                    },
+                ),
+            },
+        )
+        parent_stale_publication_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.metadata_only_check_retrigger records blocker state" not in parent_stale_publication_evidence_block.stdout:
+            raise AssertionError(parent_stale_publication_evidence_block.stdout)
+        if "publication_stabilization.bounded_wait_result records blocker state" not in parent_stale_publication_evidence_block.stdout:
+            raise AssertionError(parent_stale_publication_evidence_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "see above",
+                        "bounded_wait_result": "unchecked",
+                    },
+                ),
+            },
+        )
+        parent_unknown_publication_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.metadata_only_check_retrigger must use accepted state" not in parent_unknown_publication_evidence_block.stdout:
+            raise AssertionError(parent_unknown_publication_evidence_block.stdout)
+        if "publication_stabilization.bounded_wait_result must use accepted state" not in parent_unknown_publication_evidence_block.stdout:
+            raise AssertionError(parent_unknown_publication_evidence_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -527,6 +844,236 @@ def main() -> int:
         parent_no_open_comments_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
         if "PARENT CLOSEOUT CHECK: PASS" not in parent_no_open_comments_pass.stdout:
             raise AssertionError(parent_no_open_comments_pass.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "PR body edit did not retrigger checks",
+                        "bounded_wait_result": "bounded wait completed with no pending required checks",
+                    },
+                ),
+            },
+        )
+        parent_negated_publication_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.metadata_only_check_retrigger must use accepted state" not in parent_negated_publication_block.stdout:
+            raise AssertionError(parent_negated_publication_block.stdout)
+        if "publication_stabilization.bounded_wait_result must use accepted state" not in parent_negated_publication_block.stdout:
+            raise AssertionError(parent_negated_publication_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "metadata_only_check_retrigger": "retriggered_required_checks_passed",
+                        "bounded_wait_result": "completed_required_checks_success",
+                    },
+                ),
+            },
+        )
+        parent_enum_publication_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_enum_publication_pass.stdout:
+            raise AssertionError(parent_enum_publication_pass.stdout)
+        loop_triggered_without_rca = parent_closeout_reconciliation(
+            pr_head_sha=parent_live_head,
+            local_head_sha=parent_live_head,
+            local_branch_state="dirty",
+        )
+        loop_triggered_without_rca["parent_closeout_reconciliation"]["review_loop_breaker"] = {
+            "status": "blocked",
+            "automated_review_fix_rounds": 2,
+            "max_automated_review_fix_rounds": 2,
+            "validator_area_findings": {"publication_stabilization": 3},
+            "batch_rca_completed": False,
+            "adversarial_test_matrix_completed": False,
+            "next_review_authorized": False,
+        }
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **loop_triggered_without_rca,
+            },
+        )
+        parent_review_loop_without_rca_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "review loop breaker triggered; batch RCA is required before another automated review" not in parent_review_loop_without_rca_block.stdout:
+            raise AssertionError(parent_review_loop_without_rca_block.stdout)
+        if "review loop breaker triggered; adversarial test matrix is required before another automated review" not in parent_review_loop_without_rca_block.stdout:
+            raise AssertionError(parent_review_loop_without_rca_block.stdout)
+        loop_triggered_with_rca = parent_closeout_reconciliation(
+            pr_head_sha=parent_live_head,
+            local_head_sha=parent_live_head,
+            local_branch_state="dirty",
+        )
+        loop_triggered_with_rca["parent_closeout_reconciliation"]["review_loop_breaker"] = {
+            "status": "pass",
+            "automated_review_fix_rounds": 2,
+            "max_automated_review_fix_rounds": 2,
+            "validator_area_findings": {"publication_stabilization": 3},
+            "batch_rca_completed": True,
+            "adversarial_test_matrix_completed": True,
+            "next_review_authorized": True,
+        }
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **loop_triggered_with_rca,
+            },
+        )
+        parent_review_loop_with_rca_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
+        if "PARENT CLOSEOUT CHECK: PASS" not in parent_review_loop_with_rca_pass.stdout:
+            raise AssertionError(parent_review_loop_with_rca_pass.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "not checked",
+                        "review_authority_count": "in progress 2",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
+                    },
+                ),
+            },
+        )
+        parent_authority_placeholder_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_placeholder_block.stdout:
+            raise AssertionError(parent_authority_placeholder_block.stdout)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_placeholder_block.stdout:
+            raise AssertionError(parent_authority_placeholder_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "not applicable",
+                        "review_authority_count": "not applicable 1",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
+                    },
+                ),
+            },
+        )
+        parent_authority_not_applicable_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_not_applicable_block.stdout:
+            raise AssertionError(parent_authority_not_applicable_block.stdout)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_not_applicable_block.stdout:
+            raise AssertionError(parent_authority_not_applicable_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": True,
+                        "review_authority_count": "0",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
+                    },
+                ),
+            },
+        )
+        parent_authority_type_and_zero_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority must be text" not in parent_authority_type_and_zero_block.stdout:
+            raise AssertionError(parent_authority_type_and_zero_block.stdout)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_type_and_zero_block.stdout:
+            raise AssertionError(parent_authority_type_and_zero_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "none",
+                        "review_authority_count": "0",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
+                    },
+                ),
+            },
+        )
+        parent_authority_zero_review_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_zero_review_block.stdout:
+            raise AssertionError(parent_authority_zero_review_block.stdout)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_zero_review_block.stdout:
+            raise AssertionError(parent_authority_zero_review_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "abc123",
+                        "metadata_only_check_retrigger": "not_retriggered",
+                        "bounded_wait_result": "not_required_no_retrigger",
+                    },
+                ),
+            },
+        )
+        parent_authority_copied_id_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_copied_id_block.stdout:
+            raise AssertionError(parent_authority_copied_id_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -782,7 +1329,14 @@ def main() -> int:
         for required in ("sequential_manual", "handoff_target: manual_next_session", "exactly one paste-ready next prompt"):
             if required not in sequential_prompt:
                 raise AssertionError(f"sequential manual prompt template is missing {required}")
-        for required in ("parent_orchestrator", "closeout-check", "current PR head", "conflicting_review_signals"):
+        for required in (
+            "parent_orchestrator",
+            "closeout-check",
+            "current PR head",
+            "conflicting_review_signals",
+            "publication stabilization evidence",
+            "metadata-only PR body edit",
+        ):
             if required not in parent_prompt:
                 raise AssertionError(f"parent orchestrator prompt template is missing {required}")
         continuity_skill = (ROOT / ".agents" / "skills" / "project-session-continuity" / "SKILL.md").read_text(
@@ -793,9 +1347,29 @@ def main() -> int:
             "intermediate child handoff",
             "do not run `closeout-check`",
             "parent consumes the handoff internally",
+            "stabilization evidence",
         ):
             if required not in continuity_skill:
                 raise AssertionError(f"project-session-continuity skill is missing {required}")
+        active_template = json.loads(
+            (ROOT / ".agents" / "skills" / "project-session-continuity" / "assets" / "active-slice-manifest.template.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        breaker = active_template.get("parent_closeout_reconciliation", {}).get("review_loop_breaker")
+        if not isinstance(breaker, dict):
+            raise AssertionError("active-slice manifest template is missing review_loop_breaker")
+        for required in (
+            "status",
+            "automated_review_fix_rounds",
+            "max_automated_review_fix_rounds",
+            "validator_area_findings",
+            "batch_rca_completed",
+            "adversarial_test_matrix_completed",
+            "next_review_authorized",
+        ):
+            if required not in breaker:
+                raise AssertionError(f"active-slice manifest template review_loop_breaker is missing {required}")
 
     with tempfile.TemporaryDirectory(prefix="coding-os-legacy-non-parent-") as temp:
         project = Path(temp)

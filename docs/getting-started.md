@@ -85,9 +85,10 @@ The command reports Git and coordination state, requires incoming work inspectio
 Use `templates/sequential-manual-prompt.md` when the user will manually start each
 next session. Use `templates/parent-orchestrator-prompt.md` only after the user
 explicitly approves parent/orchestrator automation. Parent/orchestrator closeout
-must re-check current PR head, current-head inline comments, issue comments,
-required checks, local branch state, and stale-closeout status before reporting
-clean completion.
+must run the review-state collector when present, re-check current PR head,
+current-head inline comments, issue comments, required checks, local branch state,
+stale-closeout status, publication stabilization typed states, and review-loop
+breaker evidence before reporting clean completion.
 
 ## Use A Lighter Workflow For Small Changes
 
