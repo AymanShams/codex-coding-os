@@ -73,6 +73,9 @@ def assert_review_state_collector_fixture() -> None:
             {"name": "validate", "conclusion": "SUCCESS"},
             {"context": "Vercel", "state": "PENDING"},
         ],
+        "requiredCheckRollup": [
+            {"name": "validate", "state": "SUCCESS"},
+        ],
     }
     inline_comments = [
         {
@@ -95,10 +98,40 @@ def assert_review_state_collector_fixture() -> None:
         raise AssertionError(summary)
     if summary["current_head_original_commit_comments"] != 1 or summary["current_head_commit_comments"] != 1:
         raise AssertionError(summary)
-    if len(summary["required_checks_blocking"]) != 1:
+    if len(summary["required_checks_blocking"]) != 0:
         raise AssertionError(summary)
+    required_blocking_summary = module.summarize_current_head_review_state(
+        {
+            **pr,
+            "requiredCheckRollup": [
+                {"name": "Vercel", "state": "PENDING"},
+            ],
+        },
+        inline_comments,
+    )
+    if len(required_blocking_summary["required_checks_blocking"]) != 1:
+        raise AssertionError(required_blocking_summary)
     if summary["ambiguous"] is not True:
         raise AssertionError(summary)
+    commit_only_summary = module.summarize_current_head_review_state(
+        pr,
+        [
+            {
+                "path": "scripts/agent/session_continuity.py",
+                "line": 2,
+                "original_commit_id": stale_head,
+                "commit_id": head,
+                "created_at": "2026-07-06T00:01:00Z",
+                "url": "https://example.invalid/inline-commit-only",
+            }
+        ],
+    )
+    if commit_only_summary["current_head_original_commit_comments"] != 0:
+        raise AssertionError(commit_only_summary)
+    if commit_only_summary["current_head_commit_comments"] != 1:
+        raise AssertionError(commit_only_summary)
+    if commit_only_summary["ambiguous"] is not True:
+        raise AssertionError(commit_only_summary)
     paginated_reviews = module.flatten_gh_paginated_json(
         [
             [

@@ -620,6 +620,35 @@ def run_gh_json(args: list[str]) -> object:
     return json.loads(result.stdout or "null")
 
 
+def run_gh_required_checks(repo: str, pr_number: str) -> list[dict[str, object]]:
+    result = subprocess.run(
+        [
+            "gh",
+            "pr",
+            "checks",
+            pr_number,
+            "--repo",
+            repo,
+            "--required",
+            "--json",
+            "name,state,workflow,link,bucket",
+        ],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode:
+        detail = f"{result.stdout}\n{result.stderr}".lower()
+        if "no required checks reported" in detail:
+            return []
+        raise RuntimeError(result.stderr.strip() or f"gh pr checks {pr_number} --required failed")
+    data = json.loads(result.stdout or "[]")
+    return data if isinstance(data, list) else []
+
+
 def current_repo_name_with_owner() -> str:
     data = run_gh_json(["repo", "view", "--json", "nameWithOwner"])
     if not isinstance(data, dict) or not isinstance(data.get("nameWithOwner"), str):
@@ -685,6 +714,31 @@ def normalize_review_record(review: dict[str, object]) -> dict[str, object]:
     }
 
 
+def inline_comment_key(comment: dict[str, object]) -> tuple[str, ...]:
+    url = str(comment.get("url") or "")
+    if url:
+        return ("url", url)
+    return (
+        str(comment.get("path") or ""),
+        str(comment.get("line") or ""),
+        str(comment.get("original_commit_id") or ""),
+        str(comment.get("commit_id") or ""),
+        str(comment.get("created_at") or ""),
+    )
+
+
+def dedupe_inline_comments(comments: list[dict[str, object]]) -> list[dict[str, object]]:
+    seen: set[tuple[str, ...]] = set()
+    deduped: list[dict[str, object]] = []
+    for comment in comments:
+        key = inline_comment_key(comment)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(comment)
+    return deduped
+
+
 def summarize_current_head_review_state(
     pr: dict[str, object],
     inline_comments: list[dict[str, object]],
@@ -735,11 +789,13 @@ def summarize_current_head_review_state(
         comment for comment in inline_report if str(comment.get("original_commit_id") or "").lower() == head.lower()
     ]
     current_commit = [comment for comment in inline_report if str(comment.get("commit_id") or "").lower() == head.lower()]
+    current_head_inline = dedupe_inline_comments(current_original + current_commit)
     ambiguity = False
-    if latest_current_clean and current_original:
+    if latest_current_clean and current_head_inline:
         clean_created = str(latest_current_clean.get("created_at") or "")
-        ambiguity = any(str(comment.get("created_at") or "") <= clean_created for comment in current_original)
-    checks = [check_summary(check) for check in pr.get("statusCheckRollup", []) if isinstance(check, dict)]
+        ambiguity = any(str(comment.get("created_at") or "") <= clean_created for comment in current_head_inline)
+    check_source = pr.get("requiredCheckRollup") if isinstance(pr.get("requiredCheckRollup"), list) else pr.get("statusCheckRollup", [])
+    checks = [check_summary(check) for check in check_source if isinstance(check, dict)]
     return {
         "pr_head": head,
         "review_commit": review_records[-1]["review_commit"] if review_records else None,
@@ -779,6 +835,7 @@ def collect_current_head_review_state(repo: str, pr_number: str) -> dict[str, ob
     if not isinstance(inline_comments_data, list):
         raise RuntimeError("gh api pull comments returned invalid data")
     pr["comments"] = flatten_gh_paginated_json(issue_comments_data)
+    pr["requiredCheckRollup"] = run_gh_required_checks(repo, pr_number)
     summary = summarize_current_head_review_state(
         pr,
         flatten_gh_paginated_json(inline_comments_data),
