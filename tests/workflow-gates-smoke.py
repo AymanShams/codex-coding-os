@@ -50,6 +50,7 @@ def assert_review_state_collector_fixture() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     head = "a" * 40
+    stale_head = "b" * 40
     pr = {
         "headRefOid": head,
         "reviews": [
@@ -98,6 +99,50 @@ def assert_review_state_collector_fixture() -> None:
         raise AssertionError(summary)
     if summary["ambiguous"] is not True:
         raise AssertionError(summary)
+    paginated_reviews = module.flatten_gh_paginated_json(
+        [
+            [
+                {
+                    "commit_id": stale_head,
+                    "submitted_at": "2026-07-05T23:59:00Z",
+                    "state": "COMMENTED",
+                    "user": {"login": "chatgpt-codex-connector"},
+                }
+            ],
+            [
+                {
+                    "commit_id": head,
+                    "submitted_at": "2026-07-06T00:03:00Z",
+                    "state": "COMMENTED",
+                    "user": {"login": "chatgpt-codex-connector"},
+                }
+            ],
+        ]
+    )
+    paginated_inline = module.flatten_gh_paginated_json([[inline_comments[0]]])
+    if len(paginated_reviews) != 2 or len(paginated_inline) != 1:
+        raise AssertionError("paginated gh API fixtures were not flattened")
+    pr_without_graphql_reviews = dict(pr)
+    pr_without_graphql_reviews.pop("reviews", None)
+    pr_without_graphql_reviews["comments"] = [
+        {
+            "body": "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`",
+            "created_at": "2026-07-06T00:02:00Z",
+            "user": {"login": "chatgpt-codex-connector"},
+            "url": "https://example.invalid/comment",
+        }
+    ]
+    api_summary = module.summarize_current_head_review_state(
+        pr_without_graphql_reviews,
+        paginated_inline,
+        paginated_reviews,
+    )
+    if api_summary["current_head_review_records"] != 1:
+        raise AssertionError(api_summary)
+    if api_summary["review_commit"] != head:
+        raise AssertionError(api_summary)
+    if api_summary["clean_summary_commit"] != "aaaaaaaaaa":
+        raise AssertionError(api_summary)
 
 
 def update_frontmatter(path: Path, key: str, value: str) -> None:
@@ -1244,6 +1289,25 @@ def main() -> int:
         ):
             if required not in continuity_skill:
                 raise AssertionError(f"project-session-continuity skill is missing {required}")
+        active_template = json.loads(
+            (ROOT / ".agents" / "skills" / "project-session-continuity" / "assets" / "active-slice-manifest.template.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        breaker = active_template.get("parent_closeout_reconciliation", {}).get("review_loop_breaker")
+        if not isinstance(breaker, dict):
+            raise AssertionError("active-slice manifest template is missing review_loop_breaker")
+        for required in (
+            "status",
+            "automated_review_fix_rounds",
+            "max_automated_review_fix_rounds",
+            "validator_area_findings",
+            "batch_rca_completed",
+            "adversarial_test_matrix_completed",
+            "next_review_authorized",
+        ):
+            if required not in breaker:
+                raise AssertionError(f"active-slice manifest template review_loop_breaker is missing {required}")
 
     with tempfile.TemporaryDirectory(prefix="coding-os-legacy-non-parent-") as temp:
         project = Path(temp)

@@ -75,6 +75,15 @@
       "metadata_only_check_retrigger": "not_checked",
       "bounded_wait_result": "not_checked"
     },
+    "review_loop_breaker": {
+      "status": "not_applicable",
+      "automated_review_fix_rounds": 0,
+      "max_automated_review_fix_rounds": 2,
+      "validator_area_findings": {},
+      "batch_rca_completed": false,
+      "adversarial_test_matrix_completed": false,
+      "next_review_authorized": false
+    },
     "evidence": []
   },
   "source_authority": [

@@ -659,30 +659,59 @@ def check_summary(check: dict[str, object]) -> dict[str, object]:
     }
 
 
-def summarize_current_head_review_state(pr: dict[str, object], inline_comments: list[dict[str, object]]) -> dict[str, object]:
+def flatten_gh_paginated_json(data: object) -> list[dict[str, object]]:
+    if not isinstance(data, list):
+        return []
+    flattened: list[dict[str, object]] = []
+    for item in data:
+        if isinstance(item, list):
+            flattened.extend(child for child in item if isinstance(child, dict))
+        elif isinstance(item, dict):
+            flattened.append(item)
+    return flattened
+
+
+def normalize_review_record(review: dict[str, object]) -> dict[str, object]:
+    commit = review.get("commit_id")
+    if not commit and isinstance(review.get("commit"), dict):
+        commit = review["commit"].get("oid")
+    user = review.get("user") if isinstance(review.get("user"), dict) else {}
+    author = review.get("author") if isinstance(review.get("author"), dict) else {}
+    return {
+        "review_commit": str(commit or ""),
+        "submitted_at": review.get("submitted_at") or review.get("submittedAt"),
+        "state": review.get("state"),
+        "author": user.get("login") or author.get("login"),
+    }
+
+
+def summarize_current_head_review_state(
+    pr: dict[str, object],
+    inline_comments: list[dict[str, object]],
+    review_records_input: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
     head = str(pr.get("headRefOid") or "")
-    reviews = [review for review in pr.get("reviews", []) if isinstance(review, dict)]
+    reviews_source = review_records_input if review_records_input is not None else pr.get("reviews", [])
+    reviews = [review for review in reviews_source if isinstance(review, dict)]
     issue_comments = [comment for comment in pr.get("comments", []) if isinstance(comment, dict)]
-    review_records = [
-        {
-            "review_commit": str(((review.get("commit") or {}).get("oid")) or ""),
-            "submitted_at": review.get("submittedAt"),
-            "state": review.get("state"),
-            "author": ((review.get("author") or {}).get("login")),
-        }
-        for review in reviews
-    ]
+    review_records = sorted(
+        [normalize_review_record(review) for review in reviews],
+        key=lambda record: str(record.get("submitted_at") or ""),
+    )
     current_head_reviews = [record for record in review_records if record["review_commit"].lower() == head.lower()]
     clean_summaries = []
     for comment in issue_comments:
         body = str(comment.get("body") or "")
         reviewed_commit = reviewed_commit_from_body(body)
         if reviewed_commit and body_reports_no_major_issues(body):
+            author = comment.get("user") if isinstance(comment.get("user"), dict) else comment.get("author")
+            if not isinstance(author, dict):
+                author = {}
             clean_summaries.append(
                 {
                     "clean_summary_commit": reviewed_commit,
-                    "created_at": comment.get("createdAt"),
-                    "author": ((comment.get("author") or {}).get("login")),
+                    "created_at": comment.get("created_at") or comment.get("createdAt"),
+                    "author": author.get("login"),
                     "url": comment.get("url"),
                     "current_head": head.lower().startswith(reviewed_commit) or reviewed_commit == head.lower(),
                 }
@@ -735,15 +764,26 @@ def collect_current_head_review_state(repo: str, pr_number: str) -> dict[str, ob
             "--repo",
             repo,
             "--json",
-            "headRefOid,statusCheckRollup,comments,reviews,url",
+            "headRefOid,statusCheckRollup,url",
         ]
     )
     if not isinstance(pr, dict):
         raise RuntimeError("gh pr view returned invalid data")
-    inline_comments = run_gh_json(["api", f"repos/{repo}/pulls/{pr_number}/comments", "--paginate"])
-    if not isinstance(inline_comments, list):
+    reviews_data = run_gh_json(["api", f"repos/{repo}/pulls/{pr_number}/reviews", "--paginate", "--slurp"])
+    if not isinstance(reviews_data, list):
+        raise RuntimeError("gh api pull reviews returned invalid data")
+    issue_comments_data = run_gh_json(["api", f"repos/{repo}/issues/{pr_number}/comments", "--paginate", "--slurp"])
+    if not isinstance(issue_comments_data, list):
+        raise RuntimeError("gh api issue comments returned invalid data")
+    inline_comments_data = run_gh_json(["api", f"repos/{repo}/pulls/{pr_number}/comments", "--paginate", "--slurp"])
+    if not isinstance(inline_comments_data, list):
         raise RuntimeError("gh api pull comments returned invalid data")
-    summary = summarize_current_head_review_state(pr, inline_comments)
+    pr["comments"] = flatten_gh_paginated_json(issue_comments_data)
+    summary = summarize_current_head_review_state(
+        pr,
+        flatten_gh_paginated_json(inline_comments_data),
+        flatten_gh_paginated_json(reviews_data),
+    )
     summary["repo"] = repo
     summary["pr"] = pr_number
     summary["url"] = pr.get("url")
