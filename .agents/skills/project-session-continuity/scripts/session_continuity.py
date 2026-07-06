@@ -1176,8 +1176,12 @@ def publication_stabilization_state_options(field: str) -> str:
 
 def validate_publication_stabilization_state_pair(stabilization: dict[str, object]) -> list[str]:
     errors: list[str] = []
-    retrigger = normalize_closeout_signal(stabilization.get("metadata_only_check_retrigger"))
-    wait = normalize_closeout_signal(stabilization.get("bounded_wait_result"))
+    retrigger_value = stabilization.get("metadata_only_check_retrigger")
+    wait_value = stabilization.get("bounded_wait_result")
+    if not isinstance(retrigger_value, str) or not isinstance(wait_value, str):
+        return errors
+    retrigger = normalize_closeout_signal(retrigger_value)
+    wait = normalize_closeout_signal(wait_value)
     if retrigger == "not_retriggered" and wait != "not_required_no_retrigger":
         errors.append(
             "parent closeout reconciliation publication_stabilization.bounded_wait_result must be not_required_no_retrigger when metadata_only_check_retrigger is not_retriggered"

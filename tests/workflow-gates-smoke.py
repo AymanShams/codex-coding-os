@@ -604,6 +604,35 @@ def main() -> int:
                     local_branch_state="dirty",
                     publication_stabilization={
                         "post_review_fix_reconciled": True,
+                        "pr_body_head_sha": parent_live_head,
+                        "review_evidence_head_sha": parent_live_head,
+                        "review_authority": "current-head Codex review plus configured independent review",
+                        "review_authority_count": "2 current-head reviews",
+                        "bounded_wait_result": False,
+                    },
+                ),
+            },
+        )
+        parent_malformed_publication_stabilization_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "PARENT CLOSEOUT CHECK: FAIL" not in parent_malformed_publication_stabilization_block.stdout:
+            raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
+        if "publication_stabilization is missing metadata_only_check_retrigger" not in parent_malformed_publication_stabilization_block.stdout:
+            raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
+        if "publication_stabilization.bounded_wait_result must be text" not in parent_malformed_publication_stabilization_block.stdout:
+            raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
+        if "Traceback" in parent_malformed_publication_stabilization_block.stdout:
+            raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
+        write_active_slice(
+            project,
+            ["docs/**", "src/**"],
+            extra={
+                **parent_automation_manifest_fields(project),
+                **parent_closeout_reconciliation(
+                    pr_head_sha=parent_live_head,
+                    local_head_sha=parent_live_head,
+                    local_branch_state="dirty",
+                    publication_stabilization={
+                        "post_review_fix_reconciled": True,
                         "pr_body_head_sha": "stale-pr-body-head",
                         "review_evidence_head_sha": parent_live_head,
                         "review_authority": "current-head Codex review plus configured independent review",
