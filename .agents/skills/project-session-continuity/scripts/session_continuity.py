@@ -805,10 +805,51 @@ def summarize_current_head_review_state(
         "inline_comments": inline_report,
         "current_head_original_commit_comments": len(current_original),
         "current_head_commit_comments": len(current_commit),
+        "current_head_inline_comments": len(current_head_inline),
         "required_checks": checks,
         "required_checks_blocking": [check for check in checks if check["blocking"]],
         "ambiguous": ambiguity,
     }
+
+
+def review_state_blockers(summary: dict[str, object]) -> list[str]:
+    blockers: list[str] = []
+    try:
+        current_head_review_records = int(summary.get("current_head_review_records") or 0)
+    except (TypeError, ValueError):
+        current_head_review_records = 0
+    if current_head_review_records <= 0:
+        blockers.append("current-head review record is missing")
+
+    inline_value = summary.get("current_head_inline_comments")
+    if inline_value is None:
+        try:
+            inline_count = max(
+                int(summary.get("current_head_original_commit_comments") or 0),
+                int(summary.get("current_head_commit_comments") or 0),
+            )
+        except (TypeError, ValueError):
+            inline_count = 0
+    else:
+        try:
+            inline_count = int(inline_value or 0)
+        except (TypeError, ValueError):
+            inline_count = 0
+    if inline_count > 0:
+        blockers.append(f"current-head inline comments are present: {inline_count}")
+
+    if summary.get("ambiguous") is True:
+        blockers.append("current-head review state is ambiguous")
+    required_checks_blocking = summary.get("required_checks_blocking")
+    if isinstance(required_checks_blocking, list) and required_checks_blocking:
+        labels = []
+        for check in required_checks_blocking:
+            if isinstance(check, dict):
+                labels.append(f"{check.get('name') or '(unnamed)'}: {check.get('state') or 'UNKNOWN'}")
+            else:
+                labels.append(str(check))
+        blockers.append(f"required checks blocking: {', '.join(labels)}")
+    return blockers
 
 
 def collect_current_head_review_state(repo: str, pr_number: str) -> dict[str, object]:
@@ -2184,9 +2225,11 @@ def command_review_state(args: argparse.Namespace) -> int:
         print("CURRENT-HEAD REVIEW STATE: FAIL")
         print(f"- {exc}")
         return 1
+    blockers = review_state_blockers(summary)
+    summary["blocking_review_state"] = blockers
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
-        return 0
+        return 1 if blockers else 0
     print("CURRENT-HEAD REVIEW STATE")
     print(f"repo: {summary['repo']}")
     print(f"pr: {summary['pr']}")
@@ -2197,6 +2240,7 @@ def command_review_state(args: argparse.Namespace) -> int:
     print(f"current_head_clean_summary: {summary['current_head_clean_summary']}")
     print(f"current_head_original_commit_comments: {summary['current_head_original_commit_comments']}")
     print(f"current_head_commit_comments: {summary['current_head_commit_comments']}")
+    print(f"current_head_inline_comments: {summary['current_head_inline_comments']}")
     print(f"ambiguous: {summary['ambiguous']}")
     print("required_checks:")
     for check in summary["required_checks"]:
@@ -2208,7 +2252,11 @@ def command_review_state(args: argparse.Namespace) -> int:
             f"commit_id={comment.get('commit_id') or 'none'} "
             f"path={comment.get('path') or 'none'}"
         )
-    return 0
+    if blockers:
+        print("blocking_review_state:")
+        for blocker in blockers:
+            print(f"- {blocker}")
+    return 1 if blockers else 0
 
 
 def build_parser() -> argparse.ArgumentParser:

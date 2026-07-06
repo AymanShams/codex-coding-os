@@ -98,8 +98,13 @@ def assert_review_state_collector_fixture() -> None:
         raise AssertionError(summary)
     if summary["current_head_original_commit_comments"] != 1 or summary["current_head_commit_comments"] != 1:
         raise AssertionError(summary)
+    if summary["current_head_inline_comments"] != 1:
+        raise AssertionError(summary)
     if len(summary["required_checks_blocking"]) != 0:
         raise AssertionError(summary)
+    review_blockers = module.review_state_blockers(summary)
+    if not any("current-head inline comments" in blocker for blocker in review_blockers):
+        raise AssertionError(review_blockers)
     required_blocking_summary = module.summarize_current_head_review_state(
         {
             **pr,
@@ -132,6 +137,43 @@ def assert_review_state_collector_fixture() -> None:
         raise AssertionError(commit_only_summary)
     if commit_only_summary["ambiguous"] is not True:
         raise AssertionError(commit_only_summary)
+    if not any("current-head inline comments" in blocker for blocker in module.review_state_blockers(commit_only_summary)):
+        raise AssertionError(commit_only_summary)
+    inline_without_clean = module.summarize_current_head_review_state(
+        {**pr, "comments": []},
+        inline_comments,
+    )
+    if inline_without_clean["ambiguous"] is not False:
+        raise AssertionError(inline_without_clean)
+    if not any("current-head inline comments" in blocker for blocker in module.review_state_blockers(inline_without_clean)):
+        raise AssertionError(inline_without_clean)
+    no_review_blockers = module.review_state_blockers(
+        {
+            "current_head_review_records": 0,
+            "current_head_inline_comments": 0,
+            "ambiguous": False,
+            "required_checks_blocking": [],
+        }
+    )
+    if not any("current-head review record is missing" in blocker for blocker in no_review_blockers):
+        raise AssertionError(no_review_blockers)
+    stale_inline_summary = module.summarize_current_head_review_state(
+        pr,
+        [
+            {
+                "path": "scripts/agent/session_continuity.py",
+                "line": 3,
+                "original_commit_id": stale_head,
+                "commit_id": stale_head,
+                "created_at": "2026-07-06T00:01:00Z",
+                "url": "https://example.invalid/inline-stale-only",
+            }
+        ],
+    )
+    if stale_inline_summary["current_head_inline_comments"] != 0:
+        raise AssertionError(stale_inline_summary)
+    if module.review_state_blockers(stale_inline_summary):
+        raise AssertionError(stale_inline_summary)
     paginated_reviews = module.flatten_gh_paginated_json(
         [
             [
