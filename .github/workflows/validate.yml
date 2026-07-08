@@ -19,6 +19,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Validate PR body control metadata
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: python .\scripts\check-pr-body.py
+
       - name: Validate manifest and release safety
         shell: pwsh
         run: .\scripts\validate-pack.ps1

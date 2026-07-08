@@ -63,3 +63,35 @@ Domain and risk lenses include frontend, security, data, controlled documents, q
 - Metadata-only PR body edits that retrigger required checks are bounded wait states, not new review triggers by themselves. Continue waiting only while the code head, PR body head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays pending past the bound or any head, review, or check signal changes.
 - Conflicting GitHub review signals are not a pass. If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop until the finding is fixed, proven stale with evidence, or explicitly resolved by the review authority.
 - After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop and require batch root-cause analysis plus an adversarial test matrix before authorizing exactly one further automated review.
+
+## Control-State Contract
+
+The control layer must prove authority from live state, not from PR-body claims, stale current-state files, or assistant summaries.
+
+Required invariants:
+
+- Current-head review authority is valid only when at least one current-head review has an accepted state. Accepted states are `APPROVED` and `COMMENTED`. `CHANGES_REQUESTED` and `PENDING` block closeout. `DISMISSED` is not authority, so a dismissed-only current-head review also blocks closeout.
+- Inline review comments must be current-head and unresolved before they block. Until the helper can fetch GitHub review-thread resolution, current-head inline comments remain blockers unless explicit current-head disposition evidence is recorded.
+- Required checks are the blocking check set. Optional visible checks may be reported, but they must not block unless the repository marks them required.
+- Parent or publication closeout requires a clean live worktree. Dirty local state can be reported only as a blocker, never as matching completion evidence.
+- Exact-head PR-body metadata must be line-anchored. Current PR head and reviewed head values must be full 40-character commit SHAs. Blank fields must not capture text from the next line.
+- Current-state and active-slice manifest evidence must match the live branch and PR head before it is used for slice selection, review authority, publication, or parent closeout.
+- Python and JavaScript helpers must enforce the same evidence schema, accepted states, blocker states, malformed-field behavior, and adversarial fixtures.
+- Malformed manifests, malformed PR-body fields, nulls, booleans, copied commit IDs, stale SHAs, duplicate comments, and missing fields fail closed without throwing tracebacks.
+
+Adversarial matrix required before another automated review loop:
+
+| Case | Expected behavior |
+| --- | --- |
+| Current-head `CHANGES_REQUESTED` review with no inline comments | Block closeout |
+| Current-head `PENDING` review with no inline comments | Block closeout |
+| Current-head `DISMISSED` review with no accepted current-head review | Block closeout |
+| Current-head `APPROVED` or `COMMENTED` review, no blockers, required checks passing | Pass review-state gate |
+| Current-head unresolved inline comment | Block closeout |
+| Stale inline comment from an older head | Do not block |
+| Commit-id-only current-head inline comment | Block closeout |
+| Dirty live worktree with recorded dirty state | Block final closeout |
+| PR-body blank `Review source` followed by another field | Fail PR-body check |
+| PR-body abbreviated reviewed SHA | Fail exact-head metadata check |
+| Stale current-state branch or slice evidence | Cannot authorize slice selection or publication |
+| Malformed manifest object or PR-body field type | Fail closed without crashing |

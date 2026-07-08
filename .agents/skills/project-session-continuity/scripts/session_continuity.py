@@ -73,6 +73,9 @@ READY_TO_CODE = {"approved", "completed"}
 REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
 AUTOMATION_MODES = {"off", "sequential_manual", "parent_orchestrator"}
 PARENT_CLOSEOUT_STATUSES = {"not_started", "pass", "blocked", "ambiguous", "not_applicable"}
+ACCEPTED_CURRENT_HEAD_REVIEW_STATES = {"APPROVED", "COMMENTED"}
+BLOCKING_CURRENT_HEAD_REVIEW_STATES = {"CHANGES_REQUESTED", "PENDING"}
+NON_AUTHORITY_CURRENT_HEAD_REVIEW_STATES = {"DISMISSED"}
 PARENT_CLOSEOUT_SIGNAL_PASS_VALUES = {
     "current_inline_comments": {
         "pass",
@@ -714,6 +717,10 @@ def normalize_review_record(review: dict[str, object]) -> dict[str, object]:
     }
 
 
+def normalize_review_state(state: object) -> str:
+    return re.sub(r"[^A-Z_]+", "_", str(state or "").strip().upper()).strip("_")
+
+
 def inline_comment_key(comment: dict[str, object]) -> tuple[str, ...]:
     url = str(comment.get("url") or "")
     if url:
@@ -753,6 +760,16 @@ def summarize_current_head_review_state(
         key=lambda record: str(record.get("submitted_at") or ""),
     )
     current_head_reviews = [record for record in review_records if record["review_commit"].lower() == head.lower()]
+    current_head_review_states = [normalize_review_state(record.get("state")) for record in current_head_reviews]
+    current_head_accepted_reviews = [
+        state for state in current_head_review_states if state in ACCEPTED_CURRENT_HEAD_REVIEW_STATES
+    ]
+    current_head_blocking_review_states = [
+        state for state in current_head_review_states if state in BLOCKING_CURRENT_HEAD_REVIEW_STATES
+    ]
+    current_head_non_authority_review_states = [
+        state for state in current_head_review_states if state in NON_AUTHORITY_CURRENT_HEAD_REVIEW_STATES
+    ]
     clean_summaries = []
     for comment in issue_comments:
         body = str(comment.get("body") or "")
@@ -800,15 +817,72 @@ def summarize_current_head_review_state(
         "pr_head": head,
         "review_commit": review_records[-1]["review_commit"] if review_records else None,
         "current_head_review_records": len(current_head_reviews),
+        "current_head_accepted_review_records": len(current_head_accepted_reviews),
+        "current_head_review_states": current_head_review_states,
+        "current_head_blocking_review_states": sorted(set(current_head_blocking_review_states)),
+        "current_head_non_authority_review_states": sorted(set(current_head_non_authority_review_states)),
         "clean_summary_commit": latest_current_clean.get("clean_summary_commit") if latest_current_clean else None,
         "current_head_clean_summary": bool(latest_current_clean),
         "inline_comments": inline_report,
         "current_head_original_commit_comments": len(current_original),
         "current_head_commit_comments": len(current_commit),
+        "current_head_inline_comments": len(current_head_inline),
         "required_checks": checks,
         "required_checks_blocking": [check for check in checks if check["blocking"]],
         "ambiguous": ambiguity,
     }
+
+
+def review_state_blockers(summary: dict[str, object]) -> list[str]:
+    blockers: list[str] = []
+    try:
+        current_head_review_records = int(summary.get("current_head_review_records") or 0)
+    except (TypeError, ValueError):
+        current_head_review_records = 0
+    try:
+        current_head_accepted_reviews = int(summary.get("current_head_accepted_review_records") or 0)
+    except (TypeError, ValueError):
+        current_head_accepted_reviews = 0
+    if current_head_review_records <= 0:
+        blockers.append("current-head review record is missing")
+    else:
+        blocking_states = summary.get("current_head_blocking_review_states")
+        if isinstance(blocking_states, list) and blocking_states:
+            blockers.append(f"current-head review states are blocking: {', '.join(str(state) for state in blocking_states)}")
+        if current_head_accepted_reviews <= 0:
+            states = summary.get("current_head_review_states")
+            state_label = ", ".join(str(state or "UNKNOWN") for state in states) if isinstance(states, list) else "UNKNOWN"
+            blockers.append(f"current-head review authority has no accepted state: {state_label}")
+
+    inline_value = summary.get("current_head_inline_comments")
+    if inline_value is None:
+        try:
+            inline_count = max(
+                int(summary.get("current_head_original_commit_comments") or 0),
+                int(summary.get("current_head_commit_comments") or 0),
+            )
+        except (TypeError, ValueError):
+            inline_count = 0
+    else:
+        try:
+            inline_count = int(inline_value or 0)
+        except (TypeError, ValueError):
+            inline_count = 0
+    if inline_count > 0:
+        blockers.append(f"current-head inline comments are present: {inline_count}")
+
+    if summary.get("ambiguous") is True:
+        blockers.append("current-head review state is ambiguous")
+    required_checks_blocking = summary.get("required_checks_blocking")
+    if isinstance(required_checks_blocking, list) and required_checks_blocking:
+        labels = []
+        for check in required_checks_blocking:
+            if isinstance(check, dict):
+                labels.append(f"{check.get('name') or '(unnamed)'}: {check.get('state') or 'UNKNOWN'}")
+            else:
+                labels.append(str(check))
+        blockers.append(f"required checks blocking: {', '.join(labels)}")
+    return blockers
 
 
 def collect_current_head_review_state(repo: str, pr_number: str) -> dict[str, object]:
@@ -1442,6 +1516,8 @@ def validate_parent_closeout_live_git_state(reconciliation: dict[str, object]) -
     live_status = run_git("status", "-sb")
     live_dirty = bool(run_git("status", "--porcelain"))
     recorded_dirty = infer_recorded_dirty_state(reconciliation.get("local_branch_state"), live_status, live_dirty)
+    if live_dirty:
+        errors.append("parent closeout reconciliation requires a clean live working tree before final closeout")
     if recorded_dirty is None:
         errors.append("parent closeout reconciliation local_branch_state must record clean, dirty, or exact live git status")
     elif recorded_dirty is not live_dirty:
@@ -2184,9 +2260,11 @@ def command_review_state(args: argparse.Namespace) -> int:
         print("CURRENT-HEAD REVIEW STATE: FAIL")
         print(f"- {exc}")
         return 1
+    blockers = review_state_blockers(summary)
+    summary["blocking_review_state"] = blockers
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
-        return 0
+        return 1 if blockers else 0
     print("CURRENT-HEAD REVIEW STATE")
     print(f"repo: {summary['repo']}")
     print(f"pr: {summary['pr']}")
@@ -2197,6 +2275,7 @@ def command_review_state(args: argparse.Namespace) -> int:
     print(f"current_head_clean_summary: {summary['current_head_clean_summary']}")
     print(f"current_head_original_commit_comments: {summary['current_head_original_commit_comments']}")
     print(f"current_head_commit_comments: {summary['current_head_commit_comments']}")
+    print(f"current_head_inline_comments: {summary['current_head_inline_comments']}")
     print(f"ambiguous: {summary['ambiguous']}")
     print("required_checks:")
     for check in summary["required_checks"]:
@@ -2208,7 +2287,11 @@ def command_review_state(args: argparse.Namespace) -> int:
             f"commit_id={comment.get('commit_id') or 'none'} "
             f"path={comment.get('path') or 'none'}"
         )
-    return 0
+    if blockers:
+        print("blocking_review_state:")
+        for blocker in blockers:
+            print(f"- {blocker}")
+    return 1 if blockers else 0
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -98,8 +98,13 @@ def assert_review_state_collector_fixture() -> None:
         raise AssertionError(summary)
     if summary["current_head_original_commit_comments"] != 1 or summary["current_head_commit_comments"] != 1:
         raise AssertionError(summary)
+    if summary["current_head_inline_comments"] != 1:
+        raise AssertionError(summary)
     if len(summary["required_checks_blocking"]) != 0:
         raise AssertionError(summary)
+    review_blockers = module.review_state_blockers(summary)
+    if not any("current-head inline comments" in blocker for blocker in review_blockers):
+        raise AssertionError(review_blockers)
     required_blocking_summary = module.summarize_current_head_review_state(
         {
             **pr,
@@ -132,6 +137,88 @@ def assert_review_state_collector_fixture() -> None:
         raise AssertionError(commit_only_summary)
     if commit_only_summary["ambiguous"] is not True:
         raise AssertionError(commit_only_summary)
+    if not any("current-head inline comments" in blocker for blocker in module.review_state_blockers(commit_only_summary)):
+        raise AssertionError(commit_only_summary)
+    inline_without_clean = module.summarize_current_head_review_state(
+        {**pr, "comments": []},
+        inline_comments,
+    )
+    if inline_without_clean["ambiguous"] is not False:
+        raise AssertionError(inline_without_clean)
+    if not any("current-head inline comments" in blocker for blocker in module.review_state_blockers(inline_without_clean)):
+        raise AssertionError(inline_without_clean)
+    no_review_blockers = module.review_state_blockers(
+        {
+            "current_head_review_records": 0,
+            "current_head_inline_comments": 0,
+            "ambiguous": False,
+            "required_checks_blocking": [],
+        }
+    )
+    if not any("current-head review record is missing" in blocker for blocker in no_review_blockers):
+        raise AssertionError(no_review_blockers)
+    stale_inline_summary = module.summarize_current_head_review_state(
+        pr,
+        [
+            {
+                "path": "scripts/agent/session_continuity.py",
+                "line": 3,
+                "original_commit_id": stale_head,
+                "commit_id": stale_head,
+                "created_at": "2026-07-06T00:01:00Z",
+                "url": "https://example.invalid/inline-stale-only",
+            }
+        ],
+    )
+    if stale_inline_summary["current_head_inline_comments"] != 0:
+        raise AssertionError(stale_inline_summary)
+    if module.review_state_blockers(stale_inline_summary):
+        raise AssertionError(stale_inline_summary)
+    accepted_review_summary = module.summarize_current_head_review_state(
+        {**pr, "comments": [], "requiredCheckRollup": [{"name": "validate", "state": "SUCCESS"}]},
+        [],
+    )
+    if module.review_state_blockers(accepted_review_summary):
+        raise AssertionError(accepted_review_summary)
+    for bad_state in ("CHANGES_REQUESTED", "PENDING"):
+        bad_state_summary = module.summarize_current_head_review_state(
+            {
+                **pr,
+                "reviews": [
+                    {
+                        "commit": {"oid": head},
+                        "submittedAt": "2026-07-06T00:03:00Z",
+                        "state": bad_state,
+                        "author": {"login": "chatgpt-codex-connector"},
+                    }
+                ],
+                "comments": [],
+                "requiredCheckRollup": [{"name": "validate", "state": "SUCCESS"}],
+            },
+            [],
+        )
+        blockers = module.review_state_blockers(bad_state_summary)
+        if not any("review states are blocking" in blocker and bad_state in blocker for blocker in blockers):
+            raise AssertionError((bad_state, blockers))
+    dismissed_summary = module.summarize_current_head_review_state(
+        {
+            **pr,
+            "reviews": [
+                {
+                    "commit": {"oid": head},
+                    "submittedAt": "2026-07-06T00:03:00Z",
+                    "state": "DISMISSED",
+                    "author": {"login": "chatgpt-codex-connector"},
+                }
+            ],
+            "comments": [],
+            "requiredCheckRollup": [{"name": "validate", "state": "SUCCESS"}],
+        },
+        [],
+    )
+    dismissed_blockers = module.review_state_blockers(dismissed_summary)
+    if not any("no accepted state" in blocker and "DISMISSED" in blocker for blocker in dismissed_blockers):
+        raise AssertionError(dismissed_blockers)
     paginated_reviews = module.flatten_gh_paginated_json(
         [
             [
@@ -426,7 +513,16 @@ Run the session start gate.
 
 def main() -> int:
     python = sys.executable
+    pr_body_script = Path(__file__).resolve().parents[1] / "scripts" / "check-pr-body.py"
     assert_review_state_collector_fixture()
+    pr_body_self_test = subprocess.run(
+        [python, str(pr_body_script), "--self-test"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if pr_body_self_test.returncode != 0:
+        raise AssertionError(pr_body_self_test.stdout)
     with tempfile.TemporaryDirectory(prefix="coding-os-workflow-gates-") as temp:
         project = Path(temp)
         subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.DEVNULL)
@@ -791,9 +887,9 @@ def main() -> int:
                 ),
             },
         )
-        parent_non_pr_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
-        if "PARENT CLOSEOUT CHECK: PASS" not in parent_non_pr_pass.stdout:
-            raise AssertionError(parent_non_pr_pass.stdout)
+        parent_non_pr_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "requires a clean live working tree before final closeout" not in parent_non_pr_dirty_block.stdout:
+            raise AssertionError(parent_non_pr_dirty_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -841,9 +937,9 @@ def main() -> int:
                 ),
             },
         )
-        parent_no_open_comments_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
-        if "PARENT CLOSEOUT CHECK: PASS" not in parent_no_open_comments_pass.stdout:
-            raise AssertionError(parent_no_open_comments_pass.stdout)
+        parent_no_open_comments_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "requires a clean live working tree before final closeout" not in parent_no_open_comments_dirty_block.stdout:
+            raise AssertionError(parent_no_open_comments_dirty_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -891,9 +987,9 @@ def main() -> int:
                 ),
             },
         )
-        parent_enum_publication_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
-        if "PARENT CLOSEOUT CHECK: PASS" not in parent_enum_publication_pass.stdout:
-            raise AssertionError(parent_enum_publication_pass.stdout)
+        parent_enum_publication_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "requires a clean live working tree before final closeout" not in parent_enum_publication_dirty_block.stdout:
+            raise AssertionError(parent_enum_publication_dirty_block.stdout)
         loop_triggered_without_rca = parent_closeout_reconciliation(
             pr_head_sha=parent_live_head,
             local_head_sha=parent_live_head,
@@ -943,9 +1039,9 @@ def main() -> int:
                 **loop_triggered_with_rca,
             },
         )
-        parent_review_loop_with_rca_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
-        if "PARENT CLOSEOUT CHECK: PASS" not in parent_review_loop_with_rca_pass.stdout:
-            raise AssertionError(parent_review_loop_with_rca_pass.stdout)
+        parent_review_loop_with_rca_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "requires a clean live working tree before final closeout" not in parent_review_loop_with_rca_dirty_block.stdout:
+            raise AssertionError(parent_review_loop_with_rca_dirty_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1130,9 +1226,9 @@ def main() -> int:
                 ),
             },
         )
-        parent_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
-        if "PARENT CLOSEOUT CHECK: PASS" not in parent_closeout_pass.stdout:
-            raise AssertionError(parent_closeout_pass.stdout)
+        parent_closeout_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "requires a clean live working tree before final closeout" not in parent_closeout_dirty_block.stdout:
+            raise AssertionError(parent_closeout_dirty_block.stdout)
         update_frontmatter_values(
             project / "docs" / "delivery" / "current-state.md",
             {
@@ -1190,9 +1286,9 @@ def main() -> int:
                 ),
             },
         )
-        parent_approved_review_closeout_pass = run([python, str(local_continuity), "closeout-check"], project, 0)
-        if "PARENT CLOSEOUT CHECK: PASS" not in parent_approved_review_closeout_pass.stdout:
-            raise AssertionError(parent_approved_review_closeout_pass.stdout)
+        parent_approved_review_closeout_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
+        if "requires a clean live working tree before final closeout" not in parent_approved_review_closeout_dirty_block.stdout:
+            raise AssertionError(parent_approved_review_closeout_dirty_block.stdout)
         update_frontmatter_values(
             project / "docs" / "delivery" / "current-state.md",
             {
