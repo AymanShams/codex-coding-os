@@ -11,12 +11,12 @@ import sys
 from pathlib import Path
 
 
-REQUIRED_HEADINGS = [
-    "## Summary",
-    "## Scope And Authority",
-    "## Decision Record",
-    "## Scope-Creep And Hidden-Dependency Check",
-    "## Review And Validation",
+REQUIRED_HEADING_GROUPS = [
+    ("## Summary",),
+    ("## Scope And Authority", "## Source And Scope"),
+    ("## Decision Record",),
+    ("## Scope-Creep And Hidden-Dependency Check",),
+    ("## Review And Validation", "## AI Review And Agent Coordination"),
 ]
 
 REQUIRED_PHRASES = [
@@ -63,12 +63,17 @@ def positive_int(value: str) -> bool:
     return bool(re.fullmatch(r"[1-9][0-9]*", value))
 
 
-def validate_body(body: str, *, allow_unmarked_ai_review: bool = False) -> list[str]:
+def validate_body(
+    body: str,
+    *,
+    allow_unmarked_ai_review: bool = False,
+    expected_current_head: str = "",
+) -> list[str]:
     failures: list[str] = []
 
-    for heading in REQUIRED_HEADINGS:
-        if heading not in body:
-            failures.append(f"PR body is missing required section: {heading}")
+    for heading_group in REQUIRED_HEADING_GROUPS:
+        if not any(heading in body for heading in heading_group):
+            failures.append(f"PR body is missing required section: {' or '.join(heading_group)}")
 
     for phrase in REQUIRED_PHRASES:
         if phrase not in body:
@@ -88,6 +93,8 @@ def validate_body(body: str, *, allow_unmarked_ai_review: bool = False) -> list[
         review_count = field_value(body, "Current-head review count")
         if not valid_sha(current_pr_head):
             failures.append("Codex exact-head review must record a valid Current PR head SHA.")
+        elif expected_current_head and current_pr_head.lower() != expected_current_head.lower():
+            failures.append("Codex exact-head review Current PR head SHA must match the live pull request head SHA.")
         if not valid_sha(reviewed_head):
             failures.append("Codex exact-head review must record a valid Reviewed head SHA.")
         if valid_sha(current_pr_head) and valid_sha(reviewed_head) and current_pr_head.lower() != reviewed_head.lower():
@@ -140,7 +147,10 @@ def fixture_body(current_head: str, reviewed_head: str, review_source: str, revi
 
 def run_self_test(template_path: Path | None = None) -> None:
     head = "a" * 40
-    valid_failures = validate_body(fixture_body(head, head, "https://example.invalid/review", "1"))
+    valid_failures = validate_body(
+        fixture_body(head, head, "https://example.invalid/review", "1"),
+        expected_current_head=head,
+    )
     if valid_failures:
         raise AssertionError(f"valid PR body fixture failed: {'; '.join(valid_failures)}")
 
@@ -152,20 +162,29 @@ def run_self_test(template_path: Path | None = None) -> None:
     if not any("Reviewed head SHA" in failure for failure in short_sha_failures):
         raise AssertionError("abbreviated Reviewed head SHA fixture did not fail closed")
 
+    stale_head_failures = validate_body(
+        fixture_body(head, head, "https://example.invalid/review", "1"),
+        expected_current_head="b" * 40,
+    )
+    if not any("live pull request head SHA" in failure for failure in stale_head_failures):
+        raise AssertionError("stale Current PR head SHA fixture did not fail closed")
+
     if template_path is not None:
         template_failures = validate_body(template_path.read_text(encoding="utf-8"), allow_unmarked_ai_review=True)
         if template_failures:
             raise AssertionError(f"PR template failed template-mode validation: {'; '.join(template_failures)}")
 
 
-def read_github_event_body(event_path: Path, *, enforce_draft: bool) -> tuple[str, str | None]:
+def read_github_event_body(event_path: Path, *, enforce_draft: bool) -> tuple[str, str, str | None]:
     event = json.loads(event_path.read_text(encoding="utf-8"))
     pull_request = event.get("pull_request")
     if not isinstance(pull_request, dict):
-        return "", "pr-body check skipped because this is not a pull_request event."
+        return "", "", "pr-body check skipped because this is not a pull_request event."
     if pull_request.get("draft") is True and not enforce_draft:
-        return "", "pr-body check skipped because this pull request is still a draft."
-    return str(pull_request.get("body") or ""), None
+        return "", "", "pr-body check skipped because this pull request is still a draft."
+    head = pull_request.get("head")
+    head_sha = str(head.get("sha") or "") if isinstance(head, dict) else ""
+    return str(pull_request.get("body") or ""), head_sha, None
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -188,12 +207,16 @@ def main(argv: list[str]) -> int:
         return 0
 
     source = ""
+    expected_current_head = ""
     if args.body_file:
         source = args.body_file
         body = Path(args.body_file).read_text(encoding="utf-8")
     elif os.environ.get("GITHUB_EVENT_PATH"):
         source = "GitHub pull request event"
-        body, skipped = read_github_event_body(Path(os.environ["GITHUB_EVENT_PATH"]), enforce_draft=args.enforce_draft)
+        body, expected_current_head, skipped = read_github_event_body(
+            Path(os.environ["GITHUB_EVENT_PATH"]),
+            enforce_draft=args.enforce_draft,
+        )
         if skipped:
             print(skipped)
             return 0
@@ -201,7 +224,11 @@ def main(argv: list[str]) -> int:
         print("pr-body check skipped outside GitHub Actions.")
         return 0
 
-    failures = validate_body(body, allow_unmarked_ai_review=args.allow_unmarked_ai_review)
+    failures = validate_body(
+        body,
+        allow_unmarked_ai_review=args.allow_unmarked_ai_review,
+        expected_current_head=expected_current_head,
+    )
     if failures:
         print(f"pr-body check failed for {source}", file=sys.stderr)
         for failure in failures:
