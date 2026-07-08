@@ -28,4 +28,13 @@
 ## Review And Validation
 
 - [ ] Review need was classified from the actual diff, controlled-source risk, or explicit user instruction.
+- [ ] Codex reviewed this exact PR head
+  - Current PR head SHA:
+  - Reviewed head SHA:
+  - Review source:
+  - Current-head review count:
+- [ ] Claude reviewed this diff
+- [ ] AI review intentionally deferred with reason below
 - [ ] Required validation commands were run or explicitly reported as not run.
+
+Reason if AI review was deferred:
