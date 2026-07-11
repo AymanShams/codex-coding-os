@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import fnmatch
 import json
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -407,7 +407,7 @@ last_handoff: none
 # Current Delivery State
 
 ## Purpose
-This file records coordination state only. Controlling product and technical sources and the workflow manifest remain authoritative.
+This file records the active slice, exact next permitted action, risks, and session-boundary decision. It is not a product, architecture, API, schema, data, or security authority. Correct this file when it conflicts with controlling sources.
 
 ## Active Slice Manifest
 - The current permission boundary is `docs/delivery/active-slice-manifest.json`.
@@ -418,11 +418,12 @@ This file records coordination state only. Controlling product and technical sou
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 - In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
 - A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
-- Before final parent/orchestrator closeout, run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout check in the active-slice manifest.
+- Before final parent/orchestrator closeout, run the review-state collector when present, then run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, review commit, current-head inline comments, issue comments, required checks, local branch state, stale-closeout check, publication stabilization typed states, and review-loop breaker evidence in the active-slice manifest.
 - If current-head inline findings conflict with a later no-major-issues summary, mark `conflicting_review_signals` true, classify review state as ambiguous, and stop.
+- After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one further automated review.
 
 ## Current Verified Repository State
-- Record the verified branch, remote baseline, and working-tree state.
+- Record the verified branch, local head, remote baseline, and working-tree state.
 
 ## Active Work
 - Record the bounded slice currently in progress.
@@ -447,11 +448,11 @@ This file records coordination state only. Controlling product and technical sou
 
 ## New Session Start Instructions
 ```text
-If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, record current PR head, current-head inline comments, issue comments, required checks, local branch state, stale-closeout status, and publication stabilization evidence in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, run the review-state collector when present, record current PR head, review commit, current-head inline comments, issue comments, required checks, local branch state, stale-closeout status, publication stabilization typed states, and review-loop breaker evidence in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract
-Update this file when active work, next action, risks, blockers, latest handoff, or session-boundary decisions change.
+Update this file when the active slice, next action, risks, blockers, review state, permission manifest, latest handoff, or session-boundary decision changes. Do not copy chat history into this file.
 """
 
 DEFAULT_ACTIVE_SLICE_MANIFEST = {
@@ -532,7 +533,7 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
             "bounded_wait_result": "not_checked",
         },
         "review_loop_breaker": {
-            "status": "not_started",
+            "status": "not_applicable",
             "automated_review_fix_rounds": 0,
             "max_automated_review_fix_rounds": 2,
             "validator_area_findings": {},
@@ -1816,10 +1817,9 @@ def validate_state() -> list[str]:
 
 
 def load_active_slice_template() -> dict[str, object]:
-    active_template = Path(__file__).resolve().parent.parent / "assets" / "active-slice-manifest.template.json"
-    if active_template.exists():
-        return json.loads(active_template.read_text(encoding="utf-8"))
-    return dict(DEFAULT_ACTIVE_SLICE_MANIFEST)
+    # The embedded object is the runtime authority. Projects commonly copy only
+    # this script, so runtime behavior must never depend on an adjacent snapshot.
+    return copy.deepcopy(DEFAULT_ACTIVE_SLICE_MANIFEST)
 
 
 def merge_missing_defaults(data: dict[str, object], defaults: dict[str, object]) -> tuple[dict[str, object], list[str]]:
@@ -1861,11 +1861,8 @@ def command_init(_: argparse.Namespace) -> int:
         print(f"Refusing to overwrite existing active-slice manifest: {DEFAULT_ACTIVE_SLICE_MANIFEST_PATH}")
         return 1
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    template = Path(__file__).resolve().parent.parent / "assets" / "current-state-template.md"
-    if template.exists():
-        shutil.copyfile(template, STATE_PATH)
-    else:
-        STATE_PATH.write_text(DEFAULT_STATE_TEMPLATE, encoding="utf-8")
+    # The embedded template is the runtime authority for standalone copies.
+    STATE_PATH.write_text(DEFAULT_STATE_TEMPLATE, encoding="utf-8")
     attributes, body, _ = read_state()
     attributes["last_updated"] = dt.date.today().isoformat()
     write_state(attributes, body)

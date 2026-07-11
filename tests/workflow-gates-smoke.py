@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_ROOT = ROOT / ".agents" / "skills" / "new-project-documentation-system"
 CONTINUITY = ROOT / ".agents" / "skills" / "project-session-continuity" / "scripts" / "session_continuity.py"
+CONTINUITY_ASSETS = ROOT / ".agents" / "skills" / "project-session-continuity" / "assets"
 FRESH_CONTEXT_REVIEW = ROOT / "templates" / "fresh-context-review.md"
 PHASES = [
     "0_route_scope",
@@ -37,6 +39,39 @@ def run(args: list[str], cwd: Path, expected: int) -> subprocess.CompletedProces
             f"Expected exit {expected}, got {result.returncode}: {' '.join(args)}\n{result.stdout}"
         )
     return result
+
+
+def normalized_template_text(value: str) -> str:
+    return value.replace("\r\n", "\n").rstrip() + "\n"
+
+
+def normalized_generated_state(value: str) -> str:
+    normalized = normalized_template_text(value)
+    return re.sub(r"(?m)^last_updated: \d{4}-\d{2}-\d{2}$", "last_updated: 1970-01-01", normalized)
+
+
+def assert_continuity_template_authority() -> None:
+    spec = importlib.util.spec_from_file_location("session_continuity_template_authority", CONTINUITY)
+    if spec is None or spec.loader is None:
+        raise AssertionError("Cannot import session continuity helper for template parity")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    state_asset = (CONTINUITY_ASSETS / "current-state-template.md").read_text(encoding="utf-8")
+    manifest_asset = json.loads(
+        (CONTINUITY_ASSETS / "active-slice-manifest.template.json").read_text(encoding="utf-8")
+    )
+    if normalized_template_text(module.DEFAULT_STATE_TEMPLATE) != normalized_template_text(state_asset):
+        raise AssertionError("published current-state template drifted from the embedded runtime authority")
+    if module.DEFAULT_ACTIVE_SLICE_MANIFEST != manifest_asset:
+        raise AssertionError("published active-slice manifest template drifted from the embedded runtime authority")
+
+    if normalized_template_text(module.DEFAULT_STATE_TEMPLATE + "\n# drift") == normalized_template_text(state_asset):
+        raise AssertionError("current-state parity regression did not detect a changed snapshot")
+    drifted_manifest = json.loads(json.dumps(manifest_asset))
+    drifted_manifest["permission_state"] = "drifted"
+    if module.DEFAULT_ACTIVE_SLICE_MANIFEST == drifted_manifest:
+        raise AssertionError("active-slice parity regression did not detect a changed snapshot")
 
 
 def git_stdout(project: Path, *args: str) -> str:
@@ -514,6 +549,7 @@ Run the session start gate.
 def main() -> int:
     python = sys.executable
     pr_body_script = Path(__file__).resolve().parents[1] / "scripts" / "check-pr-body.py"
+    assert_continuity_template_authority()
     assert_review_state_collector_fixture()
     pr_body_self_test = subprocess.run(
         [python, str(pr_body_script), "--self-test"],
@@ -555,8 +591,20 @@ def main() -> int:
         local_continuity.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(CONTINUITY, local_continuity)
         run([python, str(local_continuity), "init"], project, 0)
-        if not (project / "docs" / "delivery" / "active-slice-manifest.json").exists():
+        generated_state_path = project / "docs" / "delivery" / "current-state.md"
+        generated_manifest_path = project / "docs" / "delivery" / "active-slice-manifest.json"
+        if not generated_manifest_path.exists():
             raise AssertionError("active-slice manifest was not created")
+        state_asset = (CONTINUITY_ASSETS / "current-state-template.md").read_text(encoding="utf-8")
+        if normalized_generated_state(generated_state_path.read_text(encoding="utf-8")) != normalized_template_text(state_asset):
+            raise AssertionError("standalone copied-script init did not reproduce the published current-state template")
+        generated_manifest = json.loads(generated_manifest_path.read_text(encoding="utf-8"))
+        generated_manifest["last_updated"] = "1970-01-01"
+        manifest_asset = json.loads(
+            (CONTINUITY_ASSETS / "active-slice-manifest.template.json").read_text(encoding="utf-8")
+        )
+        if generated_manifest != manifest_asset:
+            raise AssertionError("standalone copied-script init did not reproduce the published active-slice template")
         run([python, str(local_continuity), "validate"], project, 0)
         legacy_handoff = write_legacy_handoff(project)
         update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", legacy_handoff.as_posix())
