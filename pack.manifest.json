@@ -74,6 +74,7 @@
     "templates/worktree-task-contract.md",
     "templates/parallel-worktree-offer.md",
     "templates/parallel-lane-handoff.md",
+    "templates/local-validation-task.md",
     "templates/review-checklist.md",
     "templates/fresh-context-review.md",
     "templates/validation-report.md",
