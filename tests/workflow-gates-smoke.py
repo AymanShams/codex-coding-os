@@ -605,6 +605,131 @@ def main() -> int:
         )
         if generated_manifest != manifest_asset:
             raise AssertionError("standalone copied-script init did not reproduce the published active-slice template")
+
+        populated_summary = run([python, str(local_continuity), "summary"], project, 0)
+        for required in (
+            "Project re-entry summary",
+            "Remote baseline: (unavailable)",
+            "Milestone snapshot:",
+            "Permission result: CODE_BLOCKED",
+            "Milestone and goal text never authorize code",
+        ):
+            if required not in populated_summary.stdout:
+                raise AssertionError(populated_summary.stdout)
+
+        state_before_goal = generated_state_path.read_text(encoding="utf-8")
+        goal_summary = run(
+            [python, str(local_continuity), "summary", "--goal", "Inspect the current bounded slice"],
+            project,
+            0,
+        )
+        if "Goal hint (display-only, not persisted): Inspect the current bounded slice" not in goal_summary.stdout:
+            raise AssertionError(goal_summary.stdout)
+        if generated_state_path.read_text(encoding="utf-8") != state_before_goal:
+            raise AssertionError("summary --goal persisted display-only context")
+        if "Permission result: CODE_BLOCKED" not in goal_summary.stdout:
+            raise AssertionError("goal hint changed permission output")
+
+        legacy_state = re.sub(
+            r"\n## Milestone Snapshot\n.*?(?=\n## Next Permitted Action\n)",
+            "\n",
+            state_before_goal,
+            flags=re.DOTALL,
+        )
+        generated_state_path.write_text(legacy_state, encoding="utf-8")
+        run([python, str(local_continuity), "validate"], project, 0)
+        legacy_summary = run([python, str(local_continuity), "summary"], project, 0)
+        if "Milestone snapshot: not recorded" not in legacy_summary.stdout:
+            raise AssertionError(legacy_summary.stdout)
+        generated_state_path.write_text(state_before_goal, encoding="utf-8")
+
+        duplicate_section_state = state_before_goal + """
+
+## Milestone Snapshot
+- Objective: Conflicting duplicate objective.
+- Completed: Duplicate section must be rejected.
+- Next: Stop.
+- Blockers: Duplicate section.
+- Decisions needed: None.
+- Evidence: Duplicate fixture.
+"""
+        generated_state_path.write_text(duplicate_section_state, encoding="utf-8")
+        duplicate_section_summary = run([python, str(local_continuity), "summary"], project, 2)
+        if "milestone snapshot heading must appear once" not in duplicate_section_summary.stdout:
+            raise AssertionError(duplicate_section_summary.stdout)
+
+        duplicate_field_state = state_before_goal.replace(
+            "- Objective: Resolve material project decisions before controlled drafting or implementation.",
+            "- Objective: First objective.\n- objective: Conflicting objective.",
+            1,
+        )
+        generated_state_path.write_text(duplicate_field_state, encoding="utf-8")
+        duplicate_field_summary = run([python, str(local_continuity), "summary"], project, 2)
+        if "milestone snapshot field must appear once: Objective" not in duplicate_field_summary.stdout:
+            raise AssertionError(duplicate_field_summary.stdout)
+        generated_state_path.write_text(state_before_goal, encoding="utf-8")
+
+        manifest_backup = manifest_path.read_text(encoding="utf-8")
+        manifest_path.unlink()
+        missing_manifest_summary = run([python, str(local_continuity), "summary"], project, 2)
+        if "workflow manifest not found" not in missing_manifest_summary.stdout or "CODE_BLOCKED" not in missing_manifest_summary.stdout:
+            raise AssertionError(missing_manifest_summary.stdout)
+        manifest_path.write_text(manifest_backup, encoding="utf-8")
+
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        incomplete_workflow_summary = run([python, str(local_continuity), "summary"], project, 2)
+        if "workflow manifest is missing" not in incomplete_workflow_summary.stdout or "CODE_BLOCKED" not in incomplete_workflow_summary.stdout:
+            raise AssertionError(incomplete_workflow_summary.stdout)
+        manifest_path.write_text(manifest_backup, encoding="utf-8")
+
+        active_backup = generated_manifest_path.read_text(encoding="utf-8")
+        generated_manifest_path.write_text("{\n", encoding="utf-8")
+        malformed_manifest_summary = run([python, str(local_continuity), "summary"], project, 2)
+        if "active-slice manifest cannot be read" not in malformed_manifest_summary.stdout or "CODE_BLOCKED" not in malformed_manifest_summary.stdout:
+            raise AssertionError(malformed_manifest_summary.stdout)
+        generated_manifest_path.write_text(active_backup, encoding="utf-8")
+
+        generated_manifest_path.write_text("{}\n", encoding="utf-8")
+        incomplete_active_summary = run([python, str(local_continuity), "summary"], project, 2)
+        if "active-slice manifest is missing" not in incomplete_active_summary.stdout or "CODE_BLOCKED" not in incomplete_active_summary.stdout:
+            raise AssertionError(incomplete_active_summary.stdout)
+
+        for field, invalid_value in (
+            ("active_area", 7),
+            ("active_slice", {"invalid": "object"}),
+            ("permission_state", 7),
+            ("permission_state", {"invalid": "object"}),
+        ):
+            invalid_active = json.loads(active_backup)
+            invalid_active[field] = invalid_value
+            generated_manifest_path.write_text(json.dumps(invalid_active, indent=2) + "\n", encoding="utf-8")
+            invalid_summary = run([python, str(local_continuity), "summary"], project, 2)
+            required_error = f"active-slice manifest {field} must be a string"
+            if required_error not in invalid_summary.stdout:
+                raise AssertionError(f"{field} structural error was hidden: {invalid_summary.stdout}")
+            if "Permission authority state: INVALID_OR_UNAVAILABLE" not in invalid_summary.stdout:
+                raise AssertionError(f"{field} invalid authority was not classified structurally: {invalid_summary.stdout}")
+            if "Permission result: CODE_BLOCKED" not in invalid_summary.stdout:
+                raise AssertionError(f"{field} invalid authority failed open: {invalid_summary.stdout}")
+
+        blocked_active = json.loads(active_backup)
+        blocked_active["permission_state"] = "review_pending"
+        generated_manifest_path.write_text(json.dumps(blocked_active, indent=2) + "\n", encoding="utf-8")
+        valid_blocked_summary = run([python, str(local_continuity), "summary"], project, 0)
+        if "Permission result: CODE_BLOCKED" not in valid_blocked_summary.stdout:
+            raise AssertionError(valid_blocked_summary.stdout)
+        generated_manifest_path.write_text(active_backup, encoding="utf-8")
+
+        drifted_active = json.loads(active_backup)
+        drifted_active["active_slice"] = "coordination-drift-only"
+        generated_manifest_path.write_text(json.dumps(drifted_active, indent=2) + "\n", encoding="utf-8")
+        drift_summary = run([python, str(local_continuity), "summary"], project, 0)
+        if "active-slice manifest active_slice must match current state" not in drift_summary.stdout:
+            raise AssertionError(drift_summary.stdout)
+        if "Review status: not_required" not in drift_summary.stdout or "Permission result: CODE_BLOCKED" not in drift_summary.stdout:
+            raise AssertionError("coordination drift changed review state or failed to block permission")
+        generated_manifest_path.write_text(active_backup, encoding="utf-8")
+
         run([python, str(local_continuity), "validate"], project, 0)
         legacy_handoff = write_legacy_handoff(project)
         update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", legacy_handoff.as_posix())

@@ -46,6 +46,15 @@ This file records the active slice, exact next permitted action, risks, and sess
 ## Active Work
 - Record the bounded slice currently in progress.
 
+## Milestone Snapshot
+This optional snapshot is concise re-entry context only. It never authorizes coding, review, merge, deployment, publication, file scope, or next-slice selection.
+- Objective: Resolve material project decisions before controlled drafting or implementation.
+- Completed: Project intake and the initial coordination boundary are recorded.
+- Next: Resolve the material decisions named by the controlling workflow.
+- Blockers: Unresolved material decisions block controlled drafting and implementation.
+- Decisions needed: Approve, reject, or defer each material project decision.
+- Evidence: Workflow manifest, active-slice manifest, and current verified repository state.
+
 ## Next Permitted Action
 - Resolve material project decisions before drafting controlled documents or coding.
 

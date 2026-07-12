@@ -80,6 +80,29 @@ python scripts/agent/session_continuity.py start --start-new
 
 The command reports Git and coordination state, requires incoming work inspection, blocks dirty new-session starts, and blocks an implementation next action when either manifest does not permit coding.
 
+For a concise, read-only re-entry view, run:
+
+```text
+python scripts/agent/session_continuity.py summary
+```
+
+An optional `--goal "..."` hint can display the immediate human objective. It is not saved and cannot change any permission or review gate.
+
+## Choose Two Independent Axes
+
+Choose governance depth from the cost of a wrong assumption:
+
+- Light governance fits a small, reversible, already-specified change with proportionate validation.
+- Full governance fits a new product, unclear repository, material decision, shared behavior, sensitive data, or high-risk change.
+
+Choose execution topology separately from governance depth:
+
+- A single session fits one bounded task that can be completed and verified without a handoff.
+- Sequential manual sessions fit linear work where a person intentionally starts each next session.
+- Parent-orchestrator execution fits an explicitly approved run envelope with bounded child tasks, review authority, publication limits, and stop conditions.
+
+Governance depth does not select an execution topology, and execution topology does not reduce governance requirements. A milestone snapshot or goal hint is re-entry context only and never selects either axis or authorizes action.
+
 ## Automation Prompt Families
 
 Use `templates/sequential-manual-prompt.md` when the user will manually start each

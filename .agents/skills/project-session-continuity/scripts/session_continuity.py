@@ -380,6 +380,19 @@ IMPLEMENTATION_ACTION = re.compile(
     r"\b(code|implement|implementation|fix|review[_-]?fix|merge|publish|deploy|release|ship|write|edit|modify|change)\b",
     re.IGNORECASE,
 )
+MILESTONE_HEADING = "## Milestone Snapshot"
+MILESTONE_FIELDS = (
+    "Objective",
+    "Completed",
+    "Next",
+    "Blockers",
+    "Decisions needed",
+    "Evidence",
+)
+MILESTONE_PLACEHOLDER = re.compile(
+    r"(?:\[(?:agent must|todo|tbd|replace)[^\]]*\]|<[^>]+>|\b(?:todo|tbd|placeholder)\b)",
+    re.IGNORECASE,
+)
 DEFAULT_STATE_TEMPLATE = """---
 state_version: 1
 last_updated: 1970-01-01
@@ -427,6 +440,15 @@ This file records the active slice, exact next permitted action, risks, and sess
 
 ## Active Work
 - Record the bounded slice currently in progress.
+
+## Milestone Snapshot
+This optional snapshot is concise re-entry context only. It never authorizes coding, review, merge, deployment, publication, file scope, or next-slice selection.
+- Objective: Resolve material project decisions before controlled drafting or implementation.
+- Completed: Project intake and the initial coordination boundary are recorded.
+- Next: Resolve the material decisions named by the controlling workflow.
+- Blockers: Unresolved material decisions block controlled drafting and implementation.
+- Decisions needed: Approve, reject, or defer each material project decision.
+- Evidence: Workflow manifest, active-slice manifest, and current verified repository state.
 
 ## Next Permitted Action
 - Resolve material project decisions before drafting controlled documents or coding.
@@ -937,6 +959,64 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return attributes, normalized[end + 5 :]
 
 
+def markdown_section(body: str, heading: str) -> str | None:
+    normalized = body.replace("\r\n", "\n")
+    marker = f"{heading}\n"
+    start = normalized.find(marker)
+    if start < 0:
+        return None
+    start += len(marker)
+    next_heading = re.search(r"(?m)^##\s+", normalized[start:])
+    end = start + next_heading.start() if next_heading else len(normalized)
+    return normalized[start:end].strip()
+
+
+def parse_milestone_snapshot(body: str) -> tuple[dict[str, str] | None, list[str]]:
+    heading_count = sum(1 for line in body.replace("\r\n", "\n").splitlines() if line.strip() == MILESTONE_HEADING)
+    section = markdown_section(body, MILESTONE_HEADING)
+    if section is None:
+        return None, []
+
+    observed: dict[str, str] = {}
+    labels = {label.lower(): label for label in MILESTONE_FIELDS}
+    errors: list[str] = []
+    if heading_count != 1:
+        errors.append("milestone snapshot heading must appear once")
+    for line in section.splitlines():
+        match = re.match(r"^-\s*([^:]+):\s*(.+?)\s*$", line.strip())
+        if not match:
+            continue
+        normalized_label = match.group(1).strip().lower()
+        if normalized_label in labels:
+            field = labels[normalized_label]
+            if field in observed:
+                errors.append(f"milestone snapshot field must appear once: {field}")
+                continue
+            observed[field] = match.group(2).strip()
+
+    for field in MILESTONE_FIELDS:
+        value = observed.get(field, "")
+        if not value:
+            errors.append(f"milestone snapshot is missing field: {field}")
+        elif MILESTONE_PLACEHOLDER.search(value):
+            errors.append(f"milestone snapshot field is unresolved: {field}")
+    return observed, errors
+
+
+def compact_state_section(body: str, heading: str) -> str:
+    section = markdown_section(body, heading)
+    if not section:
+        return "none recorded"
+    values: list[str] = []
+    for line in section.splitlines():
+        value = line.strip().lstrip("-").strip()
+        if value and not value.startswith("```"):
+            values.append(value)
+        if len(values) == 3:
+            break
+    return "; ".join(values) if values else "none recorded"
+
+
 def read_state() -> tuple[dict[str, str], str, str]:
     if not STATE_PATH.exists():
         return {}, "", ""
@@ -979,6 +1059,66 @@ def repo_state() -> dict[str, object]:
     }
 
 
+def summary_permission(attributes: dict[str, str], state: dict[str, object]) -> dict[str, object]:
+    workflow_path = Path(attributes.get("workflow_manifest", str(DEFAULT_MANIFEST_PATH)))
+    active_path = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+
+    workflow_read_error = ""
+    workflow_data: dict[str, object] | None = None
+    if not workflow_path.exists():
+        workflow_read_error = f"workflow manifest not found: {workflow_path}"
+    else:
+        try:
+            workflow_data = json.loads(workflow_path.read_text(encoding="utf-8"))
+            if not isinstance(workflow_data, dict):
+                workflow_read_error = f"workflow manifest must be a JSON object: {workflow_path}"
+        except (OSError, json.JSONDecodeError) as exc:
+            workflow_read_error = f"workflow manifest cannot be read: {exc}"
+
+    _, active_read_errors = read_active_slice_manifest(active_path)
+    authority_errors: list[str] = []
+    reasons: list[str] = []
+    if workflow_read_error:
+        authority_errors.append(workflow_read_error)
+        reasons.append(workflow_read_error)
+    else:
+        assert workflow_data is not None
+        workflow_structure_errors = validate_workflow_manifest_structure(workflow_data)
+        authority_errors.extend(workflow_structure_errors)
+        reasons.extend(workflow_structure_errors)
+        if not workflow_structure_errors:
+            workflow_allowed, workflow_errors = manifest_allows_code(workflow_path)
+            if not workflow_allowed:
+                reasons.extend(workflow_errors)
+
+    if active_read_errors:
+        authority_errors.extend(active_read_errors)
+        reasons.extend(active_read_errors)
+    else:
+        active_structure_errors = validate_active_slice_manifest(active_path)
+        authority_errors.extend(active_structure_errors)
+        reasons.extend(active_structure_errors)
+        if not active_structure_errors:
+            reasons.extend(validate_active_slice_manifest(active_path, attributes))
+            active_allowed, active_errors = active_slice_allows_code(active_path, attributes, str(state["head"]))
+            if not active_allowed:
+                reasons.extend(active_errors)
+
+    if attributes.get("next_action") != "code":
+        reasons.append(f"current-state next_action is {attributes.get('next_action', '(missing)')}, not code")
+
+    deduplicated = list(dict.fromkeys(reasons))
+    authority_unavailable = bool(authority_errors)
+    return {
+        "allowed": not deduplicated,
+        "authority_unavailable": authority_unavailable,
+        "authority_state": "INVALID_OR_UNAVAILABLE" if authority_unavailable else ("VALID_ALLOWED" if not deduplicated else "VALID_BLOCKED"),
+        "workflow_path": str(workflow_path),
+        "active_path": str(active_path),
+        "reasons": deduplicated,
+    }
+
+
 def normalize_repo_path(value: str) -> str:
     return value.replace("\\", "/").strip("/")
 
@@ -1011,6 +1151,40 @@ def path_matches_allowed(path: str, patterns: list[str]) -> bool:
     return False
 
 
+def validate_workflow_manifest_structure(data: object) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(data, dict):
+        return ["workflow manifest must be a JSON object"]
+    for field in ("next_action", "code_allowed", "open_material_decisions", "unresolved_source_conflicts", "approvals", "phases"):
+        if field not in data:
+            errors.append(f"workflow manifest is missing {field}")
+    if "next_action" in data and not isinstance(data.get("next_action"), str):
+        errors.append("workflow manifest next_action must be text")
+    if "code_allowed" in data and not isinstance(data.get("code_allowed"), bool):
+        errors.append("workflow manifest code_allowed must be true or false")
+    for field in ("open_material_decisions", "unresolved_source_conflicts"):
+        if field in data and not isinstance(data.get(field), list):
+            errors.append(f"workflow manifest {field} must be a list")
+    approvals = data.get("approvals")
+    if "approvals" in data and not isinstance(approvals, dict):
+        errors.append("workflow manifest approvals must be an object")
+    elif isinstance(approvals, dict):
+        for key in ("source_authority", "material_decisions", "controlled_docs", "tdd", "coding_start"):
+            if not isinstance(approvals.get(key), bool):
+                errors.append(f"workflow manifest approvals.{key} must be true or false")
+    phases = data.get("phases")
+    if "phases" in data and not isinstance(phases, dict):
+        errors.append("workflow manifest phases must be an object")
+    elif isinstance(phases, dict):
+        for phase in REQUIRED_CODE_PHASES:
+            entry = phases.get(phase)
+            if not isinstance(entry, dict):
+                errors.append(f"workflow manifest is missing phase {phase}")
+            elif not isinstance(entry.get("status"), str) or not entry.get("status"):
+                errors.append(f"workflow manifest phase {phase} is missing status")
+    return errors
+
+
 def manifest_allows_code(path: Path) -> tuple[bool, list[str]]:
     errors: list[str] = []
     if not path.exists():
@@ -1019,6 +1193,10 @@ def manifest_allows_code(path: Path) -> tuple[bool, list[str]]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return False, [f"workflow manifest cannot be read: {exc}"]
+
+    structure_errors = validate_workflow_manifest_structure(data)
+    if structure_errors:
+        return False, structure_errors
 
     if data.get("next_action") != "code":
         errors.append("workflow manifest next_action is not code")
@@ -1086,6 +1264,9 @@ def validate_active_slice_manifest(path: Path, attributes: dict[str, str] | None
             errors.append(f"active-slice manifest is missing {field}")
         elif field != "decision_records" and data.get(field) == []:
             errors.append(f"active-slice manifest is missing {field}")
+    for field in ("active_area", "active_slice", "permission_state"):
+        if not isinstance(data.get(field), str):
+            errors.append(f"active-slice manifest {field} must be a string")
     for field in ("source_authority", "allowed_files", "forbidden_actions", "validation_commands", "stop_conditions"):
         if not isinstance(data.get(field), list) or not data[field]:
             errors.append(f"active-slice manifest {field} must be a non-empty list")
@@ -1740,7 +1921,7 @@ def control_only_pr_authorized(active_manifest: Path) -> bool:
 
 def validate_state() -> list[str]:
     errors: list[str] = []
-    attributes, _, content = read_state()
+    attributes, body, content = read_state()
     if not content:
         return [f"required current-state file is missing: {STATE_PATH}"]
     for field in REQUIRED_STATE_FIELDS:
@@ -1749,6 +1930,8 @@ def validate_state() -> list[str]:
     for heading in REQUIRED_STATE_HEADINGS:
         if heading not in content:
             errors.append(f"current state is missing heading: {heading}")
+    _, milestone_errors = parse_milestone_snapshot(body)
+    errors.extend(milestone_errors)
     for field in ("next_high_risk", "next_session_required_before_next_slice"):
         if attributes.get(field) not in {"true", "false"}:
             errors.append(f"current state {field} must be true or false")
@@ -1971,6 +2154,66 @@ def command_start(args: argparse.Namespace) -> int:
         return 2
     print("START GATE: PASS")
     return 0
+
+
+def command_summary(args: argparse.Namespace) -> int:
+    state = repo_state()
+    attributes, body, content = read_state()
+    milestone, milestone_errors = parse_milestone_snapshot(body)
+    permission = summary_permission(attributes, state)
+
+    state_errors: list[str] = []
+    if not content:
+        state_errors.append(f"current state unavailable: {STATE_PATH}")
+    else:
+        for field in ("active_slice", "next_action", "review_status", "workflow_manifest", "permission_manifest"):
+            if not attributes.get(field):
+                state_errors.append(f"current state is missing summary field: {field}")
+    state_errors.extend(milestone_errors)
+
+    blockers = milestone.get("Blockers") if milestone else compact_state_section(body, "## Risks And Blockers")
+    decisions = milestone.get("Decisions needed") if milestone else compact_state_section(
+        body, "## Candidate Decisions Still Not Final"
+    )
+
+    print(
+        "Project re-entry summary\n"
+        "========================\n"
+        f"Branch: {state['branch']}\n"
+        f"HEAD: {state['head']}\n"
+        f"Remote baseline: {state['remote_ref']} at {state['remote_head']}\n"
+        f"Ahead/behind: {state['ahead']}/{state['behind']}\n"
+        f"Dirty: {'yes' if state['dirty'] else 'no'}\n"
+        f"Active slice: {attributes.get('active_slice', '(unavailable)')}\n"
+        f"Exact next action: {attributes.get('next_action', '(unavailable)')}\n"
+        f"Review status: {attributes.get('review_status', '(unavailable)')}\n"
+        f"Blockers: {blockers or 'none recorded'}\n"
+        f"Decisions needed: {decisions or 'none recorded'}"
+    )
+    if milestone:
+        print(
+            "Milestone snapshot:\n"
+            f"- Objective: {milestone.get('Objective', '(unavailable)')}\n"
+            f"- Completed: {milestone.get('Completed', '(unavailable)')}\n"
+            f"- Next: {milestone.get('Next', '(unavailable)')}\n"
+            f"- Evidence: {milestone.get('Evidence', '(unavailable)')}"
+        )
+    else:
+        print("Milestone snapshot: not recorded")
+    if args.goal:
+        print(f"Goal hint (display-only, not persisted): {args.goal}")
+    print(
+        f"Permission result: {'CODE_ALLOWED' if permission['allowed'] else 'CODE_BLOCKED'}\n"
+        f"Permission authority state: {permission['authority_state']}\n"
+        f"Permission authority: {permission['workflow_path']} + {permission['active_path']}\n"
+        "Milestone and goal text never authorize code, review, merge, deployment, publication, file scope, or next-slice selection."
+    )
+    all_errors = [*state_errors, *permission["reasons"]]
+    if all_errors:
+        print("Permission details:")
+        for error in dict.fromkeys(all_errors):
+            print(f"- {error}")
+    return 2 if state_errors or permission["authority_unavailable"] else 0
 
 
 def command_decide(args: argparse.Namespace) -> int:
@@ -2302,6 +2545,9 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--continue-slice", action="store_true")
     start.add_argument("--pull-after-inspection", action="store_true")
     start.set_defaults(func=command_start)
+    summary = subparsers.add_parser("summary")
+    summary.add_argument("--goal", default="")
+    summary.set_defaults(func=command_summary)
     decide = subparsers.add_parser("decide")
     decide.add_argument("--event", default="manual-check")
     decide.add_argument("--corrections", type=int, default=0)

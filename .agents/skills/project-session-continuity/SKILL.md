@@ -44,6 +44,19 @@ For every new or resumed non-trivial session:
 
 The start gate must block an implementation next action unless the workflow manifest and active-slice manifest independently permit coding.
 
+## Read-Only Re-Entry Summary
+
+Use the existing continuity owner for a concise re-entry view:
+
+```text
+python scripts/agent/session_continuity.py summary
+python scripts/agent/session_continuity.py summary --goal "Describe the current human objective"
+```
+
+The summary combines live Git facts with controlled current state. It derives code permission only from the workflow manifest and active-slice manifest and fails visibly when either authority source is missing or malformed. The optional goal hint is ephemeral display context. It is not persisted and cannot authorize coding, review, merge, deployment, publication, file scope, or next-slice selection.
+
+`docs/delivery/current-state.md` may include an optional `## Milestone Snapshot` with Objective, Completed, Next, Blockers, Decisions needed, and Evidence fields. Legacy current-state files without that section remain valid. At an accepted milestone boundary, update the snapshot only from verified work and evidence. Milestone prose never overrides either manifest, and coordination drift never creates a review trigger by itself.
+
 ## Continue Current Session Only When
 
 - Work remains the same bounded slice.
