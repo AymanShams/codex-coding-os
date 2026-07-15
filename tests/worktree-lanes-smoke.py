@@ -155,7 +155,7 @@ def main() -> int:
             project,
             2,
         )
-        if "auto thread mode" not in auto_without_ack.stdout:
+        if "auto thread mode is disabled" not in auto_without_ack.stdout:
             raise AssertionError(auto_without_ack.stdout)
 
         planned = run(

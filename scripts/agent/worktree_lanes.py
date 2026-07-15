@@ -84,17 +84,10 @@ LOCAL_EXCLUDE_PATTERNS = [
     ".codex/parallel-lane.json",
 ]
 BROAD_PATTERNS = {"*", "**", ".", "./", "**/*", "src/**", "app/**", "pages/**"}
-THREAD_RISK_WARNING = """FULLY AUTOMATED THREAD MODE IS ADVANCED.
+THREAD_RISK_WARNING = """AUTOMATED THREAD MODE IS DISABLED.
 
-Use it only when the Codex app exposes trusted thread-creation tools and the
-parent/orchestrator session can still inspect every created lane prompt. Risks:
-- the wrong prompt may be sent to the wrong thread;
-- a new thread may miss local project context or plugin availability;
-- a lane may appear independent while still depending on locked source truth;
-- user approval and merge control can become unclear.
-
-Default mode is manual: Codex creates worktrees and paste-ready prompts, then the
-user opens each lane thread intentionally.
+The permanent manual review and red-lock policy requires a human to inspect each
+lane prompt and deliberately start every lane. Use manual mode.
 """
 
 
@@ -496,13 +489,13 @@ def contract_text(lane: Lane, run_id: str, branch: str, worktree_path: Path, bas
 - Do not edit files outside the allowed file list.
 - Do not change controlled source truth unless this contract explicitly allows it.
 - Do not merge this lane.
-- Do not update `docs/delivery/current-state.md`; the parent/orchestrator session owns it.
-- Do not turn this lane handoff into a user-facing new-session prompt when parent/orchestrator automation remains authorized.
+- Do not update `docs/delivery/current-state.md`; the human-designated coordinating session owns it.
+- Do not start or authorize another lane from this lane.
 
 ## Controlling Sources
 - `project-documentation-manifest.json`
 - `docs/delivery/current-state.md`
-- task-controlling PRD, TDD, ADR, AGENTS, and scoped docs named by the parent session
+- task-controlling PRD, TDD, ADR, AGENTS, and scoped docs named by the human-designated coordinating session
 
 ## Allowed Files
 {allowed}
@@ -522,9 +515,8 @@ def contract_text(lane: Lane, run_id: str, branch: str, worktree_path: Path, bas
 
 ## Required Lane Handoff
 Before this lane is reviewed or merged, create a handoff using
-`templates/parallel-lane-handoff.md` and record validation evidence. The default
-handoff target is the parent/orchestrator. The parent consumes the handoff
-internally unless a stop condition fired or automation tooling is unavailable.
+`templates/parallel-lane-handoff.md` and record validation evidence. Return the
+handoff to the human-designated coordinating session and stop.
 """
 
 
@@ -542,7 +534,7 @@ Then read:
 2. project-documentation-manifest.json
 3. docs/delivery/current-state.md
 4. {contract_path.as_posix()}
-5. the task-controlling PRD, TDD, ADRs, and docs listed by the parent session
+5. the task-controlling PRD, TDD, ADRs, and docs listed by the human-designated coordinating session
 
 Lane objective:
 {lane.objective}
@@ -556,8 +548,7 @@ Forbidden files:
 Stop if the task needs files outside the contract, the workflow manifest blocks coding,
 source truth conflicts, validation is unavailable, or a material decision is discovered.
 Do not merge. End with a lane handoff using templates/parallel-lane-handoff.md.
-Set the handoff target to the parent/orchestrator unless a stop condition requires
-human judgment or automation tooling is unavailable.
+Set the handoff target to the human-designated coordinating session and stop.
 """
 
 
@@ -688,8 +679,8 @@ def ensure_user_approval(user_approved: bool, thread_mode: str, acknowledge_auto
     errors: list[str] = []
     if not user_approved:
         errors.append("user approval is required before creating worktrees; rerun with --user-approved after explicit yes")
-    if thread_mode == "auto" and not acknowledge_auto_thread_risk:
-        errors.append("auto thread mode requires --acknowledge-auto-thread-risk after reading the risk warning")
+    if thread_mode == "auto":
+        errors.append("auto thread mode is disabled by the permanent manual review and red-lock policy")
     return errors
 
 

@@ -628,12 +628,15 @@ def main() -> int:
         parent_legacy_handoff = write_legacy_handoff(project, "legacy-parent-handoff.md")
         update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", parent_legacy_handoff.as_posix())
         parent_legacy_block = run([python, str(local_continuity), "validate"], project, 1)
-        if "Parent-Orchestrator Closeout Reconciliation" not in parent_legacy_block.stdout:
+        if "current state automation_mode is invalid" not in parent_legacy_block.stdout:
             raise AssertionError(parent_legacy_block.stdout)
         update_frontmatter(project / "docs" / "delivery" / "current-state.md", "last_handoff", "none")
         parent_block = run([python, str(local_continuity), "start", "--start-new", "--no-fetch"], project, 2)
-        if "parent/orchestrator actor cannot perform next_action" not in parent_block.stdout:
+        if "current state automation_mode is invalid" not in parent_block.stdout:
             raise AssertionError(parent_block.stdout)
+        parent_decide_block = run([python, str(local_continuity), "decide"], project, 1)
+        if "parent-orchestrator mode is disabled" not in parent_decide_block.stdout:
+            raise AssertionError(parent_decide_block.stdout)
         parent_handoff = run(
             [
                 python,
@@ -649,11 +652,9 @@ def main() -> int:
                 "parent",
             ],
             project,
-            0,
+            1,
         )
-        if "Parent/orchestrator consumes this handoff internally" not in parent_handoff.stdout:
-            raise AssertionError(parent_handoff.stdout)
-        if "Fallback only if parent automation tooling is unavailable" not in parent_handoff.stdout:
+        if "handoff target parent is disabled" not in parent_handoff.stdout:
             raise AssertionError(parent_handoff.stdout)
         update_frontmatter(project / "docs" / "delivery" / "current-state.md", "next_action", "closeout")
         parent_closeout_block = run([python, str(local_continuity), "closeout-check"], project, 1)
@@ -1013,9 +1014,9 @@ def main() -> int:
             },
         )
         parent_review_loop_without_rca_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "review loop breaker triggered; batch RCA is required before another automated review" not in parent_review_loop_without_rca_block.stdout:
+        if "automated_review_fix_rounds must be 0 because automatic review-fix trains are disabled" not in parent_review_loop_without_rca_block.stdout:
             raise AssertionError(parent_review_loop_without_rca_block.stdout)
-        if "review loop breaker triggered; adversarial test matrix is required before another automated review" not in parent_review_loop_without_rca_block.stdout:
+        if "active-slice manifest automation_mode is invalid" not in parent_review_loop_without_rca_block.stdout:
             raise AssertionError(parent_review_loop_without_rca_block.stdout)
         loop_triggered_with_rca = parent_closeout_reconciliation(
             pr_head_sha=parent_live_head,
@@ -1041,6 +1042,8 @@ def main() -> int:
         )
         parent_review_loop_with_rca_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "requires a clean live working tree before final closeout" not in parent_review_loop_with_rca_dirty_block.stdout:
+            raise AssertionError(parent_review_loop_with_rca_dirty_block.stdout)
+        if "review_loop_breaker.next_review_authorized must remain false" not in parent_review_loop_with_rca_dirty_block.stdout:
             raise AssertionError(parent_review_loop_with_rca_dirty_block.stdout)
         write_active_slice(
             project,
@@ -1422,28 +1425,36 @@ def main() -> int:
                 raise AssertionError(f"fresh-context-review template is missing {required}")
         sequential_prompt = (ROOT / "templates" / "sequential-manual-prompt.md").read_text(encoding="utf-8")
         parent_prompt = (ROOT / "templates" / "parent-orchestrator-prompt.md").read_text(encoding="utf-8")
-        for required in ("sequential_manual", "handoff_target: manual_next_session", "exactly one paste-ready next prompt"):
+        for required in (
+            "Stable case identity",
+            "one independent review",
+            "one combined repair",
+            "one final blocker-closure check",
+            "RED_LOCKED",
+            "Do not start another session or task",
+        ):
             if required not in sequential_prompt:
                 raise AssertionError(f"sequential manual prompt template is missing {required}")
         for required in (
-            "parent_orchestrator",
-            "closeout-check",
-            "current PR head",
-            "conflicting_review_signals",
-            "publication stabilization evidence",
-            "metadata-only PR body edit",
+            "RETIRED_AND_DISABLED",
+            "permanently disabled",
+            "RED_LOCKED",
+            "cannot be reset",
         ):
             if required not in parent_prompt:
-                raise AssertionError(f"parent orchestrator prompt template is missing {required}")
+                raise AssertionError(f"retired parent orchestrator template is missing {required}")
+        if "automation_mode: parent_orchestrator" in parent_prompt:
+            raise AssertionError("retired parent orchestrator template still contains an activation contract")
         continuity_skill = (ROOT / ".agents" / "skills" / "project-session-continuity" / "SKILL.md").read_text(
             encoding="utf-8"
         )
         for required in (
-            "final parent/orchestrator closeout",
-            "intermediate child handoff",
-            "do not run `closeout-check`",
-            "parent consumes the handoff internally",
-            "stabilization evidence",
+            "Permanent Manual Review And Red Lock Policy",
+            "stable case ID",
+            "one independent review",
+            "one combined repair",
+            "one final blocker-closure check",
+            "RED_LOCKED",
         ):
             if required not in continuity_skill:
                 raise AssertionError(f"project-session-continuity skill is missing {required}")
@@ -1457,6 +1468,13 @@ def main() -> int:
             raise AssertionError("active-slice manifest template is missing review_loop_breaker")
         for required in (
             "status",
+            "policy",
+            "stable_case_id",
+            "case_status",
+            "initial_review_completed",
+            "combined_repair_completed",
+            "final_blocker_check_completed",
+            "red_lock_reason",
             "automated_review_fix_rounds",
             "max_automated_review_fix_rounds",
             "validator_area_findings",
@@ -1466,6 +1484,33 @@ def main() -> int:
         ):
             if required not in breaker:
                 raise AssertionError(f"active-slice manifest template review_loop_breaker is missing {required}")
+        if active_template.get("actor_role_options") != ["single_session"]:
+            raise AssertionError("active-slice template still advertises automated actor roles")
+        if breaker.get("max_automated_review_fix_rounds") != 0 or breaker.get("next_review_authorized") is not False:
+            raise AssertionError("active-slice template still permits an automated review-fix round")
+        policy_files = (
+            ROOT / "AGENTS.md",
+            ROOT / "templates" / "repo-AGENTS.md",
+            ROOT / "templates" / "CLAUDE.md",
+            ROOT / "docs" / "review-doctrine.md",
+            ROOT / ".agents" / "skills" / "codex-coding-os-master" / "SKILL.md",
+            ROOT / ".agents" / "skills" / "project-session-continuity" / "SKILL.md",
+            ROOT / ".agents" / "skills" / "ai-coding-discipline" / "SKILL.md",
+            ROOT / ".agents" / "skills" / "project-session-continuity" / "assets" / "current-state-template.md",
+            ROOT / ".agents" / "skills" / "new-project-documentation-system" / "assets" / "AGENTS.md",
+            ROOT / ".agents" / "skills" / "new-project-documentation-system" / "assets" / "CLAUDE.md",
+            ROOT / ".agents" / "skills" / "new-project-documentation-system" / "references" / "workflow-modes-and-gates.md",
+            ROOT / ".agents" / "skills" / "new-project-documentation-system" / "references" / "repo-agent-instructions.md",
+        )
+        forbidden_loop_permissions = (
+            "exactly one further automated review",
+            "exactly one more automated review",
+        )
+        for policy_file in policy_files:
+            policy_text = policy_file.read_text(encoding="utf-8")
+            for forbidden in forbidden_loop_permissions:
+                if forbidden in policy_text:
+                    raise AssertionError(f"{policy_file} still grants forbidden loop permission: {forbidden}")
 
     with tempfile.TemporaryDirectory(prefix="coding-os-legacy-non-parent-") as temp:
         project = Path(temp)

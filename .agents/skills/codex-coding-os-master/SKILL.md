@@ -82,45 +82,32 @@ For deep critique, source-backed audit, recurring workflow failure analysis, pre
 - Keep source docs and TDD aligned.
 - Create or update an ADR when a significant architecture choice is accepted, replaced, or superseded.
 - Use external skill overlays only as documented in `THIRD_PARTY_SKILLS.md` and `patches/external-skills/`.
-- Treat parallel Codex work as bounded worktree lanes, not personas. Default to
-  manual paste-ready lane prompts; use fully automated thread creation only after
-  a clear risk warning and explicit user approval.
-- Treat Automation Coding Mode as opt-in orchestration only. Prefer a sequential
-  session train for linear work. Use parent/orchestrator mode only after explicit
-  approval of the repo, run envelope, child thread or worktree creation, stop
-  conditions, review expectations, and publication authority. The run envelope
-  must state the objective, allowed next-slice rule, maximum child sessions,
-  branch or worktree plan, review authority, publication authority, handoff target,
-  and stop conditions.
-- In parent/orchestrator mode, a child handoff, new-session trigger, or child
-  closeout is an internal transition artifact unless a stop condition fires. The
-  parent consumes it, reruns the fresh gate, and continues only to the next
-  independently authorized child task. Do not dump a generic next-session prompt
-  back to the user while automation authority remains active and tooling is
-  available.
-- Before a parent/orchestrator final closeout, re-check and record the current PR
-  head, review commit, current-head inline comments, issue comments, required checks,
-  local branch state, working-tree state, stale-closeout status, publication
-  stabilization evidence, and review-loop breaker evidence. Run
-  `python scripts/agent/session_continuity.py review-state --pr <number>` when the
-  helper exists. Publication stabilization evidence must record PR body head metadata,
-  reviewed-head evidence, exact review authority count, post-review-fix reconciliation
-  status, and typed metadata-only PR body check retrigger state. `metadata_only_check_retrigger`
-  must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result`
-  must be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text
-  clean phrases are not closeout evidence. If a review-fix push changes the PR head,
-  reconcile those fields before starting another review or publication child. If the
-  repo uses the session-continuity helper, record that evidence in the active-slice
-  manifest and run `python scripts/agent/session_continuity.py closeout-check`.
-- If current-head inline findings conflict with a later no-major-issues summary,
-  classify review state as ambiguous and stop until the finding is fixed, proven
-  stale with evidence, or explicitly resolved by the review authority.
-- After two automated review-fix rounds on the same PR, or after three findings in
-  the same validator area, stop for batch root-cause analysis and an adversarial test
-  matrix before authorizing exactly one further automated review.
-- The parent/orchestrator is admin-only: it may inspect, assign, monitor, verify,
-  reconcile, and report. It must not implement product code, merge, deploy, publish,
-  choose unapproved slices, bypass review, or treat child output as authority.
+- Treat parallel Codex work as bounded, human-started worktree lanes, not personas.
+  No lane may automatically start or authorize another lane.
+- Parent-orchestrator mode and automatic session, review, and review-fix trains are
+  disabled. A human may deliberately start one bounded implementation or review
+  session. A manifest, run envelope, handoff, child-session counter, branch change,
+  or case-specific prompt cannot enable automated chaining. Changing this policy
+  requires a separate human-led policy decision outside the active case.
+- Before the first review, record one stable case ID. For a GitHub pull request, use
+  `<immutable-repository-id>:pr:<number>:<problem-family>`. Before a pull request
+  exists, use a human-recorded UUID. The identity survives commit, branch, pull
+  request, worktree, chat, agent, label, name, split, close/reopen, and counter
+  changes. Missing or conflicting identity fails closed to human review.
+- Use exactly one deterministic-check pass, one independent review, one
+  human-authorized combined repair for all current blockers, and one final
+  blocker-closure check. The final check is not an open-ended new review.
+- Classify every finding as `current_blocker`, `non_blocking`, `invalid_or_stale`,
+  or `redesign_required`. Repair only `current_blocker` findings. Close stale or
+  invalid findings with evidence. `redesign_required` triggers immediate red lock.
+- If any blocker remains, a new blocker appears, validation fails, repair exceeds
+  scope, or redesign is required, mark the stable case `RED_LOCKED` and stop all
+  automated work on it. Root-cause analysis and adversarial tests may explain the
+  failure but never authorize another review.
+- A red lock survives new prompts, commits, branches, pull requests, worktrees,
+  chats, agents, renames, splits, close/reopen actions, and counter changes. Only a
+  separate human-led decision may start a materially different design from clean
+  `main` under a new case ID. That new case does not resume the red-locked case.
 - Do not create docs-only slice-selection, current-state, active-slice manifest,
   handoff, or review-marker PRs unless the user explicitly authorizes that
   control-only publication.

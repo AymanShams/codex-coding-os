@@ -71,8 +71,8 @@ PARENT_CLOSEOUT_HANDOFF_HEADINGS = {
 }
 READY_TO_CODE = {"approved", "completed"}
 REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
-AUTOMATION_MODES = {"off", "sequential_manual", "parent_orchestrator"}
-PARENT_CLOSEOUT_STATUSES = {"not_started", "pass", "blocked", "ambiguous", "not_applicable"}
+AUTOMATION_MODES = {"off", "sequential_manual"}
+PARENT_CLOSEOUT_STATUSES = {"not_started", "pass", "blocked", "ambiguous", "disabled", "not_applicable"}
 ACCEPTED_CURRENT_HEAD_REVIEW_STATES = {"APPROVED", "COMMENTED"}
 BLOCKING_CURRENT_HEAD_REVIEW_STATES = {"CHANGES_REQUESTED", "PENDING"}
 NON_AUTHORITY_CURRENT_HEAD_REVIEW_STATES = {"DISMISSED"}
@@ -160,6 +160,13 @@ PUBLICATION_STABILIZATION_FIELDS = (
 )
 REVIEW_LOOP_BREAKER_FIELDS = (
     "status",
+    "policy",
+    "stable_case_id",
+    "case_status",
+    "initial_review_completed",
+    "combined_repair_completed",
+    "final_blocker_check_completed",
+    "red_lock_reason",
     "automated_review_fix_rounds",
     "max_automated_review_fix_rounds",
     "validator_area_findings",
@@ -167,9 +174,10 @@ REVIEW_LOOP_BREAKER_FIELDS = (
     "adversarial_test_matrix_completed",
     "next_review_authorized",
 )
-REVIEW_LOOP_BREAKER_STATUSES = {"not_started", "pass", "blocked", "not_applicable"}
-REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS = 2
-REVIEW_LOOP_MAX_VALIDATOR_AREA_FINDINGS = 3
+REVIEW_LOOP_BREAKER_STATUSES = {"manual_policy_active", "red_locked", "disabled", "not_applicable"}
+REVIEW_CASE_STATUSES = {"unreviewed", "reviewed", "repair_authorized", "final_check", "RED_LOCKED"}
+REVIEW_LOOP_POLICY = "one_review_one_repair_one_final_check_then_red_lock"
+REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS = 0
 PUBLICATION_STABILIZATION_PASS_STATES = {
     "metadata_only_check_retrigger": {
         "not_retriggered",
@@ -416,9 +424,8 @@ This file records coordination state only. Controlling product and technical sou
 - Same-slice status is not a review waiver.
 - The first-slice authorization false-negative case proves same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
-- In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
-- A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
-- Before final parent/orchestrator closeout, run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout check in the active-slice manifest.
+- Parent-orchestrator mode and automatic session, review, and review-fix trains are disabled. A human must deliberately start each bounded session.
+- Record one stable case ID before review. Use one independent review, one human-authorized combined repair for current blockers, and one final blocker-closure check.
 - If current-head inline findings conflict with a later no-major-issues summary, mark `conflicting_review_signals` true, classify review state as ambiguous, and stop.
 
 ## Current Verified Repository State
@@ -447,7 +454,7 @@ This file records coordination state only. Controlling product and technical sou
 
 ## New Session Start Instructions
 ```text
-If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, record current PR head, current-head inline comments, issue comments, required checks, local branch state, stale-closeout status, and publication stabilization evidence in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+Only a human may paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Confirm the stable case ID has not changed. Continue only from the exact next permitted action and stop if the workflow manifest blocks it or the case is `RED_LOCKED`.
 ```
 
 ## Update Contract
@@ -465,11 +472,6 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
     "actor_role": "single_session",
     "actor_role_options": [
         "single_session",
-        "parent",
-        "implementer_child",
-        "review_child",
-        "fix_child",
-        "publication_child",
     ],
     "handoff_target": "manual_next_session",
     "run_envelope": {
@@ -512,8 +514,8 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
         "assumptions_that_entered_code": [],
     },
     "parent_closeout_reconciliation": {
-        "required_before_parent_closeout": True,
-        "status": "not_started",
+        "required_before_parent_closeout": False,
+        "status": "disabled",
         "pr_head_sha": "not_checked",
         "local_head_sha": "not_checked",
         "local_branch_state": "not_checked",
@@ -532,9 +534,16 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
             "bounded_wait_result": "not_checked",
         },
         "review_loop_breaker": {
-            "status": "not_started",
+            "status": "manual_policy_active",
+            "policy": "one_review_one_repair_one_final_check_then_red_lock",
+            "stable_case_id": "unassigned",
+            "case_status": "unreviewed",
+            "initial_review_completed": False,
+            "combined_repair_completed": False,
+            "final_blocker_check_completed": False,
+            "red_lock_reason": "none",
             "automated_review_fix_rounds": 0,
-            "max_automated_review_fix_rounds": 2,
+            "max_automated_review_fix_rounds": 0,
             "validator_area_findings": {},
             "batch_rca_completed": False,
             "adversarial_test_matrix_completed": False,
@@ -1435,18 +1444,40 @@ def validate_review_loop_breaker(reconciliation: dict[str, object]) -> list[str]
     if breaker.get("status") not in REVIEW_LOOP_BREAKER_STATUSES:
         errors.append("parent closeout reconciliation review_loop_breaker.status is invalid")
 
+    if breaker.get("policy") != REVIEW_LOOP_POLICY:
+        errors.append(f"parent closeout reconciliation review_loop_breaker.policy must be {REVIEW_LOOP_POLICY}")
+
+    stable_case_id = breaker.get("stable_case_id")
+    if not isinstance(stable_case_id, str) or not stable_case_id.strip():
+        errors.append("parent closeout reconciliation review_loop_breaker.stable_case_id must be non-empty text")
+
+    case_status = breaker.get("case_status")
+    if case_status not in REVIEW_CASE_STATUSES:
+        errors.append("parent closeout reconciliation review_loop_breaker.case_status is invalid")
+
+    for field in ("initial_review_completed", "combined_repair_completed", "final_blocker_check_completed"):
+        if not isinstance(breaker.get(field), bool):
+            errors.append(f"parent closeout reconciliation review_loop_breaker.{field} must be true or false")
+
+    red_lock_reason = breaker.get("red_lock_reason")
+    if not isinstance(red_lock_reason, str) or not red_lock_reason.strip():
+        errors.append("parent closeout reconciliation review_loop_breaker.red_lock_reason must be non-empty text")
+    if case_status == "RED_LOCKED" and str(red_lock_reason).strip().lower() in {"", "none", "not_applicable"}:
+        errors.append("red-locked review case must record a red_lock_reason")
+    if case_status != "RED_LOCKED" and breaker.get("status") == "red_locked":
+        errors.append("review_loop_breaker.status red_locked requires case_status RED_LOCKED")
+
     rounds = breaker.get("automated_review_fix_rounds")
-    if not isinstance(rounds, int) or rounds < 0:
-        errors.append("parent closeout reconciliation review_loop_breaker.automated_review_fix_rounds must be a non-negative integer")
+    if not isinstance(rounds, int) or rounds != 0:
+        errors.append("parent closeout reconciliation review_loop_breaker.automated_review_fix_rounds must be 0 because automatic review-fix trains are disabled")
         rounds = 0
 
     max_rounds = breaker.get("max_automated_review_fix_rounds")
     if not isinstance(max_rounds, int) or max_rounds != REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS:
-        errors.append("parent closeout reconciliation review_loop_breaker.max_automated_review_fix_rounds must be 2")
+        errors.append("parent closeout reconciliation review_loop_breaker.max_automated_review_fix_rounds must be 0")
         max_rounds = REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS
 
     validator_area_findings = breaker.get("validator_area_findings")
-    max_area_findings = 0
     if not isinstance(validator_area_findings, dict):
         errors.append("parent closeout reconciliation review_loop_breaker.validator_area_findings must be an object")
     else:
@@ -1455,25 +1486,13 @@ def validate_review_loop_breaker(reconciliation: dict[str, object]) -> list[str]
                 errors.append("parent closeout reconciliation review_loop_breaker.validator_area_findings keys must be non-empty text")
             if not isinstance(count, int) or count < 0:
                 errors.append(f"parent closeout reconciliation review_loop_breaker.validator_area_findings.{area} must be a non-negative integer")
-            else:
-                max_area_findings = max(max_area_findings, count)
 
     for field in ("batch_rca_completed", "adversarial_test_matrix_completed", "next_review_authorized"):
         if not isinstance(breaker.get(field), bool):
             errors.append(f"parent closeout reconciliation review_loop_breaker.{field} must be true or false")
 
-    threshold_crossed = rounds >= max_rounds or max_area_findings >= REVIEW_LOOP_MAX_VALIDATOR_AREA_FINDINGS
-    if threshold_crossed:
-        if breaker.get("status") != "pass":
-            errors.append("review loop breaker triggered; status must be pass only after batch RCA and adversarial test matrix are complete")
-        if breaker.get("batch_rca_completed") is not True:
-            errors.append("review loop breaker triggered; batch RCA is required before another automated review")
-        if breaker.get("adversarial_test_matrix_completed") is not True:
-            errors.append("review loop breaker triggered; adversarial test matrix is required before another automated review")
-        if breaker.get("next_review_authorized") is not True:
-            errors.append("review loop breaker triggered; exactly one next automated review must be explicitly authorized")
-    elif breaker.get("status") not in {"pass", "not_started", "not_applicable"}:
-        errors.append("parent closeout reconciliation review_loop_breaker.status must not be blocked before loop thresholds are reached")
+    if breaker.get("next_review_authorized") is not False:
+        errors.append("review_loop_breaker.next_review_authorized must remain false; no automated review can follow the final check")
 
     return errors
 
@@ -1978,6 +1997,11 @@ def command_start(args: argparse.Namespace) -> int:
 
 def command_decide(args: argparse.Namespace) -> int:
     attributes, _, _ = read_state()
+    if attributes.get("automation_mode") == "parent_orchestrator":
+        print("SESSION DECISION: MANUAL_INTERVENTION_REQUIRED")
+        print("- parent-orchestrator mode is disabled by the permanent manual review and red-lock policy")
+        print("Recommended Next Action: return control to the human. Do not start, consume, or authorize another session automatically.")
+        return 1
     state = repo_state()
     triggers: list[str] = []
     area_changed = attributes.get("active_area") != attributes.get("next_area")
@@ -2001,20 +2025,11 @@ def command_decide(args: argparse.Namespace) -> int:
         print("SESSION DECISION: CONTINUE_CURRENT_SESSION")
         print("Continue only for the same bounded slice and its review, fixes, or validation.")
         print("Coordination drift alone is not a review trigger. Classify review need from the actual diff, controlled-source risk, or explicit user instruction.")
-        if attributes.get("automation_mode") == "parent_orchestrator" and attributes.get("handoff_target") == "parent":
-            print("Recommended Next Action: parent may consume child handoffs internally and continue only to the next authorized child task.")
-        else:
-            print("Recommended Next Action: continue the current bounded slice; do not request review, handoff, or a new session from coordination drift alone.")
+        print("Recommended Next Action: continue the current bounded slice; do not request review, handoff, or a new session from coordination drift alone.")
         if area_changed:
             print("Area change detected. Rerun the start gate, reread controlling docs, update the active-slice manifest, and get explicit authorization before implementation.")
         if high_risk_next:
             print("High-risk next slice detected. Fresh controls and explicit authorization are required, but risk alone does not require another chat.")
-        return 0
-    if attributes.get("automation_mode") == "parent_orchestrator" and attributes.get("handoff_target") == "parent":
-        print("SESSION DECISION: FRESH_CHILD_OR_GATE_REQUIRED")
-        for trigger in triggers:
-            print(f"- {trigger}")
-        print("Recommended Next Action: parent/orchestrator consumes the handoff internally, reruns the fresh gate, and starts only the next authorized child task unless a stop condition or missing approval blocks continuation.")
         return 0
     print("SESSION DECISION: NEW_SESSION_REQUIRED")
     for trigger in triggers:
@@ -2037,14 +2052,10 @@ def command_handoff(args: argparse.Namespace) -> int:
     if target not in HANDOFF_TARGETS:
         print(f"ERROR: invalid handoff target: {target}")
         return 1
-    if target == "parent" and attributes.get("automation_mode") != "parent_orchestrator":
-        print("ERROR: handoff target parent requires automation_mode parent_orchestrator")
+    if target == "parent":
+        print("ERROR: handoff target parent is disabled by the permanent manual review and red-lock policy")
         return 1
-    boundary_decision = (
-        "Parent/orchestrator consumes this handoff internally. No user-facing next-session prompt is required unless a stop condition fired."
-        if target == "parent"
-        else "New session required before the next slice."
-    )
+    boundary_decision = "New human-started session required before the next slice."
     output = Path("docs/history") / f"{dt.date.today().isoformat()}-project-session-handoff-{slugify(args.topic)}.md"
     content = f"""# Project Session Handoff: {args.topic}
 
@@ -2131,7 +2142,7 @@ Stop if the session-start gate blocks, the workflow manifest blocks the requeste
 6. Do not duplicate completed work or bypass a blocked documentation phase.
 
 ## Parent-Orchestrator Closeout Reconciliation
-Complete this section before a parent/orchestrator final closeout.
+Complete this section during the one final blocker-closure check. It must not start another review or repair.
 
 | Check | Evidence | Status |
 |---|---|---|

@@ -75,8 +75,8 @@ Handle only this next permitted task:
 If the workflow manifest or active-slice manifest does not permit coding, continue from its first blocked or incomplete phase. Before editing, summarize the affected files and validation plan.
 ```
 
-## Parent-Orchestrator Closeout Reconciliation
-Complete this section before a parent/orchestrator final closeout.
+## Manual Final Check And Red Lock Reconciliation
+Complete this section during the one final blocker-closure check.
 
 | Check | Evidence | Status |
 |---|---|---|
@@ -87,6 +87,7 @@ Complete this section before a parent/orchestrator final closeout.
 | Local branch, local HEAD, and working tree were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
 | Stale closeout was ruled out | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
 | Review-state collector recorded review commit, PR head, original_commit_id, commit_id, clean-summary commit, required checks, and ambiguity | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
-| Review-loop breaker threshold was not crossed, or batch RCA and adversarial test matrix are complete before exactly one further review | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Stable case ID and review sequence were verified | {{case_id_and_sequence_evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Any remaining or new blocker set the case to RED_LOCKED | {{evidence_or_not_applicable}} | Pass, Block, Ambiguous, or Not applicable |
 
 If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.

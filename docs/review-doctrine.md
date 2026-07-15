@@ -58,11 +58,13 @@ Domain and risk lenses include frontend, security, data, controlled documents, q
 - Review status must be tied to the current head or active slice through explicit fields such as review status, reviewed SHA, and whether the review applies to the active slice.
 - Any later material change invalidates the prior review until the changed state is checked.
 - Review does not override the workflow manifest, user approvals, or deterministic gates.
-- Parent/orchestrator final closeout must reconcile the current PR head, review commit, current-head inline comments, issue comments, required checks, local branch state, working-tree state, stale-closeout status, publication stabilization evidence, and review-loop breaker evidence before reporting clean completion.
-- Publication stabilization evidence must show that PR body head metadata, reviewed-head evidence, exact review authority count, and required checks were reconciled after the latest review-fix push and before any further review or publication child. `metadata_only_check_retrigger` must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result` must be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text clean phrases are not closeout evidence.
-- Metadata-only PR body edits that retrigger required checks are bounded wait states, not new review triggers by themselves. Continue waiting only while the code head, PR body head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays pending past the bound or any head, review, or check signal changes.
+- Parent-orchestrator mode and automatic session, review, and review-fix trains are disabled. Every session is deliberately started by a human and returns control to the human when its bounded task ends.
+- Before the first review, record one stable case ID. For a GitHub pull request, use the immutable repository ID, pull-request number, and problem-family key. Before a pull request exists, use a human-recorded UUID. The identity survives commit, branch, pull-request, worktree, chat, agent, rename, split, close/reopen, and counter changes.
+- Run one independent review that collects the complete finding set, one human-authorized combined repair for current blockers, and one final blocker-closure check. The final check is not an open-ended new review.
+- Classify findings as `current_blocker`, `non_blocking`, `invalid_or_stale`, or `redesign_required`. Repair only current blockers. Close stale or invalid findings with evidence. Redesign-required findings trigger immediate red lock.
 - Conflicting GitHub review signals are not a pass. If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop until the finding is fixed, proven stale with evidence, or explicitly resolved by the review authority.
-- After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop and require batch root-cause analysis plus an adversarial test matrix before authorizing exactly one further automated review.
+- If any blocker remains, a new blocker appears, required validation fails, repair exceeds scope, or redesign is required, mark the stable case `RED_LOCKED` and stop all automated work on it. Root-cause analysis and adversarial tests may explain failure but cannot authorize another review.
+- A red lock cannot be reset by a new prompt, commit, branch, pull request, worktree, chat, agent, rename, split, close/reopen action, or counter change. Only a separate human-led decision may start a materially different design from clean `main` under a new case ID.
 
 ## Control-State Contract
 
@@ -73,13 +75,13 @@ Required invariants:
 - Current-head review authority is valid only when at least one current-head review has an accepted state. Accepted states are `APPROVED` and `COMMENTED`. `CHANGES_REQUESTED` and `PENDING` block closeout. `DISMISSED` is not authority, so a dismissed-only current-head review also blocks closeout.
 - Inline review comments must be current-head and unresolved before they block. Until the helper can fetch GitHub review-thread resolution, current-head inline comments remain blockers unless explicit current-head disposition evidence is recorded.
 - Required checks are the blocking check set. Optional visible checks may be reported, but they must not block unless the repository marks them required.
-- Parent or publication closeout requires a clean live worktree. Dirty local state can be reported only as a blocker, never as matching completion evidence.
+- Publication closeout requires a clean live worktree. Dirty local state can be reported only as a blocker, never as matching completion evidence.
 - Exact-head PR-body metadata must be line-anchored. Current PR head and reviewed head values must be full 40-character commit SHAs. Blank fields must not capture text from the next line.
-- Current-state and active-slice manifest evidence must match the live branch and PR head before it is used for slice selection, review authority, publication, or parent closeout.
+- Current-state and active-slice manifest evidence must match the live branch and PR head before it is used for slice selection, review authority, or publication.
 - Python and JavaScript helpers must enforce the same evidence schema, accepted states, blocker states, malformed-field behavior, and adversarial fixtures.
 - Malformed manifests, malformed PR-body fields, nulls, booleans, copied commit IDs, stale SHAs, duplicate comments, and missing fields fail closed without throwing tracebacks.
 
-Adversarial matrix required before another automated review loop:
+Adversarial policy-test matrix. These cases test the guard and never authorize another review:
 
 | Case | Expected behavior |
 | --- | --- |

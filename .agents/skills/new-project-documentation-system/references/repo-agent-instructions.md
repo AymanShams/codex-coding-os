@@ -53,15 +53,11 @@ The handoff note must include:
 
 ## New Chat Prompt
 
-Use the sequential manual prompt family when the user will start each next
-session manually. Use the parent/orchestrator prompt family only after the user
-explicitly approves centralized parent automation. Parent/orchestrator closeout
-must reconcile current PR head, review commit, current-head inline comments, issue
-comments, required checks, local branch state, stale-closeout status, publication
-stabilization typed states, and review-loop breaker evidence before reporting clean
-completion.
+Use the sequential manual prompt family only when a human will deliberately start
+one bounded session. Parent-orchestrator mode and automatic session, review, and
+review-fix trains are disabled. No session may start or authorize another session.
 
-Sequential manual structure:
+Manual session structure:
 
 ```text
 We are starting implementation for <Project Name> in Codex.
@@ -82,28 +78,11 @@ Before coding:
 10. Run git status -sb and confirm whether the local repo is synced with origin/main.
 
 If the workflow manifest or active-slice manifest is not ready for coding, continue from its first blocked or incomplete phase. Propose the first implementation slice only when both manifests permit coding.
-```
 
-Parent/orchestrator structure:
-
-```text
-We are starting a parent/orchestrator run for <Project Name> in Codex.
-
-Repo path:
-<absolute repo path>
-
-Run envelope:
-- automation_mode: parent_orchestrator
-- actor_role: parent
-- handoff_target: parent
-- objective: <bounded objective>
-- allowed_next_slice_rule: <exact next-slice rule>
-- maximum child sessions: <positive integer>
-- review authority: <review authority>
-- publication authority: <none or exact authorized action>
-- stop conditions: stop for missing authority, failed validation, required-check blocker, review ambiguity, exhausted child count, unavailable tooling, or user stop.
-
-The parent must not implement product code. It may start one bounded child task at a time, consume child handoffs internally, and continue only while the run envelope independently authorizes the next child task.
-
-Before final parent closeout, run the review-state collector when present, record the current PR head, review commit, current-head inline comments, issue comments, required checks, local branch state, working-tree state, stale-closeout status, publication stabilization evidence, and review-loop breaker evidence in `docs/delivery/active-slice-manifest.json`, then run `python scripts/agent/session_continuity.py closeout-check`. Publication stabilization evidence records PR body head metadata, reviewed-head evidence, exact review authority count, post-review-fix reconciliation status, and typed metadata-only PR body check retrigger state. `metadata_only_check_retrigger` must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result` must be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text clean phrases are not closeout evidence. After any review-fix push, reconcile those fields before starting another review or publication child. If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop. After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one further automated review.
+Before the first review, assign one stable case ID. Use one independent review, one
+human-authorized combined repair for `current_blocker` findings, and one final
+blocker-closure check. If any blocker remains, a new blocker appears, validation
+fails, repair expands scope, or redesign is required, mark the case `RED_LOCKED` and
+stop. A new prompt, commit, branch, pull request, worktree, chat, agent, rename,
+split, or counter change cannot reset it.
 ```

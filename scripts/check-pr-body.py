@@ -25,7 +25,7 @@ REQUIRED_PHRASES = [
     "Explicit non-goals",
     "Owner | Approver",
     "hidden dependency",
-    "Parent/orchestrator sessions did not implement product code",
+    "No parent-orchestrator or automatic review-fix train was used",
     "Current PR head SHA",
     "Reviewed head SHA",
     "Review source",
@@ -130,7 +130,7 @@ def fixture_body(current_head: str, reviewed_head: str, review_source: str, revi
 ## Scope-Creep And Hidden-Dependency Check
 
 - [x] No hidden dependency was added.
-- [x] Parent/orchestrator sessions did not implement product code.
+- [x] No parent-orchestrator or automatic review-fix train was used.
 
 ## Review And Validation
 

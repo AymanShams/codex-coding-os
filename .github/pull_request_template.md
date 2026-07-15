@@ -23,7 +23,7 @@
 - [ ] Added behavior was explicitly requested or approved.
 - [ ] No hidden dependency, provider, service, script, hook, or workflow was added.
 - [ ] Unresolved material decisions did not enter implementation.
-- [ ] Parent/orchestrator sessions did not implement product code.
+- [ ] No parent-orchestrator or automatic review-fix train was used.
 
 ## Review And Validation
 

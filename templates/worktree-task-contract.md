@@ -6,13 +6,13 @@
 - Branch:
 - Base commit:
 - Local worktree path: keep in local runtime files only; do not copy into commit-safe summaries.
-- Automation mode:
-- Actor role:
-- Handoff target:
-- Integration owner: parent/orchestrator session
-- Current-state owner: parent/orchestrator session
+- Session mode: human-started only
+- Actor role: bounded lane owner
+- Handoff target: human-designated coordinating session
+- Integration owner: human-designated coordinating session
+- Current-state owner: human-designated coordinating session
 - Risk level: Routine / Material / High
-- Thread mode: Manual / Fully automated
+- Thread mode: Manual
 
 ## Objective
 

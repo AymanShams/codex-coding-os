@@ -15,9 +15,8 @@ lane plan.
 The default mode is manual: Codex creates worktrees and paste-ready prompts, and
 the user opens each lane thread intentionally.
 
-Fully automated thread creation is advanced. Use it only when Codex has trusted
-thread-creation tools available and the parent session can still inspect every
-prompt before work starts.
+Automated thread creation and parent-orchestrator chaining are disabled. A human
+must inspect each prompt and deliberately start every approved lane.
 
 ## Allowed
 
@@ -68,7 +67,7 @@ such as `pm-agent`, `architect-agent`, or `qa-persona`.
 
 ## Integration Ownership
 
-The parent/orchestrator session owns:
+One human-designated coordinating session owns:
 
 - the lane plan;
 - user approval;

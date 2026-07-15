@@ -8,12 +8,7 @@
   "automation_mode": "off",
   "actor_role": "single_session",
   "actor_role_options": [
-    "single_session",
-    "parent",
-    "implementer_child",
-    "review_child",
-    "fix_child",
-    "publication_child"
+    "single_session"
   ],
   "handoff_target": "manual_next_session",
   "run_envelope": {
@@ -56,8 +51,8 @@
     "assumptions_that_entered_code": []
   },
   "parent_closeout_reconciliation": {
-    "required_before_parent_closeout": true,
-    "status": "not_started",
+    "required_before_parent_closeout": false,
+    "status": "disabled",
     "pr_head_sha": "not_checked",
     "local_head_sha": "not_checked",
     "local_branch_state": "not_checked",
@@ -76,9 +71,16 @@
       "bounded_wait_result": "not_checked"
     },
     "review_loop_breaker": {
-      "status": "not_applicable",
+      "status": "manual_policy_active",
+      "policy": "one_review_one_repair_one_final_check_then_red_lock",
+      "stable_case_id": "unassigned",
+      "case_status": "unreviewed",
+      "initial_review_completed": false,
+      "combined_repair_completed": false,
+      "final_blocker_check_completed": false,
+      "red_lock_reason": "none",
       "automated_review_fix_rounds": 0,
-      "max_automated_review_fix_rounds": 2,
+      "max_automated_review_fix_rounds": 0,
       "validator_area_findings": {},
       "batch_rca_completed": false,
       "adversarial_test_matrix_completed": false,

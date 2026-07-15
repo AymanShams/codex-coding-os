@@ -99,75 +99,50 @@ creation is advanced and must show a clear risk warning first. Use it only when
 trusted thread-creation tools are available and the user explicitly accepts the
 risk.
 
-Only the parent/orchestrator session may update `docs/delivery/current-state.md`,
-merge lanes, or close the overall parallel run. Lane sessions must follow their
-task contract, stop when the contract is insufficient, and end with a lane handoff.
+A single human-directed coordination session may update
+`docs/delivery/current-state.md`, reconcile manually created lanes, or close a run.
+No lane may automatically start or authorize another lane.
 
-## Opt-In Automation Coding Mode
+## Permanent Manual Review And Red Lock Policy
 
-Automation Coding Mode is off by default. Use it only when the user explicitly
-approves the repository, run envelope, maximum child sessions, thread or worktree
-creation, branch plan, review expectation, GitHub publication authority, handoff
-target, and stop condition. The run envelope must state the objective, allowed
-next-slice rule, maximum child sessions, branch or worktree plan, review authority,
-publication authority, handoff target, and stop conditions.
+Parent-orchestrator mode and automatic session, review, and review-fix trains are
+disabled. A human may deliberately start one bounded implementation or review
+session, but no session may automatically spawn, authorize, or chain the next
+session. A manifest, run envelope, handoff, child-session counter, branch change, or
+case-specific prompt cannot enable automated chaining. Changing this policy requires
+a separate human-led policy decision outside the active case.
 
-Two shapes are allowed:
+Before the first review, record one stable case ID. For a GitHub pull request, use
+`<immutable-repository-id>:pr:<number>:<problem-family>`. Before a pull request
+exists, use a human-recorded UUID. The identity survives changes to commits,
+branches, pull requests, worktrees, chats, agents, labels, names, splits,
+close/reopen actions, and counters. Missing or conflicting identity fails closed to
+human review.
 
-- Sequential session train: the current session closes with a paste-ready prompt
-  for one exact next step. The user or an approved thread tool starts the next
-  session. Prefer this when automated thread creation is unavailable, repo helpers
-  are incomplete, or the next action needs human judgment.
-- Parent/orchestrator mode: one admin session coordinates child sessions or
-  worktrees. The parent does not edit product code. It verifies gates, assigns one
-  bounded contract, checks child outputs, GitHub PR checks, automated Codex reviews
-  and actionable inline comments, and code-review-graph status when applicable.
+Use exactly this sequence:
 
-In parent/orchestrator mode, a child handoff, new-session trigger, or child closeout
-is an internal transition artifact unless a stop condition fires. The parent consumes
-it, reruns the fresh gate, and continues only to the next independently authorized
-child task. Do not dump a generic next-session prompt back to the user while the run
-envelope still authorizes continuation and thread or worktree tooling is available.
+1. Run deterministic checks.
+2. Run one independent review that collects and triages the whole finding set.
+3. If a human authorizes it and the work remains bounded, make one combined repair
+   for all `current_blocker` findings.
+4. Run one final blocker-closure check. It checks only closure of the authorized
+   blockers and whether the repair created a new blocker. It is not a new review.
+5. If a blocker remains, a new blocker appears, validation fails, repair exceeds
+   scope, or redesign is required, mark the case `RED_LOCKED` and stop all automated
+   work on it.
 
-Before a parent/orchestrator gives a final closeout, it must reconcile live state one
-last time. Run `python scripts/agent/session_continuity.py review-state --pr <number>`
-when the helper exists, then record the current PR head, review commit, current-head
-inline comments, issue comments, required checks, local branch state, stale-closeout
-status, publication stabilization evidence, and review-loop breaker evidence in
-`docs/delivery/active-slice-manifest.json`. Then run
-`python scripts/agent/session_continuity.py closeout-check`. Publication
-stabilization evidence must record PR body head metadata, reviewed-head evidence,
-exact review authority count, post-review-fix reconciliation status, and typed
-metadata-only PR body check retrigger state. `metadata_only_check_retrigger` must be
-`not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result` must
-be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text
-clean phrases are not closeout evidence. After any review-fix push, reconcile those
-fields before starting another review or publication child. If a metadata-only PR
-body edit retriggers a required check, bounded-poll only while code head, PR body
-head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays
-pending past the bound or any head, review, or check signal changes. If current-head
-inline findings conflict with a later no-major-issues summary, classify the review
-state as ambiguous and stop. After two automated review-fix rounds on the same PR,
-or after three findings in the same validator area, stop and require a batch
-root-cause analysis plus adversarial test matrix before authorizing exactly one
-further automated review. A direct deployment status or child summary does not
-override a pending required GitHub check or a current-head inline finding.
+Classify findings as `current_blocker`, `non_blocking`, `invalid_or_stale`, or
+`redesign_required`. A current blocker is reproducible on the exact reviewed version
+and blocks correctness, safety, or mandatory validation. A non-blocking finding is
+an improvement or preference and does not authorize repair. An invalid or stale
+finding must be closed with evidence. A redesign-required finding triggers immediate
+red lock.
 
-The parent/orchestrator may inspect, assign, monitor, verify, reconcile, and report.
-It must not implement product code, merge, deploy, publish, choose unapproved slices,
-bypass review, or treat child output as authority.
-
-Each child session must rerun the project start gate, read live controlling sources,
-inspect Git and PR state, classify review from the actual diff, run or report required
-validation, and end with `Recommended Next Action`. One child can implement one
-approved slice, review one exact PR head, fix one reviewed finding set, or complete
-one explicitly authorized merge or publication step.
-
-Automation mode cannot choose a next slice, update protected manifests, merge, deploy,
-bypass review, bypass validation, or treat a child summary as authority unless the
-repo rules and the user independently authorize that exact action. If the next action
-is not independently authorized, stop instead of creating another chat, handoff, or
-support-only workflow.
+A red lock is permanent for that case. A new prompt, commit, branch, pull request,
+worktree, chat, agent, rename, split, counter change, root-cause analysis,
+adversarial test matrix, or authorization for "one more" review cannot reset it.
+Only a separate human-led decision may start a materially different design from
+clean `main` under a new case ID. The new case does not resume the red-locked case.
 
 Do not create a separate docs-only pull request for slice selection, current-state
 updates, active-slice manifest updates, handoffs, or review markers unless the user
@@ -195,11 +170,11 @@ Apply the outcome-control rule from `AGENTS.md` before creating or updating coor
 4. Replace every generated `[Agent must ...]` placeholder.
 5. Run `python scripts/agent/session_continuity.py validate`.
 6. Run relevant project validation and `git status -sb`.
-7. If this is final parent/orchestrator closeout, record live PR/review/check/local-branch evidence in the active-slice manifest and run `python scripts/agent/session_continuity.py closeout-check`. If this is an intermediate child handoff or lane handoff, do not run `closeout-check`. State that the parent consumes the handoff internally unless a stop condition fired.
+7. If repo rules require `closeout-check`, run it only as a final state check. It must not start another review, repair, child session, or handoff chain.
 8. End with a final response that includes `Recommended Next Action`.
-9. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required. In parent/orchestrator mode with `handoff_target: parent`, explicitly state that the parent consumes the handoff internally and no user prompt is required unless a stop condition fired.
+9. If review, handoff, or new-session state is active or requested, include the complete paste-ready prompt or explicitly state why no prompt is required. Only a human may use that prompt to start the next session.
 
-The next-session prompt must include the repository path, required reading order, latest current-state path, active-slice manifest path, handoff path, workflow manifest path, the exact next permitted action, and stop conditions. It must not imply that coding is permitted unless the workflow manifest and active-slice manifest independently permit coding. In parent/orchestrator automation, the same content may exist as fallback, but the controlling handoff target is the parent.
+The next-session prompt must include the repository path, required reading order, latest current-state path, active-slice manifest path, handoff path, workflow manifest path, the exact next permitted action, and stop conditions. It must not imply that coding is permitted unless the workflow manifest and active-slice manifest independently permit coding. It is a human handoff, never authority for automatic continuation.
 
 For parallel lane work, the parent session must also give each lane its paste-ready
 prompt from `docs/delivery/parallel-worktrees/<run-id>/prompts/`, or create
@@ -210,14 +185,14 @@ thread mode.
 
 - `docs/delivery/current-state.md` is a coordination source, not a product or technical authority.
 - `docs/delivery/active-slice-manifest.json` is the current permission boundary for implementation files, forbidden actions, validation commands, review state, and stop conditions. Changed files must match `allowed_files` before same-slice continuation can pass.
-- `automation_mode`, `actor_role`, `handoff_target`, and `run_envelope` decide whether a handoff is a user stop point or an internal parent transition.
+- `automation_mode`, `actor_role`, `handoff_target`, and `run_envelope` are coordination context only. They cannot enable parent-orchestrator mode or automatic chaining.
 - Handoff notes record state. They do not approve requirements, architecture, security, or coding.
 - The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
 - Decision records make material assumptions visible before code. A record with status `proposed` or `needs_human` blocks implementation when it is material.
 - Review state must be explicit. Use fields such as `review_required`, `review_status`, `reviewed_sha`, and `review_applies_to_active_slice`; never treat a retained marker string as review completion.
-- Parent/orchestrator final closeout requires a final-state reconciliation over current PR head, current-head inline comments, issue comments, required checks, local branch state, stale-closeout detection, publication stabilization typed states, and review-loop breaker evidence.
+- Final closeout requires honest reconciliation of the current PR head, current-head findings, required checks, local branch state, stable case ID, and red-lock state when the repo requires those fields.
 - Conflicting GitHub review signals are blocking ambiguity. A current-head inline finding plus a later no-major-issues summary must stop until the finding is fixed, dismissed as stale with evidence, or explicitly resolved by the review authority.
-- Review-fix loops are hard stops. After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one more automated review.
+- Review-fix loops are prohibited. After one review, one human-authorized combined repair, and one final blocker-closure check, any remaining or new blocker permanently red-locks the stable case. Root-cause analysis and adversarial tests cannot authorize another review.
 - Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, and local dirty state may narrow allowed actions or require reconciliation, but they must not create review, handoff, new-session, or process churn unless a mandatory gate independently blocks the requested outcome.
 - Same-slice status is not a review waiver. Before recommending review or no review, inspect the actual changed files and classify review need from diff risk, controlled-source risk, or explicit user instruction.
 - Treat the first-slice authorization false-negative case as the anti-loop review test case. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.

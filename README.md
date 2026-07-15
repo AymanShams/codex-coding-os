@@ -137,8 +137,9 @@ confident but wrong code.
 - A reusable `AGENTS.md` layer and scoped AGENTS templates.
 - A first-chat prompt that guides Codex through project discovery before coding.
 - Templates for project docs, TDDs, repo instructions, handoffs, reviews,
-  sequential manual automation, parent/orchestrator automation, worktree-lane
-  contracts, and validation reports.
+  human-started manual sessions, red-lock control, worktree-lane contracts, and
+  validation reports. The former parent-orchestrator prompt is retained only as a
+  retired tombstone.
 - Session-continuity tooling for non-trivial or multi-session projects.
 - A generic fresh-context review helper that creates a detached review worktree
   and prints a paste-ready review prompt.
@@ -302,7 +303,8 @@ available.
 The `templates/` folder covers the first prompt, project brief, PRD, app flow,
 tech stack, frontend rules, backend structure, security rules, implementation plan,
 technical design, ADRs, repo documentation, AGENTS instructions, handoff,
-sequential manual prompts, parent/orchestrator prompts, review, and validation.
+human-started manual prompts, the retired parent-orchestrator tombstone, review,
+red-lock control, and validation.
 
 ## Codex plugins and external skills
 

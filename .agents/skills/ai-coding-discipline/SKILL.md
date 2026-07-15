@@ -122,61 +122,46 @@ Review: Human or Codex reads diff and rationale before merge
 
 For Goose-like tools, add a `.gooseignore` or equivalent ignore policy, but do not treat it as a complete security boundary.
 
-## Opt-In Automation Coding Mode
+## Permanent Manual Review And Red Lock Policy
 
-Automation Coding Mode is a governed orchestration pattern, not permission to run an
-agent freely on production code. Use it only after explicit approval of the repo,
-run envelope, child thread or worktree creation, stop conditions, review expectations,
-and publication authority. The run envelope must state the objective, allowed
-next-slice rule, maximum child sessions, branch or worktree plan, review authority,
-publication authority, handoff target, and stop conditions.
+Parent-orchestrator mode and automatic session, review, and review-fix trains are
+disabled. A human may deliberately start one bounded implementation or review
+session, but no session may automatically spawn, authorize, or chain the next
+session. A manifest, run envelope, handoff, child-session counter, branch change, or
+case-specific prompt cannot enable automated chaining. Changing this policy requires
+a separate human-led policy decision outside the active case.
 
-Every child session must have one bounded contract: implement one approved slice,
-review one exact PR head, fix one reviewed finding set, or complete one explicitly
-authorized merge or publication step. Child sessions must rerun start gates, inspect
-live repo and PR state, read the actual diff, check automated GitHub Codex reviews
-and actionable inline comments when a PR exists, use code-review-graph only when the
-repo has it and the diff or risk warrants it, run or report required validation, and
-stop with `Recommended Next Action`.
+Before the first review, record one stable case ID. For a GitHub pull request, use
+`<immutable-repository-id>:pr:<number>:<problem-family>`. Before a pull request
+exists, use a human-recorded UUID. The identity survives changes to commits,
+branches, pull requests, worktrees, chats, agents, labels, names, splits,
+close/reopen actions, and counters. Missing or conflicting identity fails closed to
+human review.
 
-Prefer a sequential session train when the work is linear: close the current session
-with the exact next prompt, then start the next session only after that prompt is
-accepted or an approved thread tool is available. Use a parent/orchestrator session
-only when the user explicitly wants centralized administration across child threads.
-In parent/orchestrator mode, child handoffs are internal transition artifacts for
-the parent unless a stop condition fires. The parent consumes the handoff, reruns
-the fresh gate, and continues only to the next independently authorized child task.
-Do not dump a generic next-session prompt back to the user while automation
-authority remains active and tooling is available.
+Use exactly this sequence:
 
-Before parent/orchestrator final closeout, the parent must re-check and record the
-current PR head, review commit, current-head inline comments, issue comments,
-required checks, local branch state, working-tree state, stale-closeout status,
-publication stabilization evidence, and review-loop breaker evidence. Run
-`python scripts/agent/session_continuity.py review-state --pr <number>` when the
-helper exists. Publication stabilization evidence must record PR body head metadata,
-reviewed-head evidence, exact review authority count, post-review-fix reconciliation
-status, and typed metadata-only PR body check retrigger state. `metadata_only_check_retrigger`
-must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result`
-must be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text
-clean phrases are not closeout evidence. If a review-fix push changes the PR head,
-reconcile those fields before starting another review or publication child. If the
-repo uses `scripts/agent/session_continuity.py`, record the evidence in the
-active-slice manifest and run `python scripts/agent/session_continuity.py closeout-check`.
-Conflicting GitHub review signals are blocking ambiguity: a current-head inline
-finding plus a later no-major-issues summary must stop until resolved by evidence or
-review authority.
-After two automated review-fix rounds on the same PR, or after three findings in the
-same validator area, stop for batch root-cause analysis and an adversarial test matrix
-before authorizing exactly one further automated review.
+1. Run deterministic checks.
+2. Run one independent review that collects and triages the whole finding set.
+3. If a human authorizes it and the work remains bounded, make one combined repair
+   for all `current_blocker` findings.
+4. Run one final blocker-closure check. It checks only closure of the authorized
+   blockers and whether the repair created a new blocker. It is not a new review.
+5. If a blocker remains, a new blocker appears, validation fails, repair exceeds
+   scope, or redesign is required, mark the case `RED_LOCKED` and stop all automated
+   work on it.
 
-Automation mode must not pick unapproved slices, broaden scope, bypass review,
-bypass validation, turn support checks into a chain of new chats, or create
-docs-only slice-selection/current-state PRs unless explicitly authorized. The
-parent orchestrator may inspect, assign, monitor, verify, reconcile, and report.
-It must not implement product code, merge, deploy, publish, or treat child output
-as authority. A merge or publication child contract may proceed only when the repo
-rules and the user independently authorize that exact step.
+Classify findings as `current_blocker`, `non_blocking`, `invalid_or_stale`, or
+`redesign_required`. A current blocker is reproducible on the exact reviewed version
+and blocks correctness, safety, or mandatory validation. A non-blocking finding is
+an improvement or preference and does not authorize repair. An invalid or stale
+finding must be closed with evidence. A redesign-required finding triggers immediate
+red lock.
+
+A red lock is permanent for that case. A new prompt, commit, branch, pull request,
+worktree, chat, agent, rename, split, counter change, root-cause analysis,
+adversarial test matrix, or authorization for "one more" review cannot reset it.
+Only a separate human-led decision may start a materially different design from
+clean `main` under a new case ID. The new case does not resume the red-locked case.
 
 For every material slice, record the decision made, alternatives rejected, reason,
 owner, approver, revisit trigger, evidence test, status, and authority source.

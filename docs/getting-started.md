@@ -80,15 +80,14 @@ python scripts/agent/session_continuity.py start --start-new
 
 The command reports Git and coordination state, requires incoming work inspection, blocks dirty new-session starts, and blocks an implementation next action when either manifest does not permit coding.
 
-## Automation Prompt Families
+## Manual Session And Red Lock Policy
 
-Use `templates/sequential-manual-prompt.md` when the user will manually start each
-next session. Use `templates/parent-orchestrator-prompt.md` only after the user
-explicitly approves parent/orchestrator automation. Parent/orchestrator closeout
-must run the review-state collector when present, re-check current PR head,
-current-head inline comments, issue comments, required checks, local branch state,
-stale-closeout status, publication stabilization typed states, and review-loop
-breaker evidence before reporting clean completion.
+Use `templates/sequential-manual-prompt.md` only when a human will deliberately
+start one bounded session. `templates/parent-orchestrator-prompt.md` is a retired
+tombstone and must not be used to start work. Before review, assign one stable case
+ID. Use one review, one human-authorized combined repair, and one final
+blocker-closure check. Any remaining or new blocker, failed validation, expanded
+scope, or redesign requirement permanently red-locks that case.
 
 ## Use A Lighter Workflow For Small Changes
 

@@ -6,8 +6,8 @@
 - Branch:
 - Local worktree path: keep out of committed summaries unless explicitly needed for local-only handoff.
 - Base commit:
-- Handoff target: Parent by default in parent/orchestrator automation
-- Parent consumes next: Yes or No
+- Handoff target: Human-designated coordinating session
+- Human has authorized the next session: Yes or No
 
 ## Work Completed
 -
@@ -40,10 +40,10 @@
 -
 
 ## Merge Readiness
-- Ready / Blocked / Needs parent decision
+- Ready / Blocked / Needs human decision
 
 ## Stop Conditions Hit
 -
 
-## Next Action For Parent Orchestrator
+## Next Action For Human-Designated Coordinator
 -

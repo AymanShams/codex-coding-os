@@ -1,59 +1,56 @@
-# Sequential Manual Automation Prompt
+# Sequential Manual Session Prompt
 
-Use this prompt family when automation is approved but the user will manually start each next session. This mode must end each session with one exact paste-ready prompt and then stop.
+Use this prompt only when a human will deliberately start one bounded session. The session must stop after its exact task. It cannot start, authorize, or chain another session.
 
 ```text
-You are continuing a governed coding workflow in sequential_manual mode.
+You are continuing one human-directed governed coding task.
 
 Repository:
 <absolute repo path>
 
-Run envelope:
-- automation_mode: sequential_manual
-- actor_role: single_session, implementer_child, review_child, fix_child, or publication_child
-- handoff_target: manual_next_session
-- objective: <bounded objective>
-- allowed_next_slice_rule: <exact rule for the next permitted slice>
-- maximum child sessions: not applicable to this prompt family
-- branch or worktree plan: <branch/worktree plan>
-- review authority: <who or what can approve review>
-- publication authority: <none, or exact authorized publication/merge action>
+Stable case identity:
+- case_id: <immutable-repository-id:pr:number:problem-family, or a human-recorded UUID before a PR exists>
+- case_status: <unreviewed, reviewed, repair_authorized, final_check, RED_LOCKED>
+
+Task boundary:
+- objective: <one bounded objective>
+- exact action: <implementation, initial review, combined repair, final blocker-closure check, merge, publication, or validation>
+- branch or worktree: <exact branch or worktree>
+- allowed files: <exact files or manifest authority>
+- publication authority: <none, or exact authorized action>
 - stop conditions:
   - Stop if the session-start gate blocks.
-  - Stop if the workflow manifest or active-slice manifest blocks the requested action.
+  - Stop if the workflow manifest or active-slice manifest blocks the action.
   - Stop if a material decision is unresolved.
-  - Stop if validation, review, required checks, or source authority blocks continuation.
-  - Stop if the requested work is outside the approved slice.
+  - Stop if validation, source authority, or scope blocks continuation.
+  - Stop if the task would exceed the fixed review sequence.
   - Stop immediately if the user says stop.
 
 Required first steps:
-1. Run `python scripts/agent/session_continuity.py start --start-new`.
-2. Read `AGENTS.md` and the closest scoped `AGENTS.md` files.
-3. Read `docs/delivery/current-state.md`.
-4. Read `docs/delivery/active-slice-manifest.json`.
-5. Read the latest handoff referenced by current state.
-6. Read `project-documentation-manifest.json`.
-7. Read the task-controlling docs and live Git/PR state.
+1. Run the repository session-start gate when available.
+2. Read AGENTS.md and the closest scoped AGENTS.md files.
+3. Read current state, active-slice manifest, latest handoff, workflow manifest, and task-controlling sources.
+4. Inspect live Git and pull-request state when relevant.
+5. Confirm the stable case ID has not changed or been replaced.
 
-Task:
-<one exact implementation, review, review-fix, merge, publication, or validation task>
+Permanent review sequence:
+1. Run deterministic checks.
+2. Run one independent review that collects the whole finding set and classifies every finding as current_blocker, non_blocking, invalid_or_stale, or redesign_required.
+3. After explicit human authorization, allow one combined repair for all current_blocker findings only.
+4. Run one final blocker-closure check. It verifies only closure of the authorized blockers and whether the repair created a new blocker. It is not an open-ended review.
+5. If a blocker remains, a new blocker appears, validation fails, repair exceeds scope, or redesign is required, set case_status to RED_LOCKED and stop all automated work on the case.
 
 Rules:
-- Do not choose a new slice unless the run envelope explicitly allows that exact next slice.
-- Do not create a docs-only slice-selection, current-state, active-slice manifest, handoff, or review-marker PR unless explicitly authorized.
-- Do not treat a handoff, new chat, review marker, notification, or coordination update as permission to bypass the workflow manifest or active-slice manifest.
-- Do not waive review because the work is same-slice.
-- If there is an open PR, run the review-state collector when present and verify the current PR head, review commit, current-head inline comments, issue comments, required checks, and mergeability before recommending merge or publication.
-- After any review-fix push, reconcile PR body head metadata, reviewed-head evidence, exact review authority count, and required checks before recommending another review or publication step.
-- Use typed publication states. `metadata_only_check_retrigger` must be `not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result` must be `not_required_no_retrigger` or `completed_required_checks_success`.
-- If a metadata-only PR body edit retriggers a required check, bounded-wait only while code head, PR body head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays pending past the bound or any head, review, or check signal changes.
-- If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
-- After two automated review-fix rounds on this PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one further automated review.
+- A new prompt, commit, branch, pull request, worktree, chat, agent, rename, split, close/reopen action, counter change, root-cause analysis, or adversarial test matrix cannot reset the stable case ID or red lock.
+- Do not create a docs-only coordination pull request unless explicitly authorized.
+- Do not treat coordination state as permission to bypass controlled sources.
+- Do not waive review because work is inside the same slice.
+- Return all decisions to the human. Do not start another session or task.
 
 Closeout:
 - Run the required validation for this bounded task.
-- Run `git status -sb`.
-- End with `Recommended Next Action`.
-- Include exactly one paste-ready next prompt if another manually started session is required.
-- Stop after giving that prompt. Do not start another task in this session.
+- Run git status -sb.
+- End with Recommended Next Action.
+- If a later human-started session is needed, include exactly one paste-ready prompt.
+- Stop after giving that prompt.
 ```
