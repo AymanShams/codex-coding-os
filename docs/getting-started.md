@@ -75,10 +75,26 @@ Projects prepared by the full workflow include a live `docs/delivery/current-sta
 At the start of every new or resumed non-trivial project session, Codex should run:
 
 ```text
-python scripts/agent/session_continuity.py start --start-new
+python scripts/agent/session_continuity.py start --profile auto --start-new
 ```
 
 The command reports Git and coordination state, requires incoming work inspection, blocks dirty new-session starts, and blocks an implementation next action when either manifest does not permit coding.
+
+The helper supports two repository profiles. The `product` profile uses project
+delivery files. The strict `coding-os-source` profile is for this public source
+repository and reads Git and pack identity without requiring or creating product
+delivery files. `auto` selects the source profile only when the complete Coding OS
+sentinel set is present. A partial or malformed set blocks instead of guessing.
+
+To display reentry state without fetching, writing, creating a handoff, or
+triggering review, run:
+
+```text
+python scripts/agent/session_continuity.py summary --profile auto --json
+```
+
+The summary is informational only. It does not permit coding, publication, or a
+case lifecycle transition.
 
 ## Automation Prompt Families
 
@@ -87,8 +103,9 @@ next session. Use `templates/parent-orchestrator-prompt.md` only after the user
 explicitly approves parent/orchestrator automation. Parent/orchestrator closeout
 must run the review-state collector when present, re-check current PR head,
 current-head inline comments, issue comments, required checks, local branch state,
-stale-closeout status, publication stabilization typed states, and review-loop
-breaker evidence before reporting clean completion.
+stale-closeout status, and publication stabilization typed states before reporting
+facts to the canonical case-state engine. The continuity helper and review prose
+cannot approve or close a case.
 
 ## Use A Lighter Workflow For Small Changes
 

@@ -86,7 +86,7 @@ Complete this section before a parent/orchestrator final closeout.
 | Required checks were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
 | Local branch, local HEAD, and working tree were checked | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
 | Stale closeout was ruled out | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
-| Review-state collector recorded review commit, PR head, original_commit_id, commit_id, clean-summary commit, required checks, and ambiguity | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
-| Review-loop breaker threshold was not crossed, or batch RCA and adversarial test matrix are complete before exactly one further review | {{evidence}} | Pass, Block, Ambiguous, or Not applicable |
+| Review-state collector recorded exact PR head, raw review states, original_commit_id, commit_id, issue-comment count, and required checks | {{evidence}} | Pass, Block, or Not applicable |
+| Canonical stable case, frozen head, review cohort, and permitted transition were verified through the case-state engine | {{evidence}} | Pass, Block, or Not applicable |
 
-If current-head inline findings conflict with a later no-major-issues summary, classify review state as ambiguous and stop.
+`COMMENTED` reviews, issue-comment prose, clean-sounding summaries, coordination manifests, and handoffs are raw facts or mirrors only. They cannot approve, close, or reopen a case.

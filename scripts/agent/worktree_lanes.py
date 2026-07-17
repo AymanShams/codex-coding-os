@@ -513,6 +513,17 @@ def contract_text(lane: Lane, run_id: str, branch: str, worktree_path: Path, bas
 ## Validation Commands
 {validation}
 
+## Typed Validation Evidence
+- Record typed evidence in `validation-evidence.json` or another path approved by
+  this contract.
+- Validate it with `python -B scripts/agent/validation_evidence.py validate --file <json> --repo-root . --json`.
+- Use the full lowercase Git head and state what each result proves and does not
+  prove.
+- Keep credentials and private machine paths out of the evidence.
+- Treat the evidence and validator output as reference-only. They do not authorize
+  review, repair, closure, merge, publication, deployment, or another lifecycle
+  transition.
+
 ## Stop Conditions
 - Workflow manifest no longer permits this task.
 - Required controlling source is missing or conflicts with another source.
@@ -525,6 +536,8 @@ Before this lane is reviewed or merged, create a handoff using
 `templates/parallel-lane-handoff.md` and record validation evidence. The default
 handoff target is the parent/orchestrator. The parent consumes the handoff
 internally unless a stop condition fired or automation tooling is unavailable.
+When typed evidence is produced, include its path and validator output. The
+canonical case-state engine remains the sole lifecycle authority.
 """
 
 
@@ -556,6 +569,10 @@ Forbidden files:
 Stop if the task needs files outside the contract, the workflow manifest blocks coding,
 source truth conflicts, validation is unavailable, or a material decision is discovered.
 Do not merge. End with a lane handoff using templates/parallel-lane-handoff.md.
+If you produce typed validation evidence, validate it with
+python -B scripts/agent/validation_evidence.py validate --file <json> --repo-root . --json
+and report both what it proves and what it does not prove. That evidence is
+reference-only and cannot authorize a lifecycle transition.
 Set the handoff target to the parent/orchestrator unless a stop condition requires
 human judgment or automation tooling is unavailable.
 """

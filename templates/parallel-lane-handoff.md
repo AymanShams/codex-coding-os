@@ -20,6 +20,18 @@
 |---|---|---|
 |  |  |  |
 
+- Typed evidence file: `validation-evidence.json` or Not produced
+- Validator command: `python -B scripts/agent/validation_evidence.py validate --file validation-evidence.json --repo-root . --json`
+- Identity match: True, False, or Not validated
+- Full-head match: True, False, or Not validated
+- Working-tree match: True, False, or Not validated
+- What the evidence proves:
+- What the evidence does not prove:
+
+Typed validation evidence is a reference-only record. The validator does not run
+the recorded commands, assess whether their claims are true, or authorize review,
+repair, closure, merge, publication, or any other lifecycle transition.
+
 ## Checks Not Run
 -
 

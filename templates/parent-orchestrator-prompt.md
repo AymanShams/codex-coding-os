@@ -47,15 +47,11 @@ Parent duties:
 
 Review and publication gates:
 - Verify the current PR head before relying on any review, check, or mergeability state.
-- Run the review-state collector when the repo provides one, then compare review commit, PR head, inline comment `original_commit_id`, inline comment `commit_id`, issue comments, required checks, and mergeability together.
-- After any review-fix push, reconcile PR body head metadata, reviewed-head evidence, exact review authority count, required checks, and review-loop breaker evidence before starting another review or publication child.
-- Treat `metadata_only_check_retrigger` as valid only when it is `not_retriggered` or `retriggered_required_checks_passed`.
-- Treat `bounded_wait_result` as valid only when it is `not_required_no_retrigger` or `completed_required_checks_success`.
-- Free-text clean phrases are not closeout evidence.
-- If a metadata-only PR body edit retriggers a required check, bounded-poll only while code head, PR body head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays pending past the bound or any head, review, or check signal changes.
+- Run the review-state collector when the repo provides one, then record the exact PR head, raw current-head review states, inline comment `original_commit_id`, inline comment `commit_id`, issue-comment count, required checks, and mergeability together. Collection does not authorize a lifecycle transition.
+- A `COMMENTED` review, issue-comment prose, clean-sounding summary, coordination manifest, handoff, or metadata-only PR edit cannot approve, close, or reopen a case.
+- Bind review and publication actions to the canonical stable case and exact frozen head. If a head or check signal changes, stop that transition and reconcile it through the case-state engine.
 - A direct deployment or provider status does not override a pending required GitHub check.
-- If current-head inline findings conflict with a later no-major-issues summary, set `conflicting_review_signals` to true, classify review state as ambiguous, and stop.
-- After two automated review-fix rounds on this PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one further automated review.
+- The case-state engine is the sole lifecycle authority: one implementation generation, one frozen review cohort, at most one explicitly authorized combined repair of the frozen `CURRENT_BLOCKER` set, and one blocker-identifier-limited closure check. Late, stale, invalid, or non-blocking findings do not reopen the case. Failed closure locks only that case, one identical operational retry is allowed only for a control failure, and unrelated work remains available.
 - Do not merge, deploy, or publish unless that exact action is independently authorized and all required checks/reviews are clean.
 
 Parent final closeout:
@@ -67,10 +63,10 @@ Parent final closeout:
    - local branch and local HEAD
    - working-tree status
    - stale-closeout risk
-   - publication stabilization evidence: PR body head, reviewed-head evidence, exact review authority count, post-review-fix reconciliation status, and typed metadata-only check retrigger status
-   - review-loop breaker evidence: automated review-fix rounds, validator-area finding counts, batch RCA status, adversarial test matrix status, and whether exactly one further review is authorized
-2. Record that evidence in `docs/delivery/active-slice-manifest.json` under `parent_closeout_reconciliation`.
-3. Run `python scripts/agent/session_continuity.py closeout-check`.
-4. If `closeout-check` fails, stop and report the blocker. Do not close out as clean.
+   - canonical case identifier, exact frozen head, frozen blocker identifiers, and case-engine transition result
+   - typed validation evidence with explicit `proves` and `does_not_prove`
+2. Treat coordination manifests and continuity output as mirrors only. They cannot authorize lifecycle.
+3. Run the case engine's one closure check only for the frozen blocker identifiers.
+4. If closure fails, lock only that exact case and return control. Do not start another review or repair automatically.
 5. End with `Recommended Next Action`.
 ```

@@ -40,6 +40,14 @@ jobs:
         shell: pwsh
         run: python .\tests\worktree-lanes-smoke.py
 
+      - name: Test finite case controls and continuity profiles
+        shell: pwsh
+        run: |
+          python -B .\tests\test_case_state_engine.py
+          python -B .\tests\test_source_repository_profile.py
+          python -B .\tests\test_validation_evidence.py
+          python -B .\tests\test_reentry_summary.py
+
       - name: Build release package
         shell: pwsh
         run: .\scripts\package.ps1 -OutputPath "$env:RUNNER_TEMP\codex-coding-os.zip"
@@ -82,3 +90,11 @@ jobs:
       - name: Smoke test worktree lanes
         shell: bash
         run: python ./tests/worktree-lanes-smoke.py
+
+      - name: Test finite case controls and continuity profiles
+        shell: bash
+        run: |
+          python -B ./tests/test_case_state_engine.py
+          python -B ./tests/test_source_repository_profile.py
+          python -B ./tests/test_validation_evidence.py
+          python -B ./tests/test_reentry_summary.py

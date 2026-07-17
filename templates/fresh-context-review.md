@@ -35,17 +35,23 @@ Reason:
 | Check | Evidence | Verdict |
 |---|---|---|
 | Current PR head was verified before relying on review or check state |  | Pass, Revise, Block, or Not applicable |
-| Review-state collector recorded review commit, PR head, original_commit_id, commit_id, clean-summary commit, required checks, and ambiguity |  | Pass, Revise, Block, or Not applicable |
+| Review-state collector recorded exact PR head, raw review states, original_commit_id, commit_id, issue-comment count, and required checks |  | Pass, Revise, Block, or Not applicable |
 | Current-head inline comments were checked |  | Pass, Revise, Block, or Not applicable |
 | Issue comments and summary reviews were checked |  | Pass, Revise, Block, or Not applicable |
 | Required checks and mergeability were checked on the current head |  | Pass, Revise, Block, or Not applicable |
-| Current-head inline findings do not conflict with a later no-major-issues summary |  | Pass, Ambiguous, Block, or Not applicable |
-| Review-loop breaker threshold was not crossed, or batch RCA and adversarial test matrix are complete before exactly one further review |  | Pass, Ambiguous, Block, or Not applicable |
+| `COMMENTED` reviews and issue-comment prose were treated as raw facts, not approval |  | Pass, Revise, Block, or Not applicable |
+| Canonical stable case, frozen head, review cohort, and permitted transition were verified through the case-state engine |  | Pass, Revise, Block, or Not applicable |
 
 ## Validation Evidence Reviewed
 | Check | Result | What it proves | What it does not prove |
 |---|---|---|---|
 |  |  |  |  |
+
+When a typed JSON record is supplied, validate it with
+`python -B scripts/agent/validation_evidence.py validate --file <json> --repo-root . --json`.
+Confirm the repository identity, full Git head, and working-tree state match this
+checkout. The validator does not execute recorded commands, assess claim truth, or
+authorize a review verdict or lifecycle transition.
 
 ## Checks Not Reviewed
 -
