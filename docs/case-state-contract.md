@@ -164,6 +164,14 @@ authorizes an external action.
 The sole lifecycle snapshot contract is `ccos-git-snapshot-v1`. Candidate
 freeze and repaired-candidate completion reject every other contract.
 
+Every newly recorded lifecycle snapshot must retain the exact `contract`,
+`sha256`, and full 40-character Git `head`. The stored `head` must equal the
+candidate review or repaired head for that repository. Missing or mismatched
+heads are rejected. A frozen legacy `review_snapshots` record with exactly the
+older `contract` and `sha256` fields remains readable so an already active case
+can proceed through authorized repair and closure, but it is never backfilled or
+accepted for a new snapshot. Repaired snapshots always require `head`.
+
 Run `snapshot --root <exact-repository-root> --head <full-commit-SHA>`. The
 command requires a full 40-character commit hash and returns that exact `head`,
 the `contract`, the SHA-256 digest, and the tracked file count. It performs the

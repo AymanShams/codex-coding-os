@@ -558,6 +558,54 @@ class InstallTransactionTests(unittest.TestCase):
 
 
 class UninstallTransactionTests(unittest.TestCase):
+    def test_policy_install_then_opt_out_reinstall_removes_only_managed_policy_blocks(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            original_agents, original_rules = env.prepare_legacy_policy()
+            write_text(env.codex / "config.toml", "config\n")
+            write_text(env.codex / "case-state/data.json", "case\n")
+            write_text(env.codex / "plugins/data.txt", "plugin\n")
+            write_text(env.skills / "unmanaged/SKILL.md", "unmanaged\n")
+            preserved = {
+                env.codex / "config.toml": sha(env.codex / "config.toml"),
+                env.codex / "case-state/data.json": sha(env.codex / "case-state/data.json"),
+                env.codex / "plugins/data.txt": sha(env.codex / "plugins/data.txt"),
+                env.skills / "unmanaged/SKILL.md": sha(env.skills / "unmanaged/SKILL.md"),
+            }
+
+            it.install(env.policy_options())
+            agents_path = env.codex / "AGENTS.md"
+            rules_path = env.codex / "rules/default.rules"
+            agents_path.write_bytes(agents_path.read_bytes() + b"user-agents-setting\n")
+            rules_path.write_bytes(rules_path.read_bytes() + b"user-rule-setting\n")
+
+            opt_out = env.policy_options(
+                install_universal_policy=False,
+                authority_case_id=None,
+                authority_source=None,
+                authority_reference=None,
+                case_state_engine=None,
+                case_state_root=None,
+            )
+            result = it.install(opt_out)
+            self.assertEqual(result["status"], "committed")
+            expected_agents = original_agents.replace(AGENTS_LEGACY.encode(), b"") + b"user-agents-setting\n"
+            expected_rules = original_rules.replace(RULES_LEGACY.encode(), b"") + b"user-rule-setting\n"
+            self.assertEqual(agents_path.read_bytes(), expected_agents)
+            self.assertEqual(rules_path.read_bytes(), expected_rules)
+            manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text())
+            self.assertFalse(manifest["targets"]["global_agents"]["managed"])
+            self.assertFalse(manifest["targets"]["default_rules"]["managed"])
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+
+            uninstall = it.uninstall(it.UninstallOptions(skills_root=env.skills, codex_home=env.codex))
+            self.assertEqual(uninstall["status"], "uninstalled")
+            self.assertFalse((env.skills / "alpha").exists())
+            self.assertFalse((env.codex / "coding-os").exists())
+            self.assertEqual(agents_path.read_bytes(), expected_agents)
+            self.assertEqual(rules_path.read_bytes(), expected_rules)
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+
     def test_uninstall_removes_recorded_targets_and_markers_only(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw), git_source=True)

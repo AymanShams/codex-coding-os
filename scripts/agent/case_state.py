@@ -517,9 +517,54 @@ def _validate_store(data: Any) -> None:
                     raise StoreCorruptionError(f"case {case_id} candidate {field} is invalid") from exc
                 if repository != normalized_repo or head != normalized_head:
                     raise StoreCorruptionError(f"case {case_id} candidate {field} is noncanonical")
-        for field in ("review_snapshots", "repaired_snapshots"):
-            if not isinstance(candidate[field], dict):
+        for field, heads_field in (
+            ("review_snapshots", "review_heads"),
+            ("repaired_snapshots", "repaired_heads"),
+        ):
+            snapshots = candidate[field]
+            expected_heads = candidate[heads_field]
+            if not isinstance(snapshots, dict):
                 raise StoreCorruptionError(f"case {case_id} candidate {field} must be an object")
+            if set(snapshots) != set(expected_heads):
+                raise StoreCorruptionError(
+                    f"case {case_id} candidate {field} repositories must match {heads_field}"
+                )
+            for repository, record in snapshots.items():
+                if not isinstance(record, Mapping):
+                    raise StoreCorruptionError(
+                        f"case {case_id} candidate {field} record must be an object"
+                    )
+                try:
+                    contract = _nonempty(record.get("contract"), "snapshot contract", 100)
+                    digest = require_snapshot_hash(str(record.get("sha256", "")))
+                except (ValidationError, TypeError) as exc:
+                    raise StoreCorruptionError(
+                        f"case {case_id} candidate {field} record is invalid"
+                    ) from exc
+                if record.get("contract") != contract or record.get("sha256") != digest:
+                    raise StoreCorruptionError(
+                        f"case {case_id} candidate {field} record is noncanonical"
+                    )
+                if "head" not in record:
+                    if field != "review_snapshots" or set(record) != {"contract", "sha256"}:
+                        raise StoreCorruptionError(
+                            f"case {case_id} candidate {field} snapshot head is required"
+                        )
+                    continue
+                if set(record) != {"contract", "sha256", "head"}:
+                    raise StoreCorruptionError(
+                        f"case {case_id} candidate {field} record has invalid fields"
+                    )
+                try:
+                    snapshot_head = require_sha(str(record["head"]), "snapshot head")
+                except (ValidationError, TypeError) as exc:
+                    raise StoreCorruptionError(
+                        f"case {case_id} candidate {field} snapshot head is invalid"
+                    ) from exc
+                if record["head"] != snapshot_head or snapshot_head != expected_heads[repository]:
+                    raise StoreCorruptionError(
+                        f"case {case_id} candidate {field} snapshot head does not match {heads_field}"
+                    )
     for key, case_id in data["bindings"].items():
         if not isinstance(key, str) or case_id not in data["cases"]:
             raise StoreCorruptionError("binding registry contains an invalid entry")
@@ -820,9 +865,12 @@ class CaseStore:
         return dict(sorted(result.items()))
 
     @staticmethod
-    def _normalize_snapshots(snapshots: Mapping[str, Any], expected_repos: set[str]) -> dict[str, Any]:
+    def _normalize_snapshots(
+        snapshots: Mapping[str, Any], expected_heads: Mapping[str, str]
+    ) -> dict[str, Any]:
         if not isinstance(snapshots, Mapping):
             raise ValidationError("snapshots must be an object")
+        expected_repos = set(expected_heads)
         result: dict[str, Any] = {}
         for repo, record in snapshots.items():
             normalized_repo = normalize_repo_url(str(repo))
@@ -830,7 +878,10 @@ class CaseStore:
                 raise ValidationError(f"snapshot record for {normalized_repo} must be an object")
             contract = _nonempty(record.get("contract"), "snapshot contract", 100)
             digest = require_snapshot_hash(str(record.get("sha256", "")))
-            result[normalized_repo] = {"contract": contract, "sha256": digest}
+            head = require_sha(str(record.get("head", "")), f"snapshot head for {normalized_repo}")
+            if normalized_repo not in expected_heads or head != expected_heads[normalized_repo]:
+                raise ValidationError(f"snapshot head for {normalized_repo} must match the candidate head")
+            result[normalized_repo] = {"contract": contract, "sha256": digest, "head": head}
         if set(result) != expected_repos:
             raise ValidationError("snapshot repositories must exactly match candidate head repositories")
         return dict(sorted(result.items()))
@@ -845,7 +896,7 @@ class CaseStore:
         expected_revision: int,
     ) -> dict[str, Any]:
         normalized_heads = self._normalize_heads(heads)
-        normalized_snapshots = self._normalize_snapshots(snapshots, set(normalized_heads))
+        normalized_snapshots = self._normalize_snapshots(snapshots, normalized_heads)
         for record in normalized_snapshots.values():
             if record["contract"] != SNAPSHOT_CONTRACT:
                 raise ValidationError(f"snapshot contract must be {SNAPSHOT_CONTRACT}")
@@ -1089,7 +1140,7 @@ class CaseStore:
         expected_revision: int,
     ) -> dict[str, Any]:
         normalized_heads = self._normalize_heads(heads)
-        normalized_snapshots = self._normalize_snapshots(snapshots, set(normalized_heads))
+        normalized_snapshots = self._normalize_snapshots(snapshots, normalized_heads)
         addressed = sorted({_nonempty(item, "addressed finding id", 128) for item in addressed_ids})
 
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
@@ -1183,7 +1234,7 @@ class CaseStore:
     ) -> dict[str, Any]:
         normalized_review = self._normalize_heads(review_heads)
         normalized_repaired = self._normalize_heads(repaired_heads)
-        normalized_snapshots = self._normalize_snapshots(snapshots, set(normalized_repaired))
+        normalized_snapshots = self._normalize_snapshots(snapshots, normalized_repaired)
         ids = sorted({_nonempty(item, "authorized finding id", 128) for item in authorized_ids})
 
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:

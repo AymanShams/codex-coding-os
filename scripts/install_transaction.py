@@ -1151,6 +1151,7 @@ def _stage_bundle(
     rules_target: dict[str, Any] = {"path": str(default_rules_path), "managed": False}
     staged_agents: Path | None = None
     staged_rules: Path | None = None
+    previous_agents_managed, previous_rules_managed = _previous_managed_policy_targets(previous, codex_home)
     if options.install_universal_policy:
         if not global_agents_path.is_file() or not default_rules_path.is_file():
             raise PolicyMigrationError("universal policy migration requires existing AGENTS.md and default.rules")
@@ -1183,6 +1184,17 @@ def _stage_bundle(
             "marker_start": RULES_START,
             "marker_end": RULES_END,
         }
+    else:
+        if previous_agents_managed:
+            if not global_agents_path.is_file() or _is_link_or_reparse(global_agents_path):
+                raise OwnershipError("previously managed AGENTS.md is unavailable for opt-out removal")
+            staged_agents = policy_stage / "AGENTS.md"
+            _atomic_write_bytes(staged_agents, remove_agents_policy_bytes(global_agents_path.read_bytes()))
+        if previous_rules_managed:
+            if not default_rules_path.is_file() or _is_link_or_reparse(default_rules_path):
+                raise OwnershipError("previously managed default.rules is unavailable for opt-out removal")
+            staged_rules = policy_stage / "rules" / "default.rules"
+            _atomic_write_bytes(staged_rules, remove_rules_policy_bytes(default_rules_path.read_bytes()))
 
     generated_paths = {str(record["path"]) for record in generated_records}
     generated_paths.update({"install-manifest.json", "install-manifest.txt"})
@@ -1304,6 +1316,8 @@ def _is_idempotent(
         return False
     if options.install_universal_policy and prior_authority != authority:
         return False
+    if not options.install_universal_policy and any(_previous_managed_policy_targets(previous, codex_home)):
+        return False
     targets = previous.get("targets")
     if not isinstance(targets, dict):
         return False
@@ -1361,7 +1375,6 @@ def _prepare_install_targets(
     transaction_id: str,
     previous_records: Sequence[dict[str, Any]],
     staged: dict[str, Any],
-    install_policy: bool,
 ) -> list[dict[str, Any]]:
     skill_rollback = skills_root / ".coding-os-rollback" / transaction_id / "skills"
     codex_rollback = codex_home / ".coding-os-rollback" / transaction_id
@@ -1379,7 +1392,7 @@ def _prepare_install_targets(
             codex_rollback / "coding-os",
         )
     )
-    if install_policy:
+    if staged["staged_agents"] is not None:
         targets.append(
             _make_target(
                 "global_agents",
@@ -1388,6 +1401,7 @@ def _prepare_install_targets(
                 codex_rollback / "AGENTS.md",
             )
         )
+    if staged["staged_rules"] is not None:
         targets.append(
             _make_target(
                 "default_rules",
@@ -1606,6 +1620,36 @@ def _preflight_policy_sources(options: InstallOptions, source_root: Path, pack: 
     migrate_rules_bytes(rules.read_bytes(), rules_source)
 
 
+def _previous_managed_policy_targets(previous: dict[str, Any] | None, codex_home: Path) -> tuple[bool, bool]:
+    if previous is None or previous.get("manifest_version") != 3:
+        return False, False
+    targets = previous.get("targets")
+    if not isinstance(targets, dict):
+        raise OwnershipError("previous v3 install policy inventory is invalid")
+
+    def is_managed(name: str, path: Path, start: str, end: str) -> bool:
+        record = targets.get(name)
+        if record is None:
+            return False
+        if not isinstance(record, dict):
+            raise OwnershipError(f"previous v3 install policy record is invalid: {name}")
+        if record.get("managed") is False:
+            return False
+        if record.get("managed") is not True:
+            raise OwnershipError(f"previous v3 install policy ownership is invalid: {name}")
+        recorded_path = Path(str(record.get("path", ""))).expanduser().resolve(strict=False)
+        if recorded_path != path.resolve(strict=False):
+            raise OwnershipError(f"previous v3 install policy path is outside the requested CodexHome: {name}")
+        if record.get("marker_start") != start or record.get("marker_end") != end:
+            raise OwnershipError(f"previous v3 install policy markers are invalid: {name}")
+        return True
+
+    return (
+        is_managed("global_agents", codex_home / "AGENTS.md", AGENTS_START, AGENTS_END),
+        is_managed("default_rules", codex_home / "rules" / "default.rules", RULES_START, RULES_END),
+    )
+
+
 def _install_preflight(
     options: InstallOptions,
     source_root: Path,
@@ -1740,7 +1784,6 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 transaction_id,
                 previous_records,
                 staged,
-                options.install_universal_policy,
             )
             journal.data["targets"] = targets
             install_manifest_path = codex_home / "coding-os" / "install-manifest.json"

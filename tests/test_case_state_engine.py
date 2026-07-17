@@ -45,6 +45,10 @@ def request() -> str:
     return str(uuid.uuid4())
 
 
+def lifecycle_snapshot(head: str, digest: str) -> dict[str, str]:
+    return {"contract": engine.SNAPSHOT_CONTRACT, "sha256": digest, "head": head}
+
+
 def protocol_digest(entries: list[tuple[str, bytes]]) -> str:
     """Independent implementation of the documented snapshot byte stream."""
     import unicodedata
@@ -124,7 +128,7 @@ class StoreCase(unittest.TestCase):
         return self.mutate(
             "freeze_candidate",
             heads={REPO: head},
-            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "1" * 64}},
+            snapshots={REPO: lifecycle_snapshot(head, "1" * 64)},
         )
 
     def begin_review(self) -> None:
@@ -162,7 +166,7 @@ class StoreCase(unittest.TestCase):
         self.mutate(
             "complete_repair",
             heads={REPO: SHA_B},
-            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
             addressed_ids=["F-001"],
         )
 
@@ -174,7 +178,7 @@ class StoreCase(unittest.TestCase):
             review_heads={REPO: SHA_A},
             repaired_heads={REPO: SHA_B},
             authorized_ids=["F-001"],
-            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
         )
 
 
@@ -457,6 +461,22 @@ class FiniteLifecycleTests(StoreCase):
         self.assertEqual(locked["state"], "CASE_LOCKED")
         self.assertIn("unexpected head drift", locked["lock_reason"])
 
+    def test_new_candidate_snapshot_requires_a_matching_head(self) -> None:
+        self.mutate("start_implementation")
+        with self.assertRaisesRegex(engine.ValidationError, "snapshot head"):
+            self.mutate(
+                "freeze_candidate",
+                heads={REPO: SHA_A},
+                snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "1" * 64}},
+            )
+        with self.assertRaisesRegex(engine.ValidationError, "must match the candidate head"):
+            self.mutate(
+                "freeze_candidate",
+                heads={REPO: SHA_A},
+                snapshots={REPO: lifecycle_snapshot(SHA_B, "1" * 64)},
+            )
+        self.assertEqual(self.store.get_case(self.case_id)["state"], "IMPLEMENTING")
+
 
 class FindingAndRepairTests(StoreCase):
     def test_stale_finding_is_preserved_but_cannot_authorize_repair(self) -> None:
@@ -518,22 +538,47 @@ class FindingAndRepairTests(StoreCase):
             self.mutate(
                 "complete_repair",
                 heads={REPO: SHA_B},
-                snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+                snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
                 addressed_ids=[],
             )
         self.mutate(
             "complete_repair",
             heads={REPO: SHA_B},
-            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
             addressed_ids=["F-001"],
         )
         with self.assertRaisesRegex(engine.TransitionError, "REPAIR_COMPLETE"):
             self.mutate(
                 "complete_repair",
                 heads={REPO: SHA_C},
-                snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "3" * 64}},
+                snapshots={REPO: lifecycle_snapshot(SHA_C, "3" * 64)},
                 addressed_ids=["F-001"],
             )
+
+    def test_new_repaired_snapshot_requires_a_matching_head(self) -> None:
+        self.begin_review()
+        self.add_blocker()
+        self.mutate("freeze_findings")
+        self.mutate(
+            "authorize_repair",
+            finding_ids=["F-001"],
+            authority={"authority_id": "AUTH", "source": "user", "authorized_by": "owner", "scope": "combined"},
+        )
+        with self.assertRaisesRegex(engine.ValidationError, "snapshot head"):
+            self.mutate(
+                "complete_repair",
+                heads={REPO: SHA_B},
+                snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+                addressed_ids=["F-001"],
+            )
+        with self.assertRaisesRegex(engine.ValidationError, "must match the candidate head"):
+            self.mutate(
+                "complete_repair",
+                heads={REPO: SHA_B},
+                snapshots={REPO: lifecycle_snapshot(SHA_C, "2" * 64)},
+                addressed_ids=["F-001"],
+            )
+        self.assertEqual(self.store.get_case(self.case_id)["state"], "REPAIR_AUTHORIZED")
 
 
 class ClosureAndControlFailureTests(StoreCase):
@@ -547,7 +592,7 @@ class ClosureAndControlFailureTests(StoreCase):
                 review_heads={REPO: SHA_C},
                 repaired_heads={REPO: SHA_B},
                 authorized_ids=["F-001"],
-                snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+                snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
             )
         after = self.store.get_case(self.case_id)
         self.assertEqual(after["state"], "CLOSURE_PREFLIGHT")
@@ -563,14 +608,46 @@ class ClosureAndControlFailureTests(StoreCase):
                 review_heads={REPO: SHA_A},
                 repaired_heads={REPO: SHA_B},
                 authorized_ids=["F-001"],
-                snapshots={REPO: {"contract": "ambiguous-v0", "sha256": "2" * 64}},
+                snapshots={REPO: {"contract": "ambiguous-v0", "sha256": "2" * 64, "head": SHA_B}},
             )
         result = self.mutate(
             "verify_closure_preflight",
             review_heads={REPO: SHA_A},
             repaired_heads={REPO: SHA_B},
             authorized_ids=["F-001"],
-            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
+        )
+        self.assertEqual(result["state"], "CLOSURE_CHECK")
+
+    def test_legacy_review_snapshot_without_head_remains_readable_through_repair_and_closure(self) -> None:
+        self.freeze_candidate()
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        persisted["cases"][self.case_id]["candidate"]["review_snapshots"][REPO].pop("head")
+        self.store.path.write_text(json.dumps(persisted), encoding="utf-8")
+
+        legacy = self.store.get_case(self.case_id)
+        self.assertNotIn("head", legacy["candidate"]["review_snapshots"][REPO])
+        self.mutate("start_review")
+        self.add_blocker()
+        self.mutate("freeze_findings")
+        self.mutate(
+            "authorize_repair",
+            finding_ids=["F-001"],
+            authority={"authority_id": "AUTH", "source": "user", "authorized_by": "owner", "scope": "combined"},
+        )
+        self.mutate(
+            "complete_repair",
+            heads={REPO: SHA_B},
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
+            addressed_ids=["F-001"],
+        )
+        self.mutate("start_closure_preflight")
+        result = self.mutate(
+            "verify_closure_preflight",
+            review_heads={REPO: SHA_A},
+            repaired_heads={REPO: SHA_B},
+            authorized_ids=["F-001"],
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
         )
         self.assertEqual(result["state"], "CLOSURE_CHECK")
 
@@ -949,7 +1026,7 @@ class ScopeAndAuthorityTests(StoreCase):
         self.mutate(
             "complete_repair",
             heads={REPO: SHA_B},
-            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
             addressed_ids=["F-001"],
         )
         self.mutate("start_closure_preflight")
@@ -958,7 +1035,7 @@ class ScopeAndAuthorityTests(StoreCase):
             review_heads={REPO: SHA_A},
             repaired_heads={REPO: SHA_B},
             authorized_ids=["F-001"],
-            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
         )
         closure = self.store.check_action(
             self.case_id,
@@ -1244,7 +1321,7 @@ class ScopeAndAuthorityTests(StoreCase):
         self.store.freeze_candidate(
             target_id,
             heads={OTHER_REPO: SHA_A},
-            snapshots={OTHER_REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "3" * 64}},
+            snapshots={OTHER_REPO: lifecycle_snapshot(SHA_A, "3" * 64)},
             request_id=request(),
             expected_revision=target_revision,
         )

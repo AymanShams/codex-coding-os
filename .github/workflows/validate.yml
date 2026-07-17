@@ -36,6 +36,10 @@ jobs:
         shell: pwsh
         run: python -B .\tests\test_install_transaction.py
 
+      - name: Test public installer documentation contract
+        shell: pwsh
+        run: python -B .\tests\test_public_install_docs.py
+
       - name: Test transactional hard-crash recovery
         shell: pwsh
         run: .\tests\install-transaction-faults.ps1
@@ -94,6 +98,10 @@ jobs:
       - name: Test transactional install contract
         shell: bash
         run: python -B ./tests/test_install_transaction.py
+
+      - name: Test public installer documentation contract
+        shell: bash
+        run: python -B ./tests/test_public_install_docs.py
 
       - name: Smoke test bash install and uninstall
         shell: bash

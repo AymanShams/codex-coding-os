@@ -33,15 +33,34 @@
     "snapshot": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["contract", "sha256", "head"],
+      "properties": {
+        "contract": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "head": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "snapshotMap": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/snapshot" }
+    },
+    "legacyReviewSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
       "required": ["contract", "sha256"],
       "properties": {
         "contract": { "type": "string", "minLength": 1 },
         "sha256": { "$ref": "#/$defs/digest" }
       }
     },
-    "snapshotMap": {
+    "reviewSnapshotMap": {
       "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/snapshot" }
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/snapshot" },
+          { "$ref": "#/$defs/legacyReviewSnapshot" }
+        ]
+      }
     },
     "branchBinding": {
       "type": "object",
@@ -78,7 +97,7 @@
       ],
       "properties": {
         "review_heads": { "$ref": "#/$defs/headMap" },
-        "review_snapshots": { "$ref": "#/$defs/snapshotMap" },
+        "review_snapshots": { "$ref": "#/$defs/reviewSnapshotMap" },
         "current_heads": { "$ref": "#/$defs/headMap" },
         "repaired_heads": { "$ref": "#/$defs/headMap" },
         "repaired_snapshots": { "$ref": "#/$defs/snapshotMap" },

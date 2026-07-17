@@ -12,9 +12,14 @@ This guide takes you from a downloaded copy of Codex Coding OS to the first proj
 4. Run:
 
 ```powershell
+$ExpectedBundleSha256 = (Get-Content -Raw -LiteralPath .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\scripts\install.ps1 -InstallGlobalAgents
+.\scripts\install.ps1 -ExpectedBundleSha256 $ExpectedBundleSha256 -ArchiveMode
 ```
+
+The installer verifies every bundled file against `install-bundle.manifest.json` and
+requires this aggregate SHA-256 value. For a release download, compare the value
+to the publisher-provided release checksum before running the command.
 
 5. Restart Codex.
 6. Open a new Codex chat.
@@ -26,8 +31,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 2. Run:
 
 ```bash
+python_cmd="$(command -v python3 || command -v python)"
+expected_bundle_sha256="$("$python_cmd" -c 'import json; print(json.load(open("install-bundle.manifest.json", encoding="utf-8"))["aggregate_sha256"])')"
 chmod +x ./scripts/install.sh ./scripts/uninstall.sh
-./scripts/install.sh --install-global-agents
+./scripts/install.sh --expected-bundle-sha256 "$expected_bundle_sha256" --archive-mode
 ```
 
 3. Restart Codex.
@@ -41,18 +48,19 @@ chmod +x ./scripts/install.sh ./scripts/uninstall.sh
 ```powershell
 Test-Path "$HOME\.agents\skills\codex-coding-os-master\SKILL.md"
 Test-Path "$HOME\.codex\coding-os\templates\first-codex-prompt.md"
-Select-String -Path "$HOME\.codex\AGENTS.md" -Pattern "BEGIN CODEX CODING OS"
 ```
 
-Each command should return `True` or show the installed marker.
+Each command should return `True`. The normal archive route does not change
+global Codex policy files.
 
 ### macOS or Linux
 
 ```bash
 test -f "$HOME/.agents/skills/codex-coding-os-master/SKILL.md" && echo "Master skill installed"
 test -f "$HOME/.codex/coding-os/templates/first-codex-prompt.md" && echo "Support files installed"
-grep -q "BEGIN CODEX CODING OS" "$HOME/.codex/AGENTS.md" && echo "Global rules installed"
 ```
+
+The normal archive route does not change global Codex policy files.
 
 ## What the First Chat Should Produce
 
@@ -70,15 +78,17 @@ Expected workflow:
 
 ## Session Start And Resume
 
-Projects prepared by the full workflow include a live `docs/delivery/current-state.md` file, `docs/delivery/active-slice-manifest.json`, and a project-local session continuity command.
+Projects prepared by the full workflow include a live `docs/delivery/current-state.md` file, `docs/delivery/active-slice-manifest.json`, and a project-local session continuity command. The packaged helper is `.agents/skills/project-session-continuity/scripts/session_continuity.py`.
 
-At the start of every new or resumed non-trivial project session, Codex should run:
+When working directly in this source checkout, run the packaged helper at the start of every new or resumed non-trivial session:
 
 ```text
-python scripts/agent/session_continuity.py start --profile auto --start-new
+python .agents/skills/project-session-continuity/scripts/session_continuity.py start --profile auto --start-new
 ```
 
 The command reports Git and coordination state, requires incoming work inspection, blocks dirty new-session starts, and blocks an implementation next action when either manifest does not permit coding.
+
+During project setup, copy that same helper to the target project's `scripts/agent/session_continuity.py` before using the project-local command. There is no separate source-repository wrapper at that path.
 
 The helper supports two repository profiles. The `product` profile uses project
 delivery files. The strict `coding-os-source` profile is for this public source
@@ -90,7 +100,7 @@ To display reentry state without fetching, writing, creating a handoff, or
 triggering review, run:
 
 ```text
-python scripts/agent/session_continuity.py summary --profile auto --json
+python .agents/skills/project-session-continuity/scripts/session_continuity.py summary --profile auto --json
 ```
 
 The summary is informational only. It does not permit coding, publication, or a
@@ -143,7 +153,7 @@ Use $codex-coding-os-master.
 
 ### You do not want global AGENTS rules
 
-Reinstall without `-InstallGlobalAgents` or `--install-global-agents`. Use a project-level `AGENTS.md` and explicitly invoke `$codex-coding-os-master`.
+The normal archive route already leaves global Codex policy unchanged. Use a project-level `AGENTS.md` and explicitly invoke `$codex-coding-os-master` when needed.
 
 ### An external install is blocked
 
@@ -164,3 +174,7 @@ On macOS or Linux:
 bash -n ./scripts/install.sh ./scripts/uninstall.sh ./tests/install-uninstall-smoke.sh
 bash ./tests/install-uninstall-smoke.sh
 ```
+
+## Separately Authorized Universal Policy Synchronization
+
+Normal archive installation deliberately does not modify `$HOME\.codex\AGENTS.md` or the default Codex rules. Universal policy synchronization is a separately authorized operation, not setup guidance. Archive mode rejects it. A source checkout must provide both the verified bundle aggregate and the exact expected Git commit, and the operation also requires its own authorized closed case and authority record. See `docs/case-state-contract.md`; do not add a universal-policy flag to a routine install command.
