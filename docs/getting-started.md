@@ -62,6 +62,35 @@ test -f "$HOME/.codex/coding-os/templates/first-codex-prompt.md" && echo "Suppor
 
 The normal archive route does not change global Codex policy files.
 
+## One-Time Legacy Nested-Skills Migration
+
+Use this path only when an existing Codex Coding OS v2 ownership manifest already
+records its managed skills under `$HOME\.codex\skills`. It is not a general
+override for custom paths.
+
+```powershell
+$ExpectedBundleSha256 = (Get-Content -Raw -LiteralPath .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
+$LegacySkillsRoot = "$HOME\.codex\skills"
+.\scripts\install.ps1 -ExpectedBundleSha256 $ExpectedBundleSha256 -ArchiveMode -SkillsRoot $LegacySkillsRoot -CodexHome "$HOME\.codex" -LegacyOverlapMigration
+```
+
+The option accepts only that exact nested layout. It stops if the v2 ownership
+manifest is missing, malformed, or records different roots. The transaction stages
+and keeps rollback data outside both live roots, preserves non-managed files in
+`.codex\skills`, and does not move or overwrite `.agents\skills`.
+
+Use `-LegacyOverlapMigration` again for a later update or uninstall that targets
+the same nested layout:
+
+```powershell
+.\scripts\uninstall.ps1 -SkillsRoot "$HOME\.codex\skills" -CodexHome "$HOME\.codex" -LegacyOverlapMigration
+```
+
+If separately authorized universal policy synchronization is part of that operation,
+pass `-UniversalBundleId` with the bundle identifier bound to the current closed
+authority case. The default remains the standard policy bundle identifier. A prior
+case or blank identifier is not accepted.
+
 ## What the First Chat Should Produce
 
 Codex should start with project intake and consolidated material-decision questions. It should create a workflow manifest before controlled documents, stop when important decisions are unresolved, and wait for explicit approval before coding. It must not jump directly into the seven documents while material decisions remain open.
