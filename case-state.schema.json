@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AymanShams/codex-coding-os/blob/main/case-state.schema.json",
+  "title": "Codex Coding OS Automation Case-State Store",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "revision", "updated_at", "cases", "bindings", "store_events"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "updated_at": { "type": ["string", "null"] },
+    "cases": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/case" }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/caseId" }
+    },
+    "store_events": { "type": "object" }
+  },
+  "$defs": {
+    "caseId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "implementation_generations",
+        "review_cohorts",
+        "combined_repairs",
+        "closure_checks",
+        "operational_retries"
+      ],
+      "properties": {
+        "implementation_generations": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "review_cohorts": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "combined_repairs": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "closure_checks": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "operational_retries": { "type": "integer", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "case_id",
+        "revision",
+        "state",
+        "resumable_state",
+        "objective",
+        "created_at",
+        "updated_at",
+        "bindings",
+        "limits",
+        "candidate",
+        "findings",
+        "repair",
+        "closure",
+        "control",
+        "lock_reason",
+        "events"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "case_id": { "$ref": "#/$defs/caseId" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "state": {
+          "enum": [
+            "REGISTERED",
+            "IMPLEMENTING",
+            "CANDIDATE_FROZEN",
+            "REVIEW_COLLECTING",
+            "FINDINGS_FROZEN",
+            "REPAIR_AUTHORIZED",
+            "REPAIR_COMPLETE",
+            "CLOSURE_PREFLIGHT",
+            "CLOSURE_CHECK",
+            "CLOSED_SUCCESS",
+            "CASE_LOCKED",
+            "CONTROL_FAILURE"
+          ]
+        },
+        "resumable_state": { "type": ["string", "null"] },
+        "objective": { "type": "string", "minLength": 1 },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "bindings": { "type": "object" },
+        "limits": { "$ref": "#/$defs/limits" },
+        "candidate": { "type": "object" },
+        "findings": { "type": "object" },
+        "repair": { "type": "object" },
+        "closure": { "type": "object" },
+        "control": { "type": "object" },
+        "lock_reason": { "type": ["string", "null"] },
+        "events": { "type": "object" }
+      }
+    }
+  }
+}
