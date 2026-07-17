@@ -119,7 +119,8 @@ The role and action separation is:
 - `implementer_child`: `implementation` or `product_work`
 - `review_child`: `review_collection` or the one `closure_check`
 - `fix_child`: the one authorized `repair`
-- `publication_child`: `publication`
+- `publication_child`: `publication`, plus boundary validation for `merge`,
+  `deployment`, `release`, `credential_change`, and `universal_sync`
 
 Child execution requires an associated repository and at least one exact
 branch, worktree, pull request, thread, or universal bundle binding. Review,
@@ -141,8 +142,22 @@ A global emergency stop is outside this case engine and is reserved for
 credential compromise or uncontrolled concurrent mutation.
 
 Publication is eligible only from `CLOSED_SUCCESS`. Merge, deployment, release,
-credential changes, and universal synchronization always require separate
-authority even after successful closure.
+credential changes, and universal synchronization are also ineligible before
+`CLOSED_SUCCESS`. Only the publication child can present one of those external
+actions to the guard. The guard first validates the role, exact associated
+repository, at least one exact exclusive case binding, case state, and current
+canonical head. Universal synchronization additionally requires the exact
+bound universal bundle. Only a fully valid context receives
+`SEPARATE_AUTHORITY_REQUIRED`. A role, repository, binding, state, or head
+failure receives its specific denial instead, so a malformed request cannot be
+misread as merely awaiting approval.
+
+`SEPARATE_AUTHORITY_REQUIRED` is always a denial, never an authorization.
+Merge, deployment, release, credential changes, and universal synchronization
+remain outside the case lifecycle and require separate human or run-envelope
+authority even after successful closure. The case store does not contain an
+external-authority grant record, and successful case closure alone never
+authorizes an external action.
 
 ## Canonical snapshot contract
 

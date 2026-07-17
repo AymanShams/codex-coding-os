@@ -658,6 +658,27 @@ class ScopeAndAuthorityTests(StoreCase):
             context["head"] = head
         return context
 
+    def bind_publication_scope(self) -> dict[str, str]:
+        scope = {
+            "branch": "codex/publish",
+            "worktree": str(self.root / "publish-worktree"),
+            "pr": f"{REPO}#17",
+            "thread": SYNTHETIC_THREAD,
+            "universal_bundle": "synthetic-bundle-v1",
+        }
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value=scope["branch"], repository=REPO)
+        for kind in ("worktree", "pr", "thread", "universal_bundle"):
+            self.mutate("bind", kind=kind, value=scope[kind])
+        return scope
+
+    def close_publication_case(self) -> dict[str, str]:
+        scope = self.bind_publication_scope()
+        self.begin_review()
+        self.mutate("freeze_findings")
+        self.mutate("close_without_blockers")
+        return scope
+
     def test_locked_case_does_not_block_unrelated_case_in_same_repository(self) -> None:
         self.mutate("bind", kind="repo_url", value=REPO)
         self.mutate("bind", kind="branch", value="codex/locked", repository=REPO)
@@ -692,7 +713,8 @@ class ScopeAndAuthorityTests(StoreCase):
             **self.action_context(actor_role="parent"),
         )
         self.assertFalse(universal["allowed"])
-        self.assertTrue(universal["separate_authority_required"])
+        self.assertEqual(universal["reason_codes"], ["ROLE_ACTION_DENIED"])
+        self.assertFalse(universal["separate_authority_required"])
 
     def test_locked_case_overlap_blocks_replacement_scope_without_mutation(self) -> None:
         self.mutate("bind", kind="repo_url", value=REPO)
@@ -963,7 +985,272 @@ class ScopeAndAuthorityTests(StoreCase):
                 **self.action_context(actor_role="parent", branch="codex/publish", head=SHA_A),
             )
             self.assertFalse(result["allowed"])
-            self.assertTrue(result["separate_authority_required"])
+            self.assertEqual(result["reason_codes"], ["ROLE_ACTION_DENIED"])
+            self.assertFalse(result["separate_authority_required"])
+
+    def test_external_actions_return_separate_authority_only_after_full_validation(self) -> None:
+        scope = self.close_publication_case()
+        normalized_context = {
+            "actor_role": "publication_child",
+            "repository": REPO,
+            "branch": scope["branch"],
+            "worktree": engine.normalize_binding("worktree", scope["worktree"]),
+            "pr": scope["pr"],
+            "thread": scope["thread"],
+            "universal_bundle": scope["universal_bundle"],
+            "head": SHA_A,
+        }
+        for action in engine.SEPARATE_AUTHORITY_ACTIONS:
+            with self.subTest(action=action):
+                result = self.store.check_action(
+                    self.case_id,
+                    action,
+                    actor_role="publication_child",
+                    repository=REPO,
+                    head=SHA_A,
+                    **scope,
+                )
+                self.assertFalse(result["allowed"])
+                self.assertEqual(result["reason_codes"], ["SEPARATE_AUTHORITY_REQUIRED"])
+                self.assertTrue(result["separate_authority_required"])
+                self.assertIsNone(result["blocked_case_id"])
+                self.assertEqual(result["context"], normalized_context)
+                self.assertEqual(result["repository"], REPO)
+                self.assertEqual(result["head"], SHA_A)
+
+    def test_external_actions_reject_unknown_role_unknown_action_and_missing_repository(self) -> None:
+        scope = self.close_publication_case()
+        for actor_role in ("parent", "implementer_child", "review_child", "fix_child"):
+            with self.subTest(actor_role=actor_role):
+                result = self.store.check_action(
+                    self.case_id,
+                    "merge",
+                    actor_role=actor_role,
+                    repository=REPO,
+                    branch=scope["branch"],
+                    head=SHA_A,
+                )
+                self.assertEqual(result["reason_codes"], ["ROLE_ACTION_DENIED"])
+                self.assertFalse(result["separate_authority_required"])
+        unknown_role = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="unknown_child",
+            repository=REPO,
+            branch=scope["branch"],
+            head=SHA_A,
+        )
+        self.assertEqual(unknown_role["reason_codes"], ["UNKNOWN_ACTOR_ROLE"])
+        unknown_action = self.store.check_action(
+            self.case_id,
+            "invented_external_action",
+            actor_role="publication_child",
+            repository=REPO,
+            branch=scope["branch"],
+            head=SHA_A,
+        )
+        self.assertEqual(unknown_action["reason_codes"], ["UNKNOWN_ACTION"])
+        missing_repository = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="publication_child",
+            worktree=scope["worktree"],
+            head=SHA_A,
+        )
+        self.assertEqual(missing_repository["reason_codes"], ["REPOSITORY_REQUIRED"])
+        wrong_repository = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="publication_child",
+            repository=OTHER_REPO,
+            worktree=scope["worktree"],
+            head=SHA_A,
+        )
+        self.assertEqual(wrong_repository["reason_codes"], ["REPOSITORY_MISMATCH"])
+
+    def test_external_actions_reject_missing_and_wrong_exclusive_bindings(self) -> None:
+        scope = self.close_publication_case()
+        missing = self.store.check_action(
+            self.case_id,
+            "release",
+            actor_role="publication_child",
+            repository=REPO,
+            head=SHA_A,
+        )
+        self.assertEqual(missing["reason_codes"], ["EXECUTION_CONTEXT_REQUIRED"])
+        wrong_contexts = (
+            {"branch": "codex/not-owned"},
+            {"worktree": str(self.root / "wrong-worktree")},
+            {"pr": f"{REPO}#18"},
+            {"thread": "123e4567-e89b-42d3-a456-426614174001"},
+            {"universal_bundle": "wrong-bundle-v1"},
+        )
+        for wrong in wrong_contexts:
+            with self.subTest(wrong=wrong):
+                result = self.store.check_action(
+                    self.case_id,
+                    "release",
+                    actor_role="publication_child",
+                    repository=REPO,
+                    head=SHA_A,
+                    **wrong,
+                )
+                self.assertEqual(result["reason_codes"], ["CASE_BINDING_MISMATCH"])
+                self.assertFalse(result["separate_authority_required"])
+
+    def test_universal_sync_requires_the_exact_bound_bundle(self) -> None:
+        scope = self.close_publication_case()
+        missing_bundle = self.store.check_action(
+            self.case_id,
+            "universal_sync",
+            actor_role="publication_child",
+            repository=REPO,
+            branch=scope["branch"],
+            head=SHA_A,
+        )
+        self.assertEqual(missing_bundle["reason_codes"], ["EXECUTION_CONTEXT_REQUIRED"])
+        wrong_bundle = self.store.check_action(
+            self.case_id,
+            "universal_sync",
+            actor_role="publication_child",
+            repository=REPO,
+            universal_bundle="wrong-bundle-v1",
+            head=SHA_A,
+        )
+        self.assertEqual(wrong_bundle["reason_codes"], ["CASE_BINDING_MISMATCH"])
+        exact_bundle = self.store.check_action(
+            self.case_id,
+            "universal_sync",
+            actor_role="publication_child",
+            repository=REPO,
+            universal_bundle=scope["universal_bundle"],
+            head=SHA_A,
+        )
+        self.assertEqual(exact_bundle["reason_codes"], ["SEPARATE_AUTHORITY_REQUIRED"])
+
+    def test_external_actions_reject_wrong_state_and_head_failures(self) -> None:
+        scope = self.bind_publication_scope()
+        wrong_state = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="publication_child",
+            repository=REPO,
+            branch=scope["branch"],
+            head=SHA_A,
+        )
+        self.assertEqual(wrong_state["reason_codes"], ["ACTION_STATE_DENIED"])
+        self.begin_review()
+        self.mutate("freeze_findings")
+        self.mutate("close_without_blockers")
+        missing_head = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="publication_child",
+            repository=REPO,
+            branch=scope["branch"],
+        )
+        self.assertEqual(missing_head["reason_codes"], ["HEAD_REQUIRED"])
+        wrong_head = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="publication_child",
+            repository=REPO,
+            branch=scope["branch"],
+            head=SHA_B,
+        )
+        self.assertEqual(wrong_head["reason_codes"], ["HEAD_DRIFT"])
+
+        store_path = self.root / engine.STORE_FILENAME
+        raw_store = json.loads(store_path.read_text(encoding="utf-8"))
+        raw_store["cases"][self.case_id]["candidate"]["current_heads"] = {}
+        store_path.write_text(json.dumps(raw_store), encoding="utf-8")
+        missing_expected_head = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="publication_child",
+            repository=REPO,
+            branch=scope["branch"],
+            head=SHA_A,
+        )
+        self.assertEqual(missing_expected_head["reason_codes"], ["EXPECTED_HEAD_MISSING"])
+
+    def test_external_actions_reject_a_locked_case_before_authority(self) -> None:
+        scope = self.bind_publication_scope()
+        self.freeze_candidate()
+        self.mutate("observe_heads", heads={REPO: SHA_B})
+        result = self.store.check_action(
+            self.case_id,
+            "release",
+            actor_role="publication_child",
+            repository=REPO,
+            branch=scope["branch"],
+            head=SHA_A,
+        )
+        self.assertEqual(result["reason_codes"], ["CASE_NOT_ACTIONABLE"])
+        self.assertFalse(result["separate_authority_required"])
+
+    def test_external_authority_result_preserves_unrelated_locked_case_context(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/locked", repository=REPO)
+        self.freeze_candidate()
+        self.mutate("observe_heads", heads={REPO: SHA_C})
+
+        target_id = str(uuid.uuid4())
+        self.store.register_case(
+            target_id,
+            objective="unrelated closed publication",
+            request_id=request(),
+            expected_store_revision=self.store.store_revision(),
+        )
+        self.bind_execution_scope(
+            target_id,
+            repository=OTHER_REPO,
+            branch="codex/unrelated-publish",
+            expected_revision=1,
+        )
+        target_revision = self.store.get_case(target_id)["revision"]
+        self.store.start_implementation(
+            target_id,
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        target_revision += 1
+        self.store.freeze_candidate(
+            target_id,
+            heads={OTHER_REPO: SHA_A},
+            snapshots={OTHER_REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "3" * 64}},
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        target_revision += 1
+        self.store.start_review(
+            target_id,
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        target_revision += 1
+        self.store.freeze_findings(
+            target_id,
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        target_revision += 1
+        self.store.close_without_blockers(
+            target_id,
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        result = self.store.check_action(
+            target_id,
+            "release",
+            actor_role="publication_child",
+            repository=OTHER_REPO,
+            branch="codex/unrelated-publish",
+            head=SHA_A,
+            blocked_case_id=self.case_id,
+        )
+        self.assertEqual(result["reason_codes"], ["SEPARATE_AUTHORITY_REQUIRED"])
+        self.assertEqual(result["blocked_case_id"], self.case_id)
 
 
 class SnapshotTests(unittest.TestCase):
@@ -1096,6 +1383,32 @@ class PersistenceAndCliTests(StoreCase):
         self.assertEqual(payload["repository"], REPO)
         self.assertEqual(payload["context"]["branch"], "codex/cli")
         self.assertEqual(payload["reason_codes"], ["ACTION_ALLOWED"])
+
+    def test_cli_action_check_returns_protocol_denial_for_unknown_actor(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--state-root",
+                str(self.root),
+                "--json",
+                "action-check",
+                "--case-id",
+                self.case_id,
+                "--action",
+                "merge",
+                "--actor-role",
+                "unknown_child",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["allowed"])
+        self.assertEqual(payload["reason_codes"], ["UNKNOWN_ACTOR_ROLE"])
+        self.assertFalse(payload["separate_authority_required"])
 
     @unittest.skipUnless(os.name in {"nt", "posix"}, "locking is implemented for Windows and POSIX")
     def test_two_writers_with_same_revision_cannot_both_commit(self) -> None:

@@ -67,7 +67,7 @@ ROLE_ACTIONS = {
     "implementer_child": {"implementation", "product_work"},
     "review_child": {"review_collection", "closure_check"},
     "fix_child": {"repair"},
-    "publication_child": {"publication"},
+    "publication_child": {"publication", *SEPARATE_AUTHORITY_ACTIONS},
 }
 # Read-only eligibility predicates. Lifecycle transitions remain solely in the
 # mutation methods below and are not duplicated by the action guard.
@@ -78,8 +78,19 @@ ACTION_ELIGIBLE_STATES = {
     "repair": {"REPAIR_AUTHORIZED"},
     "closure_check": {"CLOSURE_CHECK"},
     "publication": {"CLOSED_SUCCESS"},
+    "merge": {"CLOSED_SUCCESS"},
+    "deployment": {"CLOSED_SUCCESS"},
+    "release": {"CLOSED_SUCCESS"},
+    "credential_change": {"CLOSED_SUCCESS"},
+    "universal_sync": {"CLOSED_SUCCESS"},
 }
-HEAD_REQUIRED_ACTIONS = {"review_collection", "repair", "closure_check", "publication"}
+HEAD_REQUIRED_ACTIONS = {
+    "review_collection",
+    "repair",
+    "closure_check",
+    "publication",
+    *SEPARATE_AUTHORITY_ACTIONS,
+}
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 FINDING_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -1507,7 +1518,7 @@ class CaseStore:
             return None
         if action == "review_collection":
             return case["candidate"]["review_heads"].get(repository)
-        if action in {"repair", "closure_check", "publication"}:
+        if action in {"repair", "closure_check", "publication", *SEPARATE_AUTHORITY_ACTIONS}:
             return case["candidate"]["current_heads"].get(repository)
         return None
 
@@ -1572,17 +1583,6 @@ class CaseStore:
         if case_id not in data["cases"]:
             raise ValidationError(f"case not found: {case_id}")
         case = data["cases"][case_id]
-        if action in SEPARATE_AUTHORITY_ACTIONS:
-            return self._action_response(
-                case,
-                action,
-                context,
-                allowed=False,
-                reason_code="SEPARATE_AUTHORITY_REQUIRED",
-                reason=f"{action} requires a separate authority record outside case closure",
-                separate_authority_required=True,
-            )
-
         unrelated_locked_case = False
         normalized_blocked_id: str | None = None
         if blocked_case_id is not None:
@@ -1659,6 +1659,16 @@ class CaseStore:
                 reason="repository is not associated with this case",
                 blocked_case_id=normalized_blocked_id,
             )
+        if action == "universal_sync" and context["universal_bundle"] is None:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="EXECUTION_CONTEXT_REQUIRED",
+                reason="universal_sync requires the exact bound universal bundle",
+                blocked_case_id=normalized_blocked_id,
+            )
         if action != "case_administration" and not self._context_exclusive_keys(context):
             return self._action_response(
                 case,
@@ -1730,6 +1740,17 @@ class CaseStore:
                 allowed=False,
                 reason_code="HEAD_DRIFT",
                 reason="action head does not match the exact frozen or repaired head",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if action in SEPARATE_AUTHORITY_ACTIONS:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="SEPARATE_AUTHORITY_REQUIRED",
+                reason=f"{action} requires separate authority outside case closure",
+                separate_authority_required=True,
                 blocked_case_id=normalized_blocked_id,
             )
         if unrelated_locked_case:
@@ -1941,7 +1962,7 @@ def build_parser() -> argparse.ArgumentParser:
     command = sub.add_parser("action-check")
     command.add_argument("--case-id", required=True)
     command.add_argument("--action", required=True)
-    command.add_argument("--actor-role", required=True, choices=sorted(ROLE_ACTIONS))
+    command.add_argument("--actor-role", required=True)
     command.add_argument("--repository")
     command.add_argument("--branch")
     command.add_argument("--worktree")
