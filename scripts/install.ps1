@@ -1,6 +1,7 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
 param(
   [Alias("InstallGlobalAgents")][switch]$InstallUniversalPolicy,
+  [string]$UniversalBundleId = "automation-preserving-case-state-recovery-v1",
   [switch]$RefreshCapabilityIndex,
   [string]$SkillsRoot = "$HOME\.agents\skills",
   [string]$CodexHome = "$HOME\.codex",
@@ -11,6 +12,7 @@ param(
   [string]$AuthorityReference,
   [string]$CaseStateEnginePath,
   [string]$CaseStateRoot,
+  [switch]$LegacyOverlapMigration,
   [switch]$ArchiveMode,
   [switch]$InstallExternalSkills,
   [switch]$AllowUnpinnedExternalSkills,
@@ -40,7 +42,8 @@ $Arguments = @(
   "--source-root", $RepoRoot,
   "--skills-root", $SkillsRoot,
   "--codex-home", $CodexHome,
-  "--expected-bundle-sha256", $ExpectedBundleSha256
+  "--expected-bundle-sha256", $ExpectedBundleSha256,
+  "--universal-bundle-id", $UniversalBundleId
 )
 if ($ExpectedSourceCommit) { $Arguments += @("--expected-source-commit", $ExpectedSourceCommit) }
 if ($InstallUniversalPolicy) { $Arguments += "--install-universal-policy" }
@@ -54,6 +57,7 @@ if ($InstallUniversalPolicy) {
   $Arguments += @("--case-state-engine", $CaseStateEnginePath, "--case-state-root", $CaseStateRoot)
 }
 if ($ArchiveMode) { $Arguments += "--archive-mode" }
+if ($LegacyOverlapMigration) { $Arguments += "--legacy-overlap-migration" }
 if ($DryRun) { $Arguments += "--dry-run" }
 
 $TargetDescription = "SkillsRoot=$SkillsRoot; CodexHome=$CodexHome; Bundle=$ExpectedBundleSha256"
