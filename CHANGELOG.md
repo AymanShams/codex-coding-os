@@ -17,6 +17,11 @@ No unreleased changes.
 - Added a read-only reentry summary for product and Coding OS source repositories.
 - Added Windows, Ubuntu, and macOS CI coverage for the finite case-state engine,
   repository profiles, typed evidence, and reentry summary.
+- Added one cross-platform transactional install and uninstall engine with durable
+  journals, exact bundle hashing, exclusive locking, finite crash recovery, and
+  version 3 local provenance.
+- Added marked universal policy migrations that preserve all bytes outside the
+  exact automation-policy and pull-request-merge authority blocks.
 
 ### Changed
 
@@ -28,24 +33,16 @@ No unreleased changes.
   limited to the frozen blocker identifiers.
 - Kept failed closure and control failures scoped to the exact case so unrelated
   product work remains available.
+- Preserved configuration, case state, plugins, and non-managed skills outside
+  the managed transaction inventory.
+- Limited rollback to one verified recovery attempt and fail closed when source,
+  ownership, bundle, policy, or rollback evidence does not match.
 
 ### Removed
 
 - Removed duplicate review-round and finding counters, prose-derived approval,
   `COMMENTED`-as-approval behavior, clean-phrase authority, and coordination-file
   unlocks.
-
-## [0.9.0] - 2026-07-17
-
-### Added
-
-- Added one cross-platform transactional install and uninstall engine with durable journals, exact bundle hashing, exclusive locking, finite crash recovery, and version 3 local provenance.
-- Added marked universal policy migrations that preserve all bytes outside the exact automation-policy and pull-request-merge authority blocks.
-
-### Changed
-
-- Preserve configuration, case state, plugins, and non-managed skills outside the managed transaction inventory.
-- Limit rollback to one verified recovery attempt and fail closed when source, ownership, bundle, policy, or rollback evidence does not match.
 
 ## [0.8.4] - 2026-06-20
 

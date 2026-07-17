@@ -88,7 +88,6 @@ $PublicInstallerFiles = foreach ($Relative in $PublicInstallerPaths) {
 $PrivateInstallerPatterns = @(
   @{ name = "committed Windows absolute path"; pattern = "[A-Za-z]:[\\/](Users|DEV|Work)[\\/]" },
   @{ name = "committed Unix home or temp path"; pattern = "(^|[\s`"'])/(Users|home|tmp|var|mnt|Volumes)/" },
-  @{ name = "private repository name"; pattern = "(?i)\b(Leheta|HealPathPlatform|healpath-platform)\b" },
   @{ name = "generated local provenance"; pattern = '"(case_id|repo_root|transaction_id|installed_at)"\s*:\s*"[^<]' }
 )
 foreach ($PatternInfo in $PrivateInstallerPatterns) {

@@ -153,7 +153,8 @@
     "CONTRIBUTING.md",
     "NOTICE.md",
     "pack.schema.json",
-    "case-state.schema.json"
+    "case-state.schema.json",
+    "validation-evidence.schema.json"
   ],
   "bundled_skills": [
     { "name": "ai-coding-discipline", "category": "coding-discipline", "required": true, "source": "local" },
