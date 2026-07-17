@@ -19,7 +19,11 @@
     "case_state_contract": "docs/case-state-contract.md",
     "validation_evidence_schema": "validation-evidence.schema.json",
     "first_party_skill_standard": "docs/skill-quality-standard.md",
-    "package_release_version": "pack.manifest.json#version"
+    "package_release_version": "pack.manifest.json#version",
+    "install_bundle": "install-bundle.manifest.json",
+    "transaction_engine": "scripts/install_transaction.py",
+    "universal_policy": "universal/AGENTS.automation-case-policy.md",
+    "merge_authority_rule": "universal/rules/gh-pr-merge-authority.rules"
   },
   "required_files": [
     "README.md",
@@ -37,6 +41,7 @@
     "pack.schema.json",
     "case-state.schema.json",
     "validation-evidence.schema.json",
+    "install-bundle.manifest.json",
     "THIRD_PARTY_SKILLS.md",
     "pack.manifest.json",
     "codex-capabilities/default-skills-reference.md",
@@ -87,6 +92,7 @@
     "scripts/agent/fresh_context_review.py",
     "scripts/agent/case_state.py",
     "scripts/agent/validation_evidence.py",
+    "scripts/install_transaction.py",
     "scripts/install.ps1",
     "scripts/install.sh",
     "scripts/install-external-skills.ps1",
@@ -103,6 +109,7 @@
     ".github/workflows/validate.yml",
     "tests/install-uninstall-smoke.ps1",
     "tests/install-uninstall-smoke.sh",
+    "tests/install-transaction-faults.ps1",
     "tests/workflow-gates-smoke.py",
     "tests/worktree-lanes-smoke.py",
     "tests/test_case_state_engine.py",
@@ -119,6 +126,8 @@
     "hooks/capability-router/test_capability_router.py",
     "hooks/worktree-lane-pre-commit.py",
     "hooks/worktree-lane-pre-push.py"
+    ,"universal/AGENTS.automation-case-policy.md"
+    ,"universal/rules/gh-pr-merge-authority.rules"
   ],
   "support_items": [
     "templates",
@@ -132,6 +141,8 @@
     ".codex",
     ".github",
     "tests",
+    "universal",
+    "install-bundle.manifest.json",
     "pack.manifest.json",
     "THIRD_PARTY_SKILLS.md",
     "README.md",
@@ -140,7 +151,9 @@
     "COMMERCIAL-USE.md",
     "SECURITY.md",
     "CONTRIBUTING.md",
-    "NOTICE.md"
+    "NOTICE.md",
+    "pack.schema.json",
+    "case-state.schema.json"
   ],
   "bundled_skills": [
     { "name": "ai-coding-discipline", "category": "coding-discipline", "required": true, "source": "local" },
@@ -210,5 +223,28 @@
       ".release-exclusions.local.txt",
       ".private-terms.local.txt"
     ]
+  },
+  "installation": {
+    "transaction_protocol": "ccos-install-transaction-v1",
+    "bundle_protocol": "CCOS-INSTALL-BUNDLE-v1",
+    "bundle_manifest": "install-bundle.manifest.json",
+    "managed_skill_root": ".agents/skills",
+    "runtime_files": [
+      "scripts/install_transaction.py",
+      "scripts/install.ps1",
+      "scripts/install.sh",
+      "scripts/uninstall.ps1",
+      "scripts/uninstall.sh",
+      "scripts/validate-pack.ps1",
+      "scripts/package.ps1",
+      "scripts/release-safety-scan.ps1",
+      ".github/workflows/validate.yml"
+    ],
+    "universal_policy_sources": {
+      "global_agents": "universal/AGENTS.automation-case-policy.md",
+      "default_rules": "universal/rules/gh-pr-merge-authority.rules"
+    },
+    "capability_refresh_cli": "hooks/capability-router/capability_index_cli.py",
+    "external_skills_staged": false
   }
 }

@@ -28,6 +28,12 @@ if (-not $?) {
 }
 
 $Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+$BundleManifestPath = Join-Path $RepoRoot "install-bundle.manifest.json"
+$BundleManifest = Get-Content -Raw -LiteralPath $BundleManifestPath | ConvertFrom-Json
+if ([string]$BundleManifest.protocol -ne "CCOS-INSTALL-BUNDLE-v1" -or
+    [string]$BundleManifest.package.version -ne [string]$Manifest.version) {
+  throw "Install bundle manifest does not match the package release version."
+}
 $ExcludedNames = @(".git", ".external-sources", ".release-exclusions.local.txt", ".private-terms.local.txt")
 if ($Manifest.release_safety.excluded_paths) {
   $ExcludedNames += @($Manifest.release_safety.excluded_paths)
@@ -78,6 +84,10 @@ try {
     if ($ForbiddenExtensions -contains $Ext) {
       $BadEntries += "Forbidden extension found in archive: $EntryName"
     }
+  }
+
+  if (-not ($Zip.Entries | Where-Object { $_.FullName -eq "install-bundle.manifest.json" })) {
+    $BadEntries += "install-bundle.manifest.json is missing from the release archive."
   }
 
   if ($BadEntries.Count -gt 0) {

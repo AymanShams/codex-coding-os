@@ -1,158 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DRY_RUN=0
-SKILLS_ROOT="${SKILLS_ROOT:-$HOME/.agents/skills}"
-CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+skills_root="${SKILLS_ROOT:-$HOME/.agents/skills}"
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+dry_run=0
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/uninstall.sh [options]
-
-Options:
-  --skills-root PATH          Skill install path, default $HOME/.agents/skills
-  --codex-home PATH           Codex home path, default $HOME/.codex
-  --dry-run                   Print actions without changing files
-  -h, --help                  Show help
+Usage: ./scripts/uninstall.sh [--skills-root PATH] [--codex-home PATH] [--dry-run]
 USAGE
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --skills-root)
-      SKILLS_ROOT="$2"
-      shift 2
-      ;;
-    --codex-home)
-      CODEX_HOME="$2"
-      shift 2
-      ;;
-    --dry-run)
-      DRY_RUN=1
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown option: $1" >&2
-      usage >&2
-      exit 1
-      ;;
+    --skills-root) skills_root="$2"; shift 2 ;;
+    --codex-home) codex_home="$2"; shift 2 ;;
+    --dry-run) dry_run=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_skills="$repo_root/.agents/skills"
-support_root="$CODEX_HOME/coding-os"
-legacy_support_root="$CODEX_HOME/coding-os-starter"
-manifest_txt="$support_root/install-manifest.txt"
-if [[ ! -f "$manifest_txt" && -f "$legacy_support_root/install-manifest.txt" ]]; then
-  manifest_txt="$legacy_support_root/install-manifest.txt"
+if [[ -n "${PYTHON:-}" ]]; then
+  python_cmd="$PYTHON"
+else
+  command -v python3 >/dev/null 2>&1 && python_cmd=python3 || python_cmd=python
 fi
-timestamp="$(date +%Y%m%d-%H%M%S)"
-manifest_skills_root=""
-manifest_agents_path=""
-manifest_skill_paths=()
-
-run() {
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    printf 'DRY RUN:'
-    printf ' %q' "$@"
-    printf '\n'
-  else
-    "$@"
-  fi
-}
-
-abs_path() {
-  local path="$1"
-  if [[ -e "$path" ]]; then
-    (cd "$(dirname "$path")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")")
-  else
-    (cd "$(dirname "$path")" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")") || printf '%s\n' "$path"
-  fi
-}
-
-ensure_under_root() {
-  local target
-  local root
-  target="$(abs_path "$1")"
-  root="$(abs_path "$2")"
-  case "$target" in
-    "$root"|"$root"/*) ;;
-    *)
-      echo "Refusing to remove path outside root. Target=$target Root=$root" >&2
-      exit 1
-      ;;
-  esac
-}
-
-remove_if_present() {
-  local target="$1"
-  local label="$2"
-  if [[ -e "$target" ]]; then
-    run rm -rf "$target"
-    echo "Removed $label: $target"
-  fi
-}
-
-if [[ -f "$manifest_txt" ]]; then
-  while IFS= read -r line; do
-    case "$line" in
-      SkillsRoot=*)
-        manifest_skills_root="${line#SkillsRoot=}"
-        ;;
-      GlobalAgentsPath=*)
-        manifest_agents_path="${line#GlobalAgentsPath=}"
-        ;;
-      SkillPath=*)
-        manifest_skill_paths+=("${line#SkillPath=}")
-        ;;
-    esac
-  done < "$manifest_txt"
-fi
-
-if [[ -n "$manifest_skills_root" ]]; then
-  if [[ "$SKILLS_ROOT" != "$manifest_skills_root" ]]; then
-    echo "Using SkillsRoot recorded by the install manifest: $manifest_skills_root"
-  fi
-  SKILLS_ROOT="$manifest_skills_root"
-fi
-
-if [[ "${#manifest_skill_paths[@]}" -gt 0 ]]; then
-  for target in "${manifest_skill_paths[@]}"; do
-    ensure_under_root "$target" "$SKILLS_ROOT"
-    remove_if_present "$target" "skill"
-  done
-elif [[ -d "$source_skills" ]]; then
-  for skill_dir in "$source_skills"/*; do
-    [[ -d "$skill_dir" ]] || continue
-    skill_name="$(basename "$skill_dir")"
-    target="$SKILLS_ROOT/$skill_name"
-    ensure_under_root "$target" "$SKILLS_ROOT"
-    remove_if_present "$target" "skill $skill_name"
-  done
-fi
-
-global_agents="${manifest_agents_path:-$CODEX_HOME/AGENTS.md}"
-if [[ -e "$global_agents" ]] && grep -q "# BEGIN CODEX CODING OS" "$global_agents"; then
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "DRY RUN: would remove global AGENTS block from $global_agents"
-  else
-    cp "$global_agents" "$global_agents.bak.$timestamp"
-    perl -0pi -e 's/\n?# BEGIN CODEX CODING OS( STARTER)?.*?# END CODEX CODING OS( STARTER)?\n?//s' "$global_agents"
-    echo "Removed global AGENTS block. Backup: $global_agents.bak.$timestamp"
-  fi
-fi
-
-ensure_under_root "$support_root" "$CODEX_HOME"
-remove_if_present "$support_root" "installed support files"
-
-if [[ "$legacy_support_root" != "$support_root" ]]; then
-  ensure_under_root "$legacy_support_root" "$CODEX_HOME"
-  remove_if_present "$legacy_support_root" "legacy support files"
-fi
-
-echo "Uninstall complete."
+command -v "$python_cmd" >/dev/null 2>&1 || { echo "Python 3 is required" >&2; exit 2; }
+args=(-B "$repo_root/scripts/install_transaction.py" --json uninstall --skills-root "$skills_root" --codex-home "$codex_home")
+[[ "$dry_run" -eq 0 ]] || args+=(--dry-run)
+exec "$python_cmd" "${args[@]}"

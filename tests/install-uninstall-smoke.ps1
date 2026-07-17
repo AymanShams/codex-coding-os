@@ -1,96 +1,68 @@
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-coding-os-smoke-" + [guid]::NewGuid().ToString("N"))
+$TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ccos-transaction-smoke-" + [guid]::NewGuid().ToString("N"))
 $SkillsRoot = Join-Path $TestRoot "skills"
 $CodexHome = Join-Path $TestRoot "codex-home"
 $InstallScript = Join-Path $RepoRoot "scripts\install.ps1"
 $UninstallScript = Join-Path $RepoRoot "scripts\uninstall.ps1"
+$Bundle = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "install-bundle.manifest.json") | ConvertFrom-Json
+$BundleHash = [string]$Bundle.aggregate_sha256
 
 try {
-  New-Item -ItemType Directory -Force -Path $TestRoot | Out-Null
-  New-Item -ItemType Directory -Force -Path $CodexHome | Out-Null
-  $GlobalAgents = Join-Path $CodexHome "AGENTS.md"
-  Set-Content -LiteralPath $GlobalAgents -Value "# BEGIN CODEX CODING OS STARTER`r`nlegacy global block`r`n# END CODEX CODING OS STARTER`r`n" -Encoding UTF8
+  New-Item -ItemType Directory -Force -Path $SkillsRoot, $CodexHome | Out-Null
+  Set-Content -LiteralPath (Join-Path $CodexHome "config.toml") -Value "preserved-config" -NoNewline -Encoding utf8
+  New-Item -ItemType Directory -Force -Path (Join-Path $CodexHome "case-state"), (Join-Path $CodexHome "plugins"), (Join-Path $SkillsRoot "unmanaged") | Out-Null
+  Set-Content -LiteralPath (Join-Path $CodexHome "case-state\case.json") -Value "preserved-case" -NoNewline -Encoding utf8
+  Set-Content -LiteralPath (Join-Path $CodexHome "plugins\plugin.txt") -Value "preserved-plugin" -NoNewline -Encoding utf8
+  Set-Content -LiteralPath (Join-Path $SkillsRoot "unmanaged\SKILL.md") -Value "preserved-skill" -NoNewline -Encoding utf8
+  $Preserved = @{}
+  foreach ($Path in @(
+    (Join-Path $CodexHome "config.toml"),
+    (Join-Path $CodexHome "case-state\case.json"),
+    (Join-Path $CodexHome "plugins\plugin.txt"),
+    (Join-Path $SkillsRoot "unmanaged\SKILL.md")
+  )) {
+    $Preserved[$Path] = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
+  }
 
-  & $InstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -InstallGlobalAgents -Confirm:$false
-  if (-not $?) { throw "Install failed." }
+  & $InstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ArchiveMode -Confirm:$false
+  if (-not $?) { throw "Transactional install failed." }
 
   $ManifestPath = Join-Path $CodexHome "coding-os\install-manifest.json"
-  if (-not (Test-Path $ManifestPath)) {
-    throw "Install manifest was not written."
-  }
-  $PortableManifestPath = Join-Path $CodexHome "coding-os\install-manifest.txt"
-  if (-not ((Get-Content -LiteralPath $PortableManifestPath) -contains "ManifestVersion=2")) {
-    throw "Portable install manifest version was not written."
-  }
+  $CurrentPath = Join-Path $CodexHome ".coding-os-install\current.json"
+  $Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+  $Current = Get-Content -Raw -LiteralPath $CurrentPath | ConvertFrom-Json
+  if ($Manifest.manifest_version -ne 3) { throw "V3 install manifest was not written." }
+  if ($Manifest.transaction_protocol -ne "ccos-install-transaction-v1") { throw "Transaction protocol mismatch." }
+  if ($Manifest.package.bundle_sha256 -ne $BundleHash) { throw "Bundle provenance mismatch." }
+  if ($Current.status -ne "committed") { throw "Current pointer was not committed." }
+  if (-not (Test-Path (Join-Path $SkillsRoot "codex-coding-os-master\SKILL.md"))) { throw "Managed skill was not installed." }
 
-  $MasterSkill = Join-Path $SkillsRoot "codex-coding-os-master\SKILL.md"
-  if (-not (Test-Path $MasterSkill)) {
-    throw "Master skill was not installed."
-  }
+  $PointerBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $CurrentPath).Hash
+  & $InstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ArchiveMode -Confirm:$false
+  if (-not $?) { throw "Transactional idempotent reinstall failed." }
+  if ((Get-FileHash -Algorithm SHA256 -LiteralPath $CurrentPath).Hash -ne $PointerBefore) { throw "Idempotent reinstall changed current.json." }
 
-  $GlobalText = Get-Content -Raw -LiteralPath $GlobalAgents
-  if ($GlobalText -notmatch "# BEGIN CODEX CODING OS") {
-    throw "Global AGENTS block was not installed into the temp Codex home."
-  }
-  if ($GlobalText -match "CODEX CODING OS STARTER|legacy global block") {
-    throw "Install did not fully replace a legacy global AGENTS block."
-  }
-
-  $StaleFile = Join-Path $SkillsRoot "ai-coding-discipline\STALE.txt"
-  Set-Content -LiteralPath $StaleFile -Value "stale file from previous install" -Encoding UTF8
-  $ObsoleteSkill = Join-Path $SkillsRoot "obsolete-pack-skill"
-  New-Item -ItemType Directory -Force -Path $ObsoleteSkill | Out-Null
-  Set-Content -LiteralPath (Join-Path $ObsoleteSkill "SKILL.md") -Value "obsolete skill from previous package version" -Encoding UTF8
-  $ExistingManifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
-  $ExistingSkills = @($ExistingManifest.skills)
-  $ExistingSkills += [pscustomobject]@{ name = "obsolete-pack-skill"; path = $ObsoleteSkill }
-  $ExistingManifest.skills = $ExistingSkills
-  $ExistingManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
-
-  & $InstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -Confirm:$false
-  if (-not $?) { throw "Reinstall failed." }
-
-  if (Test-Path $StaleFile) {
-    throw "Reinstall left a stale file in an existing skill folder."
-  }
-  if (Test-Path $ObsoleteSkill) {
-    throw "Upgrade left a skill recorded by the previous package version."
-  }
-
-  $ManifestOnlySkill = Join-Path $SkillsRoot "manifest-only-skill"
-  New-Item -ItemType Directory -Force -Path $ManifestOnlySkill | Out-Null
-  Set-Content -LiteralPath (Join-Path $ManifestOnlySkill "SKILL.md") -Value "manifest-only uninstall target" -Encoding UTF8
-  $CurrentManifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
-  $CurrentSkills = @($CurrentManifest.skills)
-  $CurrentSkills += [pscustomobject]@{ name = "manifest-only-skill"; path = $ManifestOnlySkill }
-  $CurrentManifest.skills = $CurrentSkills
-  $CurrentManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
-  Set-Content -LiteralPath $GlobalAgents -Value "# BEGIN CODEX CODING OS STARTER`r`nlegacy global block before uninstall`r`n# END CODEX CODING OS STARTER`r`n" -Encoding UTF8
-
-  & $UninstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -Confirm:$false
-  if (-not $?) { throw "Uninstall failed." }
-
-  if (Test-Path $MasterSkill) {
-    throw "Uninstall did not remove installed skills from the custom SkillsRoot."
-  }
-  if (Test-Path $ManifestOnlySkill) {
-    throw "Uninstall did not consume the recorded installed-state manifest."
-  }
-
-  if (Test-Path (Join-Path $CodexHome "coding-os")) {
-    throw "Uninstall did not remove support files from the custom CodexHome."
-  }
-
-  if (Test-Path $GlobalAgents) {
-    $AfterUninstall = Get-Content -Raw -LiteralPath $GlobalAgents
-    if ($AfterUninstall -match "# BEGIN CODEX CODING OS|CODEX CODING OS STARTER|legacy global block") {
-      throw "Uninstall did not remove the global AGENTS block from the custom CodexHome."
+  foreach ($Path in $Preserved.Keys) {
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash -ne $Preserved[$Path]) {
+      throw "Preserved path changed: $Path"
     }
   }
 
-  Write-Output "Install/uninstall smoke test passed."
+  & $UninstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -Confirm:$false
+  if (-not $?) { throw "Transactional uninstall failed." }
+  if (Test-Path (Join-Path $CodexHome "coding-os")) { throw "Managed support root remained after uninstall." }
+  if (Test-Path (Join-Path $SkillsRoot "codex-coding-os-master")) { throw "Managed skill remained after uninstall." }
+  foreach ($Path in $Preserved.Keys) {
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash -ne $Preserved[$Path]) {
+      throw "Uninstall changed preserved path: $Path"
+    }
+  }
+  $Uninstalled = Get-Content -Raw -LiteralPath $CurrentPath | ConvertFrom-Json
+  if ($Uninstalled.status -ne "uninstalled") { throw "Uninstall pointer was not committed." }
+
+  Write-Output "Transactional PowerShell install/uninstall smoke test passed."
 } finally {
   if (Test-Path $TestRoot) {
     Remove-Item -LiteralPath $TestRoot -Recurse -Force

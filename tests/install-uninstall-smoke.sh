@@ -2,68 +2,46 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d "${TMPDIR:-/tmp}/codex-coding-os-smoke.XXXXXX")"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/ccos-transaction-smoke.XXXXXX")"
 skills_root="$test_root/skills"
 codex_home="$test_root/codex-home"
-install_script="$repo_root/scripts/install.sh"
-uninstall_script="$repo_root/scripts/uninstall.sh"
+python_cmd="${PYTHON:-python}"
+bundle_hash="$("$python_cmd" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["aggregate_sha256"])' "$repo_root/install-bundle.manifest.json")"
 
-cleanup() {
-  rm -rf "$test_root"
-}
+cleanup() { rm -rf "$test_root"; }
 trap cleanup EXIT
 
-global_agents="$codex_home/AGENTS.md"
-mkdir -p "$codex_home"
-printf '# BEGIN CODEX CODING OS STARTER\nlegacy global block\n# END CODEX CODING OS STARTER\n' > "$global_agents"
+mkdir -p "$skills_root/unmanaged" "$codex_home/case-state" "$codex_home/plugins"
+printf 'preserved-config' > "$codex_home/config.toml"
+printf 'preserved-case' > "$codex_home/case-state/case.json"
+printf 'preserved-plugin' > "$codex_home/plugins/plugin.txt"
+printf 'preserved-skill' > "$skills_root/unmanaged/SKILL.md"
+preserved_before="$(sha256sum "$codex_home/config.toml" "$codex_home/case-state/case.json" "$codex_home/plugins/plugin.txt" "$skills_root/unmanaged/SKILL.md")"
 
-bash "$install_script" \
-  --skills-root "$skills_root" \
-  --codex-home "$codex_home" \
-  --install-global-agents
+bash "$repo_root/scripts/install.sh" --skills-root "$skills_root" --codex-home "$codex_home" --expected-bundle-sha256 "$bundle_hash" --archive-mode
+"$python_cmd" - "$codex_home/coding-os/install-manifest.json" "$codex_home/.coding-os-install/current.json" "$bundle_hash" <<'PY'
+import json, pathlib, sys
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+current = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+assert manifest["manifest_version"] == 3
+assert manifest["transaction_protocol"] == "ccos-install-transaction-v1"
+assert manifest["package"]["bundle_sha256"] == sys.argv[3]
+assert current["status"] == "committed"
+PY
+test -f "$skills_root/codex-coding-os-master/SKILL.md"
 
-manifest_path="$codex_home/coding-os/install-manifest.txt"
-master_skill="$skills_root/codex-coding-os-master/SKILL.md"
+pointer_before="$(sha256sum "$codex_home/.coding-os-install/current.json")"
+bash "$repo_root/scripts/install.sh" --skills-root "$skills_root" --codex-home "$codex_home" --expected-bundle-sha256 "$bundle_hash" --archive-mode
+test "$(sha256sum "$codex_home/.coding-os-install/current.json")" = "$pointer_before"
+test "$(sha256sum "$codex_home/config.toml" "$codex_home/case-state/case.json" "$codex_home/plugins/plugin.txt" "$skills_root/unmanaged/SKILL.md")" = "$preserved_before"
 
-[[ -f "$manifest_path" ]] || { echo "Install manifest was not written." >&2; exit 1; }
-grep -q '^ManifestVersion=2$' "$manifest_path" || { echo "Portable install manifest version was not written." >&2; exit 1; }
-[[ -f "$master_skill" ]] || { echo "Master skill was not installed." >&2; exit 1; }
-[[ -f "$codex_home/coding-os/docs/getting-started.md" ]] || { echo "Getting-started guide was not installed." >&2; exit 1; }
-[[ -f "$codex_home/coding-os/CHANGELOG.md" ]] || { echo "Changelog was not installed." >&2; exit 1; }
-grep -q "# BEGIN CODEX CODING OS" "$global_agents" || { echo "Global AGENTS block was not installed." >&2; exit 1; }
-! grep -Eq "CODEX CODING OS STARTER|legacy global block" "$global_agents" || { echo "Legacy global AGENTS block was not fully replaced." >&2; exit 1; }
+bash "$repo_root/scripts/uninstall.sh" --skills-root "$skills_root" --codex-home "$codex_home"
+test ! -e "$codex_home/coding-os"
+test ! -e "$skills_root/codex-coding-os-master"
+test "$(sha256sum "$codex_home/config.toml" "$codex_home/case-state/case.json" "$codex_home/plugins/plugin.txt" "$skills_root/unmanaged/SKILL.md")" = "$preserved_before"
+"$python_cmd" - "$codex_home/.coding-os-install/current.json" <<'PY'
+import json, pathlib, sys
+assert json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["status"] == "uninstalled"
+PY
 
-stale_file="$skills_root/ai-coding-discipline/STALE.txt"
-printf 'stale file from previous install\n' > "$stale_file"
-obsolete_skill="$skills_root/obsolete-pack-skill"
-mkdir -p "$obsolete_skill"
-printf 'obsolete skill from previous package version\n' > "$obsolete_skill/SKILL.md"
-printf 'SkillPath=%s\n' "$obsolete_skill" >> "$manifest_path"
-
-bash "$install_script" \
-  --skills-root "$skills_root" \
-  --codex-home "$codex_home"
-
-[[ ! -e "$stale_file" ]] || { echo "Reinstall left a stale file in an existing skill folder." >&2; exit 1; }
-[[ ! -e "$obsolete_skill" ]] || { echo "Upgrade left a skill recorded by the previous package version." >&2; exit 1; }
-
-manifest_only_skill="$skills_root/manifest-only-skill"
-mkdir -p "$manifest_only_skill"
-printf 'manifest-only uninstall target\n' > "$manifest_only_skill/SKILL.md"
-printf 'SkillPath=%s\n' "$manifest_only_skill" >> "$manifest_path"
-printf '# BEGIN CODEX CODING OS STARTER\nlegacy global block before uninstall\n# END CODEX CODING OS STARTER\n' > "$global_agents"
-
-bash "$uninstall_script" \
-  --skills-root "$skills_root" \
-  --codex-home "$codex_home"
-
-[[ ! -e "$master_skill" ]] || { echo "Uninstall did not remove installed skills." >&2; exit 1; }
-[[ ! -e "$manifest_only_skill" ]] || { echo "Uninstall did not consume the recorded installed-state manifest." >&2; exit 1; }
-[[ ! -e "$codex_home/coding-os" ]] || { echo "Uninstall did not remove support files." >&2; exit 1; }
-
-if [[ -f "$global_agents" ]] && grep -Eq "# BEGIN CODEX CODING OS|CODEX CODING OS STARTER|legacy global block" "$global_agents"; then
-  echo "Uninstall did not remove the global AGENTS block." >&2
-  exit 1
-fi
-
-echo "Bash install/uninstall smoke test passed."
+echo "Transactional Bash install/uninstall smoke test passed."

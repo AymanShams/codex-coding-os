@@ -13,7 +13,8 @@
     "required_files",
     "support_items",
     "bundled_skills",
-    "release_safety"
+    "release_safety",
+    "installation"
   ],
   "properties": {
     "version": {
@@ -98,6 +99,43 @@
           },
           "uniqueItems": true
         }
+      }
+    },
+    "installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transaction_protocol",
+        "bundle_protocol",
+        "bundle_manifest",
+        "managed_skill_root",
+        "runtime_files",
+        "universal_policy_sources",
+        "capability_refresh_cli",
+        "external_skills_staged"
+      ],
+      "properties": {
+        "transaction_protocol": { "type": "string", "const": "ccos-install-transaction-v1" },
+        "bundle_protocol": { "type": "string", "const": "CCOS-INSTALL-BUNDLE-v1" },
+        "bundle_manifest": { "type": "string", "const": "install-bundle.manifest.json" },
+        "managed_skill_root": { "type": "string", "const": ".agents/skills" },
+        "runtime_files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "universal_policy_sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["global_agents", "default_rules"],
+          "properties": {
+            "global_agents": { "type": "string", "minLength": 1 },
+            "default_rules": { "type": "string", "minLength": 1 }
+          }
+        },
+        "capability_refresh_cli": { "type": "string", "minLength": 1 },
+        "external_skills_staged": { "type": "boolean", "const": false }
       }
     }
   }

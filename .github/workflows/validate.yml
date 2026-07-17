@@ -32,6 +32,18 @@ jobs:
         shell: pwsh
         run: .\tests\install-uninstall-smoke.ps1
 
+      - name: Test transactional install contract
+        shell: pwsh
+        run: python -B .\tests\test_install_transaction.py
+
+      - name: Test transactional hard-crash recovery
+        shell: pwsh
+        run: .\tests\install-transaction-faults.ps1
+
+      - name: Regression test finite case-state engine
+        shell: pwsh
+        run: python -B .\tests\test_case_state_engine.py
+
       - name: Smoke test workflow gates
         shell: pwsh
         run: python .\tests\workflow-gates-smoke.py
@@ -78,6 +90,10 @@ jobs:
       - name: Check bash syntax
         shell: bash
         run: bash -n ./scripts/install.sh ./scripts/uninstall.sh ./tests/install-uninstall-smoke.sh
+
+      - name: Test transactional install contract
+        shell: bash
+        run: python -B ./tests/test_install_transaction.py
 
       - name: Smoke test bash install and uninstall
         shell: bash

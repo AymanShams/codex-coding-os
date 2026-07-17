@@ -160,6 +160,49 @@ if (Test-Path $ExternalManifestPath) {
 }
 
 if ($Errors.Count -eq 0) {
+  $TransactionEngine = Join-Path $RepoRoot "scripts\install_transaction.py"
+  $BundleManifest = Join-Path $RepoRoot "install-bundle.manifest.json"
+  if (-not (Test-Path $TransactionEngine -PathType Leaf)) {
+    $Errors += "Missing transactional install engine."
+  } elseif (-not (Test-Path $BundleManifest -PathType Leaf)) {
+    $Errors += "Missing install-bundle.manifest.json."
+  } else {
+    & python -B $TransactionEngine --json verify-bundle --repo-root $RepoRoot
+    if ($LASTEXITCODE -ne 0) {
+      $Errors += "Transactional install bundle verification failed."
+    }
+  }
+}
+
+if ($Errors.Count -eq 0) {
+  $AgentsPolicyPath = Join-Path $RepoRoot "universal\AGENTS.automation-case-policy.md"
+  $MergeRulesPath = Join-Path $RepoRoot "universal\rules\gh-pr-merge-authority.rules"
+  $AgentsPolicy = Get-Content -Raw -LiteralPath $AgentsPolicyPath
+  $MergeRules = Get-Content -Raw -LiteralPath $MergeRulesPath
+  if (($AgentsPolicy | Select-String -Pattern '<!-- BEGIN CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->' -AllMatches).Matches.Count -ne 1 -or
+      ($AgentsPolicy | Select-String -Pattern '<!-- END CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->' -AllMatches).Matches.Count -ne 1) {
+    $Errors += "Universal AGENTS policy must contain one exact managed marker pair."
+  }
+  if (($MergeRules | Select-String -Pattern '# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY' -AllMatches).Matches.Count -ne 1 -or
+      ($MergeRules | Select-String -Pattern '# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY' -AllMatches).Matches.Count -ne 1 -or
+      $MergeRules -notmatch 'decision\s*=\s*"prompt"' -or
+      $MergeRules -notmatch 'exact repository, pull request, and reviewed head') {
+    $Errors += "Universal merge authority rule must be the exact prompt policy."
+  }
+  $CodexCommand = Get-Command codex -ErrorAction SilentlyContinue
+  if ($CodexCommand) {
+    try {
+      $PolicyResult = & $CodexCommand.Source execpolicy check --pretty --rules $MergeRulesPath -- gh pr merge 1 2>&1
+      if ($LASTEXITCODE -ne 0 -or (($PolicyResult -join "`n") -notmatch '(?i)prompt')) {
+        $Errors += "codex execpolicy check did not classify gh pr merge as prompt."
+      }
+    } catch {
+      Write-Warning "codex execpolicy check is unavailable in this host; exact static prompt-policy validation passed. $($_.Exception.Message)"
+    }
+  }
+}
+
+if ($Errors.Count -eq 0) {
   $LinkScript = Join-Path $RepoRoot "scripts\validate-links.ps1"
   if (Test-Path $LinkScript) {
     & $LinkScript -RepoRoot $RepoRoot
