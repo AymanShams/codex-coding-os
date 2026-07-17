@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
+import urllib.parse
 import uuid
 from typing import Any, Iterator, Sequence
 
@@ -1137,18 +1138,36 @@ def _verify_source(options: InstallOptions, source_root: Path, bundle: BundleInf
 
 
 def _normalize_repository(value: str) -> str:
-    raw = str(value).strip()
-    ssh_match = re.fullmatch(r"git@([^:]+):(.+)", raw)
-    if ssh_match:
-        raw = f"https://{ssh_match.group(1)}/{ssh_match.group(2)}"
-    match = re.fullmatch(r"https?://([^/]+)/(.+)", raw, flags=re.IGNORECASE)
-    if not match:
-        raise SourceVerificationError("origin remote must be one normalized HTTPS or git@ repository URL")
-    host = match.group(1).lower()
-    path = match.group(2).rstrip("/")
+    raw = unicodedata.normalize("NFC", str(value).strip()).replace("\\", "/")
+    if not raw or len(raw) > 2048:
+        raise SourceVerificationError("origin remote must be one bounded HTTPS or git@ repository URL")
+    scp_match = re.fullmatch(r"(?:[^@/:\s]+@)?([^:/\s@]+):(.+)", raw)
+    if scp_match and "://" not in raw:
+        host, path = scp_match.groups()
+        port = None
+        if "?" in path or "#" in path:
+            raise SourceVerificationError("origin remote repository URL must not include a query or fragment")
+    else:
+        try:
+            parsed = urllib.parse.urlsplit(raw)
+            if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+                raise SourceVerificationError("origin remote must be one normalized HTTPS or git@ repository URL")
+            if parsed.query or parsed.fragment:
+                raise SourceVerificationError("origin remote repository URL must not include a query or fragment")
+            host = parsed.hostname or ""
+            path = parsed.path
+            port = parsed.port
+        except ValueError as exc:
+            raise SourceVerificationError("origin remote URL is malformed") from exc
+    host = host.lower().rstrip(".")
+    if port is not None and port not in {22, 80, 443}:
+        host = f"{host}:{port}"
+    path = urllib.parse.unquote(path).strip("/")
     if path.lower().endswith(".git"):
         path = path[:-4]
-    if not path or ".." in PurePosixPath(path).parts:
+    path = re.sub(r"/+", "/", path).casefold()
+    parts = path.split("/") if path else []
+    if not host or len(parts) < 2 or any(part in {"", ".", ".."} for part in parts):
         raise SourceVerificationError("origin remote repository path is invalid")
     return f"https://{host}/{path}"
 

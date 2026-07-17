@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "bb3e24c24dfbb1af3c9720a02a5fa26b6eff6b1878b5b355afb524a61a8e1ba5",
+  "aggregate_sha256": "a9da76e9d3401bf30242d8e57f1c203584049d56cbf4a58cd6b5e9dd37593f24",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2398,8 +2398,8 @@
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "2945cc4941536ea38d6bdc7d62fde8f2b34bc9aab3e62c16a7e36451b5ec5e34",
-      "size": 113100
+      "sha256": "f590787b7105a8b12e570e48dd43380f6078628fd161b565a608ad6593fd89ac",
+      "size": 114162
     },
     {
       "path": "scripts/package.ps1",
@@ -2578,8 +2578,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "e63d83fd1d2a0f80b9ca437ca43ee73afb71a6d95f818aba15b575002a5a7223",
-      "size": 51187
+      "sha256": "761ccd469925741d311f738ecab03a002d32ae29914922d05ae275b4b1b9a85b",
+      "size": 53972
     },
     {
       "path": "tests/test_public_install_docs.py",

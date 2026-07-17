@@ -376,6 +376,36 @@ class PolicyMigrationTests(unittest.TestCase):
         self.assertEqual(it.remove_rules_policy_bytes(rules), b"pre\r\n\npost")
 
 
+class RepositoryNormalizationTests(unittest.TestCase):
+    def test_normalizes_https_userinfo_and_scp_repository_forms(self) -> None:
+        expected = "https://github.com/aymanshams/codex-coding-os"
+        cases = [
+            "https://AymanShams@github.com/AymanShams/codex-coding-os.git",
+            "HTTPS://AymanShams@GitHub.Com:443//AymanShams///Codex-Coding-OS.git/",
+            "https://github.com/%41ymanShams/%43odex-Coding-OS.git",
+            "git@GitHub.com:AymanShams/Codex-Coding-OS.git",
+        ]
+        for remote in cases:
+            with self.subTest(remote=remote):
+                self.assertEqual(it._normalize_repository(remote), expected)
+
+    def test_rejects_malformed_or_unsupported_repository_forms(self) -> None:
+        invalid = [
+            "https://github.com/AymanShams",
+            "https://github.com/AymanShams/../codex-coding-os",
+            "https://github.com/AymanShams%2F..%2Fcodex-coding-os",
+            "https://github.com/AymanShams/codex-coding-os?ref=main",
+            "https://github.com:not-a-port/AymanShams/codex-coding-os",
+            "https://[::1/AymanShams/codex-coding-os.git",
+            "ssh://git@github.com/AymanShams/codex-coding-os.git",
+            "git@bad host:AymanShams/codex-coding-os.git",
+            "git@github.com",
+        ]
+        for remote in invalid:
+            with self.subTest(remote=remote), self.assertRaises(it.SourceVerificationError):
+                it._normalize_repository(remote)
+
+
 class InstallTransactionTests(unittest.TestCase):
     def test_fresh_archive_install_writes_v3_provenance_and_preserves_unmanaged_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -497,6 +527,25 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(manifest["authority"]["boundary_reason"], "SEPARATE_AUTHORITY_REQUIRED")
             self.assertEqual(manifest["source"]["git_commit"], env.commit)
             self.assertTrue(manifest["source"]["working_tree_clean"])
+
+    def test_policy_sync_matches_canonical_authority_for_credentialed_mixed_case_origin(self) -> None:
+        bundle_id = "automation-preserving-case-state-recovery-v1-remote-normalization"
+        canonical_repository = "https://github.com/aymanshams/codex-coding-os"
+        credentialed_origin = "https://AymanShams@github.com/AymanShams/codex-coding-os.git"
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            run_git(env.source, "remote", "set-url", "origin", credentialed_origin)
+            env.repository = canonical_repository
+            env._write_case_authority(allowed=False, universal_bundle=bundle_id)
+
+            result = it.install(env.policy_options(universal_bundle_id=bundle_id))
+
+            self.assertEqual(result["status"], "committed")
+            request = json.loads((env.state / "last-action-check.json").read_text(encoding="utf-8"))
+            self.assertEqual(request[request.index("--repository") + 1], canonical_repository)
+            manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["source"]["repository"], canonical_repository)
 
     def test_policy_sync_missing_migration_target_fails_before_live_mutation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
