@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "revision", "updated_at", "cases", "bindings", "store_events"],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "const": 2 },
     "revision": { "type": "integer", "minimum": 0 },
     "updated_at": { "type": ["string", "null"] },
     "cases": {
@@ -26,6 +26,65 @@
     },
     "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "headMap": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/sha" }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "sha256"],
+      "properties": {
+        "contract": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "snapshotMap": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/snapshot" }
+    },
+    "branchBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "value"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "value": { "type": "string", "minLength": 1 }
+      }
+    },
+    "caseBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_url", "branch", "worktree", "pr", "thread", "universal_bundle"],
+      "properties": {
+        "repo_url": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "branch": { "type": "array", "items": { "$ref": "#/$defs/branchBinding" }, "uniqueItems": true },
+        "worktree": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "pr": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "thread": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "universal_bundle": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_heads",
+        "review_snapshots",
+        "current_heads",
+        "repaired_heads",
+        "repaired_snapshots",
+        "observed_heads"
+      ],
+      "properties": {
+        "review_heads": { "$ref": "#/$defs/headMap" },
+        "review_snapshots": { "$ref": "#/$defs/snapshotMap" },
+        "current_heads": { "$ref": "#/$defs/headMap" },
+        "repaired_heads": { "$ref": "#/$defs/headMap" },
+        "repaired_snapshots": { "$ref": "#/$defs/snapshotMap" },
+        "observed_heads": { "$ref": "#/$defs/headMap" }
+      }
+    },
     "limits": {
       "type": "object",
       "additionalProperties": false,
@@ -67,7 +126,7 @@
         "events"
       ],
       "properties": {
-        "schema_version": { "const": 1 },
+        "schema_version": { "const": 2 },
         "case_id": { "$ref": "#/$defs/caseId" },
         "revision": { "type": "integer", "minimum": 1 },
         "state": {
@@ -90,9 +149,9 @@
         "objective": { "type": "string", "minLength": 1 },
         "created_at": { "type": "string" },
         "updated_at": { "type": "string" },
-        "bindings": { "type": "object" },
+        "bindings": { "$ref": "#/$defs/caseBindings" },
         "limits": { "$ref": "#/$defs/limits" },
-        "candidate": { "type": "object" },
+        "candidate": { "$ref": "#/$defs/candidate" },
         "findings": { "type": "object" },
         "repair": { "type": "object" },
         "closure": { "type": "object" },

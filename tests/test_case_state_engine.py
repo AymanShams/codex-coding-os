@@ -37,6 +37,8 @@ SHA_A = "a" * 40
 SHA_B = "b" * 40
 SHA_C = "c" * 40
 REPO = "https://github.com/example/project"
+OTHER_REPO = "https://github.com/example/other-project"
+SYNTHETIC_THREAD = "123e4567-e89b-42d3-a456-426614174000"
 
 
 def request() -> str:
@@ -168,12 +170,8 @@ class IdentityAndBindingTests(StoreCase):
                 expected_store_revision=self.store.store_revision(),
             )
 
-    def test_registry_normalizes_identifiers_and_prevents_rebinding(self) -> None:
+    def test_repository_association_is_normalized_and_nonexclusive(self) -> None:
         self.mutate("bind", kind="repo_url", value="git@GitHub.com:Example/Project.git")
-        self.assertEqual(
-            self.store.resolve_binding("repo_url", "https://github.com/example/project/"),
-            self.case_id,
-        )
         other = str(uuid.uuid4())
         self.store.register_case(
             other,
@@ -181,28 +179,140 @@ class IdentityAndBindingTests(StoreCase):
             request_id=request(),
             expected_store_revision=self.store.store_revision(),
         )
-        with self.assertRaisesRegex(engine.ConflictError, "already bound"):
-            self.store.bind(
-                other,
-                kind="repo_url",
-                value="https://github.com/EXAMPLE/PROJECT.git",
-                request_id=request(),
-                expected_revision=1,
-            )
+        self.store.bind(
+            other,
+            kind="repo_url",
+            value="https://github.com/EXAMPLE/PROJECT.git",
+            request_id=request(),
+            expected_revision=1,
+        )
+        self.assertEqual(
+            self.store.resolve_bindings("repo_url", "https://github.com/example/project/"),
+            sorted([self.case_id, other]),
+        )
+        with self.assertRaisesRegex(engine.ConflictError, "multiple cases"):
+            self.store.resolve_binding("repo_url", REPO)
+
+    def test_same_exclusive_binding_cannot_be_rebound(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="refs/heads/codex/case-one", repository=REPO)
+        self.mutate("bind", kind="pr", value=f"{REPO}#17")
+        self.mutate("bind", kind="worktree", value=str(self.root / "shared-worktree"))
+        self.mutate("bind", kind="thread", value=SYNTHETIC_THREAD)
+        self.mutate("bind", kind="universal_bundle", value="synthetic-bundle-v1")
+        other = str(uuid.uuid4())
+        self.store.register_case(
+            other,
+            objective="replacement",
+            request_id=request(),
+            expected_store_revision=self.store.store_revision(),
+        )
+        self.store.bind(
+            other,
+            kind="repo_url",
+            value=REPO,
+            request_id=request(),
+            expected_revision=1,
+        )
+        for kind, value, repository in (
+            ("branch", "codex/case-one", REPO),
+            ("pr", f"{REPO}#17", None),
+            ("worktree", str(self.root / "shared-worktree"), None),
+            ("thread", SYNTHETIC_THREAD, None),
+            ("universal_bundle", "synthetic-bundle-v1", None),
+        ):
+            with self.subTest(kind=kind), self.assertRaisesRegex(engine.ConflictError, "already bound"):
+                self.store.bind(
+                    other,
+                    kind=kind,
+                    value=value,
+                    repository=repository,
+                    request_id=request(),
+                    expected_revision=2,
+                )
+
+    def test_identical_branch_names_in_different_repositories_do_not_conflict(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/bounded", repository=REPO)
+        other = str(uuid.uuid4())
+        self.store.register_case(
+            other,
+            objective="other repository work",
+            request_id=request(),
+            expected_store_revision=self.store.store_revision(),
+        )
+        self.store.bind(
+            other,
+            kind="repo_url",
+            value=OTHER_REPO,
+            request_id=request(),
+            expected_revision=1,
+        )
+        result = self.store.bind(
+            other,
+            kind="branch",
+            value="refs/heads/codex/bounded",
+            repository=OTHER_REPO,
+            request_id=request(),
+            expected_revision=2,
+        )
+        self.assertEqual(result["binding"]["repository"], OTHER_REPO)
+        self.assertEqual(
+            self.store.resolve_binding("branch", "codex/bounded", repository=REPO),
+            self.case_id,
+        )
+        self.assertEqual(
+            self.store.resolve_binding("branch", "codex/bounded", repository=OTHER_REPO),
+            other,
+        )
+
+    def test_different_branches_in_the_same_repository_do_not_conflict(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/first", repository=REPO)
+        other = str(uuid.uuid4())
+        self.store.register_case(
+            other,
+            objective="second branch",
+            request_id=request(),
+            expected_store_revision=self.store.store_revision(),
+        )
+        self.store.bind(
+            other,
+            kind="repo_url",
+            value=REPO,
+            request_id=request(),
+            expected_revision=1,
+        )
+        result = self.store.bind(
+            other,
+            kind="branch",
+            value="codex/second",
+            repository=REPO,
+            request_id=request(),
+            expected_revision=2,
+        )
+        self.assertEqual(result["binding"]["value"], "codex/second")
 
     def test_all_binding_kinds_resolve_to_same_case_without_creating_a_case(self) -> None:
         identifiers = {
-            "branch": "refs/heads/codex/Case-One",
             "worktree": str(self.root / "worktree"),
             "pr": "GitHub.com/Example/Project#17",
-            "thread": "019F4CE9-6FEA-7F52-ACB4-FF4914D9A37D",
+            "thread": SYNTHETIC_THREAD,
             "universal_bundle": " Automation-Preserving-v1 ",
         }
         for kind, value in identifiers.items():
             self.mutate("bind", kind=kind, value=value)
             self.assertEqual(self.store.resolve_binding(kind, value), self.case_id)
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="refs/heads/codex/Case-One", repository=REPO)
+        self.assertEqual(
+            self.store.resolve_binding("branch", "codex/Case-One", repository=REPO),
+            self.case_id,
+        )
         before = len(self.store.list_cases())
-        self.assertIsNone(self.store.resolve_binding("branch", "new-chat-new-branch"))
+        self.assertIsNone(
+            self.store.resolve_binding("branch", "new-chat-new-branch", repository=REPO)
+        )
         self.assertEqual(len(self.store.list_cases()), before)
 
     def test_request_ids_are_idempotent_and_payload_bound(self) -> None:
@@ -240,6 +350,7 @@ class IdentityAndBindingTests(StoreCase):
                 self.case_id,
                 kind="branch",
                 value="branch-2",
+                repository=REPO,
                 request_id=request(),
                 expected_revision=1,
             )
@@ -505,7 +616,51 @@ class ClosureAndControlFailureTests(StoreCase):
 
 
 class ScopeAndAuthorityTests(StoreCase):
-    def test_locked_case_does_not_block_unrelated_case(self) -> None:
+    def bind_execution_scope(
+        self,
+        case_id: str,
+        *,
+        repository: str,
+        branch: str,
+        expected_revision: int,
+    ) -> int:
+        self.store.bind(
+            case_id,
+            kind="repo_url",
+            value=repository,
+            request_id=request(),
+            expected_revision=expected_revision,
+        )
+        self.store.bind(
+            case_id,
+            kind="branch",
+            value=branch,
+            repository=repository,
+            request_id=request(),
+            expected_revision=expected_revision + 1,
+        )
+        return expected_revision + 2
+
+    def action_context(
+        self,
+        *,
+        actor_role: str = "implementer_child",
+        repository: str = REPO,
+        branch: str = "codex/unrelated",
+        head: str | None = None,
+    ) -> dict[str, str]:
+        context = {
+            "actor_role": actor_role,
+            "repository": repository,
+            "branch": branch,
+        }
+        if head is not None:
+            context["head"] = head
+        return context
+
+    def test_locked_case_does_not_block_unrelated_case_in_same_repository(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/locked", repository=REPO)
         self.freeze_candidate()
         self.mutate("observe_heads", heads={REPO: SHA_C})
         other = str(uuid.uuid4())
@@ -515,21 +670,298 @@ class ScopeAndAuthorityTests(StoreCase):
             request_id=request(),
             expected_store_revision=self.store.store_revision(),
         )
-        check = self.store.check_action(other, "product_work", blocked_case_id=self.case_id)
+        self.bind_execution_scope(
+            other,
+            repository=REPO,
+            branch="codex/unrelated",
+            expected_revision=1,
+        )
+        check = self.store.check_action(
+            other,
+            "product_work",
+            blocked_case_id=self.case_id,
+            **self.action_context(),
+        )
         self.assertTrue(check["allowed"])
         self.assertIn("unrelated", check["reason"])
-        universal = self.store.check_action(other, "universal_sync", blocked_case_id=self.case_id)
+        self.assertEqual(check["reason_codes"], ["UNRELATED_CASE_ALLOWED"])
+        universal = self.store.check_action(
+            other,
+            "universal_sync",
+            blocked_case_id=self.case_id,
+            **self.action_context(actor_role="parent"),
+        )
         self.assertFalse(universal["allowed"])
         self.assertTrue(universal["separate_authority_required"])
 
+    def test_locked_case_overlap_blocks_replacement_scope_without_mutation(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/locked", repository=REPO)
+        self.mutate("bind", kind="worktree", value=str(self.root / "locked-worktree"))
+        self.mutate("bind", kind="pr", value=f"{REPO}#17")
+        self.mutate("bind", kind="thread", value=SYNTHETIC_THREAD)
+        self.mutate("bind", kind="universal_bundle", value="synthetic-bundle-v1")
+        self.freeze_candidate()
+        self.mutate("observe_heads", heads={REPO: SHA_C})
+        other = str(uuid.uuid4())
+        self.store.register_case(
+            other,
+            objective="attempted replacement",
+            request_id=request(),
+            expected_store_revision=self.store.store_revision(),
+        )
+        self.store.bind(
+            other,
+            kind="repo_url",
+            value=REPO,
+            request_id=request(),
+            expected_revision=1,
+        )
+        before = (self.root / engine.STORE_FILENAME).read_bytes()
+        contexts = (
+            {"branch": "codex/locked"},
+            {"worktree": str(self.root / "locked-worktree")},
+            {"pr": f"{REPO}#17"},
+            {"thread": SYNTHETIC_THREAD},
+            {"universal_bundle": "synthetic-bundle-v1"},
+            {"branch": "codex/new", "head": SHA_A},
+            {"branch": "codex/new", "head": SHA_C},
+        )
+        for extra in contexts:
+            with self.subTest(extra=extra):
+                result = self.store.check_action(
+                    other,
+                    "product_work",
+                    actor_role="implementer_child",
+                    repository=REPO,
+                    blocked_case_id=self.case_id,
+                    **extra,
+                )
+                self.assertFalse(result["allowed"])
+                self.assertIn("LOCKED_CASE_SCOPE_OVERLAP", result["reason_codes"])
+        self.assertEqual((self.root / engine.STORE_FILENAME).read_bytes(), before)
+
+    def test_same_head_in_a_different_repository_is_unrelated(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/locked", repository=REPO)
+        self.freeze_candidate()
+        self.mutate("observe_heads", heads={REPO: SHA_C})
+        other = str(uuid.uuid4())
+        self.store.register_case(
+            other,
+            objective="same hash text in another repository",
+            request_id=request(),
+            expected_store_revision=self.store.store_revision(),
+        )
+        self.bind_execution_scope(
+            other,
+            repository=OTHER_REPO,
+            branch="codex/unrelated",
+            expected_revision=1,
+        )
+        result = self.store.check_action(
+            other,
+            "product_work",
+            actor_role="implementer_child",
+            repository=OTHER_REPO,
+            branch="codex/unrelated",
+            head=SHA_C,
+            blocked_case_id=self.case_id,
+        )
+        self.assertTrue(result["allowed"])
+        self.assertEqual(result["reason_codes"], ["UNRELATED_CASE_ALLOWED"])
+
+    def test_role_state_repository_and_head_contract_is_canonical(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/reviewed", repository=REPO)
+        administration = self.store.check_action(
+            self.case_id,
+            "case_administration",
+            actor_role="parent",
+        )
+        self.assertTrue(administration["allowed"])
+        implement = self.store.check_action(
+            self.case_id,
+            "implementation",
+            **self.action_context(branch="codex/reviewed"),
+        )
+        self.assertTrue(implement["allowed"])
+        parent_implementation = self.store.check_action(
+            self.case_id,
+            "implementation",
+            **self.action_context(actor_role="parent", branch="codex/reviewed"),
+        )
+        self.assertFalse(parent_implementation["allowed"])
+        self.assertIn("ROLE_ACTION_DENIED", parent_implementation["reason_codes"])
+        wrong_binding = self.store.check_action(
+            self.case_id,
+            "implementation",
+            **self.action_context(branch="codex/not-owned"),
+        )
+        self.assertFalse(wrong_binding["allowed"])
+        self.assertIn("CASE_BINDING_MISMATCH", wrong_binding["reason_codes"])
+
+        self.begin_review()
+        correct = self.store.check_action(
+            self.case_id,
+            "review_collection",
+            **self.action_context(
+                actor_role="review_child",
+                branch="codex/reviewed",
+                head=SHA_A,
+            ),
+        )
+        self.assertTrue(correct["allowed"])
+        for actor_role in ("parent", "implementer_child", "fix_child", "publication_child"):
+            with self.subTest(actor_role=actor_role):
+                denied = self.store.check_action(
+                    self.case_id,
+                    "review_collection",
+                    **self.action_context(
+                        actor_role=actor_role,
+                        branch="codex/reviewed",
+                        head=SHA_A,
+                    ),
+                )
+                self.assertFalse(denied["allowed"])
+                self.assertIn("ROLE_ACTION_DENIED", denied["reason_codes"])
+        wrong_head = self.store.check_action(
+            self.case_id,
+            "review_collection",
+            **self.action_context(
+                actor_role="review_child",
+                branch="codex/reviewed",
+                head=SHA_C,
+            ),
+        )
+        self.assertFalse(wrong_head["allowed"])
+        self.assertIn("HEAD_DRIFT", wrong_head["reason_codes"])
+        wrong_repo = self.store.check_action(
+            self.case_id,
+            "review_collection",
+            **self.action_context(
+                actor_role="review_child",
+                repository=OTHER_REPO,
+                branch="codex/reviewed",
+                head=SHA_A,
+            ),
+        )
+        self.assertFalse(wrong_repo["allowed"])
+        self.assertIn("REPOSITORY_MISMATCH", wrong_repo["reason_codes"])
+
+        for required in (
+            "protocol_version",
+            "schema_version",
+            "case_id",
+            "state",
+            "allowed",
+            "reason",
+            "reason_codes",
+            "repository",
+            "head",
+            "limits",
+            "actor_role",
+            "context",
+        ):
+            self.assertIn(required, correct)
+        self.assertEqual(correct["protocol_version"], engine.ACTION_PROTOCOL_VERSION)
+        self.assertEqual(correct["schema_version"], engine.SCHEMA_VERSION)
+        self.assertEqual(correct["repository"], REPO)
+        self.assertEqual(correct["head"], SHA_A)
+        self.assertEqual(correct["actor_role"], "review_child")
+
+    def test_fix_and_publication_roles_are_separate(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/bounded", repository=REPO)
+        self.begin_review()
+        self.add_blocker()
+        self.mutate("freeze_findings")
+        self.mutate(
+            "authorize_repair",
+            finding_ids=["F-001"],
+            authority={
+                "authority_id": "AUTH-001",
+                "source": "explicit-user-approval",
+                "authorized_by": "human-owner",
+                "scope": "combined repair of F-001",
+            },
+        )
+        fix = self.store.check_action(
+            self.case_id,
+            "repair",
+            **self.action_context(actor_role="fix_child", branch="codex/bounded", head=SHA_A),
+        )
+        self.assertTrue(fix["allowed"])
+        parent_fix = self.store.check_action(
+            self.case_id,
+            "repair",
+            **self.action_context(actor_role="parent", branch="codex/bounded", head=SHA_A),
+        )
+        self.assertFalse(parent_fix["allowed"])
+        self.mutate(
+            "complete_repair",
+            heads={REPO: SHA_B},
+            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+            addressed_ids=["F-001"],
+        )
+        self.mutate("start_closure_preflight")
+        self.mutate(
+            "verify_closure_preflight",
+            review_heads={REPO: SHA_A},
+            repaired_heads={REPO: SHA_B},
+            authorized_ids=["F-001"],
+            snapshots={REPO: {"contract": engine.SNAPSHOT_CONTRACT, "sha256": "2" * 64}},
+        )
+        closure = self.store.check_action(
+            self.case_id,
+            "closure_check",
+            **self.action_context(actor_role="review_child", branch="codex/bounded", head=SHA_B),
+        )
+        self.assertTrue(closure["allowed"])
+        denied_closure = self.store.check_action(
+            self.case_id,
+            "closure_check",
+            **self.action_context(actor_role="fix_child", branch="codex/bounded", head=SHA_B),
+        )
+        self.assertFalse(denied_closure["allowed"])
+        self.assertIn("ROLE_ACTION_DENIED", denied_closure["reason_codes"])
+        self.mutate("complete_closure_check", resolutions={"F-001": "RESOLVED"})
+        publication = self.store.check_action(
+            self.case_id,
+            "publication",
+            **self.action_context(
+                actor_role="publication_child",
+                branch="codex/bounded",
+                head=SHA_B,
+            ),
+        )
+        self.assertTrue(publication["allowed"])
+        parent_publication = self.store.check_action(
+            self.case_id,
+            "publication",
+            **self.action_context(actor_role="parent", branch="codex/bounded", head=SHA_B),
+        )
+        self.assertFalse(parent_publication["allowed"])
+
     def test_publication_requires_closed_success_and_separate_authorities_stay_separate(self) -> None:
-        self.assertFalse(self.store.check_action(self.case_id, "publication")["allowed"])
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="codex/publish", repository=REPO)
+        context = self.action_context(
+            actor_role="publication_child",
+            branch="codex/publish",
+            head=SHA_A,
+        )
+        self.assertFalse(self.store.check_action(self.case_id, "publication", **context)["allowed"])
         self.begin_review()
         self.mutate("freeze_findings")
         self.mutate("close_without_blockers")
-        self.assertTrue(self.store.check_action(self.case_id, "publication")["allowed"])
+        self.assertTrue(self.store.check_action(self.case_id, "publication", **context)["allowed"])
         for action in ("merge", "deployment", "release", "credential_change", "universal_sync"):
-            result = self.store.check_action(self.case_id, action)
+            result = self.store.check_action(
+                self.case_id,
+                action,
+                **self.action_context(actor_role="parent", branch="codex/publish", head=SHA_A),
+            )
             self.assertFalse(result["allowed"])
             self.assertTrue(result["separate_authority_required"])
 
@@ -630,6 +1062,40 @@ class PersistenceAndCliTests(StoreCase):
         self.assertEqual(human.returncode, 0, human.stderr)
         self.assertIn(f"Case: {self.case_id}", human.stdout)
         self.assertIn("State: REGISTERED", human.stdout)
+
+    def test_cli_action_check_emits_the_canonical_context_contract(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="branch", value="refs/heads/codex/cli", repository=REPO)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--state-root",
+                str(self.root),
+                "--json",
+                "action-check",
+                "--case-id",
+                self.case_id,
+                "--action",
+                "implementation",
+                "--actor-role",
+                "implementer_child",
+                "--repository",
+                "git@GitHub.com:Example/Project.git",
+                "--branch",
+                "refs/heads/codex/cli",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["allowed"])
+        self.assertEqual(payload["protocol_version"], engine.ACTION_PROTOCOL_VERSION)
+        self.assertEqual(payload["repository"], REPO)
+        self.assertEqual(payload["context"]["branch"], "codex/cli")
+        self.assertEqual(payload["reason_codes"], ["ACTION_ALLOWED"])
 
     @unittest.skipUnless(os.name in {"nt", "posix"}, "locking is implemented for Windows and POSIX")
     def test_two_writers_with_same_revision_cannot_both_commit(self) -> None:

@@ -25,7 +25,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Mapping
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+ACTION_PROTOCOL_VERSION = "ccos-case-action-v1"
 STORE_FILENAME = "case-state.json"
 LOCK_FILENAME = ".case-state.lock"
 SNAPSHOT_CONTRACT = "ccos-snapshot-v1"
@@ -53,6 +54,7 @@ FINDING_CLASSES = {
     "CONTROL_FAILURE",
 }
 BINDING_KINDS = {"repo_url", "branch", "worktree", "pr", "thread", "universal_bundle"}
+EXCLUSIVE_BINDING_KINDS = BINDING_KINDS - {"repo_url"}
 SEPARATE_AUTHORITY_ACTIONS = {
     "merge",
     "deployment",
@@ -60,6 +62,24 @@ SEPARATE_AUTHORITY_ACTIONS = {
     "credential_change",
     "universal_sync",
 }
+ROLE_ACTIONS = {
+    "parent": {"case_administration"},
+    "implementer_child": {"implementation", "product_work"},
+    "review_child": {"review_collection", "closure_check"},
+    "fix_child": {"repair"},
+    "publication_child": {"publication"},
+}
+# Read-only eligibility predicates. Lifecycle transitions remain solely in the
+# mutation methods below and are not duplicated by the action guard.
+ACTION_ELIGIBLE_STATES = {
+    "implementation": {"REGISTERED", "IMPLEMENTING"},
+    "product_work": {"REGISTERED", "IMPLEMENTING"},
+    "review_collection": {"REVIEW_COLLECTING"},
+    "repair": {"REPAIR_AUTHORIZED"},
+    "closure_check": {"CLOSURE_CHECK"},
+    "publication": {"CLOSED_SUCCESS"},
+}
+HEAD_REQUIRED_ACTIONS = {"review_collection", "repair", "closure_check", "publication"}
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 FINDING_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -224,8 +244,29 @@ def normalize_binding(kind: str, value: str) -> str:
     return raw.casefold()
 
 
-def _binding_key(kind: str, value: str) -> str:
-    return f"{kind}\0{normalize_binding(kind, value)}"
+def _binding_key(kind: str, value: str, *, repository: str | None = None) -> str:
+    normalized = normalize_binding(kind, value)
+    if kind == "repo_url":
+        raise ValidationError("repository associations are nonexclusive and do not have one binding owner")
+    if kind == "branch":
+        if repository is None:
+            raise ValidationError("branch binding requires repository")
+        return f"{kind}\0{normalize_repo_url(repository)}\0{normalized}"
+    if repository is not None:
+        raise ValidationError(f"repository qualifier is valid only for branch bindings, not {kind}")
+    return f"{kind}\0{normalized}"
+
+
+def _binding_record(kind: str, value: str, *, repository: str | None = None) -> dict[str, str]:
+    normalized = normalize_binding(kind, value)
+    record = {"kind": kind, "value": normalized}
+    if kind == "branch":
+        if repository is None:
+            raise ValidationError("branch binding requires repository")
+        record["repository"] = normalize_repo_url(repository)
+    elif repository is not None:
+        raise ValidationError(f"repository qualifier is valid only for branch bindings, not {kind}")
+    return record
 
 
 def _fingerprint(operation: str, payload: Mapping[str, Any]) -> str:
@@ -330,6 +371,7 @@ def _new_case(case_id: str, objective: str) -> dict[str, Any]:
             "current_heads": {},
             "repaired_heads": {},
             "repaired_snapshots": {},
+            "observed_heads": {},
         },
         "findings": {"items": [], "late": [], "frozen": False, "frozen_ids": []},
         "repair": {"authorized_ids": [], "authority": None, "addressed_ids": []},
@@ -390,9 +432,97 @@ def _validate_store(data: Any) -> None:
         for required in ("candidate", "findings", "repair", "closure", "control", "events", "bindings"):
             if not isinstance(case.get(required), dict):
                 raise StoreCorruptionError(f"case {case_id} {required} must be an object")
+        bindings = case["bindings"]
+        if set(bindings) != BINDING_KINDS:
+            raise StoreCorruptionError(f"case {case_id} bindings must contain every canonical binding kind")
+        for kind, values in bindings.items():
+            if not isinstance(values, list):
+                raise StoreCorruptionError(f"case {case_id} binding list {kind} must be an array")
+            if kind == "branch":
+                for record in values:
+                    if not isinstance(record, dict) or set(record) != {"repository", "value"}:
+                        raise StoreCorruptionError(
+                            f"case {case_id} branch bindings must contain repository and value"
+                        )
+                    try:
+                        repository = normalize_repo_url(record["repository"])
+                        branch = normalize_binding("branch", record["value"])
+                    except (ValidationError, TypeError) as exc:
+                        raise StoreCorruptionError(f"case {case_id} has an invalid branch binding") from exc
+                    if record != {"repository": repository, "value": branch}:
+                        raise StoreCorruptionError(f"case {case_id} has a noncanonical branch binding")
+                branch_keys = [(item["repository"], item["value"]) for item in values]
+                if len(branch_keys) != len(set(branch_keys)):
+                    raise StoreCorruptionError(f"case {case_id} branch bindings must be unique")
+                if values != sorted(values, key=lambda item: (item["repository"], item["value"])):
+                    raise StoreCorruptionError(f"case {case_id} branch bindings are not sorted")
+                continue
+            for value in values:
+                try:
+                    normalized = normalize_binding(kind, value)
+                except (ValidationError, TypeError) as exc:
+                    raise StoreCorruptionError(f"case {case_id} has an invalid {kind} binding") from exc
+                if value != normalized:
+                    raise StoreCorruptionError(f"case {case_id} has a noncanonical {kind} binding")
+            if values != sorted(set(values)):
+                raise StoreCorruptionError(f"case {case_id} {kind} bindings must be sorted and unique")
+        for record in bindings["branch"]:
+            key = _binding_key(
+                "branch", record["value"], repository=record["repository"]
+            )
+            if data["bindings"].get(key) != case_id:
+                raise StoreCorruptionError(
+                    f"case {case_id} branch binding is missing from the exclusive registry"
+                )
+        for kind in EXCLUSIVE_BINDING_KINDS - {"branch"}:
+            for value in bindings[kind]:
+                if data["bindings"].get(_binding_key(kind, value)) != case_id:
+                    raise StoreCorruptionError(
+                        f"case {case_id} {kind} binding is missing from the exclusive registry"
+                    )
+        candidate = case["candidate"]
+        candidate_fields = {
+            "review_heads",
+            "review_snapshots",
+            "current_heads",
+            "repaired_heads",
+            "repaired_snapshots",
+            "observed_heads",
+        }
+        if set(candidate) != candidate_fields:
+            raise StoreCorruptionError(f"case {case_id} candidate record has invalid fields")
+        for field in ("review_heads", "current_heads", "repaired_heads", "observed_heads"):
+            heads = candidate[field]
+            if not isinstance(heads, dict):
+                raise StoreCorruptionError(f"case {case_id} candidate {field} must be an object")
+            for repository, head in heads.items():
+                try:
+                    normalized_repo = normalize_repo_url(repository)
+                    normalized_head = require_sha(head)
+                except (ValidationError, TypeError) as exc:
+                    raise StoreCorruptionError(f"case {case_id} candidate {field} is invalid") from exc
+                if repository != normalized_repo or head != normalized_head:
+                    raise StoreCorruptionError(f"case {case_id} candidate {field} is noncanonical")
+        for field in ("review_snapshots", "repaired_snapshots"):
+            if not isinstance(candidate[field], dict):
+                raise StoreCorruptionError(f"case {case_id} candidate {field} must be an object")
     for key, case_id in data["bindings"].items():
-        if "\0" not in key or case_id not in data["cases"]:
+        if not isinstance(key, str) or case_id not in data["cases"]:
             raise StoreCorruptionError("binding registry contains an invalid entry")
+        parts = key.split("\0")
+        kind = parts[0]
+        if kind not in EXCLUSIVE_BINDING_KINDS:
+            raise StoreCorruptionError("binding registry contains a nonexclusive or unknown binding kind")
+        case_bindings = data["cases"][case_id]["bindings"]
+        if kind == "branch":
+            if len(parts) != 3:
+                raise StoreCorruptionError("branch registry key must be repository-qualified")
+            record = {"repository": parts[1], "value": parts[2]}
+            if record not in case_bindings["branch"]:
+                raise StoreCorruptionError("branch registry entry does not match its owning case")
+        else:
+            if len(parts) != 2 or parts[1] not in case_bindings[kind]:
+                raise StoreCorruptionError("binding registry entry does not match its owning case")
 
 
 class CaseStore:
@@ -576,22 +706,40 @@ class CaseStore:
         *,
         kind: str,
         value: str,
+        repository: str | None = None,
         request_id: str,
         expected_revision: int,
     ) -> dict[str, Any]:
-        normalized = normalize_binding(kind, value)
-        payload = {"kind": kind, "value": normalized}
+        record = _binding_record(kind, value, repository=repository)
+        normalized = record["value"]
+        payload = copy.deepcopy(record)
 
         def change(case: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
-            key = f"{kind}\0{normalized}"
+            if kind == "repo_url":
+                if normalized not in case["bindings"][kind]:
+                    case["bindings"][kind].append(normalized)
+                    case["bindings"][kind].sort()
+                return {"binding": record}
+            if kind == "branch":
+                repo = record["repository"]
+                if repo not in case["bindings"]["repo_url"]:
+                    raise ValidationError("branch repository must first be associated with the case")
+                key = _binding_key(kind, normalized, repository=repo)
+                stored_binding: Any = {"repository": repo, "value": normalized}
+            else:
+                key = _binding_key(kind, normalized)
+                stored_binding = normalized
             owner = data["bindings"].get(key)
             if owner and owner != case["case_id"]:
                 raise ConflictError(f"{kind} identifier is already bound to case {owner}")
             data["bindings"][key] = case["case_id"]
-            if normalized not in case["bindings"][kind]:
-                case["bindings"][kind].append(normalized)
-                case["bindings"][kind].sort()
-            return {"binding": {"kind": kind, "value": normalized}}
+            if stored_binding not in case["bindings"][kind]:
+                case["bindings"][kind].append(stored_binding)
+                if kind == "branch":
+                    case["bindings"][kind].sort(key=lambda item: (item["repository"], item["value"]))
+                else:
+                    case["bindings"][kind].sort()
+            return {"binding": record}
 
         return self._mutate(
             case_id,
@@ -602,9 +750,30 @@ class CaseStore:
             callback=change,
         )
 
-    def resolve_binding(self, kind: str, value: str) -> str | None:
-        key = _binding_key(kind, value)
-        return self._read()["bindings"].get(key)
+    def resolve_bindings(
+        self, kind: str, value: str, *, repository: str | None = None
+    ) -> list[str]:
+        record = _binding_record(kind, value, repository=repository)
+        data = self._read()
+        if kind == "repo_url":
+            return sorted(
+                case_id
+                for case_id, case in data["cases"].items()
+                if record["value"] in case["bindings"]["repo_url"]
+            )
+        key = _binding_key(kind, record["value"], repository=record.get("repository"))
+        owner = data["bindings"].get(key)
+        return [] if owner is None else [owner]
+
+    def resolve_binding(
+        self, kind: str, value: str, *, repository: str | None = None
+    ) -> str | None:
+        owners = self.resolve_bindings(kind, value, repository=repository)
+        if len(owners) > 1:
+            raise ConflictError(
+                f"{kind} identifier is associated with multiple cases; use resolve_bindings"
+            )
+        return owners[0] if owners else None
 
     def start_implementation(self, case_id: str, *, request_id: str, expected_revision: int) -> dict[str, Any]:
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
@@ -954,6 +1123,7 @@ class CaseStore:
             expected = case["candidate"]["current_heads"]
             if not expected:
                 raise TransitionError("observe_heads requires a frozen candidate")
+            case["candidate"]["observed_heads"] = normalized_heads
             if normalized_heads != expected:
                 case["state"] = "CASE_LOCKED"
                 case["lock_reason"] = "unexpected head drift outside the one authorized combined repair"
@@ -1225,53 +1395,362 @@ class CaseStore:
             expected_revision=expected_revision,
         )
 
+    @staticmethod
+    def _action_context(
+        *,
+        actor_role: str,
+        repository: str | None,
+        branch: str | None,
+        worktree: str | None,
+        pr: str | None,
+        thread: str | None,
+        universal_bundle: str | None,
+        head: str | None,
+    ) -> dict[str, str | None]:
+        role = _nonempty(actor_role, "actor_role", 128).casefold()
+        normalized_repo = normalize_repo_url(repository) if repository is not None else None
+        if branch is not None and normalized_repo is None:
+            raise ValidationError("action context branch requires repository")
+        context: dict[str, str | None] = {
+            "actor_role": role,
+            "repository": normalized_repo,
+            "branch": normalize_binding("branch", branch) if branch is not None else None,
+            "worktree": normalize_binding("worktree", worktree) if worktree is not None else None,
+            "pr": normalize_binding("pr", pr) if pr is not None else None,
+            "thread": normalize_binding("thread", thread) if thread is not None else None,
+            "universal_bundle": (
+                normalize_binding("universal_bundle", universal_bundle)
+                if universal_bundle is not None
+                else None
+            ),
+            "head": require_sha(head, "action head") if head is not None else None,
+        }
+        if context["pr"] is not None and normalized_repo is not None:
+            pr_repository = str(context["pr"]).rsplit("#", 1)[0]
+            if pr_repository != normalized_repo:
+                raise ValidationError("action context PR repository must match repository")
+        return context
+
+    @staticmethod
+    def _case_exclusive_keys(case: Mapping[str, Any]) -> set[str]:
+        keys: set[str] = set()
+        for record in case["bindings"]["branch"]:
+            keys.add(
+                _binding_key(
+                    "branch", record["value"], repository=record["repository"]
+                )
+            )
+        for kind in EXCLUSIVE_BINDING_KINDS - {"branch"}:
+            for value in case["bindings"][kind]:
+                keys.add(_binding_key(kind, value))
+        return keys
+
+    @staticmethod
+    def _context_exclusive_keys(context: Mapping[str, str | None]) -> set[str]:
+        keys: set[str] = set()
+        repository = context.get("repository")
+        branch = context.get("branch")
+        if repository is not None and branch is not None:
+            keys.add(_binding_key("branch", branch, repository=repository))
+        for kind in EXCLUSIVE_BINDING_KINDS - {"branch"}:
+            value = context.get(kind)
+            if value is not None:
+                keys.add(_binding_key(kind, value))
+        return keys
+
+    @classmethod
+    def _locked_scope_overlap(
+        cls,
+        blocked: Mapping[str, Any],
+        target: Mapping[str, Any],
+        context: Mapping[str, str | None],
+    ) -> bool:
+        blocked_keys = cls._case_exclusive_keys(blocked)
+        if blocked_keys & (cls._case_exclusive_keys(target) | cls._context_exclusive_keys(context)):
+            return True
+        repository = context.get("repository")
+        head = context.get("head")
+        if repository is not None and head is not None:
+            for field in ("review_heads", "current_heads", "repaired_heads", "observed_heads"):
+                if blocked["candidate"][field].get(repository) == head:
+                    return True
+        for field in ("review_heads", "current_heads", "repaired_heads", "observed_heads"):
+            for repo, target_head in target["candidate"][field].items():
+                for blocked_field in ("review_heads", "current_heads", "repaired_heads", "observed_heads"):
+                    if blocked["candidate"][blocked_field].get(repo) == target_head:
+                        return True
+        return False
+
+    @staticmethod
+    def _context_matches_case(
+        case: Mapping[str, Any], context: Mapping[str, str | None]
+    ) -> bool:
+        repository = context.get("repository")
+        if repository is not None and repository not in case["bindings"]["repo_url"]:
+            return False
+        branch = context.get("branch")
+        if branch is not None:
+            record = {"repository": repository, "value": branch}
+            if record not in case["bindings"]["branch"]:
+                return False
+        for kind in EXCLUSIVE_BINDING_KINDS - {"branch"}:
+            value = context.get(kind)
+            if value is not None and value not in case["bindings"][kind]:
+                return False
+        return True
+
+    @staticmethod
+    def _expected_action_head(
+        case: Mapping[str, Any], action: str, repository: str | None
+    ) -> str | None:
+        if repository is None:
+            return None
+        if action == "review_collection":
+            return case["candidate"]["review_heads"].get(repository)
+        if action in {"repair", "closure_check", "publication"}:
+            return case["candidate"]["current_heads"].get(repository)
+        return None
+
+    @staticmethod
+    def _action_response(
+        case: Mapping[str, Any],
+        action: str,
+        context: Mapping[str, str | None],
+        *,
+        allowed: bool,
+        reason_code: str,
+        reason: str,
+        separate_authority_required: bool = False,
+        blocked_case_id: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "protocol_version": ACTION_PROTOCOL_VERSION,
+            "schema_version": SCHEMA_VERSION,
+            "case_id": case["case_id"],
+            "state": case["state"],
+            "action": action,
+            "actor_role": context["actor_role"],
+            "repository": context["repository"],
+            "head": context["head"],
+            "context": dict(context),
+            "limits": copy.deepcopy(case["limits"]),
+            "allowed": allowed,
+            "reason_codes": [reason_code],
+            "reason": reason,
+            "separate_authority_required": separate_authority_required,
+            "blocked_case_id": blocked_case_id,
+        }
+
     def check_action(
-        self, case_id: str, action: str, *, blocked_case_id: str | None = None
+        self,
+        case_id: str,
+        action: str,
+        *,
+        actor_role: str,
+        repository: str | None = None,
+        branch: str | None = None,
+        worktree: str | None = None,
+        pr: str | None = None,
+        thread: str | None = None,
+        universal_bundle: str | None = None,
+        head: str | None = None,
+        blocked_case_id: str | None = None,
     ) -> dict[str, Any]:
         case_id = canonical_case_id(case_id)
-        action = _nonempty(action, "action", 128).lower()
+        action = _nonempty(action, "action", 128).casefold()
+        context = self._action_context(
+            actor_role=actor_role,
+            repository=repository,
+            branch=branch,
+            worktree=worktree,
+            pr=pr,
+            thread=thread,
+            universal_bundle=universal_bundle,
+            head=head,
+        )
         data = self._read()
         if case_id not in data["cases"]:
             raise ValidationError(f"case not found: {case_id}")
         case = data["cases"][case_id]
         if action in SEPARATE_AUTHORITY_ACTIONS:
-            return {
-                "case_id": case_id,
-                "action": action,
-                "allowed": False,
-                "separate_authority_required": True,
-                "reason": f"{action} requires a separate authority record outside case closure",
-            }
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="SEPARATE_AUTHORITY_REQUIRED",
+                reason=f"{action} requires a separate authority record outside case closure",
+                separate_authority_required=True,
+            )
+
+        unrelated_locked_case = False
+        normalized_blocked_id: str | None = None
         if blocked_case_id is not None:
-            blocked_case_id = canonical_case_id(blocked_case_id)
-            if blocked_case_id not in data["cases"]:
-                raise ValidationError(f"blocked case not found: {blocked_case_id}")
-            blocked = data["cases"][blocked_case_id]
-            if blocked_case_id != case_id and blocked["state"] == "CASE_LOCKED":
-                return {
-                    "case_id": case_id,
-                    "action": action,
-                    "allowed": case["state"] not in {"CASE_LOCKED", "CONTROL_FAILURE"},
-                    "separate_authority_required": action in SEPARATE_AUTHORITY_ACTIONS,
-                    "reason": "the red lock is case-scoped; this target is an unrelated case",
-                }
-        if action == "publication":
-            allowed = case["state"] == "CLOSED_SUCCESS"
-            return {
-                "case_id": case_id,
-                "action": action,
-                "allowed": allowed,
-                "separate_authority_required": False,
-                "reason": "case is CLOSED_SUCCESS" if allowed else "publication requires CLOSED_SUCCESS",
-            }
-        allowed = case["state"] not in {"CASE_LOCKED", "CONTROL_FAILURE"}
-        return {
-            "case_id": case_id,
-            "action": action,
-            "allowed": allowed,
-            "separate_authority_required": False,
-            "reason": "case is actionable" if allowed else "this exact case is locked or in control failure",
-        }
+            normalized_blocked_id = canonical_case_id(blocked_case_id)
+            if normalized_blocked_id not in data["cases"]:
+                raise ValidationError(f"blocked case not found: {normalized_blocked_id}")
+            blocked = data["cases"][normalized_blocked_id]
+            if normalized_blocked_id != case_id and blocked["state"] == "CASE_LOCKED":
+                if self._locked_scope_overlap(blocked, case, context):
+                    return self._action_response(
+                        case,
+                        action,
+                        context,
+                        allowed=False,
+                        reason_code="LOCKED_CASE_SCOPE_OVERLAP",
+                        reason="the requested scope overlaps the exact locked case",
+                        blocked_case_id=normalized_blocked_id,
+                    )
+                unrelated_locked_case = True
+
+        role = str(context["actor_role"])
+        if role not in ROLE_ACTIONS:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="UNKNOWN_ACTOR_ROLE",
+                reason="actor_role is not part of the case action protocol",
+                blocked_case_id=normalized_blocked_id,
+            )
+        known_actions = set().union(*ROLE_ACTIONS.values())
+        if action not in known_actions:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="UNKNOWN_ACTION",
+                reason="action is not part of the case action protocol",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if action not in ROLE_ACTIONS[role]:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="ROLE_ACTION_DENIED",
+                reason=f"{role} is not authorized for {action}",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if action != "case_administration" and context["repository"] is None:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="REPOSITORY_REQUIRED",
+                reason=f"{action} requires a repository context",
+                blocked_case_id=normalized_blocked_id,
+            )
+        repository_mismatch = (
+            context["repository"] is not None
+            and context["repository"] not in case["bindings"]["repo_url"]
+        )
+        if repository_mismatch:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="REPOSITORY_MISMATCH",
+                reason="repository is not associated with this case",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if action != "case_administration" and not self._context_exclusive_keys(context):
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="EXECUTION_CONTEXT_REQUIRED",
+                reason=f"{action} requires an exact branch, worktree, PR, thread, or universal bundle binding",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if not self._context_matches_case(case, context):
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="CASE_BINDING_MISMATCH",
+                reason="an exclusive action context binding does not belong to this case",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if case["state"] in {"CASE_LOCKED", "CONTROL_FAILURE"}:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="CASE_NOT_ACTIONABLE",
+                reason="this exact case is locked or in control failure",
+                blocked_case_id=normalized_blocked_id,
+            )
+        eligible_states = ACTION_ELIGIBLE_STATES.get(action)
+        if eligible_states is not None and case["state"] not in eligible_states:
+            code = "PUBLICATION_REQUIRES_CLOSED_SUCCESS" if action == "publication" else "ACTION_STATE_DENIED"
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code=code,
+                reason=f"{action} is not eligible from state {case['state']}",
+                blocked_case_id=normalized_blocked_id,
+            )
+        expected_head = self._expected_action_head(case, action, context["repository"])
+        if action in HEAD_REQUIRED_ACTIONS and context["head"] is None:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="HEAD_REQUIRED",
+                reason=f"{action} requires the exact frozen or repaired head",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if action in HEAD_REQUIRED_ACTIONS and expected_head is None:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="EXPECTED_HEAD_MISSING",
+                reason="the case has no canonical frozen or repaired head for this repository",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if expected_head is not None and context["head"] != expected_head:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="HEAD_DRIFT",
+                reason="action head does not match the exact frozen or repaired head",
+                blocked_case_id=normalized_blocked_id,
+            )
+        if unrelated_locked_case:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=True,
+                reason_code="UNRELATED_CASE_ALLOWED",
+                reason="the locked case is case-scoped; this target is unrelated work",
+                blocked_case_id=normalized_blocked_id,
+            )
+        return self._action_response(
+            case,
+            action,
+            context,
+            allowed=True,
+            reason_code="ACTION_ALLOWED",
+            reason="actor, case state, repository, bindings, and head satisfy the action contract",
+            blocked_case_id=normalized_blocked_id,
+        )
 
 
 def _normalize_snapshot_path(value: str) -> str:
@@ -1381,11 +1860,13 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--case-id", required=True)
     command.add_argument("--kind", required=True, choices=sorted(BINDING_KINDS))
     command.add_argument("--value", required=True)
+    command.add_argument("--repository")
     _add_mutation_identity(command)
 
     command = sub.add_parser("resolve")
     command.add_argument("--kind", required=True, choices=sorted(BINDING_KINDS))
     command.add_argument("--value", required=True)
+    command.add_argument("--repository")
 
     for name in (
         "start-implementation",
@@ -1460,6 +1941,14 @@ def build_parser() -> argparse.ArgumentParser:
     command = sub.add_parser("action-check")
     command.add_argument("--case-id", required=True)
     command.add_argument("--action", required=True)
+    command.add_argument("--actor-role", required=True, choices=sorted(ROLE_ACTIONS))
+    command.add_argument("--repository")
+    command.add_argument("--branch")
+    command.add_argument("--worktree")
+    command.add_argument("--pr")
+    command.add_argument("--thread")
+    command.add_argument("--universal-bundle")
+    command.add_argument("--head")
     command.add_argument("--blocked-case-id")
 
     command = sub.add_parser("snapshot")
@@ -1488,9 +1977,22 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
     if args.command == "list":
         return store.list_cases()
     if args.command == "bind":
-        return store.bind(args.case_id, kind=args.kind, value=args.value, **common)
+        return store.bind(
+            args.case_id,
+            kind=args.kind,
+            value=args.value,
+            repository=args.repository,
+            **common,
+        )
     if args.command == "resolve":
-        return {"case_id": store.resolve_binding(args.kind, args.value)}
+        owners = store.resolve_bindings(
+            args.kind, args.value, repository=args.repository
+        )
+        return {
+            "case_id": owners[0] if len(owners) == 1 else None,
+            "case_ids": owners,
+            "ambiguous": len(owners) > 1,
+        }
     if args.command == "start-implementation":
         return store.start_implementation(args.case_id, **common)
     if args.command == "freeze-candidate":
@@ -1559,7 +2061,19 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
     if args.command == "start-helper-check":
         return store.record_start_helper_preflight(args.case_id, repo_root=args.repo_root, **common)
     if args.command == "action-check":
-        return store.check_action(args.case_id, args.action, blocked_case_id=args.blocked_case_id)
+        return store.check_action(
+            args.case_id,
+            args.action,
+            actor_role=args.actor_role,
+            repository=args.repository,
+            branch=args.branch,
+            worktree=args.worktree,
+            pr=args.pr,
+            thread=args.thread,
+            universal_bundle=args.universal_bundle,
+            head=args.head,
+            blocked_case_id=args.blocked_case_id,
+        )
     if args.command == "snapshot":
         return {
             "contract": SNAPSHOT_CONTRACT,

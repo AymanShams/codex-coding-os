@@ -21,10 +21,18 @@ Every case has one lowercase canonical UUID. It is created explicitly. A new
 chat, task, thread, branch, worktree, pull request, or session counter cannot
 create a replacement case implicitly.
 
-The single atomic store contains both cases and the binding registry. The
-registry can bind normalized repository URLs, branches, worktrees, pull
-requests, thread or task identifiers, and universal bundle identifiers. An
-identifier already owned by one case cannot be rebound to another case.
+The single atomic store contains both cases and the binding registry.
+Repository URLs are normalized, nonexclusive associations. Multiple cases may
+therefore perform unrelated work in the same repository. `resolve` returns all
+matching case identifiers for a repository and marks the result ambiguous when
+more than one exists. It never silently chooses one case as the owner.
+
+Branches are exclusive only as the exact normalized repository plus branch
+pair. The same branch name may be used in different repositories, and different
+branches may be used by different cases in the same repository. Worktree paths,
+pull requests, thread or task identifiers, and universal bundle identifiers are
+also exact exclusive bindings. An exclusive binding already owned by one case
+cannot be rebound to another case.
 
 Each mutation requires:
 
@@ -100,10 +108,37 @@ It is not evidence that the product is defective.
 
 ## Case-scoped action guard
 
-`action-check` evaluates one target case. A lock on one case does not block a
-different case or unrelated product work. A global emergency stop is outside
-this case engine and is reserved for credential compromise or uncontrolled
-concurrent mutation.
+`action-check` uses protocol `ccos-case-action-v1`. Every response includes the
+store schema version, case identifier and state, action, actor role, current
+limits, normalized execution context, decision, stable reason code, and the
+separate-authority flag.
+
+The role and action separation is:
+
+- `parent`: `case_administration` only
+- `implementer_child`: `implementation` or `product_work`
+- `review_child`: `review_collection` or the one `closure_check`
+- `fix_child`: the one authorized `repair`
+- `publication_child`: `publication`
+
+Child execution requires an associated repository and at least one exact
+branch, worktree, pull request, thread, or universal bundle binding. Review,
+repair, closure, and publication also require the exact canonical head for the
+repository. Review uses the frozen review head. Repair, closure, and publication
+use the current head, which becomes the repaired head after the one authorized
+combined repair.
+
+`action-check` evaluates one target case and an optional exact locked case. A
+different UUID is not sufficient proof that work is unrelated. The guard
+compares exact exclusive bindings and supplied context. An exact branch,
+worktree, pull request, thread, universal bundle, or commit-head collision in
+the same repository remains blocked. A shared repository association alone is
+not an overlap, and an identical hash text in a different repository is not an
+overlap. A lock on one case therefore does not block an unrelated branch or
+unrelated product work in the same repository.
+
+A global emergency stop is outside this case engine and is reserved for
+credential compromise or uncontrolled concurrent mutation.
 
 Publication is eligible only from `CLOSED_SUCCESS`. Merge, deployment, release,
 credential changes, and universal synchronization always require separate
@@ -134,7 +169,7 @@ Python filesystem enumeration order, locale, or operating system.
 
 ## Storage and locking
 
-The store is `case-state.json`. Each mutation takes an exclusive standard
+The store is `case-state.json` and uses schema version 2. Each mutation takes an exclusive standard
 library lock. Windows uses `msvcrt.locking`; POSIX systems use `fcntl.flock`.
 The engine validates schema and limits before use, writes a complete temporary
 file, flushes it, and atomically replaces the store. Case and binding changes
@@ -150,7 +185,10 @@ fake product manifest or classify the Coding OS product as defective.
 
 Read-only commands are `store-status`, `show`, `list`, `resolve`,
 `action-check`, and `snapshot`. `store-status` supplies the exact store revision
-needed for safe registration. Lifecycle commands are `register`, `bind`, `start-implementation`,
+needed for safe registration. Branch `bind` and `resolve` commands require
+`--repository`. `action-check` requires `--actor-role` and accepts normalized
+repository, branch, worktree, pull request, thread, universal bundle, head, and
+blocked-case context. Lifecycle commands are `register`, `bind`, `start-implementation`,
 `freeze-candidate`, `start-review`, `add-finding`, `freeze-findings`,
 `close-without-blockers`, `authorize-repair`, `complete-repair`,
 `observe-heads`, `start-closure-preflight`, `verify-closure-preflight`,
