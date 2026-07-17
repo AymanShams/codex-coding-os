@@ -1150,18 +1150,21 @@ def _normalize_repository(value: str) -> str:
     else:
         try:
             parsed = urllib.parse.urlsplit(raw)
-            if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+            if parsed.scheme.lower() != "https" or not parsed.netloc:
                 raise SourceVerificationError("origin remote must be one normalized HTTPS or git@ repository URL")
             if parsed.query or parsed.fragment:
                 raise SourceVerificationError("origin remote repository URL must not include a query or fragment")
+            if parsed.password is not None:
+                raise SourceVerificationError("origin remote HTTPS URL must not include a password")
+            authority = parsed.netloc.rsplit("@", 1)[-1]
             host = parsed.hostname or ""
             path = parsed.path
             port = parsed.port
+            if port not in {None, 443} or authority.endswith(":"):
+                raise SourceVerificationError("origin remote HTTPS URL may use only port 443")
         except ValueError as exc:
             raise SourceVerificationError("origin remote URL is malformed") from exc
     host = host.lower().rstrip(".")
-    if port is not None and port not in {22, 80, 443}:
-        host = f"{host}:{port}"
     path = urllib.parse.unquote(path).strip("/")
     if path.lower().endswith(".git"):
         path = path[:-4]

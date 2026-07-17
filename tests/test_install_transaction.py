@@ -380,6 +380,7 @@ class RepositoryNormalizationTests(unittest.TestCase):
     def test_normalizes_https_userinfo_and_scp_repository_forms(self) -> None:
         expected = "https://github.com/aymanshams/codex-coding-os"
         cases = [
+            "https://github.com/AymanShams/Codex-Coding-OS.git",
             "https://AymanShams@github.com/AymanShams/codex-coding-os.git",
             "HTTPS://AymanShams@GitHub.Com:443//AymanShams///Codex-Coding-OS.git/",
             "https://github.com/%41ymanShams/%43odex-Coding-OS.git",
@@ -396,6 +397,13 @@ class RepositoryNormalizationTests(unittest.TestCase):
             "https://github.com/AymanShams%2F..%2Fcodex-coding-os",
             "https://github.com/AymanShams/codex-coding-os?ref=main",
             "https://github.com:not-a-port/AymanShams/codex-coding-os",
+            "http://github.com/AymanShams/codex-coding-os.git",
+            "https://AymanShams:password@github.com/AymanShams/codex-coding-os.git",
+            "https://AymanShams:@github.com/AymanShams/codex-coding-os.git",
+            "https://github.com:22/AymanShams/codex-coding-os.git",
+            "https://github.com:80/AymanShams/codex-coding-os.git",
+            "https://github.com:444/AymanShams/codex-coding-os.git",
+            "https://github.com:/AymanShams/codex-coding-os.git",
             "https://[::1/AymanShams/codex-coding-os.git",
             "ssh://git@github.com/AymanShams/codex-coding-os.git",
             "git@bad host:AymanShams/codex-coding-os.git",
