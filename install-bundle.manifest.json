@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "8406f83d7d000758b0728f3acb3b563128fe5d27f6cc0d1a8e2e462f8a8417e5",
+  "aggregate_sha256": "5acdfbdfde1d0621dcf9c1f607c5bd5a5cdf17fee48dda863c8c635a531df830",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -515,11 +515,6 @@
       "path": ".agents/skills/project-session-continuity/assets/current-state-template.md",
       "sha256": "7551499e5f43272bcd227be92ea58de84c1d562df0cd29afd293e21d4699ec45",
       "size": 4758
-    },
-    {
-      "path": ".agents/skills/project-session-continuity/scripts/__pycache__/session_continuity.cpython-312.pyc",
-      "sha256": "92ff3370ed4e0a159353ecc6dd4c68990b5aacfb8eeb6af9965ca1280aa0a673",
-      "size": 115371
     },
     {
       "path": ".agents/skills/project-session-continuity/scripts/session_continuity.py",
@@ -2357,16 +2352,6 @@
       "size": 1113
     },
     {
-      "path": "scripts/__pycache__/install_transaction.cpython-312.pyc",
-      "sha256": "a8ded0390bd086a2d490ec56044e6ba1a0052ff57ad7e317e57420fb856bd335",
-      "size": 118572
-    },
-    {
-      "path": "scripts/agent/__pycache__/case_state.cpython-312.pyc",
-      "sha256": "fca36fd430ad6a761b0be5bfc293ba31664bb57108622a4df1716009e081f793",
-      "size": 113821
-    },
-    {
       "path": "scripts/agent/case_state.py",
       "sha256": "eacdf20e101dbdffb0a6fdb297354a7dc9ffb8f5dbdcc1edeaed12fcda623456",
       "size": 101403
@@ -2413,8 +2398,8 @@
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "0863da5d4c0f62df28104d6973400a77e41ef0df024680cf35894c8fed282a1b",
-      "size": 98446
+      "sha256": "a1e15616cec3d726e2a3a09e8f686e0a18d3fd2bd2221a129570f2a7b8e83c8f",
+      "size": 101267
     },
     {
       "path": "scripts/package.ps1",
@@ -2572,11 +2557,6 @@
       "size": 2568
     },
     {
-      "path": "tests/__pycache__/test_public_install_docs.cpython-312.pyc",
-      "sha256": "5f9b61966cf2e3625c3c02d7c9a26021f40133b597a9a61eb113efa6ad2cbf8b",
-      "size": 5430
-    },
-    {
       "path": "tests/install-transaction-faults.ps1",
       "sha256": "57127154c19abcb15f55a2aec643375b6206bb8f8a82b55bba46f560c0bc3c0f",
       "size": 3291
@@ -2598,8 +2578,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "c81bdd2a0a8ed82a3c8dd213f0c9529532bde16f58e53969f23f94045bb552e0",
-      "size": 36598
+      "sha256": "22a9962e73c21481cbd61b65db6a9a17245aa0841f4fa3341482d4a54360dd46",
+      "size": 37901
     },
     {
       "path": "tests/test_public_install_docs.py",

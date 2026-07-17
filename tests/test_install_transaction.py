@@ -271,6 +271,26 @@ class BundleContractTests(unittest.TestCase):
             with self.assertRaises(it.BundleError):
                 it.verify_bundle(env.source, env.bundle_hash)
 
+    def test_bundle_ignores_ignored_runtime_artifacts_and_rejects_untracked_paths(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            write_text(env.source / ".gitignore", "payload/*.runtime\n")
+            run_git(env.source, "add", ".gitignore")
+            run_git(env.source, "commit", "-q", "-m", "ignore local runtime artifacts")
+            write_text(env.source / "scripts/__pycache__/install_transaction.cpython-312.pyc", "cache")
+            write_text(env.source / "payload/local.runtime", "ignored")
+
+            verified = it.verify_bundle(env.source, env.bundle_hash)
+            self.assertEqual(verified.aggregate_sha256, env.bundle_hash)
+            self.assertFalse(any("__pycache__" in entry["path"] for entry in verified.entries))
+            self.assertFalse(any(entry["path"] == "payload/local.runtime" for entry in verified.entries))
+
+            write_text(env.source / "payload/untracked.txt", "unexpected")
+            with self.assertRaisesRegex(it.BundleError, "untracked pack-owned paths"):
+                it.build_bundle_manifest(env.source)
+            with self.assertRaises(it.BundleError):
+                it.verify_bundle(env.source, env.bundle_hash)
+
 
 class PolicyMigrationTests(unittest.TestCase):
     def test_first_migrations_preserve_all_outside_bytes_and_mixed_newlines(self) -> None:

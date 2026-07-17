@@ -259,6 +259,69 @@ def _validate_casefold_collisions(paths: Sequence[str], label: str) -> None:
         seen[key] = path
 
 
+def _is_git_worktree(root: Path) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0 and completed.stdout.strip().lower() == "true"
+
+
+def _git_ignored_paths(root: Path, paths: Sequence[str]) -> set[str]:
+    if not paths or not _is_git_worktree(root):
+        return set()
+    payload = b"".join(_normalize_relative(path).encode("utf-8") + b"\0" for path in paths)
+    completed = subprocess.run(
+        ["git", "-C", str(root), "check-ignore", "-z", "--stdin"],
+        input=payload,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode not in (0, 1):
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise BundleError(f"unable to identify ignored bundle artifacts: {detail or completed.returncode}")
+    ignored = {
+        _normalize_relative(value.decode("utf-8", errors="strict"))
+        for value in completed.stdout.split(b"\0")
+        if value
+    }
+    unexpected = ignored.difference(paths)
+    if unexpected:
+        raise BundleError("Git reported an unexpected ignored bundle path")
+    return ignored
+
+
+def _reject_untracked_bundle_paths(root: Path, paths: Sequence[str]) -> None:
+    if not paths or not _is_git_worktree(root):
+        return
+    completed = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise BundleError(f"unable to identify tracked bundle paths: {detail or completed.returncode}")
+    tracked = {
+        _normalize_relative(value.decode("utf-8", errors="strict"))
+        for value in completed.stdout.split(b"\0")
+        if value
+    }
+    untracked = sorted(set(paths).difference(tracked), key=lambda value: value.encode("utf-8"))
+    if untracked:
+        raise BundleError(
+            "refusing to build a public bundle from untracked pack-owned paths: " + ", ".join(untracked)
+        )
+
+
 def _enumerate_files(root: Path, relative: str) -> list[str]:
     normalized = _normalize_relative(relative)
     target = _safe_repo_path(root, normalized)
@@ -276,11 +339,16 @@ def _enumerate_files(root: Path, relative: str) -> list[str]:
     found: list[str] = []
     for directory, dir_names, file_names in os.walk(target, followlinks=False):
         directory_path = Path(directory)
+        # Python bytecode is local runtime state, not pack-owned source. Ignoring it
+        # keeps a manifest built after local tests valid in a clean release checkout.
+        dir_names[:] = [name for name in dir_names if name.casefold() != "__pycache__"]
         for name in list(dir_names):
             child = directory_path / name
             if _is_link_or_reparse(child):
                 raise BundleError(f"bundle source cannot contain links or reparse points: {child.relative_to(root)}")
         for name in file_names:
+            if name.casefold().endswith(".pyc"):
+                continue
             child = directory_path / name
             if _is_link_or_reparse(child) or not child.is_file():
                 raise BundleError(f"bundle source cannot contain special files: {child.relative_to(root)}")
@@ -340,6 +408,7 @@ def _inventory_paths(root: Path, pack: dict[str, Any]) -> list[str]:
     files: set[str] = set()
     for item in declared:
         files.update(_enumerate_files(root, item))
+    files.difference_update(_git_ignored_paths(root, tuple(files)))
     ordered = sorted(files, key=lambda value: value.encode("utf-8"))
     _validate_casefold_collisions(ordered, "bundle path")
     return ordered
@@ -376,7 +445,9 @@ def _aggregate_entries(entries: Sequence[dict[str, Any]]) -> str:
 def build_bundle_manifest(repo_root: Path | str) -> dict[str, Any]:
     root = Path(repo_root).expanduser().resolve(strict=True)
     pack = _load_pack(root)
-    entries = [_entry_for(root, relative) for relative in _inventory_paths(root, pack)]
+    paths = _inventory_paths(root, pack)
+    _reject_untracked_bundle_paths(root, paths)
+    entries = [_entry_for(root, relative) for relative in paths]
     manifest = {
         "protocol": BUNDLE_PROTOCOL,
         "package": {"name": pack["package_name"], "version": pack["version"]},
