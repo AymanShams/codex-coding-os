@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "c1c4696a02a245076adf2e7c756567b081a9d3993549c8e51a1b282ab9ee5847",
+  "aggregate_sha256": "ce947d2c1e861cafa35ef61120789e68df35c7dcbdbadcb2abf313d52239b08f",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2138,8 +2138,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "8b5527577e18b45b1253c8c776ea051d93c097e73bdec1bca77e0575ba03e409",
-      "size": 10907
+      "sha256": "f614435b71abd0cf3771f3bdd66a910cd81bd31476fbed7d1e96d0e8fb1635f6",
+      "size": 11392
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2208,8 +2208,8 @@
     },
     {
       "path": "docs/case-state-contract.md",
-      "sha256": "3d9cea724d5ddaa176d874cbd6492c0d050124ca759cb0f1cb5e993679c9e854",
-      "size": 10405
+      "sha256": "1444e4f623099e5586a380be59237a3bd271d0655ef2a3cce2c7558eae3f7f0d",
+      "size": 12042
     },
     {
       "path": "docs/codex-plugins-mcps-hooks.md",
@@ -2353,8 +2353,8 @@
     },
     {
       "path": "scripts/agent/case_state.py",
-      "sha256": "ddcfd60375140205be1813b63e4ff46445956e305a6cef3625a184be7d332f27",
-      "size": 89820
+      "sha256": "106cb3e138e0f709ea52c4ddcd0a0e946b3558e1eb693ecfeb688b77abfa4612",
+      "size": 98576
     },
     {
       "path": "scripts/agent/fresh_context_review.py",
@@ -2573,8 +2573,8 @@
     },
     {
       "path": "tests/test_case_state_engine.py",
-      "sha256": "c1b543dd2aba18a7309d60f40a2bc910cbc8f658c3496432f0e49999e8cef3c4",
-      "size": 57372
+      "sha256": "4c52c36c217d4842d916d78201b919f8210680da7cea0ee4d9b39d99fc37d03a",
+      "size": 67334
     },
     {
       "path": "tests/test_install_transaction.py",

@@ -22,6 +22,10 @@ No unreleased changes.
   version 3 local provenance.
 - Added marked universal policy migrations that preserve all bytes outside the
   exact automation-policy and pull-request-merge authority blocks.
+- Added the `ccos-git-snapshot-v1` exact-head Git-object snapshot contract so
+  candidate identity comes only from committed regular-file modes and blob
+  bytes, with adversarial checks for drift, dirty state, unsafe entries, and
+  cross-worktree determinism.
 
 ### Changed
 
@@ -37,6 +41,9 @@ No unreleased changes.
   the managed transaction inventory.
 - Limited rollback to one verified recovery attempt and fail closed when source,
   ownership, bundle, policy, or rollback evidence does not match.
+- Made Git-tracked snapshots the sole lifecycle snapshot authority. Ignored
+  review metadata, caches, and dependency folders cannot change a frozen
+  candidate, while dirty tracked or nonignored untracked files fail closed.
 
 ### Removed
 

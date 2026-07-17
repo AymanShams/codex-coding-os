@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -29,8 +30,10 @@ SCHEMA_VERSION = 2
 ACTION_PROTOCOL_VERSION = "ccos-case-action-v1"
 STORE_FILENAME = "case-state.json"
 LOCK_FILENAME = ".case-state.lock"
-SNAPSHOT_CONTRACT = "ccos-snapshot-v1"
-SNAPSHOT_MAGIC = b"CCOS-CASE-SNAPSHOT\0"
+SNAPSHOT_CONTRACT = "ccos-git-snapshot-v1"
+GIT_SNAPSHOT_MAGIC = b"CCOS-GIT-SNAPSHOT\0"
+LEGACY_FILESYSTEM_SNAPSHOT_CONTRACT = "ccos-snapshot-v1"
+LEGACY_FILESYSTEM_SNAPSHOT_MAGIC = b"CCOS-CASE-SNAPSHOT\0"
 
 CASE_STATES = {
     "REGISTERED",
@@ -1789,6 +1792,11 @@ def _length_prefix(value: int) -> bytes:
 
 
 def canonical_snapshot_hash_from_entries(entries: Iterable[tuple[str, bytes]]) -> str:
+    """Hash explicit bytes with the legacy filesystem-entry contract.
+
+    This helper is retained for compatibility and deterministic unit tests. It
+    is not an accepted candidate lifecycle contract.
+    """
     normalized: dict[str, bytes] = {}
     for raw_path, content in entries:
         path = _normalize_snapshot_path(raw_path)
@@ -1801,8 +1809,8 @@ def canonical_snapshot_hash_from_entries(entries: Iterable[tuple[str, bytes]]) -
         normalized[path] = content
     ordered = sorted(normalized.items(), key=lambda item: item[0].encode("utf-8"))
     digest = hashlib.sha256()
-    digest.update(SNAPSHOT_MAGIC)
-    version = SNAPSHOT_CONTRACT.encode("utf-8")
+    digest.update(LEGACY_FILESYSTEM_SNAPSHOT_MAGIC)
+    version = LEGACY_FILESYSTEM_SNAPSHOT_CONTRACT.encode("utf-8")
     digest.update(_length_prefix(len(version)))
     digest.update(version)
     digest.update(_length_prefix(len(ordered)))
@@ -1816,6 +1824,7 @@ def canonical_snapshot_hash_from_entries(entries: Iterable[tuple[str, bytes]]) -
 
 
 def canonical_snapshot_hash(root: Path | str, *, state_root: Path | str | None = None) -> str:
+    """Hash mutable filesystem bytes with the legacy, non-lifecycle contract."""
     root_path = Path(root).expanduser().resolve(strict=True)
     if not root_path.is_dir():
         raise SnapshotError(f"snapshot root is not a directory: {root_path}")
@@ -1838,6 +1847,222 @@ def canonical_snapshot_hash(root: Path | str, *, state_root: Path | str | None =
             raise SnapshotError(f"file changed while snapshot was read: {relative.as_posix()}")
         entries.append((relative.as_posix(), content))
     return canonical_snapshot_hash_from_entries(entries)
+
+
+def _normalize_git_snapshot_path(value: str) -> str:
+    if "\\" in str(value):
+        raise SnapshotError(f"Git snapshot path must be a safe repo-relative POSIX path: {value!r}")
+    path = _normalize_snapshot_path(value)
+    if ".git" in PurePosixPath(path).parts:
+        raise SnapshotError(f"Git snapshot path cannot address repository metadata: {value!r}")
+    return path
+
+
+def canonical_git_snapshot_hash_from_entries(
+    entries: Iterable[tuple[str, str, bytes]],
+) -> str:
+    """Hash committed regular-file modes, paths, and Git object bytes."""
+    normalized: dict[str, tuple[str, bytes]] = {}
+    for raw_path, raw_mode, content in entries:
+        path = _normalize_git_snapshot_path(raw_path)
+        mode = str(raw_mode)
+        if mode not in {"100644", "100755"}:
+            raise SnapshotError(f"unsupported Git entry mode {mode!r} at {path}")
+        if not isinstance(content, bytes):
+            raise SnapshotError(f"Git object content for {path} must be bytes")
+        if path in normalized:
+            raise SnapshotError(f"snapshot path normalization collision: {path}")
+        normalized[path] = (mode, content)
+
+    ordered = sorted(normalized.items(), key=lambda item: item[0].encode("utf-8"))
+    digest = hashlib.sha256()
+    digest.update(GIT_SNAPSHOT_MAGIC)
+    version = SNAPSHOT_CONTRACT.encode("utf-8")
+    digest.update(_length_prefix(len(version)))
+    digest.update(version)
+    digest.update(_length_prefix(len(ordered)))
+    for path, (mode, content) in ordered:
+        encoded_path = path.encode("utf-8")
+        encoded_mode = mode.encode("ascii")
+        digest.update(_length_prefix(len(encoded_path)))
+        digest.update(encoded_path)
+        digest.update(_length_prefix(len(encoded_mode)))
+        digest.update(encoded_mode)
+        digest.update(_length_prefix(len(content)))
+        digest.update(content)
+    return digest.hexdigest()
+
+
+def _run_git(root: Path, *arguments: str) -> bytes:
+    environment = os.environ.copy()
+    for name in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_PREFIX",
+    ):
+        environment.pop(name, None)
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "--no-replace-objects",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.untrackedCache=false",
+                "-C",
+                str(root),
+                *arguments,
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            env=environment,
+        )
+    except OSError as exc:
+        raise SnapshotError(f"Git could not be executed: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        if len(detail) > 1000:
+            detail = detail[:1000] + "..."
+        raise SnapshotError(
+            f"Git command failed ({' '.join(arguments)}): {detail or 'no diagnostic output'}"
+        )
+    return result.stdout
+
+
+def _single_git_line(value: bytes, label: str) -> str:
+    if value.endswith(b"\r\n"):
+        value = value[:-2]
+    elif value.endswith(b"\n"):
+        value = value[:-1]
+    if not value or b"\r" in value or b"\n" in value or b"\0" in value:
+        raise SnapshotError(f"Git returned a malformed {label}")
+    try:
+        return value.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise SnapshotError(f"Git returned a non-UTF-8 {label}") from exc
+
+
+def _git_repository_root(root: Path) -> Path:
+    reported = _single_git_line(_run_git(root, "rev-parse", "--show-toplevel"), "repository root")
+    try:
+        return Path(reported).resolve(strict=True)
+    except OSError as exc:
+        raise SnapshotError(f"Git repository root cannot be resolved: {exc}") from exc
+
+
+def _git_head(root: Path) -> str:
+    raw = _single_git_line(_run_git(root, "rev-parse", "--verify", "HEAD"), "HEAD")
+    try:
+        return require_sha(raw, "Git HEAD")
+    except ValidationError as exc:
+        raise SnapshotError(str(exc)) from exc
+
+
+def _assert_git_worktree_clean(root: Path, phase: str) -> None:
+    status = _run_git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    )
+    if status:
+        raise SnapshotError(
+            f"candidate Git worktree is not clean {phase}; tracked changes and nonignored untracked files are forbidden"
+        )
+
+
+def _parse_git_tree_entries(raw: bytes) -> list[tuple[str, str, str]]:
+    if raw and not raw.endswith(b"\0"):
+        raise SnapshotError("Git tree enumeration is not NUL terminated")
+    result: list[tuple[str, str, str]] = []
+    normalized_paths: set[str] = set()
+    for record in raw.split(b"\0"):
+        if not record:
+            continue
+        try:
+            header, raw_path = record.split(b"\t", 1)
+            raw_mode, raw_type, raw_oid = header.split(b" ")
+            mode = raw_mode.decode("ascii", errors="strict")
+            object_type = raw_type.decode("ascii", errors="strict")
+            oid = raw_oid.decode("ascii", errors="strict")
+            decoded_path = raw_path.decode("utf-8", errors="strict")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise SnapshotError("Git returned a malformed tree entry") from exc
+        path = _normalize_git_snapshot_path(decoded_path)
+        if path in normalized_paths:
+            raise SnapshotError(f"snapshot path normalization collision: {path}")
+        normalized_paths.add(path)
+        if object_type != "blob" or mode not in {"100644", "100755"}:
+            raise SnapshotError(
+                f"unsupported Git entry type {object_type!r} mode {mode!r} at {path}"
+            )
+        if not SHA_PATTERN.fullmatch(oid):
+            raise SnapshotError(f"Git returned a malformed object identifier for {path}")
+        result.append((path, mode, oid))
+    return result
+
+
+def git_object_snapshot(root: Path | str, head: str) -> dict[str, Any]:
+    """Return the canonical snapshot of tracked Git objects at exact HEAD."""
+    try:
+        expected_head = require_sha(head, "snapshot head")
+    except ValidationError as exc:
+        raise SnapshotError(str(exc)) from exc
+    try:
+        root_path = Path(root).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise SnapshotError(f"snapshot repository root cannot be resolved: {exc}") from exc
+    if not root_path.is_dir():
+        raise SnapshotError(f"snapshot repository root is not a directory: {root_path}")
+    if _git_repository_root(root_path) != root_path:
+        raise SnapshotError("snapshot --root must be the exact Git repository root")
+    if _single_git_line(
+        _run_git(root_path, "rev-parse", "--is-inside-work-tree"), "worktree status"
+    ) != "true":
+        raise SnapshotError("snapshot repository root is not a Git worktree")
+
+    before_head = _git_head(root_path)
+    if before_head != expected_head:
+        raise SnapshotError(
+            f"Git HEAD drift before snapshot: expected {expected_head}, observed {before_head}"
+        )
+    _assert_git_worktree_clean(root_path, "before snapshot")
+
+    tree = _parse_git_tree_entries(
+        _run_git(root_path, "ls-tree", "-rz", "--full-tree", expected_head)
+    )
+    entries: list[tuple[str, str, bytes]] = []
+    for path, mode, oid in tree:
+        entries.append((path, mode, _run_git(root_path, "cat-file", "blob", oid)))
+    digest = canonical_git_snapshot_hash_from_entries(entries)
+
+    after_head = _git_head(root_path)
+    if after_head != expected_head:
+        raise SnapshotError(
+            f"Git HEAD drift during snapshot: expected {expected_head}, observed {after_head}"
+        )
+    _assert_git_worktree_clean(root_path, "after snapshot")
+    final_head = _git_head(root_path)
+    if final_head != expected_head:
+        raise SnapshotError(
+            f"Git HEAD drift after snapshot: expected {expected_head}, observed {final_head}"
+        )
+    return {
+        "contract": SNAPSHOT_CONTRACT,
+        "head": expected_head,
+        "sha256": digest,
+        "file_count": len(entries),
+    }
 
 
 def _json_value(value: str, label: str) -> Any:
@@ -1974,7 +2199,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     command = sub.add_parser("snapshot")
     command.add_argument("--root", required=True, type=Path)
-    command.add_argument("--exclude-state-root", type=Path)
+    command.add_argument("--head", required=True)
     return parser
 
 
@@ -2096,10 +2321,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             blocked_case_id=args.blocked_case_id,
         )
     if args.command == "snapshot":
-        return {
-            "contract": SNAPSHOT_CONTRACT,
-            "sha256": canonical_snapshot_hash(args.root, state_root=args.exclude_state_root),
-        }
+        return git_object_snapshot(args.root, args.head)
     raise AssertionError(f"unhandled command: {args.command}")
 
 

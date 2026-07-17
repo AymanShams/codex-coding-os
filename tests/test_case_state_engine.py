@@ -68,6 +68,32 @@ def protocol_digest(entries: list[tuple[str, bytes]]) -> str:
     return hashlib.sha256(stream).hexdigest()
 
 
+def git_protocol_digest(entries: list[tuple[str, str, bytes]]) -> str:
+    """Independent implementation of the committed Git snapshot byte stream."""
+    import unicodedata
+
+    normalized = [
+        (unicodedata.normalize("NFC", path), mode, content)
+        for path, mode, content in entries
+    ]
+    normalized.sort(key=lambda item: item[0].encode("utf-8"))
+    stream = bytearray(b"CCOS-GIT-SNAPSHOT\0")
+    version = b"ccos-git-snapshot-v1"
+    stream.extend(len(version).to_bytes(8, "big"))
+    stream.extend(version)
+    stream.extend(len(normalized).to_bytes(8, "big"))
+    for path, mode, content in normalized:
+        encoded_path = path.encode("utf-8")
+        encoded_mode = mode.encode("ascii")
+        stream.extend(len(encoded_path).to_bytes(8, "big"))
+        stream.extend(encoded_path)
+        stream.extend(len(encoded_mode).to_bytes(8, "big"))
+        stream.extend(encoded_mode)
+        stream.extend(len(content).to_bytes(8, "big"))
+        stream.extend(content)
+    return hashlib.sha256(stream).hexdigest()
+
+
 class StoreCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos-case-state-")
@@ -1254,6 +1280,36 @@ class ScopeAndAuthorityTests(StoreCase):
 
 
 class SnapshotTests(unittest.TestCase):
+    def git(self, root: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            input=input_bytes,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"git {' '.join(args)} failed: {result.stderr.decode('utf-8', errors='replace')}",
+        )
+        return result.stdout
+
+    def make_git_repo(self, parent: Path) -> tuple[Path, str]:
+        root = parent / "candidate"
+        root.mkdir()
+        self.git(root, "init")
+        self.git(root, "config", "user.name", "Snapshot Test")
+        self.git(root, "config", "user.email", "snapshot@example.invalid")
+        (root / ".gitignore").write_text(
+            ".code-review-graph/\nnode_modules/\n__pycache__/\n",
+            encoding="utf-8",
+        )
+        (root / "candidate.txt").write_bytes(b"candidate-v1\n")
+        self.git(root, "add", ".gitignore", "candidate.txt")
+        self.git(root, "commit", "-m", "initial candidate")
+        head = self.git(root, "rev-parse", "HEAD").decode("ascii").strip()
+        return root, head
+
     def test_hash_is_independent_of_input_enumeration_order(self) -> None:
         entries = [
             ("zeta.txt", b"z"),
@@ -1286,6 +1342,160 @@ class SnapshotTests(unittest.TestCase):
             engine.canonical_snapshot_hash_from_entries(
                 [("cafe\u0301.txt", b"a"), ("caf\u00e9.txt", b"b")]
             )
+
+    def test_git_snapshot_uses_only_committed_objects_and_ignored_support_changes_do_not_reopen_it(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-git-snapshot-") as temp:
+            root, head = self.make_git_repo(Path(temp))
+            first = engine.git_object_snapshot(root, head)
+
+            support = root / ".code-review-graph"
+            support.mkdir()
+            (support / "review.json").write_text('{"round": 1}\n', encoding="utf-8")
+            modules = root / "node_modules" / "example"
+            modules.mkdir(parents=True)
+            (modules / "cache.js").write_text("first cache\n", encoding="utf-8")
+            second = engine.git_object_snapshot(root, head)
+
+            (support / "review.json").write_text('{"round": 99}\n', encoding="utf-8")
+            (modules / "cache.js").write_text("different cache\n", encoding="utf-8")
+            third = engine.git_object_snapshot(root, head)
+
+            self.assertEqual(first, second)
+            self.assertEqual(second, third)
+            self.assertEqual(first["contract"], engine.SNAPSHOT_CONTRACT)
+            self.assertEqual(first["head"], head)
+
+    def test_git_snapshot_ignores_local_replace_refs(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-git-snapshot-") as temp:
+            root, head = self.make_git_repo(Path(temp))
+            expected = engine.git_object_snapshot(root, head)
+            original_blob = self.git(root, "rev-parse", "HEAD:candidate.txt").decode("ascii").strip()
+            replacement_blob = self.git(
+                root,
+                "hash-object",
+                "-w",
+                "--stdin",
+                input_bytes=b"replacement bytes\n",
+            ).decode("ascii").strip()
+            self.git(root, "replace", original_blob, replacement_blob)
+            self.assertEqual(engine.git_object_snapshot(root, head), expected)
+
+    def test_git_snapshot_rejects_nonignored_untracked_and_dirty_tracked_files(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-git-snapshot-") as temp:
+            root, head = self.make_git_repo(Path(temp))
+            untracked = root / "review-not-ignored.json"
+            untracked.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(engine.SnapshotError, "not clean"):
+                engine.git_object_snapshot(root, head)
+
+            untracked.unlink()
+            (root / "candidate.txt").write_bytes(b"mutable worktree bytes\n")
+            with self.assertRaisesRegex(engine.SnapshotError, "not clean"):
+                engine.git_object_snapshot(root, head)
+
+    def test_git_snapshot_rejects_head_drift_and_requires_repository_root(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-git-snapshot-") as temp:
+            root, head = self.make_git_repo(Path(temp))
+            with self.assertRaisesRegex(engine.SnapshotError, "HEAD"):
+                engine.git_object_snapshot(root, "a" * 40)
+            nested = root / "nested"
+            nested.mkdir()
+            with self.assertRaisesRegex(engine.SnapshotError, "repository root"):
+                engine.git_object_snapshot(nested, head)
+
+    def test_two_clean_worktrees_at_same_commit_have_same_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-git-snapshot-") as temp:
+            parent = Path(temp)
+            root, head = self.make_git_repo(parent)
+            second = parent / "second-worktree"
+            self.git(root, "worktree", "add", "--detach", str(second), head)
+            self.assertEqual(
+                engine.git_object_snapshot(root, head),
+                engine.git_object_snapshot(second, head),
+            )
+
+    def test_committed_content_or_mode_change_changes_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-git-snapshot-") as temp:
+            root, first_head = self.make_git_repo(Path(temp))
+            first = engine.git_object_snapshot(root, first_head)
+            (root / "candidate.txt").write_bytes(b"candidate-v2\n")
+            self.git(root, "add", "candidate.txt")
+            self.git(root, "commit", "-m", "change candidate")
+            second_head = self.git(root, "rev-parse", "HEAD").decode("ascii").strip()
+            second = engine.git_object_snapshot(root, second_head)
+            self.assertNotEqual(first["head"], second["head"])
+            self.assertNotEqual(first["sha256"], second["sha256"])
+
+    def test_git_snapshot_entry_contract_rejects_unsafe_colliding_or_unsupported_entries(self) -> None:
+        entries = [("z.txt", "100644", b"z"), ("bin/a", "100755", b"a")]
+        self.assertEqual(
+            engine.canonical_git_snapshot_hash_from_entries(reversed(entries)),
+            git_protocol_digest(entries),
+        )
+        self.assertNotEqual(
+            engine.canonical_git_snapshot_hash_from_entries([("tool", "100644", b"x")]),
+            engine.canonical_git_snapshot_hash_from_entries([("tool", "100755", b"x")]),
+        )
+        with self.assertRaisesRegex(engine.SnapshotError, "safe repo-relative"):
+            engine.canonical_git_snapshot_hash_from_entries(
+                [("../outside", "100644", b"x")]
+            )
+        with self.assertRaisesRegex(engine.SnapshotError, "repository metadata"):
+            engine.canonical_git_snapshot_hash_from_entries(
+                [("nested/.git/config", "100644", b"x")]
+            )
+        with self.assertRaisesRegex(engine.SnapshotError, "normalization collision"):
+            engine.canonical_git_snapshot_hash_from_entries(
+                [
+                    ("cafe\u0301.txt", "100644", b"a"),
+                    ("caf\u00e9.txt", "100644", b"b"),
+                ]
+            )
+        for mode in ("120000", "160000", "100600"):
+            with self.subTest(mode=mode), self.assertRaisesRegex(
+                engine.SnapshotError, "unsupported Git entry"
+            ):
+                engine.canonical_git_snapshot_hash_from_entries(
+                    [("unsupported", mode, b"content")]
+                )
+        oid = b"a" * 40
+        with self.assertRaisesRegex(engine.SnapshotError, "unsupported Git entry"):
+            engine._parse_git_tree_entries(b"120000 blob " + oid + b"\tlink\0")
+        with self.assertRaisesRegex(engine.SnapshotError, "malformed tree entry"):
+            engine._parse_git_tree_entries(b"100644 blob " + oid + b"\tbad-\xff\0")
+
+    def test_snapshot_cli_requires_exact_head_and_returns_git_contract(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-git-snapshot-") as temp:
+            root, head = self.make_git_repo(Path(temp))
+            missing = subprocess.run(
+                [sys.executable, str(SCRIPT), "--json", "snapshot", "--root", str(root)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn("--head", missing.stderr)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--json",
+                    "snapshot",
+                    "--root",
+                    str(root),
+                    "--head",
+                    head,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["contract"], engine.SNAPSHOT_CONTRACT)
+            self.assertEqual(payload["head"], head)
+            self.assertRegex(payload["sha256"], r"^[0-9a-f]{64}$")
 
 
 class PersistenceAndCliTests(StoreCase):

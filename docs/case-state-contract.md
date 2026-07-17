@@ -161,26 +161,51 @@ authorizes an external action.
 
 ## Canonical snapshot contract
 
-The snapshot contract identifier is `ccos-snapshot-v1`.
+The sole lifecycle snapshot contract is `ccos-git-snapshot-v1`. Candidate
+freeze and repaired-candidate completion reject every other contract.
 
-1. Enumerate regular files under the repository root.
-2. Exclude every path under `.git` and the explicit case-state data root.
-3. Reject symbolic links.
-4. Convert each repository-relative path to POSIX separators and normalize it
-   to Unicode Normalization Form C, or NFC.
-5. Reject unsafe paths and collisions created by normalization.
-6. Sort paths by their UTF-8 byte sequence, not by shell or locale ordering.
-7. Preserve file bytes exactly.
+Run `snapshot --root <exact-repository-root> --head <full-commit-SHA>`. The
+command requires a full 40-character commit hash and returns that exact `head`,
+the `contract`, the SHA-256 digest, and the tracked file count. It performs the
+following fail-closed checks:
+
+1. Resolve `--root` and require it to be the exact root of a non-bare Git
+   worktree.
+2. Require the current Git `HEAD` to equal `--head` before enumeration, after
+   object reads, and after the final cleanliness check.
+3. Require a clean worktree before and after enumeration. A dirty tracked file,
+   staged change, or nonignored untracked file fails the snapshot.
+4. Enumerate the committed tree at `--head` with NUL-delimited Git output.
+5. Accept only regular Git blobs with mode `100644` or `100755`. Reject symbolic
+   links, submodules, unsupported modes or object types, malformed paths,
+   malformed object identifiers, unsafe paths, and Unicode normalization
+   collisions.
+6. Read candidate bytes from immutable Git blob objects, never from mutable
+   worktree files. The implementation does not follow filesystem links or
+   resolve candidate paths outside the repository.
+7. Normalize each repository-relative Git path to Unicode Normalization Form C,
+   or NFC, and sort paths by their UTF-8 byte sequence.
 8. Hash this byte stream with SHA-256:
-   - literal bytes `CCOS-CASE-SNAPSHOT` followed by a zero byte
+   - literal bytes `CCOS-GIT-SNAPSHOT` followed by a zero byte
    - unsigned 64-bit big-endian length of the UTF-8 contract identifier
    - contract identifier bytes
    - unsigned 64-bit big-endian file count
-   - for each sorted file, unsigned 64-bit path length, path bytes, unsigned
-     64-bit file length, then file bytes
+   - for each sorted file, unsigned 64-bit path length and path bytes, unsigned
+     64-bit mode length and mode bytes, then unsigned 64-bit content length and
+     exact Git blob bytes
 
-The same entries therefore produce the same digest regardless of PowerShell,
-Python filesystem enumeration order, locale, or operating system.
+Ignored support data is not part of the committed Git tree. Changes under
+ignored `.code-review-graph/`, cache folders, generated review metadata,
+`node_modules/`, or the external case-state store therefore cannot change or
+reopen a frozen candidate. A nonignored untracked file fails instead of being
+silently omitted. Two clean worktrees at the same commit produce the same
+digest, while a committed content or executable-mode change produces a
+different digest.
+
+The older explicit-entry and mutable-filesystem hashing helpers remain only for
+compatibility and deterministic unit tests under `ccos-snapshot-v1`. That
+legacy identifier is not accepted by lifecycle transitions and must not be
+used for candidate freeze, repair completion, or closure evidence.
 
 ## Storage and locking
 
@@ -199,11 +224,12 @@ fake product manifest or classify the Coding OS product as defective.
 ## CLI surface
 
 Read-only commands are `store-status`, `show`, `list`, `resolve`,
-`action-check`, and `snapshot`. `store-status` supplies the exact store revision
-needed for safe registration. Branch `bind` and `resolve` commands require
-`--repository`. `action-check` requires `--actor-role` and accepts normalized
-repository, branch, worktree, pull request, thread, universal bundle, head, and
-blocked-case context. Lifecycle commands are `register`, `bind`, `start-implementation`,
+`action-check`, and exact-head Git-object `snapshot`. `store-status` supplies
+the exact store revision needed for safe registration. Branch `bind` and
+`resolve` commands require `--repository`. `action-check` requires
+`--actor-role` and accepts normalized repository, branch, worktree, pull
+request, thread, universal bundle, head, and blocked-case context. Lifecycle
+commands are `register`, `bind`, `start-implementation`,
 `freeze-candidate`, `start-review`, `add-finding`, `freeze-findings`,
 `close-without-blockers`, `authorize-repair`, `complete-repair`,
 `observe-heads`, `start-closure-preflight`, `verify-closure-preflight`,
