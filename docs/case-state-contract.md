@@ -1,0 +1,250 @@
+# Automation Case-State Contract
+
+The case-state engine keeps automated implementation, review, repair, and
+publication finite without disabling parent orchestration, child agents,
+parallel work, or GitHub automation.
+
+The canonical implementation is `scripts/agent/case_state.py`. Installed
+product-repository adapters call it at
+`~/.codex/coding-os/scripts/agent/case_state.py`. An adapter may honor
+`CODEX_CASE_ENGINE_PATH` only as an explicit test override. The default data
+root is `~/.codex/case-state`, outside the managed Coding OS installation.
+Tests may pass `--state-root` to isolate their state.
+
+Policy files, skills, prompts, and product-repository adapters must not copy the
+transition graph or maintain a second counter. They call the canonical engine
+and treat its JSON response as the machine authority.
+
+## Stable identity and bindings
+
+Every case has one lowercase canonical UUID. It is created explicitly. A new
+chat, task, thread, branch, worktree, pull request, or session counter cannot
+create a replacement case implicitly.
+
+The single atomic store contains both cases and the binding registry.
+Repository URLs are normalized, nonexclusive associations. Multiple cases may
+therefore perform unrelated work in the same repository. `resolve` returns all
+matching case identifiers for a repository and marks the result ambiguous when
+more than one exists. It never silently chooses one case as the owner.
+
+Branches are exclusive only as the exact normalized repository plus branch
+pair. The same branch name may be used in different repositories, and different
+branches may be used by different cases in the same repository. Worktree paths,
+pull requests, thread or task identifiers, and universal bundle identifiers are
+also exact exclusive bindings. An exclusive binding already owned by one case
+cannot be rebound to another case.
+
+Each mutation requires:
+
+- a unique request or event identifier
+- the exact expected case revision, or store revision for registration
+- a payload that remains identical if the request is retried
+
+An identical request is idempotent, which means that retrying it returns the
+original result without applying the mutation twice. Reusing the identifier
+with a different payload fails. A stale revision fails without changing state.
+
+## Finite lifecycle
+
+The only substantive lifecycle is:
+
+```text
+REGISTERED
+  -> IMPLEMENTING
+  -> CANDIDATE_FROZEN
+  -> REVIEW_COLLECTING
+  -> FINDINGS_FROZEN
+       -> CLOSED_SUCCESS                         when there are no blockers
+       -> REPAIR_AUTHORIZED                      when blockers exist
+          -> REPAIR_COMPLETE
+          -> CLOSURE_PREFLIGHT
+          -> CLOSURE_CHECK
+             -> CLOSED_SUCCESS
+             -> CASE_LOCKED
+```
+
+The hard limits for one case are:
+
+- one implementation generation
+- one review cohort
+- zero or one combined repair
+- zero or one substantive closure check
+- zero or one identical operational retry after a control failure
+
+`CONTROL_FAILURE` is an operational state, not a substantive review state. It
+preserves the prior state for one retry with the identical failure fingerprint.
+A repeated control failure after that retry locks this exact case.
+
+## Review and repair
+
+Reviewers submit findings only while the case is `REVIEW_COLLECTING`. Every
+finding requires a stable identifier, candidate, repository, exact reviewed
+commit SHA, source, description, and one classification:
+
+- `CURRENT_BLOCKER`
+- `NON_BLOCKING`
+- `INVALID_OR_STALE`
+- `REDESIGN_REQUIRED`
+- `CONTROL_FAILURE`
+
+A finding for a commit other than the frozen review head is recorded as
+`INVALID_OR_STALE`. It cannot authorize repair. The parent freezes the complete
+finding set once. Later findings remain visible but are marked late and
+non-authorizing.
+
+Repair requires an authority record and the exact full set of frozen
+`CURRENT_BLOCKER` identifiers. The candidate head may advance only once, as the
+single combined repair. Any other head drift locks only the affected case.
+
+Closure preflight verifies the frozen review heads, repaired heads, authorized
+blocker identifiers, exact repaired snapshot records, and absence of an
+unapproved blocker. Identity failure leaves the case in `CLOSURE_PREFLIGHT` and
+does not consume the closure check. The closure check can resolve only the
+authorized blocker identifiers. It cannot add a new finding or become another
+general review. A remaining blocker or repair regression locks the case.
+
+Tool, network, reviewer, hash, or protocol failure becomes `CONTROL_FAILURE`.
+It is not evidence that the product is defective.
+
+## Case-scoped action guard
+
+`action-check` uses protocol `ccos-case-action-v1`. Every response includes the
+store schema version, case identifier and state, action, actor role, current
+limits, normalized execution context, decision, stable reason code, and the
+separate-authority flag.
+
+The role and action separation is:
+
+- `parent`: `case_administration` only
+- `implementer_child`: `implementation` or `product_work`
+- `review_child`: `review_collection` or the one `closure_check`
+- `fix_child`: the one authorized `repair`
+- `publication_child`: `publication`, plus boundary validation for `merge`,
+  `deployment`, `release`, `credential_change`, and `universal_sync`
+
+Child execution requires an associated repository and at least one exact
+branch, worktree, pull request, thread, or universal bundle binding. Review,
+repair, closure, and publication also require the exact canonical head for the
+repository. Review uses the frozen review head. Repair, closure, and publication
+use the current head, which becomes the repaired head after the one authorized
+combined repair.
+
+`action-check` evaluates one target case and an optional exact locked case. A
+different UUID is not sufficient proof that work is unrelated. The guard
+compares exact exclusive bindings and supplied context. An exact branch,
+worktree, pull request, thread, universal bundle, or commit-head collision in
+the same repository remains blocked. A shared repository association alone is
+not an overlap, and an identical hash text in a different repository is not an
+overlap. A lock on one case therefore does not block an unrelated branch or
+unrelated product work in the same repository.
+
+A global emergency stop is outside this case engine and is reserved for
+credential compromise or uncontrolled concurrent mutation.
+
+Publication is eligible only from `CLOSED_SUCCESS`. Merge, deployment, release,
+credential changes, and universal synchronization are also ineligible before
+`CLOSED_SUCCESS`. Only the publication child can present one of those external
+actions to the guard. The guard first validates the role, exact associated
+repository, at least one exact exclusive case binding, case state, and current
+canonical head. Universal synchronization additionally requires the exact
+bound universal bundle. Only a fully valid context receives
+`SEPARATE_AUTHORITY_REQUIRED`. A role, repository, binding, state, or head
+failure receives its specific denial instead, so a malformed request cannot be
+misread as merely awaiting approval.
+
+`SEPARATE_AUTHORITY_REQUIRED` is always a denial, never an authorization.
+Merge, deployment, release, credential changes, and universal synchronization
+remain outside the case lifecycle and require separate human or run-envelope
+authority even after successful closure. The case store does not contain an
+external-authority grant record, and successful case closure alone never
+authorizes an external action.
+
+## Canonical snapshot contract
+
+The sole lifecycle snapshot contract is `ccos-git-snapshot-v1`. Candidate
+freeze and repaired-candidate completion reject every other contract.
+
+Every newly recorded lifecycle snapshot must retain the exact `contract`,
+`sha256`, and full 40-character Git `head`. The stored `head` must equal the
+candidate review or repaired head for that repository. Missing or mismatched
+heads are rejected. A frozen legacy `review_snapshots` record with exactly the
+older `contract` and `sha256` fields remains readable so an already active case
+can proceed through authorized repair and closure, but it is never backfilled or
+accepted for a new snapshot. Repaired snapshots always require `head`.
+
+Run `snapshot --root <exact-repository-root> --head <full-commit-SHA>`. The
+command requires a full 40-character commit hash and returns that exact `head`,
+the `contract`, the SHA-256 digest, and the tracked file count. It performs the
+following fail-closed checks:
+
+1. Resolve `--root` and require it to be the exact root of a non-bare Git
+   worktree.
+2. Require the current Git `HEAD` to equal `--head` before enumeration, after
+   object reads, and after the final cleanliness check.
+3. Require a clean worktree before and after enumeration. A dirty tracked file,
+   staged change, or nonignored untracked file fails the snapshot.
+4. Enumerate the committed tree at `--head` with NUL-delimited Git output.
+5. Accept only regular Git blobs with mode `100644` or `100755`. Reject symbolic
+   links, submodules, unsupported modes or object types, malformed paths,
+   malformed object identifiers, unsafe paths, and Unicode normalization
+   collisions.
+6. Read candidate bytes from immutable Git blob objects, never from mutable
+   worktree files. The implementation does not follow filesystem links or
+   resolve candidate paths outside the repository.
+7. Normalize each repository-relative Git path to Unicode Normalization Form C,
+   or NFC, and sort paths by their UTF-8 byte sequence.
+8. Hash this byte stream with SHA-256:
+   - literal bytes `CCOS-GIT-SNAPSHOT` followed by a zero byte
+   - unsigned 64-bit big-endian length of the UTF-8 contract identifier
+   - contract identifier bytes
+   - unsigned 64-bit big-endian file count
+   - for each sorted file, unsigned 64-bit path length and path bytes, unsigned
+     64-bit mode length and mode bytes, then unsigned 64-bit content length and
+     exact Git blob bytes
+
+Ignored support data is not part of the committed Git tree. Changes under
+ignored `.code-review-graph/`, cache folders, generated review metadata,
+`node_modules/`, or the external case-state store therefore cannot change or
+reopen a frozen candidate. A nonignored untracked file fails instead of being
+silently omitted. Two clean worktrees at the same commit produce the same
+digest, while a committed content or executable-mode change produces a
+different digest.
+
+The older explicit-entry and mutable-filesystem hashing helpers remain only for
+compatibility and deterministic unit tests under `ccos-snapshot-v1`. That
+legacy identifier is not accepted by lifecycle transitions and must not be
+used for candidate freeze, repair completion, or closure evidence.
+
+## Storage and locking
+
+The store is `case-state.json` and uses schema version 2. Each mutation takes an exclusive standard
+library lock. Windows uses `msvcrt.locking`; POSIX systems use `fcntl.flock`.
+The engine validates schema and limits before use, writes a complete temporary
+file, flushes it, and atomically replaces the store. Case and binding changes
+therefore cannot diverge or leave a partially written state.
+
+The clean Coding OS repository intentionally has no
+`docs/delivery/current-state.md`. If a product-style session-start helper is
+incorrectly applied to it, `start-helper-check` records
+`start_helper_missing_current_state` as `CONTROL_FAILURE`. It must not create a
+fake product manifest or classify the Coding OS product as defective.
+
+## CLI surface
+
+Read-only commands are `store-status`, `show`, `list`, `resolve`,
+`action-check`, and exact-head Git-object `snapshot`. `store-status` supplies
+the exact store revision needed for safe registration. Branch `bind` and
+`resolve` commands require `--repository`. `action-check` requires
+`--actor-role` and accepts normalized repository, branch, worktree, pull
+request, thread, universal bundle, head, and blocked-case context. Lifecycle
+commands are `register`, `bind`, `start-implementation`,
+`freeze-candidate`, `start-review`, `add-finding`, `freeze-findings`,
+`close-without-blockers`, `authorize-repair`, `complete-repair`,
+`observe-heads`, `start-closure-preflight`, `verify-closure-preflight`,
+`complete-closure-check`, `control-failure`, `retry-control`, and
+`start-helper-check`.
+
+Pass `--json` for adapter output. Exit code `0` means success. Exit code `2`
+means invalid input, a revision or binding conflict, a disallowed transition,
+an exhausted limit, failed authority, or failed preflight. Python tracebacks and
+other unexpected runtime failures retain the normal nonzero interpreter exit.

@@ -31,6 +31,8 @@
 | Capability-router hook candidate | `hooks/capability-router/`, `capability-index/` | Optional fail-open prompt hints backed by registry metadata for primary families, supporting families, source tools, and duplicate suppression without replacing `catalogue-router` |
 | Fresh-context review | `scripts/agent/fresh_context_review.py`, `templates/fresh-context-review.md` | Creates a detached review worktree for a clean commit and prints a paste-ready review prompt |
 | Parallel lane orchestration | `scripts/agent/worktree_lanes.py`, `hooks/worktree-lane-pre-commit.py`, `hooks/worktree-lane-pre-push.py` | Creates bounded worktrees only after approval and validates lane contracts before commit or push when hooks are enabled |
+| Repository-profile continuity | `.agents/skills/project-session-continuity/scripts/session_continuity.py` | Distinguishes product repositories from the strict Coding OS source profile and provides a read-only, non-authorizing reentry summary |
+| Typed validation evidence | `validation-evidence.schema.json`, `scripts/agent/validation_evidence.py`, `templates/validation-evidence.example.json` | Validates synthetic JSON evidence against the local repository identity, full Git head, and working-tree state without executing evidence commands or granting lifecycle authority |
 | CI and smoke test | `.github/workflows/validate.yml`, `tests/install-uninstall-smoke.ps1` | Runs validation, install/reinstall/uninstall test, and package build |
 | Command approval templates | `.codex/rules/default.rules`, `docs/codex-rules.md` | Optional Codex command policy for destructive commands, installs, migrations, deployments, and secret exposure |
 | MCP review | `docs/mcp-review-checklist.md` | Review gate for MCPs, connectors, and plugin-managed tools with sensitive permissions |
@@ -44,7 +46,7 @@
 | Technical build | `tdd.md`, `repo-docs-template.md` |
 | Agent instructions | `repo-AGENTS.md`, `scoped-AGENTS.md`, `CLAUDE.md`, `handoff-note.md` |
 | Parallel lanes | `worktree-task-contract.md`, `parallel-worktree-offer.md`, `parallel-lane-handoff.md` |
-| Validation | `review-checklist.md`, `fresh-context-review.md`, `validation-report.md` |
+| Validation | `review-checklist.md`, `fresh-context-review.md`, `validation-report.md`, `validation-evidence.example.json` |
 
 ## Default Codex capabilities to use when available
 

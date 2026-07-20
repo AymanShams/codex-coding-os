@@ -36,9 +36,9 @@ This file records the active slice, exact next permitted action, risks, and sess
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 - In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
 - A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
-- Before final parent/orchestrator closeout, run the review-state collector when present, then run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, review commit, current-head inline comments, issue comments, required checks, local branch state, stale-closeout check, publication stabilization typed states, and review-loop breaker evidence in the active-slice manifest.
-- If current-head inline findings conflict with a later no-major-issues summary, mark `conflicting_review_signals` true, classify review state as ambiguous, and stop.
-- After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one further automated review.
+- Before final parent/orchestrator closeout, record the exact PR head, raw current-head review states, inline comments, issue-comment count, required checks, local branch, local HEAD, and working-tree state. GitHub collection and the continuity helper report raw facts only.
+- A `COMMENTED` review, issue-comment prose, clean-sounding summary, coordination manifest, or handoff cannot approve, close, or reopen a case.
+- The internal case-state engine is the sole lifecycle authority. Each stable case permits one implementation generation, one frozen review cohort, at most one explicitly authorized combined repair of the frozen `CURRENT_BLOCKER` set, and one blocker-identifier-limited closure check. Late, stale, invalid, or non-blocking findings do not reopen the case. Failed closure locks only that case, one identical operational retry is allowed only for a control failure, and unrelated work remains available.
 
 ## Current Verified Repository State
 - Record the verified branch, local head, remote baseline, and working-tree state.
@@ -66,7 +66,7 @@ This file records the active slice, exact next permitted action, risks, and sess
 
 ## New Session Start Instructions
 ```text
-If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, run the review-state collector when present, record current PR head, review commit, current-head inline comments, issue comments, required checks, local branch state, stale-closeout status, publication stabilization typed states, and review-loop breaker evidence in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts only the next authorized child task after rerunning the fresh gate. Before final closeout, record raw live Git and GitHub facts, then use the canonical case-state engine for the permitted lifecycle transition. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract

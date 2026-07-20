@@ -69,6 +69,34 @@ foreach ($PatternInfo in $SecretPatterns) {
   }
 }
 
+$PublicInstallerPaths = @(
+  "install-bundle.manifest.json",
+  "universal",
+  "scripts\install_transaction.py",
+  "scripts\install.ps1",
+  "scripts\install.sh",
+  "scripts\uninstall.ps1",
+  "scripts\uninstall.sh",
+  "tests\test_install_transaction.py",
+  "tests\install-transaction-faults.ps1"
+)
+$PublicInstallerFiles = foreach ($Relative in $PublicInstallerPaths) {
+  $Path = Join-Path $RepoRoot $Relative
+  if (Test-Path $Path -PathType Leaf) { Get-Item -LiteralPath $Path }
+  elseif (Test-Path $Path -PathType Container) { Get-ChildItem -LiteralPath $Path -Recurse -File -Force }
+}
+$PrivateInstallerPatterns = @(
+  @{ name = "committed Windows absolute path"; pattern = "[A-Za-z]:[\\/](Users|DEV|Work)[\\/]" },
+  @{ name = "committed Unix home or temp path"; pattern = "(^|[\s`"'])/(Users|home|tmp|var|mnt|Volumes)/" },
+  @{ name = "generated local provenance"; pattern = '"(case_id|repo_root|transaction_id|installed_at)"\s*:\s*"[^<]' }
+)
+foreach ($PatternInfo in $PrivateInstallerPatterns) {
+  $Hits = $PublicInstallerFiles | Select-String -Pattern $PatternInfo.pattern -ErrorAction SilentlyContinue
+  foreach ($Hit in $Hits) {
+    $Errors += "Possible $($PatternInfo.name) in public installer file $($Hit.Path):$($Hit.LineNumber)"
+  }
+}
+
 $ParallelAuditRoot = Join-Path $RepoRoot "docs\delivery\parallel-worktrees"
 if (Test-Path $ParallelAuditRoot) {
   $AbsolutePathPatterns = @(

@@ -32,6 +32,22 @@ jobs:
         shell: pwsh
         run: .\tests\install-uninstall-smoke.ps1
 
+      - name: Test transactional install contract
+        shell: pwsh
+        run: python -B .\tests\test_install_transaction.py
+
+      - name: Test public installer documentation contract
+        shell: pwsh
+        run: python -B .\tests\test_public_install_docs.py
+
+      - name: Test transactional hard-crash recovery
+        shell: pwsh
+        run: .\tests\install-transaction-faults.ps1
+
+      - name: Regression test finite case-state engine
+        shell: pwsh
+        run: python -B .\tests\test_case_state_engine.py
+
       - name: Smoke test workflow gates
         shell: pwsh
         run: python .\tests\workflow-gates-smoke.py
@@ -39,6 +55,14 @@ jobs:
       - name: Smoke test worktree lanes
         shell: pwsh
         run: python .\tests\worktree-lanes-smoke.py
+
+      - name: Test finite case controls and continuity profiles
+        shell: pwsh
+        run: |
+          python -B .\tests\test_case_state_engine.py
+          python -B .\tests\test_source_repository_profile.py
+          python -B .\tests\test_validation_evidence.py
+          python -B .\tests\test_reentry_summary.py
 
       - name: Build release package
         shell: pwsh
@@ -71,6 +95,14 @@ jobs:
         shell: bash
         run: bash -n ./scripts/install.sh ./scripts/uninstall.sh ./tests/install-uninstall-smoke.sh
 
+      - name: Test transactional install contract
+        shell: bash
+        run: python -B ./tests/test_install_transaction.py
+
+      - name: Test public installer documentation contract
+        shell: bash
+        run: python -B ./tests/test_public_install_docs.py
+
       - name: Smoke test bash install and uninstall
         shell: bash
         run: bash ./tests/install-uninstall-smoke.sh
@@ -82,3 +114,11 @@ jobs:
       - name: Smoke test worktree lanes
         shell: bash
         run: python ./tests/worktree-lanes-smoke.py
+
+      - name: Test finite case controls and continuity profiles
+        shell: bash
+        run: |
+          python -B ./tests/test_case_state_engine.py
+          python -B ./tests/test_source_repository_profile.py
+          python -B ./tests/test_validation_evidence.py
+          python -B ./tests/test_reentry_summary.py

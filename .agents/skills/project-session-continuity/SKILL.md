@@ -7,6 +7,30 @@ description: Use when starting, resuming, ending, handing off, reviewing, mergin
 
 Keep project state inspectable across Codex, Claude, human, and other agent sessions. This skill coordinates delivery state only. It never overrides the project brief, controlled product docs, TDD, architecture decisions, security docs, API/schema contracts, or workflow manifest.
 
+## Repository Profiles
+
+Every command accepts `--profile auto`, `--profile product`, or
+`--profile coding-os-source` after the command name.
+
+- `product` applies the project delivery contract. It may read or create
+  `docs/delivery/current-state.md`,
+  `docs/delivery/active-slice-manifest.json`, and the workflow manifest as the
+  command requires.
+- `coding-os-source` applies only to the public Coding OS source repository. It
+  reads Git state and pack identity, never requires or creates product delivery
+  files, and never grants implementation or lifecycle authority.
+- `auto` selects `coding-os-source` only when all three source sentinels are
+  present: a parseable `pack.manifest.json` with
+  `package_name: codex-coding-os` and `release_status: public-release`,
+  `scripts/agent/case_state.py`, and
+  `.agents/skills/project-session-continuity/SKILL.md`. A partial or malformed
+  sentinel set blocks instead of guessing. Repositories without any source
+  sentinels use the `product` profile.
+
+Use `auto` normally. Use an explicit profile only when the caller has already
+verified the repository identity and wants fail-closed enforcement of that
+identity.
+
 ## Install Into A Project
 
 Copy `scripts/session_continuity.py` to `scripts/agent/session_continuity.py`.
@@ -17,6 +41,9 @@ Then run:
 python scripts/agent/session_continuity.py init
 python scripts/agent/session_continuity.py validate
 ```
+
+`init` and `repair` are product-profile commands. They refuse to create or
+modify product delivery files when the Coding OS source profile is detected.
 
 Use `py -3` instead of `python` on Windows when needed.
 
@@ -43,6 +70,25 @@ For every new or resumed non-trivial session:
 10. Confirm the requested task matches `next_action`, `next_slice`, and the active-slice manifest.
 
 The start gate must block an implementation next action unless the workflow manifest and active-slice manifest independently permit coding.
+
+For the Coding OS source repository, `start --start-new` blocks a dirty working
+tree and `start --continue-slice` reports the inspected dirty state without
+requiring product manifests. Neither result authorizes an implementation or a
+case transition.
+
+## Read-Only Reentry Summary
+
+Use the summary command to inspect reentry state without fetching, writing,
+creating a handoff, or triggering review:
+
+```text
+python scripts/agent/session_continuity.py summary --profile auto --json
+```
+
+For product repositories, the summary reads Git state, current-state front
+matter, and JSON manifests only. For the Coding OS source repository, it reads
+Git state plus the package name, version, and release status. Its output is
+display-only and never authorizes an action or lifecycle transition.
 
 ## Continue Current Session Only When
 
@@ -129,29 +175,22 @@ it, reruns the fresh gate, and continues only to the next independently authoriz
 child task. Do not dump a generic next-session prompt back to the user while the run
 envelope still authorizes continuation and thread or worktree tooling is available.
 
-Before a parent/orchestrator gives a final closeout, it must reconcile live state one
-last time. Run `python scripts/agent/session_continuity.py review-state --pr <number>`
-when the helper exists, then record the current PR head, review commit, current-head
-inline comments, issue comments, required checks, local branch state, stale-closeout
-status, publication stabilization evidence, and review-loop breaker evidence in
-`docs/delivery/active-slice-manifest.json`. Then run
-`python scripts/agent/session_continuity.py closeout-check`. Publication
-stabilization evidence must record PR body head metadata, reviewed-head evidence,
-exact review authority count, post-review-fix reconciliation status, and typed
-metadata-only PR body check retrigger state. `metadata_only_check_retrigger` must be
-`not_retriggered` or `retriggered_required_checks_passed`. `bounded_wait_result` must
-be `not_required_no_retrigger` or `completed_required_checks_success`. Free-text
-clean phrases are not closeout evidence. After any review-fix push, reconcile those
-fields before starting another review or publication child. If a metadata-only PR
-body edit retriggers a required check, bounded-poll only while code head, PR body
-head, reviewed-head evidence, and local HEAD remain equal. Stop if the check stays
-pending past the bound or any head, review, or check signal changes. If current-head
-inline findings conflict with a later no-major-issues summary, classify the review
-state as ambiguous and stop. After two automated review-fix rounds on the same PR,
-or after three findings in the same validator area, stop and require a batch
-root-cause analysis plus adversarial test matrix before authorizing exactly one
-further automated review. A direct deployment status or child summary does not
-override a pending required GitHub check or a current-head inline finding.
+Before a parent/orchestrator gives a final closeout, it must re-check the exact PR
+head, current-head review records, inline comments, issue comments, required checks,
+local branch, local HEAD, and working-tree state. The review-state collector and this
+continuity helper report raw facts only. A `COMMENTED` review, issue-comment prose,
+clean-sounding summary, coordination manifest, or handoff cannot approve or close a
+case. A direct deployment status or child summary does not override a pending
+required GitHub check or current-head inline finding.
+
+The internal case-state engine is the sole lifecycle authority. Each stable case
+permits one implementation generation, one frozen review cohort, at most one
+explicitly authorized combined repair of the frozen `CURRENT_BLOCKER` set, and one
+closure check limited to those blocker identifiers. Chat, branch, PR, counter,
+manifest, comment, handoff, or prose changes cannot authorize another generation.
+Late, stale, invalid, or non-blocking findings do not reopen the case. Failed closure
+locks only that case, one identical operational retry is allowed only for a control
+failure, and unrelated work remains available.
 
 The parent/orchestrator may inspect, assign, monitor, verify, reconcile, and report.
 It must not implement product code, merge, deploy, publish, choose unapproved slices,
@@ -215,9 +254,9 @@ thread mode.
 - The workflow manifest remains authoritative for phase status, open material decisions, and permission to code.
 - Decision records make material assumptions visible before code. A record with status `proposed` or `needs_human` blocks implementation when it is material.
 - Review state must be explicit. Use fields such as `review_required`, `review_status`, `reviewed_sha`, and `review_applies_to_active_slice`; never treat a retained marker string as review completion.
-- Parent/orchestrator final closeout requires a final-state reconciliation over current PR head, current-head inline comments, issue comments, required checks, local branch state, stale-closeout detection, publication stabilization typed states, and review-loop breaker evidence.
-- Conflicting GitHub review signals are blocking ambiguity. A current-head inline finding plus a later no-major-issues summary must stop until the finding is fixed, dismissed as stale with evidence, or explicitly resolved by the review authority.
-- Review-fix loops are hard stops. After two automated review-fix rounds on the same PR, or after three findings in the same validator area, stop for batch root-cause analysis and an adversarial test matrix before authorizing exactly one more automated review.
+- Parent/orchestrator final closeout records current PR head, raw current-head review and comment facts, required checks, local branch, local HEAD, and working-tree state as evidence for the canonical case engine. The continuity helper cannot pass lifecycle closure.
+- `COMMENTED` reviews, issue-comment prose, clean-sounding summaries, retained marker strings, and coordination artifacts are never approval or closure authority.
+- The canonical case engine enforces one implementation generation, one frozen review cohort, at most one authorized combined repair, and one blocker-ID-limited closure check. Failed closure locks only that case and unrelated work remains available.
 - Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, and local dirty state may narrow allowed actions or require reconciliation, but they must not create review, handoff, new-session, or process churn unless a mandatory gate independently blocks the requested outcome.
 - Same-slice status is not a review waiver. Before recommending review or no review, inspect the actual changed files and classify review need from diff risk, controlled-source risk, or explicit user instruction.
 - Treat the first-slice authorization false-negative case as the anti-loop review test case. Same-slice status must never waive review for authorization, role or permission enforcement, or protected-data behavior changes. Do not reopen a PR from coordination drift alone.

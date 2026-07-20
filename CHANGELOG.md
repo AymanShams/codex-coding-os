@@ -4,14 +4,52 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [0.9.0] - 2026-07-17
+
 ### Added
 
-- Added separate sequential manual and parent/orchestrator automation prompt templates.
-- Added a parent-orchestrator closeout reconciliation gate for current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale closeout detection.
+- Added strict product and Coding OS source repository profiles with fail-closed
+  automatic detection and embedded, asset, and generated-template parity tests.
+- Added a standard-library typed JSON validation-evidence schema, inert validator,
+  synthetic example, and identity, full-head, and working-tree checks.
+- Added a read-only reentry summary for product and Coding OS source repositories.
+- Added Windows, Ubuntu, and macOS CI coverage for the finite case-state engine,
+  repository profiles, typed evidence, and reentry summary.
+- Added one cross-platform transactional install and uninstall engine with durable
+  journals, exact bundle hashing, exclusive locking, finite crash recovery, and
+  version 3 local provenance.
+- Added marked universal policy migrations that preserve all bytes outside the
+  exact automation-policy and pull-request-merge authority blocks.
+- Added the `ccos-git-snapshot-v1` exact-head Git-object snapshot contract so
+  candidate identity comes only from committed regular-file modes and blob
+  bytes, with adversarial checks for drift, dirty state, unsafe entries, and
+  cross-worktree determinism.
 
 ### Changed
 
-- Treat conflicting GitHub review signals as blocking ambiguity when a current-head inline finding conflicts with a later no-major-issues summary.
+- Made the canonical case-state engine the sole lifecycle authority. Continuity,
+  review collectors, comments, prose, manifests, handoffs, and validation evidence
+  now report facts without authorizing a repair, closure, or reopen transition.
+- Bounded each case to one implementation generation, one frozen review cohort,
+  at most one explicitly authorized combined blocker repair, and one closure check
+  limited to the frozen blocker identifiers.
+- Kept failed closure and control failures scoped to the exact case so unrelated
+  product work remains available.
+- Preserved configuration, case state, plugins, and non-managed skills outside
+  the managed transaction inventory.
+- Limited rollback to one verified recovery attempt and fail closed when source,
+  ownership, bundle, policy, or rollback evidence does not match.
+- Made Git-tracked snapshots the sole lifecycle snapshot authority. Ignored
+  review metadata, caches, and dependency folders cannot change a frozen
+  candidate, while dirty tracked or nonignored untracked files fail closed.
+
+### Removed
+
+- Removed duplicate review-round and finding counters, prose-derived approval,
+  `COMMENTED`-as-approval behavior, clean-phrase authority, and coordination-file
+  unlocks.
 
 ## [0.8.4] - 2026-06-20
 

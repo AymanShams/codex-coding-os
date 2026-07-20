@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AymanShams/codex-coding-os/blob/main/validation-evidence.schema.json",
+  "title": "Codex Coding OS Validation Evidence",
+  "description": "Typed observations bound to one repository and exact commit. Validation does not assess claim truth or grant lifecycle authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "proof_type",
+    "result",
+    "scope",
+    "repository",
+    "exact_head",
+    "environment",
+    "authority",
+    "observations",
+    "proves",
+    "does_not_prove"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "evidence_id": { "type": "string", "minLength": 1 },
+    "proof_type": {
+      "enum": [
+        "COMMAND_EXIT",
+        "TEST_REPORT",
+        "STATIC_ANALYSIS",
+        "BUILD_ARTIFACT",
+        "MANUAL_OBSERVATION",
+        "GITHUB_REQUIRED_CHECK",
+        "GITHUB_REVIEW_RECORD",
+        "CANONICAL_SNAPSHOT"
+      ]
+    },
+    "result": { "enum": ["PASS", "FAIL", "BLOCKED", "NOT_RUN"] },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "targets"],
+      "properties": {
+        "kind": { "enum": ["REPOSITORY", "FILE_SET", "COMMAND", "CHECK", "REVIEW", "RUNTIME_BEHAVIOR"] },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "repository": { "type": "string", "minLength": 1 },
+    "exact_head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "runtimes", "working_tree"],
+      "properties": {
+        "platform": { "type": "string", "minLength": 1 },
+        "runtimes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "working_tree": { "enum": ["clean", "dirty"] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type", "reference", "scope"],
+      "properties": {
+        "source_type": {
+          "enum": ["USER_INSTRUCTION", "REPOSITORY_RULE", "RUN_ENVELOPE", "CI_WORKFLOW", "REVIEW_CONTRACT"]
+        },
+        "reference": { "type": "string", "minLength": 1 },
+        "scope": { "type": "string", "minLength": 1 }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "exit_code", "fact"],
+        "properties": {
+          "command": { "type": "string", "minLength": 1 },
+          "exit_code": { "type": "integer" },
+          "fact": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "proves": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "does_not_prove": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

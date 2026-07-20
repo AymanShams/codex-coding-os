@@ -1,0 +1,3 @@
+<!-- BEGIN CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->
+  - Automation-Preserving Case Orchestration Policy: Parent orchestration and child agents are enabled only inside an explicitly approved run envelope bound to one canonical case ID. The parent is administrative only. A case permits one implementation generation, one frozen-head review cohort, at most one explicitly authorized combined repair, and one closure check. A new chat, branch, worktree, pull request, commit counter, or child session cannot reset the case. The case-state engine is the lifecycle authority and prose files are mirrors. A stop or red lock is case-scoped and unrelated work remains available.
+<!-- END CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->

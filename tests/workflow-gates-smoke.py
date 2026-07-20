@@ -88,75 +88,30 @@ def assert_review_state_collector_fixture() -> None:
         }
     ]
     summary = module.summarize_current_head_review_state(pr, inline_comments)
-    if summary["pr_head"] != head:
-        raise AssertionError(summary)
-    if summary["review_commit"] != head:
+    if summary["pr_head"] != head or summary["review_commit"] != head:
         raise AssertionError(summary)
     if summary["current_head_review_records"] != 1:
         raise AssertionError(summary)
-    if summary["clean_summary_commit"] != "aaaaaaaaaa":
+    if summary["current_head_accepted_review_records"] != 0:
+        raise AssertionError("COMMENTED must never be accepted as approval")
+    if summary["issue_comment_count"] != 1 or summary["issue_comment_prose_assessed"] is not False:
+        raise AssertionError(summary)
+    if summary["lifecycle_authority"] is not False:
         raise AssertionError(summary)
     if summary["current_head_original_commit_comments"] != 1 or summary["current_head_commit_comments"] != 1:
         raise AssertionError(summary)
     if summary["current_head_inline_comments"] != 1:
         raise AssertionError(summary)
-    if len(summary["required_checks_blocking"]) != 0:
+    if summary["required_checks_blocking"]:
         raise AssertionError(summary)
-    review_blockers = module.review_state_blockers(summary)
-    if not any("current-head inline comments" in blocker for blocker in review_blockers):
-        raise AssertionError(review_blockers)
+
     required_blocking_summary = module.summarize_current_head_review_state(
-        {
-            **pr,
-            "requiredCheckRollup": [
-                {"name": "Vercel", "state": "PENDING"},
-            ],
-        },
+        {**pr, "requiredCheckRollup": [{"name": "Vercel", "state": "PENDING"}]},
         inline_comments,
     )
     if len(required_blocking_summary["required_checks_blocking"]) != 1:
         raise AssertionError(required_blocking_summary)
-    if summary["ambiguous"] is not True:
-        raise AssertionError(summary)
-    commit_only_summary = module.summarize_current_head_review_state(
-        pr,
-        [
-            {
-                "path": "scripts/agent/session_continuity.py",
-                "line": 2,
-                "original_commit_id": stale_head,
-                "commit_id": head,
-                "created_at": "2026-07-06T00:01:00Z",
-                "url": "https://example.invalid/inline-commit-only",
-            }
-        ],
-    )
-    if commit_only_summary["current_head_original_commit_comments"] != 0:
-        raise AssertionError(commit_only_summary)
-    if commit_only_summary["current_head_commit_comments"] != 1:
-        raise AssertionError(commit_only_summary)
-    if commit_only_summary["ambiguous"] is not True:
-        raise AssertionError(commit_only_summary)
-    if not any("current-head inline comments" in blocker for blocker in module.review_state_blockers(commit_only_summary)):
-        raise AssertionError(commit_only_summary)
-    inline_without_clean = module.summarize_current_head_review_state(
-        {**pr, "comments": []},
-        inline_comments,
-    )
-    if inline_without_clean["ambiguous"] is not False:
-        raise AssertionError(inline_without_clean)
-    if not any("current-head inline comments" in blocker for blocker in module.review_state_blockers(inline_without_clean)):
-        raise AssertionError(inline_without_clean)
-    no_review_blockers = module.review_state_blockers(
-        {
-            "current_head_review_records": 0,
-            "current_head_inline_comments": 0,
-            "ambiguous": False,
-            "required_checks_blocking": [],
-        }
-    )
-    if not any("current-head review record is missing" in blocker for blocker in no_review_blockers):
-        raise AssertionError(no_review_blockers)
+
     stale_inline_summary = module.summarize_current_head_review_state(
         pr,
         [
@@ -172,53 +127,50 @@ def assert_review_state_collector_fixture() -> None:
     )
     if stale_inline_summary["current_head_inline_comments"] != 0:
         raise AssertionError(stale_inline_summary)
-    if module.review_state_blockers(stale_inline_summary):
-        raise AssertionError(stale_inline_summary)
-    accepted_review_summary = module.summarize_current_head_review_state(
-        {**pr, "comments": [], "requiredCheckRollup": [{"name": "validate", "state": "SUCCESS"}]},
-        [],
-    )
-    if module.review_state_blockers(accepted_review_summary):
-        raise AssertionError(accepted_review_summary)
-    for bad_state in ("CHANGES_REQUESTED", "PENDING"):
-        bad_state_summary = module.summarize_current_head_review_state(
-            {
-                **pr,
-                "reviews": [
-                    {
-                        "commit": {"oid": head},
-                        "submittedAt": "2026-07-06T00:03:00Z",
-                        "state": bad_state,
-                        "author": {"login": "chatgpt-codex-connector"},
-                    }
-                ],
-                "comments": [],
-                "requiredCheckRollup": [{"name": "validate", "state": "SUCCESS"}],
-            },
-            [],
-        )
-        blockers = module.review_state_blockers(bad_state_summary)
-        if not any("review states are blocking" in blocker and bad_state in blocker for blocker in blockers):
-            raise AssertionError((bad_state, blockers))
-    dismissed_summary = module.summarize_current_head_review_state(
+
+    approved_summary = module.summarize_current_head_review_state(
         {
             **pr,
             "reviews": [
                 {
                     "commit": {"oid": head},
                     "submittedAt": "2026-07-06T00:03:00Z",
-                    "state": "DISMISSED",
-                    "author": {"login": "chatgpt-codex-connector"},
+                    "state": "APPROVED",
+                    "author": {"login": "synthetic-reviewer"},
                 }
             ],
             "comments": [],
-            "requiredCheckRollup": [{"name": "validate", "state": "SUCCESS"}],
         },
         [],
     )
-    dismissed_blockers = module.review_state_blockers(dismissed_summary)
-    if not any("no accepted state" in blocker and "DISMISSED" in blocker for blocker in dismissed_blockers):
-        raise AssertionError(dismissed_blockers)
+    if approved_summary["current_head_accepted_review_records"] != 1:
+        raise AssertionError(approved_summary)
+
+    conflict_summary = module.summarize_current_head_review_state(
+        {
+            **pr,
+            "reviews": [
+                {
+                    "commit": {"oid": head},
+                    "submittedAt": "2026-07-06T00:03:00Z",
+                    "state": "APPROVED",
+                    "author": {"login": "synthetic-reviewer-a"},
+                },
+                {
+                    "commit": {"oid": head},
+                    "submittedAt": "2026-07-06T00:04:00Z",
+                    "state": "CHANGES_REQUESTED",
+                    "author": {"login": "synthetic-reviewer-b"},
+                },
+            ],
+            "comments": [],
+        },
+        [],
+    )
+    if conflict_summary["typed_review_state_conflict"] is not True:
+        raise AssertionError(conflict_summary)
+    if hasattr(module, "review_state_blockers") or hasattr(module, "body_reports_no_major_issues"):
+        raise AssertionError("continuity helper must collect raw facts without lifecycle or prose authority")
     paginated_reviews = module.flatten_gh_paginated_json(
         [
             [
@@ -244,14 +196,7 @@ def assert_review_state_collector_fixture() -> None:
         raise AssertionError("paginated gh API fixtures were not flattened")
     pr_without_graphql_reviews = dict(pr)
     pr_without_graphql_reviews.pop("reviews", None)
-    pr_without_graphql_reviews["comments"] = [
-        {
-            "body": "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`",
-            "created_at": "2026-07-06T00:02:00Z",
-            "user": {"login": "chatgpt-codex-connector"},
-            "url": "https://example.invalid/comment",
-        }
-    ]
+    pr_without_graphql_reviews["comments"] = pr["comments"]
     api_summary = module.summarize_current_head_review_state(
         pr_without_graphql_reviews,
         paginated_inline,
@@ -261,7 +206,7 @@ def assert_review_state_collector_fixture() -> None:
         raise AssertionError(api_summary)
     if api_summary["review_commit"] != head:
         raise AssertionError(api_summary)
-    if api_summary["clean_summary_commit"] != "aaaaaaaaaa":
+    if api_summary["issue_comment_count"] != 1 or api_summary["issue_comment_prose_assessed"] is not False:
         raise AssertionError(api_summary)
 
 
@@ -450,15 +395,6 @@ def parent_closeout_reconciliation(
             "conflicting_review_signals": conflict,
             "stale_closeout_detected": stale,
             "publication_stabilization": publication_stabilization,
-            "review_loop_breaker": {
-                "status": "not_started",
-                "automated_review_fix_rounds": 0,
-                "max_automated_review_fix_rounds": 2,
-                "validator_area_findings": {},
-                "batch_rca_completed": False,
-                "adversarial_test_matrix_completed": False,
-                "next_review_authorized": False,
-            },
             "evidence": evidence or ["smoke closeout evidence"],
         }
     }
@@ -743,7 +679,7 @@ def main() -> int:
             },
         )
         parent_malformed_publication_stabilization_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "PARENT CLOSEOUT CHECK: FAIL" not in parent_malformed_publication_stabilization_block.stdout:
+        if "PARENT CLOSEOUT COORDINATION CHECK: FAIL" not in parent_malformed_publication_stabilization_block.stdout:
             raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
         if "publication_stabilization is missing metadata_only_check_retrigger" not in parent_malformed_publication_stabilization_block.stdout:
             raise AssertionError(parent_malformed_publication_stabilization_block.stdout)
@@ -797,9 +733,9 @@ def main() -> int:
             },
         )
         parent_metadata_retrigger_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.metadata_only_check_retrigger records blocker state" not in parent_metadata_retrigger_block.stdout:
+        if "publication_stabilization.metadata_only_check_retrigger must use exact typed state" not in parent_metadata_retrigger_block.stdout:
             raise AssertionError(parent_metadata_retrigger_block.stdout)
-        if "publication_stabilization.bounded_wait_result records blocker state" not in parent_metadata_retrigger_block.stdout:
+        if "publication_stabilization.bounded_wait_result must use exact typed state" not in parent_metadata_retrigger_block.stdout:
             raise AssertionError(parent_metadata_retrigger_block.stdout)
         write_active_slice(
             project,
@@ -823,9 +759,9 @@ def main() -> int:
             },
         )
         parent_stale_publication_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.metadata_only_check_retrigger records blocker state" not in parent_stale_publication_evidence_block.stdout:
+        if "publication_stabilization.metadata_only_check_retrigger must use exact typed state" not in parent_stale_publication_evidence_block.stdout:
             raise AssertionError(parent_stale_publication_evidence_block.stdout)
-        if "publication_stabilization.bounded_wait_result records blocker state" not in parent_stale_publication_evidence_block.stdout:
+        if "publication_stabilization.bounded_wait_result must use exact typed state" not in parent_stale_publication_evidence_block.stdout:
             raise AssertionError(parent_stale_publication_evidence_block.stdout)
         write_active_slice(
             project,
@@ -849,9 +785,9 @@ def main() -> int:
             },
         )
         parent_unknown_publication_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.metadata_only_check_retrigger must use accepted state" not in parent_unknown_publication_evidence_block.stdout:
+        if "publication_stabilization.metadata_only_check_retrigger must use exact typed state" not in parent_unknown_publication_evidence_block.stdout:
             raise AssertionError(parent_unknown_publication_evidence_block.stdout)
-        if "publication_stabilization.bounded_wait_result must use accepted state" not in parent_unknown_publication_evidence_block.stdout:
+        if "publication_stabilization.bounded_wait_result must use exact typed state" not in parent_unknown_publication_evidence_block.stdout:
             raise AssertionError(parent_unknown_publication_evidence_block.stdout)
         write_active_slice(
             project,
@@ -869,8 +805,10 @@ def main() -> int:
             },
         )
         parent_non_pr_evidence_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "explicit non-PR evidence" not in parent_non_pr_evidence_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_non_pr_evidence_block.stdout:
             raise AssertionError(parent_non_pr_evidence_block.stdout)
+        if "explicit non-PR evidence" in parent_non_pr_evidence_block.stdout:
+            raise AssertionError("free-text non-PR evidence must not be parsed as authority")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -904,8 +842,10 @@ def main() -> int:
             },
         )
         parent_pending_checks_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "required_checks records blocker state: pending" not in parent_pending_checks_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_pending_checks_block.stdout:
             raise AssertionError(parent_pending_checks_block.stdout)
+        if "records blocker state" in parent_pending_checks_block.stdout:
+            raise AssertionError("raw required-check text must not be parsed as lifecycle authority")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -920,8 +860,10 @@ def main() -> int:
             },
         )
         parent_actionable_findings_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "current_inline_comments records blocker state: open actionable findings" not in parent_actionable_findings_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_actionable_findings_block.stdout:
             raise AssertionError(parent_actionable_findings_block.stdout)
+        if "records blocker state" in parent_actionable_findings_block.stdout:
+            raise AssertionError("raw inline-comment text must not be parsed as lifecycle authority")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -962,9 +904,9 @@ def main() -> int:
             },
         )
         parent_negated_publication_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.metadata_only_check_retrigger must use accepted state" not in parent_negated_publication_block.stdout:
+        if "publication_stabilization.metadata_only_check_retrigger must use exact typed state" not in parent_negated_publication_block.stdout:
             raise AssertionError(parent_negated_publication_block.stdout)
-        if "publication_stabilization.bounded_wait_result must use accepted state" not in parent_negated_publication_block.stdout:
+        if "publication_stabilization.bounded_wait_result must use exact typed state" not in parent_negated_publication_block.stdout:
             raise AssertionError(parent_negated_publication_block.stdout)
         write_active_slice(
             project,
@@ -990,58 +932,6 @@ def main() -> int:
         parent_enum_publication_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "requires a clean live working tree before final closeout" not in parent_enum_publication_dirty_block.stdout:
             raise AssertionError(parent_enum_publication_dirty_block.stdout)
-        loop_triggered_without_rca = parent_closeout_reconciliation(
-            pr_head_sha=parent_live_head,
-            local_head_sha=parent_live_head,
-            local_branch_state="dirty",
-        )
-        loop_triggered_without_rca["parent_closeout_reconciliation"]["review_loop_breaker"] = {
-            "status": "blocked",
-            "automated_review_fix_rounds": 2,
-            "max_automated_review_fix_rounds": 2,
-            "validator_area_findings": {"publication_stabilization": 3},
-            "batch_rca_completed": False,
-            "adversarial_test_matrix_completed": False,
-            "next_review_authorized": False,
-        }
-        write_active_slice(
-            project,
-            ["docs/**", "src/**"],
-            extra={
-                **parent_automation_manifest_fields(project),
-                **loop_triggered_without_rca,
-            },
-        )
-        parent_review_loop_without_rca_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "review loop breaker triggered; batch RCA is required before another automated review" not in parent_review_loop_without_rca_block.stdout:
-            raise AssertionError(parent_review_loop_without_rca_block.stdout)
-        if "review loop breaker triggered; adversarial test matrix is required before another automated review" not in parent_review_loop_without_rca_block.stdout:
-            raise AssertionError(parent_review_loop_without_rca_block.stdout)
-        loop_triggered_with_rca = parent_closeout_reconciliation(
-            pr_head_sha=parent_live_head,
-            local_head_sha=parent_live_head,
-            local_branch_state="dirty",
-        )
-        loop_triggered_with_rca["parent_closeout_reconciliation"]["review_loop_breaker"] = {
-            "status": "pass",
-            "automated_review_fix_rounds": 2,
-            "max_automated_review_fix_rounds": 2,
-            "validator_area_findings": {"publication_stabilization": 3},
-            "batch_rca_completed": True,
-            "adversarial_test_matrix_completed": True,
-            "next_review_authorized": True,
-        }
-        write_active_slice(
-            project,
-            ["docs/**", "src/**"],
-            extra={
-                **parent_automation_manifest_fields(project),
-                **loop_triggered_with_rca,
-            },
-        )
-        parent_review_loop_with_rca_dirty_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "requires a clean live working tree before final closeout" not in parent_review_loop_with_rca_dirty_block.stdout:
-            raise AssertionError(parent_review_loop_with_rca_dirty_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1064,10 +954,10 @@ def main() -> int:
             },
         )
         parent_authority_placeholder_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_placeholder_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_authority_placeholder_block.stdout:
             raise AssertionError(parent_authority_placeholder_block.stdout)
-        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_placeholder_block.stdout:
-            raise AssertionError(parent_authority_placeholder_block.stdout)
+        if "must record the exact" in parent_authority_placeholder_block.stdout:
+            raise AssertionError("free-text authority placeholders must not be interpreted")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1090,10 +980,10 @@ def main() -> int:
             },
         )
         parent_authority_not_applicable_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_not_applicable_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_authority_not_applicable_block.stdout:
             raise AssertionError(parent_authority_not_applicable_block.stdout)
-        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_not_applicable_block.stdout:
-            raise AssertionError(parent_authority_not_applicable_block.stdout)
+        if "must record the exact" in parent_authority_not_applicable_block.stdout:
+            raise AssertionError("free-text authority labels must not be interpreted")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1118,8 +1008,6 @@ def main() -> int:
         parent_authority_type_and_zero_block = run([python, str(local_continuity), "closeout-check"], project, 1)
         if "publication_stabilization.review_authority must be text" not in parent_authority_type_and_zero_block.stdout:
             raise AssertionError(parent_authority_type_and_zero_block.stdout)
-        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_type_and_zero_block.stdout:
-            raise AssertionError(parent_authority_type_and_zero_block.stdout)
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1142,10 +1030,10 @@ def main() -> int:
             },
         )
         parent_authority_zero_review_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.review_authority must record the exact current-head review authority" not in parent_authority_zero_review_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_authority_zero_review_block.stdout:
             raise AssertionError(parent_authority_zero_review_block.stdout)
-        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_zero_review_block.stdout:
-            raise AssertionError(parent_authority_zero_review_block.stdout)
+        if "must record the exact" in parent_authority_zero_review_block.stdout:
+            raise AssertionError("free-text review counts must not be interpreted")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1168,8 +1056,10 @@ def main() -> int:
             },
         )
         parent_authority_copied_id_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "publication_stabilization.review_authority_count must record the exact required review count" not in parent_authority_copied_id_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_authority_copied_id_block.stdout:
             raise AssertionError(parent_authority_copied_id_block.stdout)
+        if "review_authority_count must record" in parent_authority_copied_id_block.stdout:
+            raise AssertionError("free-text review counts must not be interpreted as lifecycle authority")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1184,8 +1074,10 @@ def main() -> int:
             },
         )
         parent_mixed_clean_blocker_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "current_inline_comments records blocker state: no open comments but unresolved finding" not in parent_mixed_clean_blocker_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_mixed_clean_blocker_block.stdout:
             raise AssertionError(parent_mixed_clean_blocker_block.stdout)
+        if "records blocker state" in parent_mixed_clean_blocker_block.stdout:
+            raise AssertionError("mixed prose must not be interpreted as lifecycle authority")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1200,8 +1092,10 @@ def main() -> int:
             },
         )
         parent_pr_not_applicable_block = run([python, str(local_continuity), "closeout-check"], project, 1)
-        if "issue_comments may be not_applicable only for non-PR closeout" not in parent_pr_not_applicable_block.stdout:
+        if "requires a clean live working tree before final closeout" not in parent_pr_not_applicable_block.stdout:
             raise AssertionError(parent_pr_not_applicable_block.stdout)
+        if "may be not_applicable" in parent_pr_not_applicable_block.stdout:
+            raise AssertionError("raw issue-comment text must not be interpreted")
         write_active_slice(
             project,
             ["docs/**", "src/**"],
@@ -1427,11 +1321,10 @@ def main() -> int:
                 raise AssertionError(f"sequential manual prompt template is missing {required}")
         for required in (
             "parent_orchestrator",
-            "closeout-check",
             "current PR head",
-            "conflicting_review_signals",
-            "publication stabilization evidence",
-            "metadata-only PR body edit",
+            "case-state engine",
+            "CURRENT_BLOCKER",
+            "raw current-head review states",
         ):
             if required not in parent_prompt:
                 raise AssertionError(f"parent orchestrator prompt template is missing {required}")
@@ -1443,7 +1336,7 @@ def main() -> int:
             "intermediate child handoff",
             "do not run `closeout-check`",
             "parent consumes the handoff internally",
-            "stabilization evidence",
+            "sole lifecycle authority",
         ):
             if required not in continuity_skill:
                 raise AssertionError(f"project-session-continuity skill is missing {required}")
@@ -1452,20 +1345,19 @@ def main() -> int:
                 encoding="utf-8"
             )
         )
-        breaker = active_template.get("parent_closeout_reconciliation", {}).get("review_loop_breaker")
-        if not isinstance(breaker, dict):
-            raise AssertionError("active-slice manifest template is missing review_loop_breaker")
-        for required in (
-            "status",
+        mirror = active_template.get("case_state_mirror")
+        if not isinstance(mirror, dict):
+            raise AssertionError("active-slice manifest template is missing case_state_mirror")
+        if mirror.get("mirror_only") is not True or mirror.get("lifecycle_authority") is not False:
+            raise AssertionError("active-slice manifest case_state_mirror must be display-only")
+        forbidden_lifecycle_counters = {
             "automated_review_fix_rounds",
             "max_automated_review_fix_rounds",
             "validator_area_findings",
-            "batch_rca_completed",
-            "adversarial_test_matrix_completed",
             "next_review_authorized",
-        ):
-            if required not in breaker:
-                raise AssertionError(f"active-slice manifest template review_loop_breaker is missing {required}")
+        }
+        if forbidden_lifecycle_counters & set(json.dumps(active_template).split('"')):
+            raise AssertionError("active-slice manifest must not duplicate case-engine lifecycle counters")
 
     with tempfile.TemporaryDirectory(prefix="coding-os-legacy-non-parent-") as temp:
         project = Path(temp)

@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import fnmatch
 import json
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -73,82 +73,9 @@ READY_TO_CODE = {"approved", "completed"}
 REVIEW_STATUSES = {"not_started", "pending", "approved", "changes_required", "bypassed", "not_required"}
 AUTOMATION_MODES = {"off", "sequential_manual", "parent_orchestrator"}
 PARENT_CLOSEOUT_STATUSES = {"not_started", "pass", "blocked", "ambiguous", "not_applicable"}
-ACCEPTED_CURRENT_HEAD_REVIEW_STATES = {"APPROVED", "COMMENTED"}
+ACCEPTED_CURRENT_HEAD_REVIEW_STATES = {"APPROVED"}
 BLOCKING_CURRENT_HEAD_REVIEW_STATES = {"CHANGES_REQUESTED", "PENDING"}
 NON_AUTHORITY_CURRENT_HEAD_REVIEW_STATES = {"DISMISSED"}
-PARENT_CLOSEOUT_SIGNAL_PASS_VALUES = {
-    "current_inline_comments": {
-        "pass",
-        "clean",
-        "none",
-        "none_current_head",
-        "none_current_head_comments",
-        "none_current_head_findings",
-        "no_actionable_findings",
-        "no_current_head_findings",
-        "no_current_head_inline_comments",
-        "no_current_head_open_comments",
-        "no_current_head_open_findings",
-        "no_current_head_open_inline_comments",
-        "no_current_head_unresolved_comments",
-        "no_current_head_unresolved_findings",
-        "no_open_comments",
-        "no_open_findings",
-        "no_open_inline_comments",
-        "no_unresolved_comments",
-        "no_unresolved_findings",
-        "no_unresolved_inline_comments",
-        "resolved",
-    },
-    "issue_comments": {
-        "pass",
-        "clean",
-        "latest_review_clean",
-        "no_actionable_comments",
-        "no_blocking_comments",
-        "no_open_comments",
-        "no_open_issue_comments",
-        "no_unresolved_comments",
-        "no_unresolved_issue_comments",
-        "none",
-        "resolved",
-    },
-    "required_checks": {
-        "pass",
-        "passed",
-        "success",
-        "successful",
-        "all_required_checks_passed",
-        "all_required_checks_success",
-        "all_checks_success",
-        "all_success",
-        "checks_success",
-        "required_checks_passed",
-        "required_checks_success",
-        "green",
-    },
-}
-PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS = {
-    "actionable",
-    "block",
-    "blocked",
-    "blocking",
-    "cancelled",
-    "changes_required",
-    "error",
-    "fail",
-    "failed",
-    "failure",
-    "in_progress",
-    "missing",
-    "not_run",
-    "open",
-    "pending",
-    "queued",
-    "review_required",
-    "timed_out",
-    "unresolved",
-}
 PUBLICATION_STABILIZATION_FIELDS = (
     "post_review_fix_reconciled",
     "pr_body_head_sha",
@@ -158,18 +85,6 @@ PUBLICATION_STABILIZATION_FIELDS = (
     "metadata_only_check_retrigger",
     "bounded_wait_result",
 )
-REVIEW_LOOP_BREAKER_FIELDS = (
-    "status",
-    "automated_review_fix_rounds",
-    "max_automated_review_fix_rounds",
-    "validator_area_findings",
-    "batch_rca_completed",
-    "adversarial_test_matrix_completed",
-    "next_review_authorized",
-)
-REVIEW_LOOP_BREAKER_STATUSES = {"not_started", "pass", "blocked", "not_applicable"}
-REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS = 2
-REVIEW_LOOP_MAX_VALIDATOR_AREA_FINDINGS = 3
 PUBLICATION_STABILIZATION_PASS_STATES = {
     "metadata_only_check_retrigger": {
         "not_retriggered",
@@ -179,142 +94,6 @@ PUBLICATION_STABILIZATION_PASS_STATES = {
         "not_required_no_retrigger",
         "completed_required_checks_success",
     },
-}
-PUBLICATION_STABILIZATION_BAD_VALUES = {
-    "",
-    "unknown",
-    "not_checked",
-    "not_applicable",
-    "not_required",
-    "pending",
-    "in_progress",
-    "queued",
-    "stale",
-    "unstable",
-    "cancelled",
-    "canceled",
-    "error",
-    "failed",
-    "failure",
-    "not_run",
-    "changes_required",
-    "timed_out",
-    "timeout",
-    "blocked",
-    "ambiguous",
-}
-PUBLICATION_STABILIZATION_AUTHORITY_BAD_VALUES = PUBLICATION_STABILIZATION_BAD_VALUES | {
-    "not_applicable",
-    "none",
-    "zero",
-}
-PUBLICATION_STABILIZATION_BLOCKER_MARKERS = (
-    "pending",
-    "in_progress",
-    "not_checked",
-    "not_applicable",
-    "not_required",
-    "queued",
-    "stale",
-    "unstable",
-    "cancelled",
-    "canceled",
-    "error",
-    "failed",
-    "failure",
-    "not_run",
-    "changes_required",
-    "timed_out",
-    "timeout",
-    "blocked",
-    "ambiguous",
-    "unresolved",
-)
-PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS = {
-    "metadata_only_check_retrigger": {
-        "body",
-        "after",
-        "blocked",
-        "check",
-        "checks",
-        "did",
-        "edit",
-        "metadata",
-        "only",
-        "pending",
-        "pr",
-        "retrigger",
-        "retriggered",
-        "retriggering",
-    },
-    "bounded_wait_result": {
-        "after",
-        "blocked",
-        "bounded",
-        "check",
-        "checks",
-        "completed",
-        "out",
-        "pending",
-        "required",
-        "timed",
-        "timeout",
-        "wait",
-        "with",
-    },
-}
-PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS = {
-    "blocked",
-    "pending",
-    "retrigger",
-    "retriggered",
-    "retriggering",
-    "timed",
-    "timeout",
-}
-PARENT_CLOSEOUT_SIGNAL_NEGATIONS = {"no", "none", "not", "zero", "without"}
-PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS = {
-    "current_inline_comments": {
-        "actionable",
-        "blocker",
-        "blockers",
-        "blocking",
-        "comment",
-        "comments",
-        "current",
-        "finding",
-        "findings",
-        "head",
-        "inline",
-        "open",
-        "review",
-        "reviews",
-        "unresolved",
-    },
-    "issue_comments": {
-        "actionable",
-        "blocker",
-        "blockers",
-        "blocking",
-        "comment",
-        "comments",
-        "issue",
-        "issues",
-        "open",
-        "review",
-        "reviews",
-        "unresolved",
-    },
-}
-PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_NOUNS = {
-    "comment",
-    "comments",
-    "finding",
-    "findings",
-    "issue",
-    "issues",
-    "review",
-    "reviews",
 }
 RUN_ENVELOPE_FIELDS = {
     "repo",
@@ -407,7 +186,7 @@ last_handoff: none
 # Current Delivery State
 
 ## Purpose
-This file records coordination state only. Controlling product and technical sources and the workflow manifest remain authoritative.
+This file records the active slice, exact next permitted action, risks, and session-boundary decision. It is not a product, architecture, API, schema, data, or security authority. Correct this file when it conflicts with controlling sources.
 
 ## Active Slice Manifest
 - The current permission boundary is `docs/delivery/active-slice-manifest.json`.
@@ -418,11 +197,12 @@ This file records coordination state only. Controlling product and technical sou
 - Governed repo closeout must include `Recommended Next Action` and, when review, handoff, or new-session state is active or requested, the complete paste-ready prompt or an explicit statement that no prompt is required.
 - In approved parent-orchestrator automation, child handoffs are internal transition artifacts for the parent unless a stop condition fires.
 - A parent/orchestrator session may coordinate, verify, assign, reconcile, and report. It must not implement product code, merge, deploy, or publish directly.
-- Before final parent/orchestrator closeout, run `python scripts/agent/session_continuity.py closeout-check` after recording the current PR head, current-head inline comments, issue comments, required checks, local branch state, and stale-closeout check in the active-slice manifest.
-- If current-head inline findings conflict with a later no-major-issues summary, mark `conflicting_review_signals` true, classify review state as ambiguous, and stop.
+- Before final parent/orchestrator closeout, record the exact PR head, raw current-head review states, inline comments, issue-comment count, required checks, local branch, local HEAD, and working-tree state. GitHub collection and the continuity helper report raw facts only.
+- A `COMMENTED` review, issue-comment prose, clean-sounding summary, coordination manifest, or handoff cannot approve, close, or reopen a case.
+- The internal case-state engine is the sole lifecycle authority. Each stable case permits one implementation generation, one frozen review cohort, at most one explicitly authorized combined repair of the frozen `CURRENT_BLOCKER` set, and one blocker-identifier-limited closure check. Late, stale, invalid, or non-blocking findings do not reopen the case. Failed closure locks only that case, one identical operational retry is allowed only for a control failure, and unrelated work remains available.
 
 ## Current Verified Repository State
-- Record the verified branch, remote baseline, and working-tree state.
+- Record the verified branch, local head, remote baseline, and working-tree state.
 
 ## Active Work
 - Record the bounded slice currently in progress.
@@ -447,11 +227,11 @@ This file records coordination state only. Controlling product and technical sou
 
 ## New Session Start Instructions
 ```text
-If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts the next authorized child task after rerunning the fresh gate. Before final parent closeout, record current PR head, current-head inline comments, issue comments, required checks, local branch state, stale-closeout status, and publication stabilization evidence in the active-slice manifest, then run `python scripts/agent/session_continuity.py closeout-check`. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
+If `automation_mode` is `parent_orchestrator` and `handoff_target` is `parent`, the parent consumes the latest handoff and starts only the next authorized child task after rerunning the fresh gate. Before final closeout, record raw live Git and GitHub facts, then use the canonical case-state engine for the permitted lifecycle transition. Otherwise paste the latest handoff's next-session prompt into a new Codex chat. First run the project session-start gate. Then read current state, its latest handoff, the workflow manifest, and controlling sources. Continue only from the exact next permitted action and stop if the workflow manifest blocks it.
 ```
 
 ## Update Contract
-Update this file when active work, next action, risks, blockers, latest handoff, or session-boundary decisions change.
+Update this file when the active slice, next action, risks, blockers, review state, permission manifest, latest handoff, or session-boundary decision changes. Do not copy chat history into this file.
 """
 
 DEFAULT_ACTIVE_SLICE_MANIFEST = {
@@ -531,16 +311,14 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
             "metadata_only_check_retrigger": "not_checked",
             "bounded_wait_result": "not_checked",
         },
-        "review_loop_breaker": {
-            "status": "not_started",
-            "automated_review_fix_rounds": 0,
-            "max_automated_review_fix_rounds": 2,
-            "validator_area_findings": {},
-            "batch_rca_completed": False,
-            "adversarial_test_matrix_completed": False,
-            "next_review_authorized": False,
-        },
         "evidence": [],
+    },
+    "case_state_mirror": {
+        "protocol_version": 1,
+        "stable_case_id": "not_registered",
+        "canonical_store": "user-codex-case-state",
+        "mirror_only": True,
+        "lifecycle_authority": False,
     },
     "source_authority": [
         "project-documentation-manifest.json",
@@ -582,6 +360,81 @@ DEFAULT_ACTIVE_SLICE_MANIFEST = {
         "Stop immediately if the user says to stop.",
     ],
 }
+
+
+PROFILE_CHOICES = {"auto", "product", "coding-os-source"}
+SOURCE_PACKAGE_NAME = "codex-coding-os"
+SOURCE_RELEASE_STATUS = "public-release"
+SOURCE_SENTINEL_PATHS = (
+    Path("scripts/agent/case_state.py"),
+    Path(".agents/skills/project-session-continuity/SKILL.md"),
+)
+
+
+class ProfileError(ValueError):
+    """A fail-closed repository profile mismatch."""
+
+
+def inspect_source_sentinels(root: Path | None = None) -> dict[str, object]:
+    root = (root or Path.cwd()).resolve()
+    pack_path = root / "pack.manifest.json"
+    pack_present = pack_path.is_file()
+    pack_valid = False
+    pack_error = ""
+    if pack_present:
+        try:
+            pack = json.loads(pack_path.read_text(encoding="utf-8"))
+            pack_valid = (
+                isinstance(pack, dict)
+                and pack.get("package_name") == SOURCE_PACKAGE_NAME
+                and pack.get("release_status") == SOURCE_RELEASE_STATUS
+            )
+            if not pack_valid:
+                pack_error = "pack.manifest.json does not identify the public Codex Coding OS package"
+        except (OSError, json.JSONDecodeError) as exc:
+            pack_error = f"pack.manifest.json is not parseable: {exc}"
+    file_matches = {path.as_posix(): (root / path).is_file() for path in SOURCE_SENTINEL_PATHS}
+    any_present = pack_present or any(file_matches.values())
+    all_match = pack_valid and all(file_matches.values())
+    return {
+        "root": root,
+        "pack_present": pack_present,
+        "pack_valid": pack_valid,
+        "pack_error": pack_error,
+        "file_matches": file_matches,
+        "any_present": any_present,
+        "all_match": all_match,
+    }
+
+
+def resolve_profile(requested: str, root: Path | None = None) -> str:
+    if requested not in PROFILE_CHOICES:
+        raise ProfileError(f"unknown profile: {requested}")
+    sentinels = inspect_source_sentinels(root)
+    if requested == "coding-os-source":
+        if not sentinels["all_match"]:
+            raise ProfileError("coding-os-source profile requires every exact Coding OS source sentinel")
+        return "coding-os-source"
+    if requested == "product":
+        if sentinels["any_present"]:
+            raise ProfileError(
+                "product profile is refused because Coding OS source sentinels are present; "
+                "use coding-os-source only after all sentinels match"
+            )
+        return "product"
+    if sentinels["all_match"]:
+        return "coding-os-source"
+    if sentinels["any_present"]:
+        detail = sentinels["pack_error"] or "one or more required sentinel files are missing"
+        raise ProfileError(f"partial Coding OS source sentinels fail closed: {detail}")
+    return "product"
+
+
+def require_product_profile(args: argparse.Namespace, operation: str) -> bool:
+    if getattr(args, "detected_profile", "product") == "product":
+        return True
+    print(f"ERROR: coding-os-source profile refuses product coordination files and the {operation} operation")
+    return False
 
 
 def run_git(*args: str, check: bool = False) -> str:
@@ -657,28 +510,6 @@ def current_repo_name_with_owner() -> str:
     if not isinstance(data, dict) or not isinstance(data.get("nameWithOwner"), str):
         raise RuntimeError("cannot resolve current GitHub repository")
     return data["nameWithOwner"]
-
-
-def reviewed_commit_from_body(body: str) -> str | None:
-    for pattern in (
-        r"Reviewed commit:\*{0,2}\s*`?([0-9a-f]{7,40})",
-        r"Reviewed SHA:\*{0,2}\s*`?([0-9a-f]{7,40})",
-        r"Reviewed current PR head:\*{0,2}\s*`?([0-9a-f]{7,40})",
-    ):
-        match = re.search(pattern, body, re.IGNORECASE)
-        if match:
-            return match.group(1).lower()
-    return None
-
-
-def body_reports_no_major_issues(body: str) -> bool:
-    normalized = body.lower()
-    return (
-        "no major issues" in normalized
-        or "didn't find any major issues" in normalized
-        or "didn’t find any major issues" in normalized
-        or "did not find any major issues" in normalized
-    )
 
 
 def check_summary(check: dict[str, object]) -> dict[str, object]:
@@ -770,27 +601,6 @@ def summarize_current_head_review_state(
     current_head_non_authority_review_states = [
         state for state in current_head_review_states if state in NON_AUTHORITY_CURRENT_HEAD_REVIEW_STATES
     ]
-    clean_summaries = []
-    for comment in issue_comments:
-        body = str(comment.get("body") or "")
-        reviewed_commit = reviewed_commit_from_body(body)
-        if reviewed_commit and body_reports_no_major_issues(body):
-            author = comment.get("user") if isinstance(comment.get("user"), dict) else comment.get("author")
-            if not isinstance(author, dict):
-                author = {}
-            clean_summaries.append(
-                {
-                    "clean_summary_commit": reviewed_commit,
-                    "created_at": comment.get("created_at") or comment.get("createdAt"),
-                    "author": author.get("login"),
-                    "url": comment.get("url"),
-                    "current_head": head.lower().startswith(reviewed_commit) or reviewed_commit == head.lower(),
-                }
-            )
-    latest_current_clean = next(
-        (item for item in sorted(clean_summaries, key=lambda item: str(item.get("created_at") or ""), reverse=True) if item["current_head"]),
-        None,
-    )
     inline_report = [
         {
             "path": comment.get("path"),
@@ -807,10 +617,7 @@ def summarize_current_head_review_state(
     ]
     current_commit = [comment for comment in inline_report if str(comment.get("commit_id") or "").lower() == head.lower()]
     current_head_inline = dedupe_inline_comments(current_original + current_commit)
-    ambiguity = False
-    if latest_current_clean and current_head_inline:
-        clean_created = str(latest_current_clean.get("created_at") or "")
-        ambiguity = any(str(comment.get("created_at") or "") <= clean_created for comment in current_head_inline)
+    typed_review_state_conflict = bool(current_head_accepted_reviews and current_head_blocking_review_states)
     check_source = pr.get("requiredCheckRollup") if isinstance(pr.get("requiredCheckRollup"), list) else pr.get("statusCheckRollup", [])
     checks = [check_summary(check) for check in check_source if isinstance(check, dict)]
     return {
@@ -821,68 +628,17 @@ def summarize_current_head_review_state(
         "current_head_review_states": current_head_review_states,
         "current_head_blocking_review_states": sorted(set(current_head_blocking_review_states)),
         "current_head_non_authority_review_states": sorted(set(current_head_non_authority_review_states)),
-        "clean_summary_commit": latest_current_clean.get("clean_summary_commit") if latest_current_clean else None,
-        "current_head_clean_summary": bool(latest_current_clean),
+        "issue_comment_count": len(issue_comments),
         "inline_comments": inline_report,
         "current_head_original_commit_comments": len(current_original),
         "current_head_commit_comments": len(current_commit),
         "current_head_inline_comments": len(current_head_inline),
         "required_checks": checks,
         "required_checks_blocking": [check for check in checks if check["blocking"]],
-        "ambiguous": ambiguity,
+        "typed_review_state_conflict": typed_review_state_conflict,
+        "issue_comment_prose_assessed": False,
+        "lifecycle_authority": False,
     }
-
-
-def review_state_blockers(summary: dict[str, object]) -> list[str]:
-    blockers: list[str] = []
-    try:
-        current_head_review_records = int(summary.get("current_head_review_records") or 0)
-    except (TypeError, ValueError):
-        current_head_review_records = 0
-    try:
-        current_head_accepted_reviews = int(summary.get("current_head_accepted_review_records") or 0)
-    except (TypeError, ValueError):
-        current_head_accepted_reviews = 0
-    if current_head_review_records <= 0:
-        blockers.append("current-head review record is missing")
-    else:
-        blocking_states = summary.get("current_head_blocking_review_states")
-        if isinstance(blocking_states, list) and blocking_states:
-            blockers.append(f"current-head review states are blocking: {', '.join(str(state) for state in blocking_states)}")
-        if current_head_accepted_reviews <= 0:
-            states = summary.get("current_head_review_states")
-            state_label = ", ".join(str(state or "UNKNOWN") for state in states) if isinstance(states, list) else "UNKNOWN"
-            blockers.append(f"current-head review authority has no accepted state: {state_label}")
-
-    inline_value = summary.get("current_head_inline_comments")
-    if inline_value is None:
-        try:
-            inline_count = max(
-                int(summary.get("current_head_original_commit_comments") or 0),
-                int(summary.get("current_head_commit_comments") or 0),
-            )
-        except (TypeError, ValueError):
-            inline_count = 0
-    else:
-        try:
-            inline_count = int(inline_value or 0)
-        except (TypeError, ValueError):
-            inline_count = 0
-    if inline_count > 0:
-        blockers.append(f"current-head inline comments are present: {inline_count}")
-
-    if summary.get("ambiguous") is True:
-        blockers.append("current-head review state is ambiguous")
-    required_checks_blocking = summary.get("required_checks_blocking")
-    if isinstance(required_checks_blocking, list) and required_checks_blocking:
-        labels = []
-        for check in required_checks_blocking:
-            if isinstance(check, dict):
-                labels.append(f"{check.get('name') or '(unnamed)'}: {check.get('state') or 'UNKNOWN'}")
-            else:
-                labels.append(str(check))
-        blockers.append(f"required checks blocking: {', '.join(labels)}")
-    return blockers
 
 
 def collect_current_head_review_state(repo: str, pr_number: str) -> dict[str, object]:
@@ -976,6 +732,149 @@ def repo_state() -> dict[str, object]:
         "graph": run_git("log", "--oneline", "--decorate", "--graph", "--all", "-20")
         or "(unavailable)",
     }
+
+
+def safe_repository_identity(value: str) -> str:
+    """Return a display-safe Git remote without embedded credentials."""
+    identity = value.strip()
+    if "://" not in identity:
+        scp_match = re.fullmatch(r"(?:[^@/:\s]+@)?([^/:\s]+):(.+)", identity)
+        if scp_match:
+            return f"{scp_match.group(1).lower()}:{scp_match.group(2)}"
+        return identity
+    scheme, remainder = identity.split("://", 1)
+    authority, separator, path = remainder.partition("/")
+    if "@" in authority:
+        authority = authority.rsplit("@", 1)[1]
+    return f"{scheme.lower()}://{authority}/{path}" if separator else f"{scheme.lower()}://{authority}"
+
+
+def repository_identity() -> str:
+    return safe_repository_identity(run_git("remote", "get-url", "origin") or "(unavailable)")
+
+
+def json_source_status(path: Path) -> tuple[str, dict[str, object] | None]:
+    if not path.is_file():
+        return "missing", None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "malformed", None
+    if not isinstance(value, dict):
+        return "malformed", None
+    return "valid", value
+
+
+def base_reentry_summary(profile: str) -> dict[str, object]:
+    state = repo_state()
+    return {
+        "protocol_version": 1,
+        "detected_profile": profile,
+        "repository": repository_identity(),
+        "branch": state["branch"],
+        "head": state["head"],
+        "upstream": state["remote_ref"],
+        "ahead": state["ahead"],
+        "behind": state["behind"],
+        "clean": not state["dirty"],
+        "dirty_paths": changed_repo_paths(),
+        "display_only": True,
+        "authorizes_action": False,
+        "missing_or_malformed_sources": [],
+    }
+
+
+def source_reentry_summary() -> dict[str, object]:
+    output = base_reentry_summary("coding-os-source")
+    status, pack = json_source_status(Path("pack.manifest.json"))
+    missing = output["missing_or_malformed_sources"]
+    assert isinstance(missing, list)
+    if status != "valid" or pack is None:
+        missing.append(f"pack.manifest.json: {status} JSON" if status == "malformed" else "pack.manifest.json: missing")
+        output["pack"] = {
+            "status": status,
+            "package_name": "(unavailable)",
+            "version": "(unavailable)",
+            "release_status": "(unavailable)",
+        }
+    else:
+        output["pack"] = {
+            "status": "valid",
+            "package_name": pack.get("package_name", "(missing)"),
+            "version": pack.get("version", "(missing)"),
+            "release_status": pack.get("release_status", "(missing)"),
+        }
+    output.update(
+        {
+            "active_slice": "not_applicable_source_profile",
+            "next_action": "not_recorded_by_source_profile",
+            "workflow_manifest_status": "not_applicable",
+            "active_slice_manifest_status": "not_applicable",
+            "review_status_as_recorded": "not_recorded_by_source_profile",
+        }
+    )
+    return output
+
+
+def product_reentry_summary() -> dict[str, object]:
+    output = base_reentry_summary("product")
+    missing = output["missing_or_malformed_sources"]
+    assert isinstance(missing, list)
+
+    state_path = STATE_PATH
+    attributes: dict[str, str] = {}
+    if not state_path.is_file():
+        missing.append(f"{state_path.as_posix()}: missing")
+        state_status = "missing"
+    else:
+        try:
+            state_text = state_path.read_text(encoding="utf-8")
+        except OSError:
+            state_text = ""
+        attributes, _ = parse_frontmatter(state_text)
+        if not state_text.startswith(("---\n", "---\r\n")) or not attributes:
+            missing.append(f"{state_path.as_posix()}: malformed front matter")
+            state_status = "malformed"
+        else:
+            state_status = "valid"
+
+    workflow_path = Path(attributes.get("workflow_manifest", str(DEFAULT_MANIFEST_PATH)))
+    permission_path = Path(attributes.get("permission_manifest", str(DEFAULT_ACTIVE_SLICE_MANIFEST_PATH)))
+    workflow_status, _ = json_source_status(workflow_path)
+    active_status, active_manifest = json_source_status(permission_path)
+    if workflow_status == "missing":
+        missing.append(f"{workflow_path.as_posix()}: missing")
+    elif workflow_status == "malformed":
+        missing.append(f"{workflow_path.as_posix()}: malformed JSON")
+    if active_status == "missing":
+        missing.append(f"{permission_path.as_posix()}: missing")
+    elif active_status == "malformed":
+        missing.append(f"{permission_path.as_posix()}: malformed JSON")
+
+    manifest_review = active_manifest.get("review") if isinstance(active_manifest, dict) else None
+    manifest_review_status = manifest_review.get("status") if isinstance(manifest_review, dict) else None
+    output.update(
+        {
+            "current_state_status": state_status,
+            "active_slice": attributes.get("active_slice", "(missing)"),
+            "next_action": attributes.get("next_action", "(missing)"),
+            "workflow_manifest_status": workflow_status,
+            "active_slice_manifest_status": active_status,
+            "review_status_as_recorded": attributes.get("review_status", manifest_review_status or "(missing)"),
+        }
+    )
+    return output
+
+
+def command_summary(args: argparse.Namespace) -> int:
+    output = source_reentry_summary() if args.detected_profile == "coding-os-source" else product_reentry_summary()
+    if args.json:
+        print(json.dumps(output, indent=2, sort_keys=True))
+    else:
+        print("PROJECT REENTRY SUMMARY")
+        for key, value in output.items():
+            print(f"{key}: {json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value}")
+    return 0
 
 
 def normalize_repo_path(value: str) -> str:
@@ -1161,7 +1060,6 @@ def validate_parent_closeout_reconciliation(
         "required_checks",
         "conflicting_review_signals",
         "stale_closeout_detected",
-        "review_loop_breaker",
         "evidence",
     )
     for field in required_fields:
@@ -1205,9 +1103,7 @@ def validate_parent_closeout_reconciliation(
     evidence = reconciliation.get("evidence")
     if not isinstance(evidence, list) or not evidence:
         errors.append("parent closeout reconciliation must include evidence")
-    errors.extend(validate_parent_closeout_review_check_signals(reconciliation))
     errors.extend(validate_parent_closeout_live_git_state(reconciliation))
-    errors.extend(validate_review_loop_breaker(reconciliation))
     return errors
 
 
@@ -1215,32 +1111,11 @@ def infer_recorded_dirty_state(recorded_state: object, live_status: str, live_di
     if not isinstance(recorded_state, str):
         return None
     normalized = recorded_state.strip().lower()
-    if not normalized:
-        return None
     if recorded_state.strip() == live_status.strip():
         return live_dirty
-    status_prefixes = (" M", "M ", " A", "A ", " D", "D ", " R", "R ", " C", "C ", "UU", "??")
-    if any(line.startswith(status_prefixes) for line in recorded_state.splitlines()):
+    if normalized == "dirty":
         return True
-    dirty_markers = (
-        "dirty",
-        "uncommitted",
-        "modified",
-        "untracked",
-        "changes not staged",
-        "changes to be committed",
-        "??",
-        "\n m ",
-        "\nm ",
-        "\n a ",
-        "\na ",
-        "\n d ",
-        "\nd ",
-    )
-    clean_markers = ("clean", "nothing to commit", "working tree clean")
-    if any(marker in normalized for marker in dirty_markers):
-        return True
-    if any(marker in normalized for marker in clean_markers):
+    if normalized == "clean":
         return False
     return None
 
@@ -1249,56 +1124,10 @@ def field_is_not_applicable(value: object) -> bool:
     return isinstance(value, str) and value.strip().lower() == "not_applicable"
 
 
-def normalize_closeout_signal(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
-
-
-def closeout_signal_is_negated_clean(field: str, normalized: str) -> bool:
-    allowed_tokens = PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_TOKENS.get(field)
-    if not allowed_tokens:
-        return False
-    tokens = tuple(token for token in normalized.split("_") if token)
-    if len(tokens) < 2 or tokens[0] not in PARENT_CLOSEOUT_SIGNAL_NEGATIONS:
-        return False
-    signal_tokens = tokens[1:]
-    if any(token not in allowed_tokens for token in signal_tokens):
-        return False
-    return any(token in PARENT_CLOSEOUT_SIGNAL_NEGATED_CLEAN_NOUNS for token in signal_tokens)
-
-
-def publication_stabilization_value_is_negated_clean(field: str, normalized: str) -> bool:
-    allowed_tokens = PUBLICATION_STABILIZATION_NEGATED_CLEAN_TOKENS.get(field)
-    if not allowed_tokens:
-        return False
-    tokens = tuple(token for token in normalized.split("_") if token)
-    if len(tokens) < 2:
-        return False
-    if any(token not in allowed_tokens and token not in PARENT_CLOSEOUT_SIGNAL_NEGATIONS for token in tokens):
-        return False
-    for index, token in enumerate(tokens):
-        if token in PUBLICATION_STABILIZATION_NEGATED_CLEAN_NOUNS and any(
-            previous in PARENT_CLOSEOUT_SIGNAL_NEGATIONS for previous in tokens[:index]
-        ):
-            return True
-    return False
-
-
-def publication_stabilization_authority_value_is_blocking(value: object) -> bool:
-    normalized = normalize_closeout_signal(str(value or ""))
-    return normalized in PUBLICATION_STABILIZATION_AUTHORITY_BAD_VALUES or "not_applicable" in normalized or any(
-        marker in normalized for marker in PUBLICATION_STABILIZATION_BLOCKER_MARKERS
-    )
-
-
-def publication_stabilization_review_count_is_valid(value: str) -> bool:
-    normalized = normalize_closeout_signal(value)
-    return re.match(r"^[1-9]\d*_(current_head_)?reviews?(_|$)", normalized) is not None
-
-
 def publication_stabilization_state_is_pass(field: str, value: object) -> bool:
     if not isinstance(value, str):
         return False
-    return normalize_closeout_signal(value) in PUBLICATION_STABILIZATION_PASS_STATES.get(field, set())
+    return value.strip() in PUBLICATION_STABILIZATION_PASS_STATES.get(field, set())
 
 
 def publication_stabilization_state_options(field: str) -> str:
@@ -1311,8 +1140,8 @@ def validate_publication_stabilization_state_pair(stabilization: dict[str, objec
     wait_value = stabilization.get("bounded_wait_result")
     if not isinstance(retrigger_value, str) or not isinstance(wait_value, str):
         return errors
-    retrigger = normalize_closeout_signal(retrigger_value)
-    wait = normalize_closeout_signal(wait_value)
+    retrigger = retrigger_value.strip()
+    wait = wait_value.strip()
     if retrigger == "not_retriggered" and wait != "not_required_no_retrigger":
         errors.append(
             "parent closeout reconciliation publication_stabilization.bounded_wait_result must be not_required_no_retrigger when metadata_only_check_retrigger is not_retriggered"
@@ -1322,39 +1151,6 @@ def validate_publication_stabilization_state_pair(stabilization: dict[str, objec
             "parent closeout reconciliation publication_stabilization.bounded_wait_result must be completed_required_checks_success when metadata_only_check_retrigger is retriggered_required_checks_passed"
         )
     return errors
-
-
-def validate_parent_closeout_review_check_signals(reconciliation: dict[str, object]) -> list[str]:
-    errors: list[str] = []
-    pr_head_not_applicable = field_is_not_applicable(reconciliation.get("pr_head_sha"))
-    for field, pass_values in PARENT_CLOSEOUT_SIGNAL_PASS_VALUES.items():
-        value = reconciliation.get(field)
-        if value in (None, "", "not_checked", "unknown"):
-            continue
-        if not isinstance(value, str):
-            errors.append(f"parent closeout reconciliation {field} must be text")
-            continue
-        normalized = normalize_closeout_signal(value)
-        if normalized == "not_applicable":
-            if not pr_head_not_applicable:
-                errors.append(f"parent closeout reconciliation {field} may be not_applicable only for non-PR closeout")
-            continue
-        if normalized in pass_values or closeout_signal_is_negated_clean(field, normalized):
-            continue
-        if any(marker in normalized for marker in PARENT_CLOSEOUT_SIGNAL_BLOCKER_MARKERS):
-            errors.append(f"parent closeout reconciliation {field} records blocker state: {value}")
-        else:
-            errors.append(f"parent closeout reconciliation {field} must record pass or not_applicable")
-    return errors
-
-
-def evidence_has_non_pr_closeout(evidence: object) -> bool:
-    if not isinstance(evidence, list):
-        return False
-    evidence_text = "\n".join(str(item).lower() for item in evidence)
-    normalized_evidence = normalize_closeout_signal(evidence_text)
-    has_non_pr = any(marker in evidence_text for marker in ("non-pr", "non pr", "no pr", "no open pr"))
-    return has_non_pr and "not_applicable" in normalized_evidence
 
 
 def validate_publication_stabilization(reconciliation: dict[str, object], live_head: str) -> list[str]:
@@ -1384,97 +1180,23 @@ def validate_publication_stabilization(reconciliation: dict[str, object], live_h
     review_authority = stabilization.get("review_authority")
     if not isinstance(review_authority, str):
         errors.append("parent closeout reconciliation publication_stabilization.review_authority must be text")
-    elif publication_stabilization_authority_value_is_blocking(review_authority):
-        errors.append("parent closeout reconciliation publication_stabilization.review_authority must record the exact current-head review authority")
 
     review_authority_count = stabilization.get("review_authority_count")
     if not isinstance(review_authority_count, str):
         errors.append("parent closeout reconciliation publication_stabilization.review_authority_count must be text")
-    elif (
-        publication_stabilization_authority_value_is_blocking(review_authority_count)
-        or not publication_stabilization_review_count_is_valid(review_authority_count)
-    ):
-        errors.append("parent closeout reconciliation publication_stabilization.review_authority_count must record the exact required review count")
 
     for field in ("metadata_only_check_retrigger", "bounded_wait_result"):
         value = stabilization.get(field)
         if not isinstance(value, str):
             errors.append(f"parent closeout reconciliation publication_stabilization.{field} must be text")
             continue
-        normalized = normalize_closeout_signal(value)
         if publication_stabilization_state_is_pass(field, value):
             continue
-        if publication_stabilization_value_is_negated_clean(field, normalized):
-            errors.append(
-                f"parent closeout reconciliation publication_stabilization.{field} must use accepted state: {publication_stabilization_state_options(field)}"
-            )
-            continue
-        if normalized in PUBLICATION_STABILIZATION_BAD_VALUES or any(
-            marker in normalized for marker in PUBLICATION_STABILIZATION_BLOCKER_MARKERS
-        ):
-            errors.append(f"parent closeout reconciliation publication_stabilization.{field} records blocker state: {value}")
-        else:
-            errors.append(
-                f"parent closeout reconciliation publication_stabilization.{field} must use accepted state: {publication_stabilization_state_options(field)}"
-            )
+        errors.append(
+            f"parent closeout reconciliation publication_stabilization.{field} must use exact typed state: {publication_stabilization_state_options(field)}"
+        )
 
     errors.extend(validate_publication_stabilization_state_pair(stabilization))
-    return errors
-
-
-def validate_review_loop_breaker(reconciliation: dict[str, object]) -> list[str]:
-    errors: list[str] = []
-    breaker = reconciliation.get("review_loop_breaker")
-    if not isinstance(breaker, dict):
-        return ["parent closeout reconciliation review_loop_breaker must be an object"]
-
-    for field in REVIEW_LOOP_BREAKER_FIELDS:
-        if field not in breaker:
-            errors.append(f"parent closeout reconciliation review_loop_breaker is missing {field}")
-
-    if breaker.get("status") not in REVIEW_LOOP_BREAKER_STATUSES:
-        errors.append("parent closeout reconciliation review_loop_breaker.status is invalid")
-
-    rounds = breaker.get("automated_review_fix_rounds")
-    if not isinstance(rounds, int) or rounds < 0:
-        errors.append("parent closeout reconciliation review_loop_breaker.automated_review_fix_rounds must be a non-negative integer")
-        rounds = 0
-
-    max_rounds = breaker.get("max_automated_review_fix_rounds")
-    if not isinstance(max_rounds, int) or max_rounds != REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS:
-        errors.append("parent closeout reconciliation review_loop_breaker.max_automated_review_fix_rounds must be 2")
-        max_rounds = REVIEW_LOOP_MAX_AUTOMATED_REVIEW_FIX_ROUNDS
-
-    validator_area_findings = breaker.get("validator_area_findings")
-    max_area_findings = 0
-    if not isinstance(validator_area_findings, dict):
-        errors.append("parent closeout reconciliation review_loop_breaker.validator_area_findings must be an object")
-    else:
-        for area, count in validator_area_findings.items():
-            if not isinstance(area, str) or not area.strip():
-                errors.append("parent closeout reconciliation review_loop_breaker.validator_area_findings keys must be non-empty text")
-            if not isinstance(count, int) or count < 0:
-                errors.append(f"parent closeout reconciliation review_loop_breaker.validator_area_findings.{area} must be a non-negative integer")
-            else:
-                max_area_findings = max(max_area_findings, count)
-
-    for field in ("batch_rca_completed", "adversarial_test_matrix_completed", "next_review_authorized"):
-        if not isinstance(breaker.get(field), bool):
-            errors.append(f"parent closeout reconciliation review_loop_breaker.{field} must be true or false")
-
-    threshold_crossed = rounds >= max_rounds or max_area_findings >= REVIEW_LOOP_MAX_VALIDATOR_AREA_FINDINGS
-    if threshold_crossed:
-        if breaker.get("status") != "pass":
-            errors.append("review loop breaker triggered; status must be pass only after batch RCA and adversarial test matrix are complete")
-        if breaker.get("batch_rca_completed") is not True:
-            errors.append("review loop breaker triggered; batch RCA is required before another automated review")
-        if breaker.get("adversarial_test_matrix_completed") is not True:
-            errors.append("review loop breaker triggered; adversarial test matrix is required before another automated review")
-        if breaker.get("next_review_authorized") is not True:
-            errors.append("review loop breaker triggered; exactly one next automated review must be explicitly authorized")
-    elif breaker.get("status") not in {"pass", "not_started", "not_applicable"}:
-        errors.append("parent closeout reconciliation review_loop_breaker.status must not be blocked before loop thresholds are reached")
-
     return errors
 
 
@@ -1490,8 +1212,6 @@ def validate_parent_closeout_pr_head(reconciliation: dict[str, object], live_hea
         for field in ("current_inline_comments", "issue_comments", "required_checks"):
             if not field_is_not_applicable(reconciliation.get(field)):
                 errors.append(f"parent closeout reconciliation {field} must be not_applicable when pr_head_sha is not_applicable")
-        if not evidence_has_non_pr_closeout(reconciliation.get("evidence")):
-            errors.append("parent closeout reconciliation must include explicit non-PR evidence when pr_head_sha is not_applicable")
         return errors
     if normalized != live_head.lower():
         errors.append("parent closeout reconciliation pr_head_sha must match live HEAD for PR closeout")
@@ -1816,10 +1536,7 @@ def validate_state() -> list[str]:
 
 
 def load_active_slice_template() -> dict[str, object]:
-    active_template = Path(__file__).resolve().parent.parent / "assets" / "active-slice-manifest.template.json"
-    if active_template.exists():
-        return json.loads(active_template.read_text(encoding="utf-8"))
-    return dict(DEFAULT_ACTIVE_SLICE_MANIFEST)
+    return copy.deepcopy(DEFAULT_ACTIVE_SLICE_MANIFEST)
 
 
 def merge_missing_defaults(data: dict[str, object], defaults: dict[str, object]) -> tuple[dict[str, object], list[str]]:
@@ -1853,7 +1570,10 @@ def write_default_active_slice_manifest(path: Path, attributes: dict[str, str]) 
     path.write_text(json.dumps(active_manifest, indent=2) + "\n", encoding="utf-8")
 
 
-def command_init(_: argparse.Namespace) -> int:
+def command_init(args: argparse.Namespace) -> int:
+    print(f"Detected profile: {args.detected_profile}")
+    if not require_product_profile(args, "init"):
+        return 2
     if STATE_PATH.exists():
         print(f"Refusing to overwrite existing current state: {STATE_PATH}")
         return 1
@@ -1861,11 +1581,7 @@ def command_init(_: argparse.Namespace) -> int:
         print(f"Refusing to overwrite existing active-slice manifest: {DEFAULT_ACTIVE_SLICE_MANIFEST_PATH}")
         return 1
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    template = Path(__file__).resolve().parent.parent / "assets" / "current-state-template.md"
-    if template.exists():
-        shutil.copyfile(template, STATE_PATH)
-    else:
-        STATE_PATH.write_text(DEFAULT_STATE_TEMPLATE, encoding="utf-8")
+    STATE_PATH.write_text(DEFAULT_STATE_TEMPLATE, encoding="utf-8")
     attributes, body, _ = read_state()
     attributes["last_updated"] = dt.date.today().isoformat()
     write_state(attributes, body)
@@ -1875,7 +1591,10 @@ def command_init(_: argparse.Namespace) -> int:
     return 0
 
 
-def command_repair(_: argparse.Namespace) -> int:
+def command_repair(args: argparse.Namespace) -> int:
+    print(f"Detected profile: {args.detected_profile}")
+    if not require_product_profile(args, "repair"):
+        return 2
     attributes, body, content = read_state()
     if not content:
         print(f"ERROR: required current-state file is missing: {STATE_PATH}")
@@ -1924,6 +1643,34 @@ def command_start(args: argparse.Namespace) -> int:
             print("START GATE: BLOCKED")
             print("git fetch origin failed. Remote state is unverified.")
             return 2
+
+    if args.detected_profile == "coding-os-source":
+        state = repo_state()
+        print(
+            "Coding OS source session-start report\n"
+            "=====================================\n"
+            f"Detected profile: coding-os-source\n"
+            f"Mode: {mode}\nBranch: {state['branch']}\nHEAD: {state['head']}\n"
+            f"Remote baseline: {state['remote_ref']} at {state['remote_head']}\n"
+            f"Ahead/behind remote baseline: {state['ahead']}/{state['behind']}\n"
+            f"Working tree dirty: {'yes' if state['dirty'] else 'no'}\n\n"
+            f"Git status:\n{state['status']}\n\n"
+            "Product coordination manifests, current state, active-slice files, and handoffs are not used or created by this profile."
+        )
+        if state["head"] == "(unavailable)":
+            print("START GATE: BLOCKED")
+            print("Coding OS source profile requires a readable Git HEAD.")
+            return 2
+        if mode == "start-new" and state["dirty"]:
+            print("START GATE: BLOCKED")
+            print("Coding OS source start-new requires a clean working tree; inspect changes and use --continue-slice only for the same bounded task.")
+            return 2
+        if state["behind"] > 0:
+            print("START GATE: INSPECTION_REQUIRED")
+            print("Inspect incoming commits before pulling or editing.")
+            return 2
+        print("START GATE: PASS")
+        return 0
 
     state = repo_state()
     if args.pull_after_inspection and state["remote_ref"] != "(unavailable)" and not state["dirty"] and state["ahead"] == 0 and state["behind"] > 0:
@@ -2163,7 +1910,16 @@ If current-head inline findings conflict with a later no-major-issues summary, c
     return 0
 
 
-def command_validate(_: argparse.Namespace) -> int:
+def command_validate(args: argparse.Namespace) -> int:
+    if args.detected_profile == "coding-os-source":
+        state = repo_state()
+        if state["head"] == "(unavailable)":
+            print("SOURCE PROFILE: FAIL")
+            print("- Git HEAD is unavailable")
+            return 1
+        print("SOURCE PROFILE: PASS")
+        print("Product coordination files were neither required nor created.")
+        return 0
     errors = validate_state()
     if errors:
         print("SESSION CONTINUITY: FAIL")
@@ -2195,15 +1951,15 @@ def command_closeout_check(_: argparse.Namespace) -> int:
             if error not in errors:
                 errors.append(error)
     if errors:
-        print("PARENT CLOSEOUT CHECK: FAIL")
+        print("PARENT CLOSEOUT COORDINATION CHECK: FAIL")
         for error in errors:
             print(f"- {error}")
         return 1
     if parent_mode_active(attributes):
-        print("PARENT CLOSEOUT CHECK: PASS")
-        print("Final parent closeout may report only after the recorded live PR head, review signals, required checks, and local branch state are still current.")
+        print("PARENT CLOSEOUT COORDINATION CHECK: PASS")
+        print("This validates a coordination mirror only. It does not authorize lifecycle closure; use the canonical case-state engine.")
     else:
-        print("PARENT CLOSEOUT CHECK: NOT_APPLICABLE")
+        print("PARENT CLOSEOUT COORDINATION CHECK: NOT_APPLICABLE")
         print("Parent/orchestrator mode is not active.")
     return 0
 
@@ -2260,23 +2016,24 @@ def command_review_state(args: argparse.Namespace) -> int:
         print("CURRENT-HEAD REVIEW STATE: FAIL")
         print(f"- {exc}")
         return 1
-    blockers = review_state_blockers(summary)
-    summary["blocking_review_state"] = blockers
+    summary["action_authorized"] = False
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
-        return 1 if blockers else 0
-    print("CURRENT-HEAD REVIEW STATE")
+        return 0
+    print("CURRENT-HEAD REVIEW RAW FACTS")
     print(f"repo: {summary['repo']}")
     print(f"pr: {summary['pr']}")
     print(f"pr_head: {summary['pr_head']}")
     print(f"latest_review_commit: {summary['review_commit'] or 'none'}")
     print(f"current_head_review_records: {summary['current_head_review_records']}")
-    print(f"clean_summary_commit: {summary['clean_summary_commit'] or 'none'}")
-    print(f"current_head_clean_summary: {summary['current_head_clean_summary']}")
+    print(f"current_head_review_states: {summary['current_head_review_states']}")
+    print(f"current_head_approved_review_records: {summary['current_head_accepted_review_records']}")
+    print(f"issue_comment_count: {summary['issue_comment_count']}")
+    print("issue_comment_prose_assessed: false")
     print(f"current_head_original_commit_comments: {summary['current_head_original_commit_comments']}")
     print(f"current_head_commit_comments: {summary['current_head_commit_comments']}")
     print(f"current_head_inline_comments: {summary['current_head_inline_comments']}")
-    print(f"ambiguous: {summary['ambiguous']}")
+    print(f"typed_review_state_conflict: {summary['typed_review_state_conflict']}")
     print("required_checks:")
     for check in summary["required_checks"]:
         print(f"- {check['name']}: {check['state']}")
@@ -2287,31 +2044,36 @@ def command_review_state(args: argparse.Namespace) -> int:
             f"commit_id={comment.get('commit_id') or 'none'} "
             f"path={comment.get('path') or 'none'}"
         )
-    if blockers:
-        print("blocking_review_state:")
-        for blocker in blockers:
-            print(f"- {blocker}")
-    return 1 if blockers else 0
+    print("lifecycle_authority: false")
+    print("action_authorized: false")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("init").set_defaults(func=command_init)
-    subparsers.add_parser("repair").set_defaults(func=command_repair)
+    init = subparsers.add_parser("init")
+    init.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
+    init.set_defaults(func=command_init)
+    repair = subparsers.add_parser("repair")
+    repair.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
+    repair.set_defaults(func=command_repair)
     start = subparsers.add_parser("start")
+    start.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
     start.add_argument("--no-fetch", action="store_true")
     start.add_argument("--start-new", action="store_true")
     start.add_argument("--continue-slice", action="store_true")
     start.add_argument("--pull-after-inspection", action="store_true")
     start.set_defaults(func=command_start)
     decide = subparsers.add_parser("decide")
+    decide.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
     decide.add_argument("--event", default="manual-check")
     decide.add_argument("--corrections", type=int, default=0)
     decide.add_argument("--context-stale", action="store_true")
     decide.add_argument("--parallel", action="store_true")
     decide.set_defaults(func=command_decide)
     handoff = subparsers.add_parser("handoff")
+    handoff.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
     handoff.add_argument("--topic", required=True)
     handoff.add_argument("--reason", required=True)
     handoff.add_argument("--next", required=True)
@@ -2319,26 +2081,50 @@ def build_parser() -> argparse.ArgumentParser:
     handoff.add_argument("--write", action="store_true")
     handoff.set_defaults(func=command_handoff)
     diff_check = subparsers.add_parser("diff-check")
+    diff_check.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
     diff_check.add_argument("--base", required=True)
     diff_check.add_argument("--control-pr-authorized", action="store_true")
     diff_check.set_defaults(func=command_diff_check)
     stop_latch = subparsers.add_parser("stop-latch")
+    stop_latch.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
     stop_latch.add_argument("--reason", default="user-stop")
     stop_latch.set_defaults(func=command_stop_latch)
     review_state = subparsers.add_parser("review-state")
+    review_state.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
     review_state.add_argument("--repo", default="")
     review_state.add_argument("--pr", required=True)
     review_state.add_argument("--json", action="store_true")
     review_state.set_defaults(func=command_review_state)
-    subparsers.add_parser("closeout-check").set_defaults(func=command_closeout_check)
-    subparsers.add_parser("validate").set_defaults(func=command_validate)
+    closeout = subparsers.add_parser("closeout-check")
+    closeout.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
+    closeout.set_defaults(func=command_closeout_check)
+    validate = subparsers.add_parser("validate")
+    validate.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
+    validate.set_defaults(func=command_validate)
+    summary = subparsers.add_parser("summary")
+    summary.add_argument("--profile", choices=sorted(PROFILE_CHOICES), default="auto")
+    summary.add_argument("--json", action="store_true")
+    summary.set_defaults(func=command_summary)
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
     try:
+        args.detected_profile = resolve_profile(args.profile)
+        if args.detected_profile == "coding-os-source" and args.command in {
+            "decide",
+            "handoff",
+            "diff-check",
+            "stop-latch",
+            "closeout-check",
+        }:
+            print(f"ERROR: coding-os-source profile refuses product coordination files and the {args.command} operation")
+            return 2
         return args.func(args)
+    except ProfileError as exc:
+        print(f"ERROR: {exc}")
+        return 2
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"ERROR: {exc}")
         return 1

@@ -1,158 +1,30 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "High")]
 param(
-  [string]$SkillsRoot,
+  [string]$SkillsRoot = "$HOME\.agents\skills",
   [string]$CodexHome = "$HOME\.codex",
   [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
-
-function Resolve-InstallPath {
-  param([Parameter(Mandatory = $true)][string]$Path)
-  $Expanded = [Environment]::ExpandEnvironmentVariables($Path)
-  $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Expanded)
-}
-
-function Test-IsUnderRoot {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Root
-  )
-  $ResolvedPath = Resolve-InstallPath $Path
-  $ResolvedRoot = Resolve-InstallPath $Root
-  $RootWithSlash = $ResolvedRoot.TrimEnd("\") + "\"
-  $ResolvedPath.Equals($ResolvedRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
-    $ResolvedPath.StartsWith($RootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)
-}
-
-function Remove-IfPresent {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Label,
-    [Parameter(Mandatory = $true)][System.Management.Automation.PSCmdlet]$Cmdlet
-  )
-  if (Test-Path $Path) {
-    if ($DryRun) {
-      Write-Output "DRY RUN: would remove $Label at $Path"
-    } elseif ($Cmdlet.ShouldProcess($Path, "Remove $Label")) {
-      Remove-Item -LiteralPath $Path -Recurse -Force
-      Write-Output "Removed ${Label}: $Path"
-    }
-  }
-}
-
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$SkillSourceRoot = Join-Path $RepoRoot ".agents\skills"
-$CodexHome = Resolve-InstallPath $CodexHome
-$DefaultSupportRoot = Join-Path $CodexHome "coding-os"
-$LegacySupportRoot = Join-Path $CodexHome ("coding-os" + "-starter")
-$ManifestJsonPath = Join-Path $DefaultSupportRoot "install-manifest.json"
-$ManifestTextPath = Join-Path $DefaultSupportRoot "install-manifest.txt"
-if (-not (Test-Path $ManifestJsonPath) -and (Test-Path (Join-Path $LegacySupportRoot "install-manifest.json"))) {
-  $ManifestJsonPath = Join-Path $LegacySupportRoot "install-manifest.json"
-  $ManifestTextPath = Join-Path $LegacySupportRoot "install-manifest.txt"
-}
-$Manifest = $null
-$TextManifest = @{}
-$TextSkillPaths = @()
+$Engine = Join-Path $RepoRoot "scripts\install_transaction.py"
+$Python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $Python) { $Python = Get-Command py -ErrorAction SilentlyContinue }
+if (-not $Python) { throw "Python 3 is required for the transactional uninstaller." }
+if (-not (Test-Path -LiteralPath $Engine -PathType Leaf)) { throw "Transactional uninstall engine is missing: $Engine" }
 
-if (Test-Path $ManifestJsonPath) {
-  $Manifest = Get-Content -Raw -LiteralPath $ManifestJsonPath | ConvertFrom-Json
-} elseif (Test-Path $ManifestTextPath) {
-  foreach ($Line in Get-Content -LiteralPath $ManifestTextPath) {
-    if ($Line -match '^([^=]+)=(.*)$') {
-      if ($Matches[1] -eq "SkillPath") {
-        $TextSkillPaths += $Matches[2]
-      } else {
-        $TextManifest[$Matches[1]] = $Matches[2]
-      }
-    }
-  }
-}
-
-if (-not $SkillsRoot) {
-  if ($Manifest -and $Manifest.skills_root) {
-    $SkillsRoot = [string]$Manifest.skills_root
-  } elseif ($TextManifest.SkillsRoot) {
-    $SkillsRoot = [string]$TextManifest.SkillsRoot
+$Arguments = @(
+  "-B", $Engine, "--json", "uninstall",
+  "--skills-root", $SkillsRoot,
+  "--codex-home", $CodexHome
+)
+if ($DryRun) { $Arguments += "--dry-run" }
+$TargetDescription = "SkillsRoot=$SkillsRoot; CodexHome=$CodexHome"
+if ($DryRun -or $PSCmdlet.ShouldProcess($TargetDescription, "Run one transactional Codex Coding OS uninstall")) {
+  if ($Python.Name -eq "py.exe" -or $Python.Name -eq "py") {
+    & $Python.Source -3 @Arguments
   } else {
-    $SkillsRoot = "$HOME\.agents\skills"
+    & $Python.Source @Arguments
   }
+  if ($LASTEXITCODE -ne 0) { throw "Transactional uninstall failed with exit code $LASTEXITCODE." }
 }
-
-$SkillsRoot = Resolve-InstallPath $SkillsRoot
-$InstalledSupportRoot = if ($Manifest -and $Manifest.support_root) {
-  Resolve-InstallPath ([string]$Manifest.support_root)
-} elseif ($TextManifest.SupportRoot) {
-  Resolve-InstallPath ([string]$TextManifest.SupportRoot)
-} else {
-  $DefaultSupportRoot
-}
-
-$AgentsPath = if ($Manifest -and $Manifest.global_agents_path) {
-  Resolve-InstallPath ([string]$Manifest.global_agents_path)
-} elseif ($TextManifest.GlobalAgentsPath) {
-  Resolve-InstallPath ([string]$TextManifest.GlobalAgentsPath)
-} else {
-  Join-Path $CodexHome "AGENTS.md"
-}
-
-$Markers = @{
-  Start = "# BEGIN CODEX CODING OS"
-  End = "# END CODEX CODING OS"
-}
-
-$SkillTargets = @()
-if ($Manifest -and $Manifest.skills) {
-  foreach ($Skill in $Manifest.skills) {
-    $Path = [string]$Skill.path
-    if ($Path) {
-      $SkillTargets += $Path
-    }
-  }
-} elseif ($TextSkillPaths.Count -gt 0) {
-  $SkillTargets += $TextSkillPaths
-} elseif (Test-Path $SkillSourceRoot) {
-  Get-ChildItem -Path $SkillSourceRoot -Directory | Sort-Object Name | ForEach-Object {
-    $SkillTargets += (Join-Path $SkillsRoot $_.Name)
-  }
-}
-
-foreach ($Target in $SkillTargets) {
-  $ResolvedTarget = Resolve-InstallPath $Target
-  if (-not (Test-IsUnderRoot -Path $ResolvedTarget -Root $SkillsRoot)) {
-    throw "Refusing to remove skill outside SkillsRoot. Target=$ResolvedTarget SkillsRoot=$SkillsRoot"
-  }
-  Remove-IfPresent -Path $ResolvedTarget -Label "skill" -Cmdlet $PSCmdlet
-}
-
-if (Test-Path $AgentsPath) {
-  $Existing = Get-Content -Raw -LiteralPath $AgentsPath
-  $Pattern = "(?s)\r?\n?# BEGIN CODEX CODING OS(?: STARTER)?.*?# END CODEX CODING OS(?: STARTER)?\r?\n?"
-  if ($Existing -match $Pattern) {
-    if ($DryRun) {
-      Write-Output "DRY RUN: would remove global AGENTS block from $AgentsPath"
-    } elseif ($PSCmdlet.ShouldProcess($AgentsPath, "Remove global AGENTS block")) {
-      $Backup = "$AgentsPath.bak.$(Get-Date -Format yyyyMMddHHmmss)"
-      Copy-Item -LiteralPath $AgentsPath -Destination $Backup
-      $Updated = [regex]::Replace($Existing, $Pattern, "")
-      Set-Content -LiteralPath $AgentsPath -Value $Updated -Encoding UTF8
-      Write-Output "Removed global AGENTS block. Backup: $Backup"
-    }
-  }
-}
-
-if (-not (Test-IsUnderRoot -Path $InstalledSupportRoot -Root $CodexHome)) {
-  throw "Refusing to remove support files outside CodexHome. Target=$InstalledSupportRoot CodexHome=$CodexHome"
-}
-Remove-IfPresent -Path $InstalledSupportRoot -Label "installed support files" -Cmdlet $PSCmdlet
-
-if ((Resolve-InstallPath $LegacySupportRoot) -ne (Resolve-InstallPath $InstalledSupportRoot) -and
-    (Test-Path $LegacySupportRoot)) {
-  if (-not (Test-IsUnderRoot -Path $LegacySupportRoot -Root $CodexHome)) {
-    throw "Refusing to remove legacy support files outside CodexHome. Target=$LegacySupportRoot CodexHome=$CodexHome"
-  }
-  Remove-IfPresent -Path $LegacySupportRoot -Label "legacy support files" -Cmdlet $PSCmdlet
-}
-
-Write-Output "Uninstall complete."

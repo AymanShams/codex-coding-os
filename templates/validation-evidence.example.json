@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "evidence_id": "synthetic-command-pass-001",
+  "proof_type": "COMMAND_EXIT",
+  "result": "PASS",
+  "scope": {
+    "kind": "COMMAND",
+    "targets": [
+      "python -B tests/synthetic.py"
+    ]
+  },
+  "repository": "https://example.invalid/example/synthetic-validation.git",
+  "exact_head": "0000000000000000000000000000000000000000",
+  "environment": {
+    "platform": "synthetic-platform",
+    "runtimes": [
+      "Python synthetic"
+    ],
+    "working_tree": "clean"
+  },
+  "authority": {
+    "source_type": "RUN_ENVELOPE",
+    "reference": "synthetic-run-envelope",
+    "scope": "validation only"
+  },
+  "observations": [
+    {
+      "command": "python -B tests/synthetic.py",
+      "exit_code": 0,
+      "fact": "The synthetic command exited zero."
+    }
+  ],
+  "proves": [
+    "The named synthetic command exited zero at the exact recorded head."
+  ],
+  "does_not_prove": [
+    "It does not authorize merge, deployment, release, or lifecycle closure."
+  ]
+}

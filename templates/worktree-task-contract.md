@@ -49,6 +49,15 @@
 ## Validation Commands
 -
 
+## Typed Validation Evidence
+- Evidence file: `validation-evidence.json` or another contract-approved path
+- Validate with: `python -B scripts/agent/validation_evidence.py validate --file <json> --repo-root . --json`
+- Use a full lowercase 40-character Git commit hash.
+- State both what each result proves and what it does not prove.
+- Do not include credentials or private machine paths.
+- Treat the evidence and validator output as reference-only. They do not authorize
+  a case transition, review result, repair, merge, publication, or deployment.
+
 ## Review Requirement
 - Same-session / fresh-context / independent / human
 
@@ -67,4 +76,5 @@
 ## Required Handoff
 - Use `templates/parallel-lane-handoff.md`.
 - Include changed files, validation evidence, checks not run, blockers, and review packet.
+- Include the typed evidence path and validator output when typed evidence is produced.
 - Keep absolute machine paths in local runtime notes only.

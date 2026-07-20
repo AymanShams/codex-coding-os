@@ -1,0 +1,7 @@
+# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY
+prefix_rule(
+    pattern = ["gh", "pr", "merge"],
+    decision = "prompt",
+    justification = "Pull request merge requires explicit authority for the exact repository, pull request, and reviewed head.",
+)
+# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY

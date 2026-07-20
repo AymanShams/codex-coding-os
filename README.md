@@ -29,27 +29,33 @@ Third-party sources, adapted materials, and optional upstream installs are track
 in [THIRD_PARTY_SKILLS.md](THIRD_PARTY_SKILLS.md) and
 [external-skills/manifest.json](external-skills/manifest.json).
 
-## Inspect before global changes
+## Install a release archive
+
+Read the bundle aggregate from the included manifest, compare it with the
+publisher-provided release checksum, and then run the installer. The installer
+checks every bundled file against the manifest and requires the aggregate value.
+Run the following Windows commands in one PowerShell session.
 
 Preview the Windows install without changing files:
 
 ```powershell
-.\scripts\install.ps1 -InstallGlobalAgents -DryRun
+$ExpectedBundleSha256 = (Get-Content -Raw -LiteralPath .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
+.\scripts\install.ps1 -ExpectedBundleSha256 $ExpectedBundleSha256 -ArchiveMode -DryRun
 ```
 
-Install the skills without modifying `~\.codex\AGENTS.md`:
+Install the skills:
 
 ```powershell
-.\scripts\install.ps1
+.\scripts\install.ps1 -ExpectedBundleSha256 $ExpectedBundleSha256 -ArchiveMode
 ```
 
 Refresh the installed capability index after copying support files:
 
 ```powershell
-.\scripts\install.ps1 -RefreshCapabilityIndex
+.\scripts\install.ps1 -ExpectedBundleSha256 $ExpectedBundleSha256 -ArchiveMode -RefreshCapabilityIndex
 ```
 
-Global Codex instructions are installed only when you pass `-InstallGlobalAgents`.
+The normal archive route does not modify global Codex policy files.
 
 Preview a fresh-context review prompt for the current commit:
 
@@ -152,16 +158,21 @@ confident but wrong code.
 - Public repo hygiene files: security reporting, contribution guidance, manifest
   schema, release checklist, and license FAQ.
 
-## Install on Windows
+## Install from a source checkout on Windows
 
-1. Download or clone this repo.
+1. Clone this repository at the exact commit you intend to install.
 2. Open PowerShell inside the repo folder.
 3. Run:
 
 ```powershell
+$ExpectedBundleSha256 = (Get-Content -Raw -LiteralPath .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
+$ExpectedSourceCommit = git rev-parse HEAD
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\scripts\install.ps1 -InstallGlobalAgents
+.\scripts\install.ps1 -ExpectedBundleSha256 $ExpectedBundleSha256 -ExpectedSourceCommit $ExpectedSourceCommit
 ```
+
+The source route requires a clean checkout and the exact expected Git commit. Do
+not omit `-ExpectedSourceCommit`.
 
 4. Restart Codex.
 5. Open a new Codex chat and paste the first prompt from `templates/first-codex-prompt.md`.
@@ -169,44 +180,60 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 Preview the install without changing files:
 
 ```powershell
-.\scripts\install.ps1 -InstallGlobalAgents -DryRun
+.\scripts\install.ps1 -ExpectedBundleSha256 $ExpectedBundleSha256 -ExpectedSourceCommit $ExpectedSourceCommit -DryRun
 ```
 
-## Install without global AGENTS changes
+## Normal installs leave universal policy unchanged
 
-If you only want the skills copied and do not want to modify `~\.codex\AGENTS.md`, run:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\scripts\install.ps1
-```
-
-Then start Codex from a project folder that has its own `AGENTS.md`, or explicitly invoke:
+Both normal archive and source-checkout commands install skills without modifying
+`~\.codex\AGENTS.md`. Start Codex from a project folder that has its own
+`AGENTS.md`, or explicitly invoke:
 
 ```text
 $codex-coding-os-master
 ```
 
-## Install on macOS or Linux
+## Install a release archive on macOS or Linux
 
 From the repo folder:
 
 ```bash
+python_cmd="$(command -v python3 || command -v python)"
+expected_bundle_sha256="$("$python_cmd" -c 'import json; print(json.load(open("install-bundle.manifest.json", encoding="utf-8"))["aggregate_sha256"])')"
 chmod +x ./scripts/install.sh ./scripts/uninstall.sh
-./scripts/install.sh --install-global-agents
+./scripts/install.sh --expected-bundle-sha256 "$expected_bundle_sha256" --archive-mode
 ```
 
 Refresh the installed capability index:
 
 ```bash
-./scripts/install.sh --refresh-capability-index
+./scripts/install.sh --expected-bundle-sha256 "$expected_bundle_sha256" --archive-mode --refresh-capability-index
 ```
 
 Preview the install:
 
 ```bash
-./scripts/install.sh --install-global-agents --dry-run
+./scripts/install.sh --expected-bundle-sha256 "$expected_bundle_sha256" --archive-mode --dry-run
 ```
+
+For a source checkout, bind the install to the current full Git commit:
+
+```bash
+python_cmd="$(command -v python3 || command -v python)"
+expected_bundle_sha256="$("$python_cmd" -c 'import json; print(json.load(open("install-bundle.manifest.json", encoding="utf-8"))["aggregate_sha256"])')"
+expected_source_commit="$(git rev-parse HEAD)"
+./scripts/install.sh --expected-bundle-sha256 "$expected_bundle_sha256" --expected-source-commit "$expected_source_commit"
+```
+
+## Separately authorized universal policy synchronization
+
+Normal archive installation deliberately does not modify `~/.codex/AGENTS.md` or
+the default Codex rules. Universal policy synchronization is a separately
+authorized operation, not routine setup. Archive mode rejects it. A source
+checkout must provide a verified bundle aggregate and exact expected Git commit,
+and synchronization also requires its own authorized closed case and authority
+record. See `docs/case-state-contract.md`; do not add a universal-policy flag to
+a routine install command.
 
 ## Uninstall
 

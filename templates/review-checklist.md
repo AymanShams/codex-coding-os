@@ -40,12 +40,12 @@
 | Check | Evidence | Result |
 |---|---|---|
 | Current PR head was verified before relying on review or check state | {{evidence}} | Pass, Fail, or Not reviewed |
-| Review-state collector recorded review commit, PR head, original_commit_id, commit_id, clean-summary commit, required checks, and ambiguity | {{evidence}} | Pass, Fail, or Not reviewed |
+| Review-state collector recorded exact PR head, raw review states, original_commit_id, commit_id, issue-comment count, and required checks | {{evidence}} | Pass, Fail, or Not reviewed |
 | Current-head inline comments were checked | {{evidence}} | Pass, Fail, or Not reviewed |
 | Issue comments and summary reviews were checked | {{evidence}} | Pass, Fail, or Not reviewed |
 | Required checks and mergeability were checked on the current head | {{evidence}} | Pass, Fail, or Not reviewed |
-| Current-head inline findings do not conflict with a later no-major-issues summary | {{evidence}} | Pass, Fail, Ambiguous, or Not reviewed |
-| Review-loop breaker threshold was not crossed, or batch RCA and adversarial test matrix are complete before exactly one further review | {{evidence}} | Pass, Fail, Ambiguous, or Not reviewed |
+| `COMMENTED` reviews and issue-comment prose were treated as raw facts, not approval | {{evidence}} | Pass, Fail, or Not reviewed |
+| Canonical stable case, frozen head, review cohort, and permitted transition were verified through the case-state engine | {{evidence}} | Pass, Fail, or Not reviewed |
 
 ## Frontend
 - Mobile and desktop layouts were checked.
@@ -61,6 +61,15 @@
 | Tests | {{command}} | Pass, Fail, or Not run |
 | Build | {{command}} | Pass, Fail, or Not run |
 | Manual QA | {{method}} | Pass, Fail, or Not run |
+
+## Typed Validation Evidence
+| Check | Evidence | Result |
+|---|---|---|
+| Evidence conforms to `validation-evidence.schema.json` | {{validator_output}} | Pass, Fail, or Not reviewed |
+| Repository identity, full head, and working-tree state match the reviewed checkout | {{validator_output}} | Pass, Fail, or Not reviewed |
+| Every record states what it proves and what it does not prove | {{evidence_path}} | Pass, Fail, or Not reviewed |
+| No credential or private machine path appears | {{evidence_path}} | Pass, Fail, or Not reviewed |
+| Evidence was treated as reference-only and not as lifecycle authority | {{case_state_evidence}} | Pass, Fail, or Not reviewed |
 
 ## Final Decision
 Ship, revise, or block: {{decision}}
