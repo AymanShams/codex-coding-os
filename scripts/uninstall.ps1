@@ -2,6 +2,7 @@
 param(
   [string]$SkillsRoot = "$HOME\.agents\skills",
   [string]$CodexHome = "$HOME\.codex",
+  [switch]$LegacyOverlapMigration,
   [switch]$DryRun
 )
 
@@ -18,6 +19,7 @@ $Arguments = @(
   "--skills-root", $SkillsRoot,
   "--codex-home", $CodexHome
 )
+if ($LegacyOverlapMigration) { $Arguments += "--legacy-overlap-migration" }
 if ($DryRun) { $Arguments += "--dry-run" }
 $TargetDescription = "SkillsRoot=$SkillsRoot; CodexHome=$CodexHome"
 if ($DryRun -or $PSCmdlet.ShouldProcess($TargetDescription, "Run one transactional Codex Coding OS uninstall")) {

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "5acdfbdfde1d0621dcf9c1f607c5bd5a5cdf17fee48dda863c8c635a531df830",
+  "aggregate_sha256": "bb3e24c24dfbb1af3c9720a02a5fa26b6eff6b1878b5b355afb524a61a8e1ba5",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2238,8 +2238,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "dbf0ca8869e580328d7d0f637541d451fcc8fcd87f4a6ed89cd59bbba8fe7f60",
-      "size": 8201
+      "sha256": "ba5a8474d68470cb55c4d92a8851f1f074dada6d2d25a1aab10b7ee4c5fb42fe",
+      "size": 9608
     },
     {
       "path": "docs/license-strategy.md",
@@ -2388,18 +2388,18 @@
     },
     {
       "path": "scripts/install.ps1",
-      "sha256": "db557399c8f66ab759a48f350eac1105cc035ea0a83462ed576ff52afde8b49d",
-      "size": 3005
+      "sha256": "58b3403faf77cf6632c7402915fce0a54c268ef476c51b8663ce4cc2ffe9bb42",
+      "size": 3242
     },
     {
       "path": "scripts/install.sh",
-      "sha256": "ea28de65062788ac22c6238bb1aa907d18e991585bfbbf70536925e8ad1b53ab",
-      "size": 3074
+      "sha256": "149cc57e37b84a170f2804a972d7bd80bf344b32b43fc5701f03cd6945aa0686",
+      "size": 3488
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "a1e15616cec3d726e2a3a09e8f686e0a18d3fd2bd2221a129570f2a7b8e83c8f",
-      "size": 101267
+      "sha256": "2945cc4941536ea38d6bdc7d62fde8f2b34bc9aab3e62c16a7e36451b5ec5e34",
+      "size": 113100
     },
     {
       "path": "scripts/package.ps1",
@@ -2413,13 +2413,13 @@
     },
     {
       "path": "scripts/uninstall.ps1",
-      "sha256": "dc24b973459e7ca01958c480029d99b694d47bb3db447080874a32e7c8f0ccbf",
-      "size": 1295
+      "sha256": "6ad0b4ae6db7a92408a1c03d65a51451105fdf69bfa39a72c8ec83ef80c45a77",
+      "size": 1406
     },
     {
       "path": "scripts/uninstall.sh",
-      "sha256": "bd01d063665726dc82489a884f7d6a11085079455e1dc53bb13221510dd7ffe2",
-      "size": 1029
+      "sha256": "994dcd4cd7ec127926d33ba18df754ba17379385ef92d726e7c564c4f1cd8369",
+      "size": 1232
     },
     {
       "path": "scripts/validate-links.ps1",
@@ -2578,13 +2578,13 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "22a9962e73c21481cbd61b65db6a9a17245aa0841f4fa3341482d4a54360dd46",
-      "size": 37901
+      "sha256": "e63d83fd1d2a0f80b9ca437ca43ee73afb71a6d95f818aba15b575002a5a7223",
+      "size": 51187
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "fe10d9e23b9f2aa75b0977e81a6e8155d68b76577923a1e72364d71a83df2e88",
-      "size": 3933
+      "sha256": "93554ec7f38b328089497270f24f24269a235feaec4e5f4a5240006f45bf92e9",
+      "size": 5278
     },
     {
       "path": "tests/test_reentry_summary.py",
