@@ -457,6 +457,48 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(second["status"], "already_committed")
             self.assertEqual(current_path.read_bytes(), before)
 
+    def test_install_and_uninstall_use_target_local_workspaces_across_filesystems(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+
+            def synthetic_device(path: Path) -> int:
+                resolved = Path(path).resolve(strict=False)
+                if it._path_is_within(resolved, env.skills):
+                    return 2
+                if it._path_is_within(resolved, env.codex):
+                    return 3
+                return 1
+
+            with mock.patch.object(it, "_device_id", side_effect=synthetic_device):
+                self.assertEqual(it.install(env.archive_options())["status"], "committed")
+                self.assertEqual(
+                    it.uninstall(it.UninstallOptions(skills_root=env.skills, codex_home=env.codex))["status"],
+                    "uninstalled",
+                )
+
+            journals = [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in (env.codex / ".coding-os-install/transactions").glob("*/journal.json")
+            ]
+            self.assertEqual({journal["operation"] for journal in journals}, {"install", "uninstall"})
+            for journal in journals:
+                workspaces = {
+                    role: Path(value) for role, value in journal["transaction_workspaces"].items()
+                }
+                self.assertTrue(it._path_is_within(workspaces["skills"], env.skills))
+                self.assertTrue(it._path_is_within(workspaces["codex_home"], env.codex))
+                for target in journal["targets"]:
+                    live = Path(target["live_path"])
+                    rollback = Path(target["rollback_path"])
+                    role = "skills" if target["target_id"].startswith("skill:") else "codex_home"
+                    self.assertTrue(it._path_is_within(rollback, workspaces[role]))
+                    self.assertEqual(synthetic_device(rollback), synthetic_device(live.parent))
+                    if target["staged_path"] is not None:
+                        staged = Path(target["staged_path"])
+                        self.assertTrue(it._path_is_within(staged, workspaces[role]))
+                        self.assertEqual(synthetic_device(staged), synthetic_device(live.parent))
+                self.assertTrue(all(not workspace.exists() for workspace in workspaces.values()))
+
     def test_unowned_skill_collision_fails_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
@@ -814,10 +856,69 @@ class LegacyOverlapMigrationTests(unittest.TestCase):
             journals = list((env.codex / ".coding-os-install/transactions").glob("*/journal.json"))
             self.assertEqual(len(journals), 1)
             journal = json.loads(journals[0].read_text(encoding="utf-8"))
+            workspaces = {
+                role: Path(value) for role, value in journal["transaction_workspaces"].items()
+            }
+            self.assertTrue(all(it._path_is_within(path, env.codex) for path in workspaces.values()))
+            self.assertTrue(all(not it._path_is_within(path, skills) for path in workspaces.values()))
             for value in [*journal["stage_roots"], *journal["rollback_roots"]]:
                 self.assertFalse(it._path_is_within(Path(value), skills))
-                self.assertFalse(it._path_is_within(Path(value), env.codex))
-            self.assertFalse(Path(journal["transaction_workspace"]).exists())
+                self.assertTrue(any(it._path_is_within(Path(value), path) for path in workspaces.values()))
+            for target in journal["targets"]:
+                live = Path(target["live_path"])
+                for workspace in workspaces.values():
+                    self.assertFalse(it._path_is_within(workspace, live))
+                    self.assertFalse(it._path_is_within(live, workspace))
+            self.assertTrue(all(not path.exists() for path in workspaces.values()))
+
+    def test_legacy_overlap_uses_codex_local_workspaces_when_codex_parent_is_another_device(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, _ = env.prepare_legacy_overlap_v2()
+
+            def synthetic_device(path: Path) -> int:
+                resolved = Path(path).resolve(strict=False)
+                if it._path_is_within(resolved, skills):
+                    return 3
+                if it._path_is_within(resolved, env.codex):
+                    return 3
+                return 1
+
+            with mock.patch.object(it, "_device_id", side_effect=synthetic_device):
+                self.assertEqual(it.install(env.legacy_overlap_options())["status"], "committed")
+
+            journal_path = next((env.codex / ".coding-os-install/transactions").glob("*/journal.json"))
+            journal = json.loads(journal_path.read_text(encoding="utf-8"))
+            workspaces = [Path(value) for value in journal["transaction_workspaces"].values()]
+            self.assertTrue(all(it._path_is_within(path, env.codex) for path in workspaces))
+            self.assertTrue(all(not it._path_is_within(path, skills) for path in workspaces))
+            self.assertTrue(all(synthetic_device(path) == 3 for path in workspaces))
+            self.assertEqual(synthetic_device(env.codex.parent), 1)
+
+    def test_legacy_overlap_rejects_a_nested_skills_mount_before_live_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, legacy_support = env.prepare_legacy_overlap_v2()
+            preserved = {
+                skills / "alpha/SKILL.md": sha(skills / "alpha/SKILL.md"),
+                legacy_support / "legacy-support.txt": sha(legacy_support / "legacy-support.txt"),
+            }
+
+            def synthetic_device(path: Path) -> int:
+                resolved = Path(path).resolve(strict=False)
+                if it._path_is_within(resolved, skills):
+                    return 4
+                if it._path_is_within(resolved, env.codex):
+                    return 3
+                return 1
+
+            with mock.patch.object(it, "_device_id", side_effect=synthetic_device):
+                with self.assertRaisesRegex(it.TransactionError, "skills transaction workspace must share"):
+                    it.install(env.legacy_overlap_options())
+
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+            self.assertFalse((env.codex / "coding-os").exists())
+            self.assertFalse(any(env.codex.glob(".coding-os-transaction-*")))
 
     def test_legacy_overlap_rejects_an_unrecorded_nested_descendant_before_mutation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:

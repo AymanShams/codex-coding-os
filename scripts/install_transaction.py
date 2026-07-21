@@ -835,6 +835,7 @@ def _existing_anchor(path: Path) -> Path:
 
 
 def _transaction_workspace_path(transaction_id: str, skills_root: Path, codex_home: Path) -> Path:
+    """Return the legacy OS-temp workspace path used by already-written journals."""
     if not re.fullmatch(r"[0-9a-f]{32}", transaction_id):
         raise TransactionError("transaction workspace requires one generated 32-character transaction identifier")
     temp_root = Path(tempfile.gettempdir()).expanduser().resolve(strict=True)
@@ -847,25 +848,86 @@ def _transaction_workspace_path(transaction_id: str, skills_root: Path, codex_ho
         raise TransactionError("transaction workspace escaped its OS-temp containment root")
     if _path_is_within(workspace, skills_root) or _path_is_within(workspace, codex_home):
         raise TransactionError("transaction workspace must be outside SkillsRoot and CodexHome")
-    devices = {_existing_anchor(path).stat().st_dev for path in (temp_root, skills_root, codex_home)}
-    if len(devices) != 1:
-        raise TransactionError(
-            "transaction workspace must share a filesystem with SkillsRoot and CodexHome for atomic promotion"
+    return workspace
+
+
+def _transaction_workspace_paths(
+    transaction_id: str,
+    skills_root: Path,
+    codex_home: Path,
+) -> dict[str, Path]:
+    if not re.fullmatch(r"[0-9a-f]{32}", transaction_id):
+        raise TransactionError("transaction workspaces require one generated 32-character transaction identifier")
+    skills_parent = codex_home if _legacy_overlap_layout(skills_root, codex_home) else skills_root
+    paths = {
+        "skills": (skills_parent / f".coding-os-transaction-{transaction_id}-skills").resolve(strict=False),
+        "codex_home": (codex_home / f".coding-os-transaction-{transaction_id}-codex-home").resolve(strict=False),
+    }
+    if _path_is_within(paths["skills"], skills_root) and _legacy_overlap_layout(skills_root, codex_home):
+        raise TransactionError("legacy-overlap transaction workspace must remain outside SkillsRoot")
+    for role, workspace in paths.items():
+        expected_parent = skills_parent if role == "skills" else codex_home
+        if workspace.parent != expected_parent or not _path_is_within(workspace, expected_parent):
+            raise TransactionError(f"{role} transaction workspace escaped its target root")
+        if workspace in {skills_root, codex_home}:
+            raise TransactionError("transaction workspace must not replace an install root")
+    return paths
+
+
+def _device_id(path: Path) -> int:
+    return int(_existing_anchor(path).stat().st_dev)
+
+
+def _assert_workspace_devices(
+    workspaces: dict[str, Path],
+    skills_root: Path,
+    codex_home: Path,
+) -> None:
+    expected = {"skills": skills_root, "codex_home": codex_home}
+    for role, root in expected.items():
+        if _device_id(workspaces[role]) != _device_id(root):
+            raise TransactionError(f"{role} transaction workspace must share a filesystem with its target root")
+
+
+def _create_transaction_workspaces(workspaces: dict[str, Path]) -> None:
+    for workspace in workspaces.values():
+        _assert_no_link_components(workspace.parent)
+        workspace.mkdir(parents=True, exist_ok=False)
+        _assert_no_link_components(workspace)
+
+
+def _validate_journal_workspace(journal: Journal, skills_root: Path, codex_home: Path) -> tuple[Path, ...]:
+    raw_workspaces = journal.data.get("transaction_workspaces")
+    if raw_workspaces is not None:
+        if not isinstance(raw_workspaces, dict) or set(raw_workspaces) != {"skills", "codex_home"}:
+            raise RecoveryError("transaction journal workspace mapping is invalid")
+        expected = _transaction_workspace_paths(
+            str(journal.data.get("transaction_id", "")),
+            skills_root,
+            codex_home,
         )
-    return workspace
+        workspaces = {
+            role: Path(str(raw_workspaces[role])).expanduser().resolve(strict=False)
+            for role in expected
+        }
+        if workspaces != expected:
+            raise RecoveryError("transaction journal workspace mapping does not match the requested roots")
+        expected_roots = {
+            "stage_roots": [workspaces["skills"] / "stage", workspaces["codex_home"] / "stage"],
+            "rollback_roots": [workspaces["skills"] / "rollback", workspaces["codex_home"] / "rollback"],
+        }
+        for root_key, expected_values in expected_roots.items():
+            values = journal.data.get(root_key, [])
+            if not isinstance(values, list):
+                raise RecoveryError(f"transaction journal {root_key} is invalid")
+            resolved = [Path(str(value)).expanduser().resolve(strict=False) for value in values]
+            if resolved != expected_values:
+                raise RecoveryError(f"transaction journal {root_key} does not match its target-local workspaces")
+        return tuple(dict.fromkeys(workspaces.values()))
 
-
-def _create_transaction_workspace(transaction_id: str, skills_root: Path, codex_home: Path) -> Path:
-    workspace = _transaction_workspace_path(transaction_id, skills_root, codex_home)
-    workspace.mkdir(parents=True, exist_ok=False)
-    _assert_no_link_components(workspace)
-    return workspace
-
-
-def _validate_journal_workspace(journal: Journal, skills_root: Path, codex_home: Path) -> Path | None:
     raw = journal.data.get("transaction_workspace")
     if raw is None:
-        return None
+        return ()
     expected = _transaction_workspace_path(str(journal.data.get("transaction_id", "")), skills_root, codex_home)
     workspace = Path(str(raw)).expanduser().resolve(strict=False)
     if workspace != expected:
@@ -878,7 +940,7 @@ def _validate_journal_workspace(journal: Journal, skills_root: Path, codex_home:
             path = Path(str(value)).expanduser().resolve(strict=False)
             if not _path_is_within(path, workspace):
                 raise RecoveryError(f"transaction journal {root_key} escaped the transaction workspace")
-    return workspace
+    return (workspace,)
 
 
 def _read_previous_current(state_root: Path) -> tuple[bytes | None, dict[str, Any] | None]:
@@ -1366,7 +1428,7 @@ def _stage_bundle(
     source_root: Path,
     skills_root: Path,
     codex_home: Path,
-    transaction_workspace: Path,
+    transaction_workspaces: dict[str, Path],
     bundle: BundleInfo,
     transaction_id: str,
     previous: dict[str, Any] | None,
@@ -1377,8 +1439,8 @@ def _stage_bundle(
 ) -> dict[str, Any]:
     installation = bundle.pack["installation"]
     managed_skill_source = _safe_repo_path(source_root, str(installation["managed_skill_root"]))
-    skill_stage_root = transaction_workspace / "stage" / "skills"
-    codex_stage_home = transaction_workspace / "stage" / "codex-home"
+    skill_stage_root = transaction_workspaces["skills"] / "stage" / "skills"
+    codex_stage_home = transaction_workspaces["codex_home"] / "stage" / "codex-home"
     support_stage = codex_stage_home / "coding-os"
     policy_stage = codex_stage_home / "policy"
     skill_stage_root.mkdir(parents=True, exist_ok=False)
@@ -1428,7 +1490,7 @@ def _stage_bundle(
         environment.update(
             {
                 "CODEX_HOME": str(codex_stage_home),
-                "AGENTS_HOME": str(skills_root / ".coding-os-stage" / transaction_id),
+                "AGENTS_HOME": str(skill_stage_root.parent),
                 "CODEX_CODING_OS_ROOT": str(support_stage),
             }
         )
@@ -1689,12 +1751,12 @@ def _make_target(
 def _prepare_install_targets(
     skills_root: Path,
     codex_home: Path,
-    transaction_workspace: Path,
+    transaction_workspaces: dict[str, Path],
     previous_records: Sequence[dict[str, Any]],
     staged: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    skill_rollback = transaction_workspace / "rollback" / "skills"
-    codex_rollback = transaction_workspace / "rollback" / "codex-home"
+    skill_rollback = transaction_workspaces["skills"] / "rollback" / "skills"
+    codex_rollback = transaction_workspaces["codex_home"] / "rollback" / "codex-home"
     new_names = {record["name"] for record in staged["managed_skills"]}
     old_names = {str(record["name"]) for record in previous_records}
     targets: list[dict[str, Any]] = []
@@ -1731,6 +1793,34 @@ def _prepare_install_targets(
         if Path(target["live_path"]).resolve(strict=False) == codex_home:
             raise TransactionError("transaction targets must never rename, move, or replace CodexHome itself")
     return targets
+
+
+def _assert_atomic_target_layout(
+    targets: Sequence[dict[str, Any]],
+    transaction_workspaces: dict[str, Path],
+) -> None:
+    for target in targets:
+        live = Path(str(target["live_path"])).resolve(strict=False)
+        staged = Path(str(target["staged_path"])).resolve(strict=False) if target.get("staged_path") else None
+        rollback = Path(str(target["rollback_path"])).resolve(strict=False)
+        role = "skills" if str(target["target_id"]).startswith("skill:") else "codex_home"
+        workspace = transaction_workspaces[role]
+        if not _path_is_within(rollback, workspace):
+            raise TransactionError(f"rollback path escaped its target-local workspace: {target['target_id']}")
+        if staged is not None and not _path_is_within(staged, workspace):
+            raise TransactionError(f"staged path escaped its target-local workspace: {target['target_id']}")
+        for candidate in transaction_workspaces.values():
+            if _path_is_within(candidate, live) or _path_is_within(live, candidate):
+                raise TransactionError(f"transaction workspace overlaps a live target: {target['target_id']}")
+
+        live_parent_device = _device_id(live.parent)
+        rollback_device = _device_id(rollback)
+        if rollback_device != live_parent_device:
+            raise TransactionError(f"rollback path is not on the live target filesystem: {target['target_id']}")
+        if target["prior_state"] == "present" and _device_id(live) != rollback_device:
+            raise TransactionError(f"existing live target cannot be atomically moved to rollback: {target['target_id']}")
+        if staged is not None and _device_id(staged) != live_parent_device:
+            raise TransactionError(f"staged path cannot be atomically promoted to live: {target['target_id']}")
 
 
 def _verify_target_state(target: dict[str, Any], use_new: bool) -> bool:
@@ -1857,7 +1947,7 @@ def _retain_and_cleanup(
     skills_root: Path,
     codex_home: Path,
 ) -> None:
-    workspace = _validate_journal_workspace(journal, skills_root, codex_home)
+    workspaces = _validate_journal_workspace(journal, skills_root, codex_home)
     transaction_id = str(journal.data["transaction_id"])
     if committed:
         retained_root = state_root / "retained-backups" / transaction_id
@@ -1883,8 +1973,9 @@ def _retain_and_cleanup(
         path = Path(raw)
         if path.exists():
             _remove_owned_path(path)
-    if workspace is not None and workspace.exists():
-        _remove_owned_path(workspace)
+    for workspace in workspaces:
+        if workspace.exists():
+            _remove_owned_path(workspace)
     journal.data["status"] = "COMMITTED" if committed else journal.data.get("status", "ROLLED_BACK")
     journal.data["phase"] = "CLEANUP_COMPLETE"
     journal.save()
@@ -2045,7 +2136,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
     if options.dry_run:
         return _dry_run_install(options, source_root, skills_root, codex_home)
     transaction_id = uuid.uuid4().hex
-    transaction_workspace = _transaction_workspace_path(transaction_id, skills_root, codex_home)
+    transaction_workspaces = _transaction_workspace_paths(transaction_id, skills_root, codex_home)
     state_root = codex_home / ".coding-os-install"
     with exclusive_install_lock(state_root, transaction_id, "install"):
         _recover_pending(state_root, skills_root, codex_home)
@@ -2060,7 +2151,9 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 "journal_version": JOURNAL_VERSION,
                 "transaction_protocol": TRANSACTION_PROTOCOL,
                 "transaction_id": transaction_id,
-                "transaction_workspace": str(transaction_workspace),
+                "transaction_workspaces": {
+                    role: str(path) for role, path in transaction_workspaces.items()
+                },
                 "operation": "install",
                 "status": "IN_PROGRESS",
                 "phase": None,
@@ -2076,16 +2169,17 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 "new_pointer_sha256": None,
                 "targets": [],
                 "stage_roots": [
-                    str(transaction_workspace / "stage"),
+                    str(transaction_workspaces["skills"] / "stage"),
+                    str(transaction_workspaces["codex_home"] / "stage"),
                 ],
                 "rollback_roots": [
-                    str(transaction_workspace / "rollback"),
+                    str(transaction_workspaces["skills"] / "rollback"),
+                    str(transaction_workspaces["codex_home"] / "rollback"),
                 ],
             },
         )
         journal.save()
         try:
-            _create_transaction_workspace(transaction_id, skills_root, codex_home)
             journal.phase("LOCK_ACQUIRED", skills_root, codex_home)
             previous, previous_records, _, legacy_overlap_marker = _install_preflight(
                 options, source_root, skills_root, codex_home
@@ -2098,12 +2192,14 @@ def install(options: InstallOptions) -> dict[str, Any]:
             journal.data["source_commit"] = source.get("git_commit")
             journal.save()
             journal.phase("SOURCE_VERIFIED", skills_root, codex_home)
+            _assert_workspace_devices(transaction_workspaces, skills_root, codex_home)
+            _create_transaction_workspaces(transaction_workspaces)
             staged = _stage_bundle(
                 options,
                 source_root,
                 skills_root,
                 codex_home,
-                transaction_workspace,
+                transaction_workspaces,
                 bundle,
                 transaction_id,
                 previous,
@@ -2128,10 +2224,11 @@ def install(options: InstallOptions) -> dict[str, Any]:
             targets = _prepare_install_targets(
                 skills_root,
                 codex_home,
-                transaction_workspace,
+                transaction_workspaces,
                 previous_records,
                 staged,
             )
+            _assert_atomic_target_layout(targets, transaction_workspaces)
             journal.data["targets"] = targets
             install_manifest_path = codex_home / "coding-os" / "install-manifest.json"
             pointer = {
@@ -2278,7 +2375,7 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
     if options.dry_run:
         return _dry_run_uninstall(options, skills_root, codex_home)
     transaction_id = uuid.uuid4().hex
-    transaction_workspace = _transaction_workspace_path(transaction_id, skills_root, codex_home)
+    transaction_workspaces = _transaction_workspace_paths(transaction_id, skills_root, codex_home)
     state_root = codex_home / ".coding-os-install"
     with exclusive_install_lock(state_root, transaction_id, "uninstall"):
         _recover_pending(state_root, skills_root, codex_home)
@@ -2298,7 +2395,9 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                 "journal_version": JOURNAL_VERSION,
                 "transaction_protocol": TRANSACTION_PROTOCOL,
                 "transaction_id": transaction_id,
-                "transaction_workspace": str(transaction_workspace),
+                "transaction_workspaces": {
+                    role: str(path) for role, path in transaction_workspaces.items()
+                },
                 "operation": "uninstall",
                 "status": "IN_PROGRESS",
                 "phase": None,
@@ -2314,16 +2413,17 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                 "new_pointer_sha256": None,
                 "targets": [],
                 "stage_roots": [
-                    str(transaction_workspace / "stage"),
+                    str(transaction_workspaces["skills"] / "stage"),
+                    str(transaction_workspaces["codex_home"] / "stage"),
                 ],
                 "rollback_roots": [
-                    str(transaction_workspace / "rollback"),
+                    str(transaction_workspaces["skills"] / "rollback"),
+                    str(transaction_workspaces["codex_home"] / "rollback"),
                 ],
             },
         )
         journal.save()
         try:
-            _create_transaction_workspace(transaction_id, skills_root, codex_home)
             journal.phase("LOCK_ACQUIRED", skills_root, codex_home)
             if manifest.get("manifest_version") == 3:
                 records, support_root = _validate_v3_for_uninstall(
@@ -2344,9 +2444,11 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                     raise TransactionError("legacy support root is outside the requested CodexHome")
             journal.phase("PREFLIGHT_VERIFIED", skills_root, codex_home)
             journal.phase("SOURCE_VERIFIED", skills_root, codex_home)
-            skill_rollback = transaction_workspace / "rollback" / "skills"
-            codex_rollback = transaction_workspace / "rollback" / "codex-home"
-            codex_stage_home = transaction_workspace / "stage" / "codex-home"
+            _assert_workspace_devices(transaction_workspaces, skills_root, codex_home)
+            _create_transaction_workspaces(transaction_workspaces)
+            skill_rollback = transaction_workspaces["skills"] / "rollback" / "skills"
+            codex_rollback = transaction_workspaces["codex_home"] / "rollback" / "codex-home"
+            codex_stage_home = transaction_workspaces["codex_home"] / "stage" / "codex-home"
             codex_stage_home.mkdir(parents=True, exist_ok=False)
             targets: list[dict[str, Any]] = []
             for record in sorted(records, key=lambda value: str(value["name"]).casefold()):
@@ -2376,6 +2478,7 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
             for target in targets:
                 if Path(target["live_path"]).resolve(strict=False) == codex_home:
                     raise TransactionError("transaction targets must never rename, move, or replace CodexHome itself")
+            _assert_atomic_target_layout(targets, transaction_workspaces)
             journal.data["targets"] = targets
             journal.save()
             journal.phase("STAGE_VERIFIED", skills_root, codex_home)
