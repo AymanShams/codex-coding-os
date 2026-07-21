@@ -62,6 +62,26 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         self.assertIn("if options.archive_mode:", transaction_engine)
         self.assertIn('raise AuthorityError("archive mode cannot synchronize universal policy")', transaction_engine)
 
+    def test_legacy_overlap_migration_is_explicit_in_docs_and_powershell_adapters(self) -> None:
+        install_ps1 = (self.repo_root / "scripts" / "install.ps1").read_text(encoding="utf-8")
+        uninstall_ps1 = (self.repo_root / "scripts" / "uninstall.ps1").read_text(encoding="utf-8")
+        transaction_engine = (self.repo_root / "scripts" / "install_transaction.py").read_text(encoding="utf-8")
+
+        self.assertIn("-LegacyOverlapMigration", self.getting_started)
+        self.assertIn("-UniversalBundleId", self.getting_started)
+        self.assertIn("does not treat nested files as proven owned", self.getting_started)
+        self.assertIn("when a recorded v2 skill is no longer bundled", self.getting_started)
+        self.assertIn("[switch]$LegacyOverlapMigration", install_ps1)
+        self.assertIn('"--legacy-overlap-migration"', install_ps1)
+        self.assertIn("[string]$UniversalBundleId", install_ps1)
+        self.assertIn('"--universal-bundle-id", $UniversalBundleId', install_ps1)
+        self.assertIn("[switch]$LegacyOverlapMigration", uninstall_ps1)
+        self.assertIn('"--legacy-overlap-migration"', uninstall_ps1)
+        self.assertIn('install_parser.add_argument("--legacy-overlap-migration", action="store_true")', transaction_engine)
+        self.assertIn('uninstall_parser.add_argument("--legacy-overlap-migration", action="store_true")', transaction_engine)
+        self.assertIn('install_parser.add_argument("--universal-bundle-id", default=UNIVERSAL_BUNDLE_ID)', transaction_engine)
+        self.assertIn("def _validate_legacy_v2_skill_descendants(", transaction_engine)
+
 
 if __name__ == "__main__":
     unittest.main()

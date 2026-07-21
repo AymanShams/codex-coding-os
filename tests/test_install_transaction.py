@@ -123,13 +123,20 @@ class SyntheticEnvironment:
             self.commit = run_git(self.source, "rev-parse", "HEAD")
             self._write_case_authority(allowed=False)
 
-    def _write_case_authority(self, *, allowed: bool, approved_head: str | None = None) -> None:
+    def _write_case_authority(
+        self,
+        *,
+        allowed: bool,
+        approved_head: str | None = None,
+        universal_bundle: str = "automation-preserving-case-state-recovery-v1",
+        state: str = "CLOSED_SUCCESS",
+    ) -> None:
         self.state.mkdir(parents=True, exist_ok=True)
         action = {
             "protocol_version": "ccos-case-action-v1",
             "schema_version": 2,
             "case_id": self.case_id,
-            "state": "CLOSED_SUCCESS",
+            "state": state,
             "action": "universal_sync",
             "actor_role": "publication_child",
             "repository": self.repository,
@@ -141,7 +148,7 @@ class SyntheticEnvironment:
                 "worktree": None,
                 "pr": None,
                 "thread": None,
-                "universal_bundle": "automation-preserving-case-state-recovery-v1",
+                "universal_bundle": universal_bundle,
                 "head": approved_head or self.commit,
             },
             "limits": {},
@@ -151,7 +158,7 @@ class SyntheticEnvironment:
             "separate_authority_required": not allowed,
             "blocked_case_id": None,
         }
-        show = {"case_id": self.case_id, "state": "CLOSED_SUCCESS"}
+        show = {"case_id": self.case_id, "state": state}
         write_text(self.state / "authority.json", json.dumps(action))
         write_text(self.state / "show.json", json.dumps(show))
         write_text(
@@ -159,6 +166,8 @@ class SyntheticEnvironment:
             """import json, pathlib, sys
 args = sys.argv[1:]
 root = pathlib.Path(args[args.index('--state-root') + 1])
+if 'action-check' in args:
+    (root / 'last-action-check.json').write_text(json.dumps(args), encoding='utf-8')
 name = 'show.json' if 'show' in args else 'authority.json'
 print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
 """,
@@ -201,6 +210,34 @@ print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
         (self.codex / "AGENTS.md").write_bytes(agents)
         (self.codex / "rules/default.rules").write_bytes(rules)
         return agents, rules
+
+    def prepare_legacy_overlap_v2(
+        self,
+        *,
+        package: str = "codex-coding-os-starter",
+        manifest_overrides: dict[str, object] | None = None,
+    ) -> tuple[Path, Path]:
+        skills = self.codex / "skills"
+        support = self.codex / "coding-os-starter"
+        write_text(skills / "alpha/SKILL.md", "legacy-alpha\n")
+        write_text(support / "legacy-support.txt", "legacy-support\n")
+        manifest: dict[str, object] = {
+            "manifest_version": 2,
+            "package": package,
+            "skills_root": str(skills),
+            "codex_home": str(self.codex),
+            "support_root": str(support),
+            "skills": [{"name": "alpha", "path": str(skills / "alpha")}],
+        }
+        if manifest_overrides:
+            manifest.update(manifest_overrides)
+        write_text(support / "install-manifest.json", json.dumps(manifest, indent=2) + "\n")
+        return skills, support
+
+    def legacy_overlap_options(self, **overrides: object) -> object:
+        values = dict(skills_root=self.codex / "skills", legacy_overlap_migration=True)
+        values.update(overrides)
+        return self.archive_options(**values)
 
 
 class BundleContractTests(unittest.TestCase):
@@ -339,6 +376,44 @@ class PolicyMigrationTests(unittest.TestCase):
         self.assertEqual(it.remove_rules_policy_bytes(rules), b"pre\r\n\npost")
 
 
+class RepositoryNormalizationTests(unittest.TestCase):
+    def test_normalizes_https_userinfo_and_scp_repository_forms(self) -> None:
+        expected = "https://github.com/aymanshams/codex-coding-os"
+        cases = [
+            "https://github.com/AymanShams/Codex-Coding-OS.git",
+            "https://AymanShams@github.com/AymanShams/codex-coding-os.git",
+            "HTTPS://AymanShams@GitHub.Com:443//AymanShams///Codex-Coding-OS.git/",
+            "https://github.com/%41ymanShams/%43odex-Coding-OS.git",
+            "git@GitHub.com:AymanShams/Codex-Coding-OS.git",
+        ]
+        for remote in cases:
+            with self.subTest(remote=remote):
+                self.assertEqual(it._normalize_repository(remote), expected)
+
+    def test_rejects_malformed_or_unsupported_repository_forms(self) -> None:
+        invalid = [
+            "https://github.com/AymanShams",
+            "https://github.com/AymanShams/../codex-coding-os",
+            "https://github.com/AymanShams%2F..%2Fcodex-coding-os",
+            "https://github.com/AymanShams/codex-coding-os?ref=main",
+            "https://github.com:not-a-port/AymanShams/codex-coding-os",
+            "http://github.com/AymanShams/codex-coding-os.git",
+            "https://AymanShams:password@github.com/AymanShams/codex-coding-os.git",
+            "https://AymanShams:@github.com/AymanShams/codex-coding-os.git",
+            "https://github.com:22/AymanShams/codex-coding-os.git",
+            "https://github.com:80/AymanShams/codex-coding-os.git",
+            "https://github.com:444/AymanShams/codex-coding-os.git",
+            "https://github.com:/AymanShams/codex-coding-os.git",
+            "https://[::1/AymanShams/codex-coding-os.git",
+            "ssh://git@github.com/AymanShams/codex-coding-os.git",
+            "git@bad host:AymanShams/codex-coding-os.git",
+            "git@github.com",
+        ]
+        for remote in invalid:
+            with self.subTest(remote=remote), self.assertRaises(it.SourceVerificationError):
+                it._normalize_repository(remote)
+
+
 class InstallTransactionTests(unittest.TestCase):
     def test_fresh_archive_install_writes_v3_provenance_and_preserves_unmanaged_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -382,6 +457,48 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(second["status"], "already_committed")
             self.assertEqual(current_path.read_bytes(), before)
 
+    def test_install_and_uninstall_use_target_local_workspaces_across_filesystems(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+
+            def synthetic_device(path: Path) -> int:
+                resolved = Path(path).resolve(strict=False)
+                if it._path_is_within(resolved, env.skills):
+                    return 2
+                if it._path_is_within(resolved, env.codex):
+                    return 3
+                return 1
+
+            with mock.patch.object(it, "_device_id", side_effect=synthetic_device):
+                self.assertEqual(it.install(env.archive_options())["status"], "committed")
+                self.assertEqual(
+                    it.uninstall(it.UninstallOptions(skills_root=env.skills, codex_home=env.codex))["status"],
+                    "uninstalled",
+                )
+
+            journals = [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in (env.codex / ".coding-os-install/transactions").glob("*/journal.json")
+            ]
+            self.assertEqual({journal["operation"] for journal in journals}, {"install", "uninstall"})
+            for journal in journals:
+                workspaces = {
+                    role: Path(value) for role, value in journal["transaction_workspaces"].items()
+                }
+                self.assertTrue(it._path_is_within(workspaces["skills"], env.skills))
+                self.assertTrue(it._path_is_within(workspaces["codex_home"], env.codex))
+                for target in journal["targets"]:
+                    live = Path(target["live_path"])
+                    rollback = Path(target["rollback_path"])
+                    role = "skills" if target["target_id"].startswith("skill:") else "codex_home"
+                    self.assertTrue(it._path_is_within(rollback, workspaces[role]))
+                    self.assertEqual(synthetic_device(rollback), synthetic_device(live.parent))
+                    if target["staged_path"] is not None:
+                        staged = Path(target["staged_path"])
+                        self.assertTrue(it._path_is_within(staged, workspaces[role]))
+                        self.assertEqual(synthetic_device(staged), synthetic_device(live.parent))
+                self.assertTrue(all(not workspace.exists() for workspace in workspaces.values()))
+
     def test_unowned_skill_collision_fails_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
@@ -398,29 +515,30 @@ class InstallTransactionTests(unittest.TestCase):
             with self.assertRaises(it.OwnershipError):
                 it.install(env.archive_options())
 
-    def test_v2_upgrade_removes_only_obsolete_owned_skill(self) -> None:
+    def test_v2_upgrade_fails_closed_for_a_no_longer_bundled_managed_skill(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
-            write_text(env.skills / "alpha/old.txt", "old-alpha")
             write_text(env.skills / "obsolete/SKILL.md", "obsolete")
-            write_text(env.skills / "unmanaged/SKILL.md", "keep")
+            write_text(env.skills / "obsolete/local-notes.md", "keep-local-notes")
             support = env.codex / "coding-os"
             support.mkdir(parents=True)
             v2 = {
                 "package": "codex-coding-os",
                 "skills_root": str(env.skills),
                 "support_root": str(support),
-                "skills": [
-                    {"name": "alpha", "path": str(env.skills / "alpha")},
-                    {"name": "obsolete", "path": str(env.skills / "obsolete")},
-                ],
+                "skills": [{"name": "obsolete", "path": str(env.skills / "obsolete")}],
             }
             write_text(support / "install-manifest.json", json.dumps(v2))
-            result = it.install(env.archive_options())
-            self.assertEqual(result["status"], "committed")
-            self.assertFalse((env.skills / "obsolete").exists())
-            self.assertTrue((env.skills / "unmanaged/SKILL.md").is_file())
-            self.assertFalse((env.skills / "alpha/old.txt").exists())
+            preserved = {
+                env.skills / "obsolete/SKILL.md": sha(env.skills / "obsolete/SKILL.md"),
+                env.skills / "obsolete/local-notes.md": sha(env.skills / "obsolete/local-notes.md"),
+            }
+
+            with self.assertRaisesRegex(it.OwnershipError, "no longer bundled"):
+                it.install(env.archive_options())
+
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+            self.assertFalse((env.codex / ".coding-os-install/current.json").exists())
 
     def test_policy_sync_requires_clean_exact_git_source_bundle_and_case_authority(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -460,6 +578,25 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(manifest["authority"]["boundary_reason"], "SEPARATE_AUTHORITY_REQUIRED")
             self.assertEqual(manifest["source"]["git_commit"], env.commit)
             self.assertTrue(manifest["source"]["working_tree_clean"])
+
+    def test_policy_sync_matches_canonical_authority_for_credentialed_mixed_case_origin(self) -> None:
+        bundle_id = "automation-preserving-case-state-recovery-v1-remote-normalization"
+        canonical_repository = "https://github.com/aymanshams/codex-coding-os"
+        credentialed_origin = "https://AymanShams@github.com/AymanShams/codex-coding-os.git"
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            run_git(env.source, "remote", "set-url", "origin", credentialed_origin)
+            env.repository = canonical_repository
+            env._write_case_authority(allowed=False, universal_bundle=bundle_id)
+
+            result = it.install(env.policy_options(universal_bundle_id=bundle_id))
+
+            self.assertEqual(result["status"], "committed")
+            request = json.loads((env.state / "last-action-check.json").read_text(encoding="utf-8"))
+            self.assertEqual(request[request.index("--repository") + 1], canonical_repository)
+            manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["source"]["repository"], canonical_repository)
 
     def test_policy_sync_missing_migration_target_fails_before_live_mutation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -575,6 +712,302 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(result["status"], "dry_run")
             self.assertFalse(env.skills.exists())
             self.assertFalse(env.codex.exists())
+
+    def test_policy_sync_uses_the_supplied_bundle_id_and_refuses_preclosure(self) -> None:
+        bundle_id = "automation-preserving-case-state-recovery-v1-legacy-layout-migration"
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            env._write_case_authority(allowed=False, universal_bundle=bundle_id)
+            result = it.install(env.policy_options(universal_bundle_id=bundle_id))
+            self.assertEqual(result["status"], "committed")
+            request = json.loads((env.state / "last-action-check.json").read_text(encoding="utf-8"))
+            self.assertEqual(request[request.index("--universal-bundle") + 1], bundle_id)
+            manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["authority"]["universal_bundle"], bundle_id)
+            with self.assertRaises(it.AuthorityError):
+                it.install(env.policy_options(universal_bundle_id="unsafe bundle"))
+            with self.assertRaises(it.AuthorityError):
+                it.install(env.policy_options(universal_bundle_id=""))
+
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            env._write_case_authority(allowed=False, universal_bundle=bundle_id, state="IMPLEMENTING")
+            with self.assertRaises(it.AuthorityError):
+                it.install(env.policy_options(universal_bundle_id=bundle_id))
+
+    def test_cli_exposes_legacy_overlap_and_universal_bundle_inputs(self) -> None:
+        parser = it.build_parser()
+        install_args = parser.parse_args(
+            [
+                "install",
+                "--source-root",
+                "source",
+                "--skills-root",
+                "skills",
+                "--codex-home",
+                "codex",
+                "--expected-bundle-sha256",
+                "0" * 64,
+                "--universal-bundle-id",
+                "automation-preserving-case-state-recovery-v1-legacy-layout-migration",
+                "--legacy-overlap-migration",
+            ]
+        )
+        self.assertTrue(install_args.legacy_overlap_migration)
+        self.assertEqual(
+            install_args.universal_bundle_id,
+            "automation-preserving-case-state-recovery-v1-legacy-layout-migration",
+        )
+        uninstall_args = parser.parse_args(
+            [
+                "uninstall",
+                "--skills-root",
+                "skills",
+                "--codex-home",
+                "codex",
+                "--legacy-overlap-migration",
+            ]
+        )
+        self.assertTrue(uninstall_args.legacy_overlap_migration)
+
+
+class LegacyOverlapMigrationTests(unittest.TestCase):
+    def test_default_and_nonexact_legacy_overlap_layouts_are_denied(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, _ = env.prepare_legacy_overlap_v2()
+            with self.assertRaises(it.TransactionError):
+                it.install(env.archive_options(skills_root=skills))
+            for unsafe_root in (env.codex, skills / "nested", env.root):
+                with self.subTest(unsafe_root=unsafe_root), self.assertRaises(it.TransactionError):
+                    it.install(
+                        env.archive_options(
+                            skills_root=unsafe_root,
+                            legacy_overlap_migration=True,
+                        )
+                    )
+
+    def test_legacy_overlap_requires_an_exact_owned_v2_manifest(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            with self.assertRaises(it.OwnershipError):
+                it.install(env.legacy_overlap_options())
+
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            env.prepare_legacy_overlap_v2(manifest_overrides={"codex_home": str(env.root / "wrong-codex")})
+            with self.assertRaises(it.OwnershipError):
+                it.install(env.legacy_overlap_options())
+
+    def test_legacy_overlap_accepts_the_known_v2_text_manifest(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, support = env.prepare_legacy_overlap_v2()
+            (support / "install-manifest.json").unlink()
+            write_text(
+                support / "install-manifest.txt",
+                "\n".join(
+                    [
+                        "ManifestVersion=2",
+                        "Package=codex-coding-os-starter",
+                        f"SkillsRoot={skills}",
+                        f"CodexHome={env.codex}",
+                        f"SupportRoot={support}",
+                        f"SkillPath={skills / 'alpha'}",
+                    ]
+                )
+                + "\n",
+            )
+            self.assertEqual(it.install(env.legacy_overlap_options())["status"], "committed")
+
+    def test_legacy_overlap_migration_preserves_nonmanaged_paths_and_records_v3_marker(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, legacy_support = env.prepare_legacy_overlap_v2()
+            write_text(skills / "user-owned/SKILL.md", "keep-user-skill\n")
+            write_text(env.codex / "config.toml", "keep-config\n")
+            write_text(env.root / ".agents/skills/unmanaged/SKILL.md", "keep-agents-skill\n")
+            preserved = {
+                skills / "user-owned/SKILL.md": sha(skills / "user-owned/SKILL.md"),
+                env.codex / "config.toml": sha(env.codex / "config.toml"),
+                env.root / ".agents/skills/unmanaged/SKILL.md": sha(env.root / ".agents/skills/unmanaged/SKILL.md"),
+                legacy_support / "legacy-support.txt": sha(legacy_support / "legacy-support.txt"),
+            }
+
+            result = it.install(env.legacy_overlap_options())
+            self.assertEqual(result["status"], "committed")
+            manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text(encoding="utf-8"))
+            marker = manifest["legacy_overlap_migration"]
+            self.assertEqual(marker["layout"], it.LEGACY_OVERLAP_LAYOUT)
+            self.assertEqual(marker["source_manifest_version"], 2)
+            self.assertEqual(Path(marker["skills_root"]).resolve(strict=False), skills.resolve(strict=False))
+            self.assertEqual(
+                Path(manifest["targets"]["skills_root"]).resolve(strict=False),
+                skills.resolve(strict=False),
+            )
+            self.assertIn("name: alpha", (skills / "alpha/SKILL.md").read_text(encoding="utf-8"))
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+            self.assertFalse((skills / ".coding-os-stage").exists())
+            self.assertFalse((skills / ".coding-os-rollback").exists())
+            self.assertFalse((env.codex / ".coding-os-stage").exists())
+            self.assertFalse((env.codex / ".coding-os-rollback").exists())
+            journals = list((env.codex / ".coding-os-install/transactions").glob("*/journal.json"))
+            self.assertEqual(len(journals), 1)
+            journal = json.loads(journals[0].read_text(encoding="utf-8"))
+            workspaces = {
+                role: Path(value) for role, value in journal["transaction_workspaces"].items()
+            }
+            self.assertTrue(all(it._path_is_within(path, env.codex) for path in workspaces.values()))
+            self.assertTrue(all(not it._path_is_within(path, skills) for path in workspaces.values()))
+            for value in [*journal["stage_roots"], *journal["rollback_roots"]]:
+                self.assertFalse(it._path_is_within(Path(value), skills))
+                self.assertTrue(any(it._path_is_within(Path(value), path) for path in workspaces.values()))
+            for target in journal["targets"]:
+                live = Path(target["live_path"])
+                for workspace in workspaces.values():
+                    self.assertFalse(it._path_is_within(workspace, live))
+                    self.assertFalse(it._path_is_within(live, workspace))
+            self.assertTrue(all(not path.exists() for path in workspaces.values()))
+
+    def test_legacy_overlap_uses_codex_local_workspaces_when_codex_parent_is_another_device(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, _ = env.prepare_legacy_overlap_v2()
+
+            def synthetic_device(path: Path) -> int:
+                resolved = Path(path).resolve(strict=False)
+                if it._path_is_within(resolved, skills):
+                    return 3
+                if it._path_is_within(resolved, env.codex):
+                    return 3
+                return 1
+
+            with mock.patch.object(it, "_device_id", side_effect=synthetic_device):
+                self.assertEqual(it.install(env.legacy_overlap_options())["status"], "committed")
+
+            journal_path = next((env.codex / ".coding-os-install/transactions").glob("*/journal.json"))
+            journal = json.loads(journal_path.read_text(encoding="utf-8"))
+            workspaces = [Path(value) for value in journal["transaction_workspaces"].values()]
+            self.assertTrue(all(it._path_is_within(path, env.codex) for path in workspaces))
+            self.assertTrue(all(not it._path_is_within(path, skills) for path in workspaces))
+            self.assertTrue(all(synthetic_device(path) == 3 for path in workspaces))
+            self.assertEqual(synthetic_device(env.codex.parent), 1)
+
+    def test_legacy_overlap_rejects_a_nested_skills_mount_before_live_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, legacy_support = env.prepare_legacy_overlap_v2()
+            preserved = {
+                skills / "alpha/SKILL.md": sha(skills / "alpha/SKILL.md"),
+                legacy_support / "legacy-support.txt": sha(legacy_support / "legacy-support.txt"),
+            }
+
+            def synthetic_device(path: Path) -> int:
+                resolved = Path(path).resolve(strict=False)
+                if it._path_is_within(resolved, skills):
+                    return 4
+                if it._path_is_within(resolved, env.codex):
+                    return 3
+                return 1
+
+            with mock.patch.object(it, "_device_id", side_effect=synthetic_device):
+                with self.assertRaisesRegex(it.TransactionError, "skills transaction workspace must share"):
+                    it.install(env.legacy_overlap_options())
+
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+            self.assertFalse((env.codex / "coding-os").exists())
+            self.assertFalse(any(env.codex.glob(".coding-os-transaction-*")))
+
+    def test_legacy_overlap_rejects_an_unrecorded_nested_descendant_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, _ = env.prepare_legacy_overlap_v2()
+            nested = skills / "alpha/local-notes.md"
+            empty_nested = skills / "alpha/z-user-cache"
+            write_text(nested, "user-owned notes\n")
+            empty_nested.mkdir()
+            preserved = {
+                skills / "alpha/SKILL.md": sha(skills / "alpha/SKILL.md"),
+                nested: sha(nested),
+            }
+
+            with self.assertRaisesRegex(it.OwnershipError, "unrecorded descendant.*alpha.*local-notes\\.md"):
+                it.install(env.legacy_overlap_options())
+
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+            self.assertTrue(empty_nested.is_dir())
+            self.assertFalse((env.codex / "coding-os").exists())
+            self.assertFalse((env.codex / ".coding-os-install/current.json").exists())
+
+    def test_legacy_overlap_detects_unowned_skill_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, _ = env.prepare_legacy_overlap_v2(
+                manifest_overrides={
+                    "skills": [{"name": "obsolete", "path": str(env.codex / "skills/obsolete")}]
+                }
+            )
+            write_text(skills / "obsolete/SKILL.md", "legacy-obsolete\n")
+            write_text(skills / "alpha/user-file.txt", "not-managed\n")
+            before = sha(skills / "alpha/user-file.txt")
+            with self.assertRaises(it.OwnershipError):
+                it.install(env.legacy_overlap_options())
+            self.assertEqual(sha(skills / "alpha/user-file.txt"), before)
+            self.assertFalse((env.codex / "coding-os").exists())
+
+    def test_legacy_overlap_fault_rolls_back_without_in_root_staging(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, legacy_support = env.prepare_legacy_overlap_v2()
+            write_text(skills / "user-owned/SKILL.md", "keep\n")
+            write_text(env.codex / "config.toml", "keep-config\n")
+            preserved = {
+                skills / "alpha/SKILL.md": sha(skills / "alpha/SKILL.md"),
+                skills / "user-owned/SKILL.md": sha(skills / "user-owned/SKILL.md"),
+                env.codex / "config.toml": sha(env.codex / "config.toml"),
+                legacy_support / "legacy-support.txt": sha(legacy_support / "legacy-support.txt"),
+            }
+            fault_env = {
+                "CCOS_INSTALL_TEST_MODE": "1",
+                "CCOS_INSTALL_TEST_FAIL_AFTER": "PROMOTION:middle",
+            }
+            with mock.patch.dict(os.environ, fault_env, clear=False), self.assertRaises(it.InjectedFailure):
+                it.install(env.legacy_overlap_options())
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+            self.assertFalse((env.codex / "coding-os").exists())
+            self.assertFalse((skills / ".coding-os-stage").exists())
+            self.assertFalse((skills / ".coding-os-rollback").exists())
+            self.assertFalse((env.codex / ".coding-os-stage").exists())
+            self.assertFalse((env.codex / ".coding-os-rollback").exists())
+
+    def test_follow_up_overlap_install_and_uninstall_require_the_explicit_flag(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, _ = env.prepare_legacy_overlap_v2()
+            write_text(skills / "user-owned/SKILL.md", "keep\n")
+            write_text(env.codex / "config.toml", "keep-config\n")
+            preserved = {
+                skills / "user-owned/SKILL.md": sha(skills / "user-owned/SKILL.md"),
+                env.codex / "config.toml": sha(env.codex / "config.toml"),
+            }
+            self.assertEqual(it.install(env.legacy_overlap_options())["status"], "committed")
+            with self.assertRaises(it.TransactionError):
+                it.install(env.archive_options(skills_root=skills))
+            with self.assertRaises(it.TransactionError):
+                it.uninstall(it.UninstallOptions(skills_root=skills, codex_home=env.codex))
+            self.assertEqual(it.install(env.legacy_overlap_options())["status"], "already_committed")
+            result = it.uninstall(
+                it.UninstallOptions(
+                    skills_root=skills,
+                    codex_home=env.codex,
+                    legacy_overlap_migration=True,
+                )
+            )
+            self.assertEqual(result["status"], "uninstalled")
+            self.assertFalse((skills / "alpha").exists())
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
 
 
 class UninstallTransactionTests(unittest.TestCase):
