@@ -75,9 +75,13 @@ $LegacySkillsRoot = "$HOME\.codex\skills"
 ```
 
 The option accepts only that exact nested layout. It stops if the v2 ownership
-manifest is missing, malformed, or records different roots. The transaction stages
-and keeps rollback data outside both live roots, preserves non-managed files in
-`.codex\skills`, and does not move or overwrite `.agents\skills`.
+manifest is missing, malformed, or records different roots. A v2 manifest names
+skill roots only, so the migration does not treat nested files as proven owned.
+Before changing any recorded v2 skill, it checks its descendants against the
+incoming source skill tree. It stops before live mutation when a descendant is
+not in that incoming tree, or when a recorded v2 skill is no longer bundled.
+The transaction preserves non-managed files in `.codex\skills` and does not move
+or overwrite `.agents\skills`.
 
 Use `-LegacyOverlapMigration` again for a later update or uninstall that targets
 the same nested layout:

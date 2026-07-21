@@ -1084,6 +1084,56 @@ def _validate_unowned_collisions(
     return previous_records
 
 
+def _validate_legacy_v2_skill_descendants(
+    previous: dict[str, Any] | None,
+    previous_records: Sequence[dict[str, Any]],
+    source_root: Path,
+    pack: dict[str, Any],
+) -> None:
+    """Fail closed when v2 root-only ownership cannot prove a safe replacement."""
+    def descendant_paths(root: Path) -> set[str]:
+        paths = {entry["path"] for entry in _tree_entries(root)}
+        if root.is_dir():
+            for directory, _, _ in os.walk(root, followlinks=False):
+                directory_path = Path(directory)
+                if directory_path != root:
+                    paths.add(unicodedata.normalize("NFC", directory_path.relative_to(root).as_posix()))
+        return paths
+
+    if previous is None or previous.get("manifest_version") != 2:
+        return
+    installation = pack["installation"]
+    managed_skill_root = _safe_repo_path(source_root, str(installation["managed_skill_root"]))
+    incoming_by_name = {
+        str(record["name"]).casefold(): str(record["name"])
+        for record in pack["bundled_skills"]
+    }
+    for record in previous_records:
+        name = str(record["name"])
+        incoming_name = incoming_by_name.get(name.casefold())
+        if incoming_name is None:
+            raise OwnershipError(
+                f"legacy v2 skill is no longer bundled; refusing to delete unproven descendants: {name}"
+            )
+        source_skill = managed_skill_root / incoming_name
+        if not source_skill.is_dir():
+            raise BundleError(f"incoming managed skill is not a directory: {incoming_name}")
+        live = Path(str(record["path"])).resolve(strict=False)
+        if not live.exists():
+            continue
+        if not live.is_dir():
+            raise OwnershipError(f"legacy v2 managed skill is not a directory: {name}")
+        incoming_paths = descendant_paths(source_skill)
+        unrecorded = sorted(
+            descendant_paths(live) - incoming_paths,
+            key=lambda value: value.encode("utf-8"),
+        )
+        if unrecorded:
+            raise OwnershipError(
+                f"legacy v2 skill contains an unrecorded descendant; refusing to replace {name}: {unrecorded[0]}"
+            )
+
+
 def _git_output(root: Path, *args: str) -> str:
     try:
         completed = subprocess.run(
@@ -1950,6 +2000,7 @@ def _install_preflight(
         names,
         previous,
     )
+    _validate_legacy_v2_skill_descendants(previous, previous_records, source_root, pack)
     _preflight_policy_sources(options, source_root, pack, codex_home)
     config = codex_home / "config.toml"
     if config.exists():

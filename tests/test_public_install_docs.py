@@ -69,6 +69,8 @@ class PublicInstallDocumentationTests(unittest.TestCase):
 
         self.assertIn("-LegacyOverlapMigration", self.getting_started)
         self.assertIn("-UniversalBundleId", self.getting_started)
+        self.assertIn("does not treat nested files as proven owned", self.getting_started)
+        self.assertIn("when a recorded v2 skill is no longer bundled", self.getting_started)
         self.assertIn("[switch]$LegacyOverlapMigration", install_ps1)
         self.assertIn('"--legacy-overlap-migration"', install_ps1)
         self.assertIn("[string]$UniversalBundleId", install_ps1)
@@ -78,6 +80,7 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         self.assertIn('install_parser.add_argument("--legacy-overlap-migration", action="store_true")', transaction_engine)
         self.assertIn('uninstall_parser.add_argument("--legacy-overlap-migration", action="store_true")', transaction_engine)
         self.assertIn('install_parser.add_argument("--universal-bundle-id", default=UNIVERSAL_BUNDLE_ID)', transaction_engine)
+        self.assertIn("def _validate_legacy_v2_skill_descendants(", transaction_engine)
 
 
 if __name__ == "__main__":

@@ -473,29 +473,30 @@ class InstallTransactionTests(unittest.TestCase):
             with self.assertRaises(it.OwnershipError):
                 it.install(env.archive_options())
 
-    def test_v2_upgrade_removes_only_obsolete_owned_skill(self) -> None:
+    def test_v2_upgrade_fails_closed_for_a_no_longer_bundled_managed_skill(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
-            write_text(env.skills / "alpha/old.txt", "old-alpha")
             write_text(env.skills / "obsolete/SKILL.md", "obsolete")
-            write_text(env.skills / "unmanaged/SKILL.md", "keep")
+            write_text(env.skills / "obsolete/local-notes.md", "keep-local-notes")
             support = env.codex / "coding-os"
             support.mkdir(parents=True)
             v2 = {
                 "package": "codex-coding-os",
                 "skills_root": str(env.skills),
                 "support_root": str(support),
-                "skills": [
-                    {"name": "alpha", "path": str(env.skills / "alpha")},
-                    {"name": "obsolete", "path": str(env.skills / "obsolete")},
-                ],
+                "skills": [{"name": "obsolete", "path": str(env.skills / "obsolete")}],
             }
             write_text(support / "install-manifest.json", json.dumps(v2))
-            result = it.install(env.archive_options())
-            self.assertEqual(result["status"], "committed")
-            self.assertFalse((env.skills / "obsolete").exists())
-            self.assertTrue((env.skills / "unmanaged/SKILL.md").is_file())
-            self.assertFalse((env.skills / "alpha/old.txt").exists())
+            preserved = {
+                env.skills / "obsolete/SKILL.md": sha(env.skills / "obsolete/SKILL.md"),
+                env.skills / "obsolete/local-notes.md": sha(env.skills / "obsolete/local-notes.md"),
+            }
+
+            with self.assertRaisesRegex(it.OwnershipError, "no longer bundled"):
+                it.install(env.archive_options())
+
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+            self.assertFalse((env.codex / ".coding-os-install/current.json").exists())
 
     def test_policy_sync_requires_clean_exact_git_source_bundle_and_case_authority(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -817,6 +818,27 @@ class LegacyOverlapMigrationTests(unittest.TestCase):
                 self.assertFalse(it._path_is_within(Path(value), skills))
                 self.assertFalse(it._path_is_within(Path(value), env.codex))
             self.assertFalse(Path(journal["transaction_workspace"]).exists())
+
+    def test_legacy_overlap_rejects_an_unrecorded_nested_descendant_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills, _ = env.prepare_legacy_overlap_v2()
+            nested = skills / "alpha/local-notes.md"
+            empty_nested = skills / "alpha/z-user-cache"
+            write_text(nested, "user-owned notes\n")
+            empty_nested.mkdir()
+            preserved = {
+                skills / "alpha/SKILL.md": sha(skills / "alpha/SKILL.md"),
+                nested: sha(nested),
+            }
+
+            with self.assertRaisesRegex(it.OwnershipError, "unrecorded descendant.*alpha.*local-notes\\.md"):
+                it.install(env.legacy_overlap_options())
+
+            self.assertEqual(preserved, {path: sha(path) for path in preserved})
+            self.assertTrue(empty_nested.is_dir())
+            self.assertFalse((env.codex / "coding-os").exists())
+            self.assertFalse((env.codex / ".coding-os-install/current.json").exists())
 
     def test_legacy_overlap_detects_unowned_skill_conflicts(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
