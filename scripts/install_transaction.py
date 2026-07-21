@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
+import urllib.parse
 import uuid
 from typing import Any, Iterator, Sequence
 
@@ -58,6 +59,9 @@ RULES_START = "# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
 RULES_END = "# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
 RULES_LEGACY_LINE = 'prefix_rule(pattern=["gh", "pr", "merge"], decision="allow")'
 UNIVERSAL_BUNDLE_ID = "automation-preserving-case-state-recovery-v1"
+UNIVERSAL_BUNDLE_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$")
+LEGACY_OVERLAP_LAYOUT = "codex-home-skills-v2-to-v3"
+LEGACY_V2_PACKAGES = frozenset({"codex-coding-os", "codex-coding-os-starter"})
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 CASE_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -117,12 +121,14 @@ class InstallOptions:
     expected_bundle_sha256: str
     expected_source_commit: str | None = None
     install_universal_policy: bool = False
+    universal_bundle_id: str = UNIVERSAL_BUNDLE_ID
     refresh_capability_index: bool = False
     authority_case_id: str | None = None
     authority_source: str | None = None
     authority_reference: str | None = None
     case_state_engine: Path | str | None = None
     case_state_root: Path | str | None = None
+    legacy_overlap_migration: bool = False
     archive_mode: bool = False
     dry_run: bool = False
 
@@ -131,6 +137,7 @@ class InstallOptions:
 class UninstallOptions:
     skills_root: Path | str
     codex_home: Path | str
+    legacy_overlap_migration: bool = False
     dry_run: bool = False
 
 
@@ -783,11 +790,29 @@ def _fault_after(point: str, skills_root: Path, codex_home: Path) -> None:
     raise InjectedFailure(f"synthetic fault after {point}")
 
 
-def _canonical_roots(skills_root: Path | str, codex_home: Path | str) -> tuple[Path, Path]:
+def _canonical_roots(
+    skills_root: Path | str,
+    codex_home: Path | str,
+    *,
+    legacy_overlap_migration: bool = False,
+) -> tuple[Path, Path]:
     skills = Path(skills_root).expanduser().resolve(strict=False)
     codex = Path(codex_home).expanduser().resolve(strict=False)
-    if skills == codex or _path_is_within(skills, codex) or _path_is_within(codex, skills):
-        raise TransactionError("SkillsRoot and CodexHome must be separate, non-overlapping roots")
+    overlaps = skills == codex or _path_is_within(skills, codex) or _path_is_within(codex, skills)
+    expected_legacy_skills = (codex / "skills").resolve(strict=False)
+    if overlaps:
+        if not legacy_overlap_migration:
+            raise TransactionError(
+                "SkillsRoot and CodexHome must be separate, non-overlapping roots unless legacy-overlap migration is explicit"
+            )
+        if skills != expected_legacy_skills:
+            raise TransactionError(
+                "legacy-overlap migration requires SkillsRoot to be exactly CodexHome/skills"
+            )
+    elif legacy_overlap_migration:
+        raise TransactionError(
+            "legacy-overlap migration is valid only when SkillsRoot is exactly CodexHome/skills"
+        )
     for root in (skills, codex):
         existing = root
         while not existing.exists() and existing.parent != existing:
@@ -796,6 +821,64 @@ def _canonical_roots(skills_root: Path | str, codex_home: Path | str) -> tuple[P
         if root.exists() and _is_link_or_reparse(root):
             raise TransactionError(f"install root cannot be a link or reparse point: {root}")
     return skills, codex
+
+
+def _legacy_overlap_layout(skills_root: Path, codex_home: Path) -> bool:
+    return skills_root == (codex_home / "skills").resolve(strict=False)
+
+
+def _existing_anchor(path: Path) -> Path:
+    candidate = path
+    while not candidate.exists() and candidate.parent != candidate:
+        candidate = candidate.parent
+    return candidate
+
+
+def _transaction_workspace_path(transaction_id: str, skills_root: Path, codex_home: Path) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{32}", transaction_id):
+        raise TransactionError("transaction workspace requires one generated 32-character transaction identifier")
+    temp_root = Path(tempfile.gettempdir()).expanduser().resolve(strict=True)
+    _assert_no_link_components(temp_root)
+    workspace_root_candidate = temp_root / "codex-coding-os-transactions"
+    _assert_no_link_components(workspace_root_candidate, temp_root)
+    workspace_root = workspace_root_candidate.resolve(strict=False)
+    workspace = (workspace_root / transaction_id).resolve(strict=False)
+    if workspace.parent != workspace_root or not _path_is_within(workspace, workspace_root):
+        raise TransactionError("transaction workspace escaped its OS-temp containment root")
+    if _path_is_within(workspace, skills_root) or _path_is_within(workspace, codex_home):
+        raise TransactionError("transaction workspace must be outside SkillsRoot and CodexHome")
+    devices = {_existing_anchor(path).stat().st_dev for path in (temp_root, skills_root, codex_home)}
+    if len(devices) != 1:
+        raise TransactionError(
+            "transaction workspace must share a filesystem with SkillsRoot and CodexHome for atomic promotion"
+        )
+    return workspace
+
+
+def _create_transaction_workspace(transaction_id: str, skills_root: Path, codex_home: Path) -> Path:
+    workspace = _transaction_workspace_path(transaction_id, skills_root, codex_home)
+    workspace.mkdir(parents=True, exist_ok=False)
+    _assert_no_link_components(workspace)
+    return workspace
+
+
+def _validate_journal_workspace(journal: Journal, skills_root: Path, codex_home: Path) -> Path | None:
+    raw = journal.data.get("transaction_workspace")
+    if raw is None:
+        return None
+    expected = _transaction_workspace_path(str(journal.data.get("transaction_id", "")), skills_root, codex_home)
+    workspace = Path(str(raw)).expanduser().resolve(strict=False)
+    if workspace != expected:
+        raise RecoveryError("transaction journal workspace is outside the expected OS-temp transaction path")
+    for root_key in ("stage_roots", "rollback_roots"):
+        values = journal.data.get(root_key, [])
+        if not isinstance(values, list):
+            raise RecoveryError(f"transaction journal {root_key} is invalid")
+        for value in values:
+            path = Path(str(value)).expanduser().resolve(strict=False)
+            if not _path_is_within(path, workspace):
+                raise RecoveryError(f"transaction journal {root_key} escaped the transaction workspace")
+    return workspace
 
 
 def _read_previous_current(state_root: Path) -> tuple[bytes | None, dict[str, Any] | None]:
@@ -829,11 +912,13 @@ def _parse_v2_text(path: Path) -> dict[str, Any]:
             raise OwnershipError(f"legacy v2 install manifest duplicates {key}")
         else:
             values[key] = value
-    if values.get("ManifestVersion") != "2" or values.get("Package") != "codex-coding-os":
+    if values.get("ManifestVersion") != "2" or values.get("Package") not in LEGACY_V2_PACKAGES:
         raise OwnershipError("legacy text manifest is not a strict Codex Coding OS v2 manifest")
     return {
         "manifest_version": 2,
+        "package": values.get("Package"),
         "skills_root": values.get("SkillsRoot"),
+        "codex_home": values.get("CodexHome"),
         "support_root": values.get("SupportRoot"),
         "skills": [{"name": Path(value).name, "path": value} for value in skill_paths],
         "installed_global_agents": values.get("InstalledGlobalAgents", "False").lower() in {"1", "true"},
@@ -871,13 +956,79 @@ def _load_previous_install(skills_root: Path, codex_home: Path) -> dict[str, Any
         manifest = _load_json(json_path, "legacy install manifest")
         if manifest.get("manifest_version") == 3:
             return manifest
-        if manifest.get("package") != "codex-coding-os":
+        if manifest.get("package") not in LEGACY_V2_PACKAGES:
             raise OwnershipError("legacy JSON manifest is not a strict Codex Coding OS v2 manifest")
         manifest["manifest_version"] = 2
         return manifest
     if text_path.is_file():
         return _parse_v2_text(text_path)
     raise OwnershipError("an existing support root has no readable owned install manifest")
+
+
+def _legacy_overlap_manifest_marker(
+    previous: dict[str, Any] | None,
+    skills_root: Path,
+    codex_home: Path,
+) -> dict[str, Any]:
+    if not _legacy_overlap_layout(skills_root, codex_home):
+        raise OwnershipError("legacy-overlap migration requires the exact CodexHome/skills layout")
+    if previous is None:
+        raise OwnershipError("legacy-overlap migration requires an existing strict v2 ownership manifest")
+    if previous.get("manifest_version") == 3:
+        targets = previous.get("targets")
+        marker = previous.get("legacy_overlap_migration")
+        if not isinstance(targets, dict) or not isinstance(marker, dict):
+            raise OwnershipError("overlapping v3 install requires a recorded legacy-overlap migration marker")
+        if Path(str(targets.get("skills_root", ""))).expanduser().resolve(strict=False) != skills_root:
+            raise OwnershipError("overlapping v3 manifest SkillsRoot does not match the requested root")
+        if Path(str(targets.get("support_root", ""))).expanduser().resolve(strict=False) != (
+            codex_home / "coding-os"
+        ).resolve(strict=False):
+            raise OwnershipError("overlapping v3 manifest support root is outside the requested CodexHome")
+        if (
+            marker.get("layout") != LEGACY_OVERLAP_LAYOUT
+            or marker.get("source_manifest_version") != 2
+            or marker.get("source_package") not in LEGACY_V2_PACKAGES
+            or Path(str(marker.get("skills_root", ""))).expanduser().resolve(strict=False) != skills_root
+            or Path(str(marker.get("source_support_root", ""))).expanduser().resolve(strict=False)
+            not in {
+                (codex_home / "coding-os").resolve(strict=False),
+                (codex_home / "coding-os-starter").resolve(strict=False),
+            }
+        ):
+            raise OwnershipError("overlapping v3 manifest has an invalid legacy-overlap migration marker")
+        _previous_skill_records(previous, skills_root)
+        return dict(marker)
+    if previous.get("manifest_version") != 2:
+        raise OwnershipError("legacy-overlap migration requires a strict v2 ownership manifest")
+    package = previous.get("package")
+    recorded_skills = Path(str(previous.get("skills_root", ""))).expanduser().resolve(strict=False)
+    recorded_codex = Path(str(previous.get("codex_home", ""))).expanduser().resolve(strict=False)
+    support_root = Path(str(previous.get("support_root", ""))).expanduser().resolve(strict=False)
+    allowed_support_roots = {
+        (codex_home / "coding-os").resolve(strict=False),
+        (codex_home / "coding-os-starter").resolve(strict=False),
+    }
+    if (
+        package not in LEGACY_V2_PACKAGES
+        or recorded_skills != skills_root
+        or recorded_codex != codex_home
+        or support_root not in allowed_support_roots
+    ):
+        raise OwnershipError("legacy-overlap migration requires exact v2 package, roots, and support ownership")
+    records = _previous_skill_records(previous, skills_root)
+    if not records:
+        raise OwnershipError("legacy-overlap migration requires a nonempty v2 managed skill inventory")
+    normal_support = (codex_home / "coding-os").resolve(strict=False)
+    if support_root != normal_support and normal_support.exists():
+        raise OwnershipError("legacy-overlap migration refuses to replace an unowned current support root")
+    return {
+        "layout": LEGACY_OVERLAP_LAYOUT,
+        "source_manifest_version": 2,
+        "source_package": package,
+        "source_support_root": str(support_root),
+        "skills_root": str(skills_root),
+    }
 
 
 def _previous_skill_records(previous: dict[str, Any] | None, skills_root: Path) -> list[dict[str, Any]]:
@@ -987,23 +1138,54 @@ def _verify_source(options: InstallOptions, source_root: Path, bundle: BundleInf
 
 
 def _normalize_repository(value: str) -> str:
-    raw = str(value).strip()
-    ssh_match = re.fullmatch(r"git@([^:]+):(.+)", raw)
-    if ssh_match:
-        raw = f"https://{ssh_match.group(1)}/{ssh_match.group(2)}"
-    match = re.fullmatch(r"https?://([^/]+)/(.+)", raw, flags=re.IGNORECASE)
-    if not match:
-        raise SourceVerificationError("origin remote must be one normalized HTTPS or git@ repository URL")
-    host = match.group(1).lower()
-    path = match.group(2).rstrip("/")
+    raw = unicodedata.normalize("NFC", str(value).strip()).replace("\\", "/")
+    if not raw or len(raw) > 2048:
+        raise SourceVerificationError("origin remote must be one bounded HTTPS or git@ repository URL")
+    scp_match = re.fullmatch(r"(?:[^@/:\s]+@)?([^:/\s@]+):(.+)", raw)
+    if scp_match and "://" not in raw:
+        host, path = scp_match.groups()
+        port = None
+        if "?" in path or "#" in path:
+            raise SourceVerificationError("origin remote repository URL must not include a query or fragment")
+    else:
+        try:
+            parsed = urllib.parse.urlsplit(raw)
+            if parsed.scheme.lower() != "https" or not parsed.netloc:
+                raise SourceVerificationError("origin remote must be one normalized HTTPS or git@ repository URL")
+            if parsed.query or parsed.fragment:
+                raise SourceVerificationError("origin remote repository URL must not include a query or fragment")
+            if parsed.password is not None:
+                raise SourceVerificationError("origin remote HTTPS URL must not include a password")
+            authority = parsed.netloc.rsplit("@", 1)[-1]
+            host = parsed.hostname or ""
+            path = parsed.path
+            port = parsed.port
+            if port not in {None, 443} or authority.endswith(":"):
+                raise SourceVerificationError("origin remote HTTPS URL may use only port 443")
+        except ValueError as exc:
+            raise SourceVerificationError("origin remote URL is malformed") from exc
+    host = host.lower().rstrip(".")
+    path = urllib.parse.unquote(path).strip("/")
     if path.lower().endswith(".git"):
         path = path[:-4]
-    if not path or ".." in PurePosixPath(path).parts:
+    path = re.sub(r"/+", "/", path).casefold()
+    parts = path.split("/") if path else []
+    if not host or len(parts) < 2 or any(part in {"", ".", ".."} for part in parts):
         raise SourceVerificationError("origin remote repository path is invalid")
     return f"https://{host}/{path}"
 
 
+def _validated_universal_bundle_id(value: str | None) -> str:
+    bundle_id = str(value or "")
+    if not UNIVERSAL_BUNDLE_ID_RE.fullmatch(bundle_id):
+        raise AuthorityError(
+            "UniversalBundleId must be a lowercase hyphenated identifier of 1 to 128 characters"
+        )
+    return bundle_id
+
+
 def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) -> dict[str, Any]:
+    bundle_id = _validated_universal_bundle_id(options.universal_bundle_id)
     if not options.install_universal_policy:
         return {
             "case_id": None,
@@ -1059,7 +1241,7 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         "--repository",
         repository,
         "--universal-bundle",
-        UNIVERSAL_BUNDLE_ID,
+        bundle_id,
         "--head",
         head,
     ]
@@ -1094,7 +1276,7 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         or set(context) != required_context_keys
         or context.get("actor_role") != "publication_child"
         or context.get("repository") != repository
-        or context.get("universal_bundle") != UNIVERSAL_BUNDLE_ID
+        or context.get("universal_bundle") != bundle_id
         or context.get("head") != head
         or response.get("allowed") is not False
         or response.get("reason_codes") != ["SEPARATE_AUTHORITY_REQUIRED"]
@@ -1110,7 +1292,7 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         "action_protocol": "ccos-case-action-v1",
         "approved_head": head,
         "repository": repository,
-        "universal_bundle": UNIVERSAL_BUNDLE_ID,
+        "universal_bundle": bundle_id,
         "source": authority_source,
         "reference": authority_reference,
         "boundary_reason": "SEPARATE_AUTHORITY_REQUIRED",
@@ -1134,17 +1316,19 @@ def _stage_bundle(
     source_root: Path,
     skills_root: Path,
     codex_home: Path,
+    transaction_workspace: Path,
     bundle: BundleInfo,
     transaction_id: str,
     previous: dict[str, Any] | None,
+    legacy_overlap_marker: dict[str, Any] | None,
     source: dict[str, Any],
     authority: dict[str, Any],
     config_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
     installation = bundle.pack["installation"]
     managed_skill_source = _safe_repo_path(source_root, str(installation["managed_skill_root"]))
-    skill_stage_root = skills_root / ".coding-os-stage" / transaction_id / "skills"
-    codex_stage_home = codex_home / ".coding-os-stage" / transaction_id / "codex-home"
+    skill_stage_root = transaction_workspace / "stage" / "skills"
+    codex_stage_home = transaction_workspace / "stage" / "codex-home"
     support_stage = codex_stage_home / "coding-os"
     policy_stage = codex_stage_home / "policy"
     skill_stage_root.mkdir(parents=True, exist_ok=False)
@@ -1318,6 +1502,8 @@ def _stage_bundle(
         "generated_files": [],
         "previous_install": previous_summary,
     }
+    if legacy_overlap_marker is not None:
+        install_manifest["legacy_overlap_migration"] = legacy_overlap_marker
     manifest_path = support_stage / "install-manifest.json"
     _atomic_write_json(manifest_path, install_manifest)
     text_lines = [
@@ -1329,6 +1515,13 @@ def _stage_bundle(
         f"CodexHome={codex_home}",
         f"SupportRoot={codex_home / 'coding-os'}",
     ]
+    if legacy_overlap_marker is not None:
+        text_lines.extend(
+            [
+                "LegacyOverlapMigration=True",
+                f"LegacyOverlapLayout={legacy_overlap_marker['layout']}",
+            ]
+        )
     text_lines.extend(f"SkillPath={record['path']}" for record in managed_skills)
     text_path = support_stage / "install-manifest.txt"
     _atomic_write_bytes(text_path, ("\n".join(text_lines) + "\n").encode("utf-8"))
@@ -1364,6 +1557,7 @@ def _stage_bundle(
         "install_manifest": install_manifest,
         "install_manifest_sha256": _sha_file(manifest_path),
         "generated_files": install_manifest["generated_files"],
+        "legacy_overlap_migration": legacy_overlap_marker,
     }
 
 
@@ -1377,6 +1571,8 @@ def _is_idempotent(
     codex_home: Path,
 ) -> bool:
     if previous is None or previous.get("manifest_version") != 3 or options.refresh_capability_index:
+        return False
+    if previous.get("legacy_overlap_migration") != staged.get("legacy_overlap_migration"):
         return False
     package = previous.get("package")
     prior_source = previous.get("source")
@@ -1443,12 +1639,12 @@ def _make_target(
 def _prepare_install_targets(
     skills_root: Path,
     codex_home: Path,
-    transaction_id: str,
+    transaction_workspace: Path,
     previous_records: Sequence[dict[str, Any]],
     staged: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    skill_rollback = skills_root / ".coding-os-rollback" / transaction_id / "skills"
-    codex_rollback = codex_home / ".coding-os-rollback" / transaction_id
+    skill_rollback = transaction_workspace / "rollback" / "skills"
+    codex_rollback = transaction_workspace / "rollback" / "codex-home"
     new_names = {record["name"] for record in staged["managed_skills"]}
     old_names = {str(record["name"]) for record in previous_records}
     targets: list[dict[str, Any]] = []
@@ -1481,6 +1677,9 @@ def _prepare_install_targets(
                 codex_rollback / "rules/default.rules",
             )
         )
+    for target in targets:
+        if Path(target["live_path"]).resolve(strict=False) == codex_home:
+            raise TransactionError("transaction targets must never rename, move, or replace CodexHome itself")
     return targets
 
 
@@ -1601,7 +1800,14 @@ def _rollback_targets(journal: Journal, state_root: Path) -> None:
         raise RecoveryError(str(exc)) from exc
 
 
-def _retain_and_cleanup(journal: Journal, state_root: Path, committed: bool) -> None:
+def _retain_and_cleanup(
+    journal: Journal,
+    state_root: Path,
+    committed: bool,
+    skills_root: Path,
+    codex_home: Path,
+) -> None:
+    workspace = _validate_journal_workspace(journal, skills_root, codex_home)
     transaction_id = str(journal.data["transaction_id"])
     if committed:
         retained_root = state_root / "retained-backups" / transaction_id
@@ -1627,6 +1833,8 @@ def _retain_and_cleanup(journal: Journal, state_root: Path, committed: bool) -> 
         path = Path(raw)
         if path.exists():
             _remove_owned_path(path)
+    if workspace is not None and workspace.exists():
+        _remove_owned_path(workspace)
     journal.data["status"] = "COMMITTED" if committed else journal.data.get("status", "ROLLED_BACK")
     journal.data["phase"] = "CLEANUP_COMPLETE"
     journal.save()
@@ -1659,6 +1867,7 @@ def _recover_pending(state_root: Path, skills_root: Path, codex_home: Path) -> N
         raise RecoveryError("incomplete transaction already consumed its single recovery attempt")
     journal.data["recovery_attempted"] = True
     journal.save()
+    _validate_journal_workspace(journal, skills_root, codex_home)
     if _pointer_matches_new(journal, state_root):
         for target in journal.data.get("targets", []):
             if not _verify_target_state(target, True):
@@ -1667,10 +1876,10 @@ def _recover_pending(state_root: Path, skills_root: Path, codex_home: Path) -> N
                 journal.save()
                 raise RecoveryError(f"committed target mismatch during recovery: {target['target_id']}")
         journal.data["outcome"] = "committed_recovered"
-        _retain_and_cleanup(journal, state_root, committed=True)
+        _retain_and_cleanup(journal, state_root, committed=True, skills_root=skills_root, codex_home=codex_home)
     else:
         _rollback_targets(journal, state_root)
-        _retain_and_cleanup(journal, state_root, committed=False)
+        _retain_and_cleanup(journal, state_root, committed=False, skills_root=skills_root, codex_home=codex_home)
 
 
 def _json_bytes(value: dict[str, Any]) -> bytes:
@@ -1726,10 +1935,15 @@ def _install_preflight(
     source_root: Path,
     skills_root: Path,
     codex_home: Path,
-) -> tuple[dict[str, Any] | None, list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
     pack = _load_pack(source_root)
     names = [str(record["name"]) for record in pack["bundled_skills"]]
     previous = _load_previous_install(skills_root, codex_home)
+    legacy_overlap_marker = (
+        _legacy_overlap_manifest_marker(previous, skills_root, codex_home)
+        if options.legacy_overlap_migration
+        else None
+    )
     previous_records = _validate_unowned_collisions(
         skills_root,
         codex_home / "coding-os",
@@ -1740,7 +1954,7 @@ def _install_preflight(
     config = codex_home / "config.toml"
     if config.exists():
         _assert_no_link_components(config, codex_home)
-    return previous, previous_records, pack
+    return previous, previous_records, pack, legacy_overlap_marker
 
 
 def _dry_run_install(options: InstallOptions, source_root: Path, skills_root: Path, codex_home: Path) -> dict[str, Any]:
@@ -1771,11 +1985,16 @@ def _dry_run_install(options: InstallOptions, source_root: Path, skills_root: Pa
 
 def install(options: InstallOptions) -> dict[str, Any]:
     source_root = Path(options.source_root).expanduser().resolve(strict=True)
-    skills_root, codex_home = _canonical_roots(options.skills_root, options.codex_home)
+    skills_root, codex_home = _canonical_roots(
+        options.skills_root,
+        options.codex_home,
+        legacy_overlap_migration=options.legacy_overlap_migration,
+    )
     _fault_configuration(skills_root, codex_home)
     if options.dry_run:
         return _dry_run_install(options, source_root, skills_root, codex_home)
     transaction_id = uuid.uuid4().hex
+    transaction_workspace = _transaction_workspace_path(transaction_id, skills_root, codex_home)
     state_root = codex_home / ".coding-os-install"
     with exclusive_install_lock(state_root, transaction_id, "install"):
         _recover_pending(state_root, skills_root, codex_home)
@@ -1790,6 +2009,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 "journal_version": JOURNAL_VERSION,
                 "transaction_protocol": TRANSACTION_PROTOCOL,
                 "transaction_id": transaction_id,
+                "transaction_workspace": str(transaction_workspace),
                 "operation": "install",
                 "status": "IN_PROGRESS",
                 "phase": None,
@@ -1805,19 +2025,20 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 "new_pointer_sha256": None,
                 "targets": [],
                 "stage_roots": [
-                    str(skills_root / ".coding-os-stage" / transaction_id),
-                    str(codex_home / ".coding-os-stage" / transaction_id),
+                    str(transaction_workspace / "stage"),
                 ],
                 "rollback_roots": [
-                    str(skills_root / ".coding-os-rollback" / transaction_id),
-                    str(codex_home / ".coding-os-rollback" / transaction_id),
+                    str(transaction_workspace / "rollback"),
                 ],
             },
         )
         journal.save()
         try:
+            _create_transaction_workspace(transaction_id, skills_root, codex_home)
             journal.phase("LOCK_ACQUIRED", skills_root, codex_home)
-            previous, previous_records, _ = _install_preflight(options, source_root, skills_root, codex_home)
+            previous, previous_records, _, legacy_overlap_marker = _install_preflight(
+                options, source_root, skills_root, codex_home
+            )
             journal.phase("PREFLIGHT_VERIFIED", skills_root, codex_home)
             bundle = verify_bundle(source_root, options.expected_bundle_sha256)
             source = _verify_source(options, source_root, bundle)
@@ -1831,9 +2052,11 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 source_root,
                 skills_root,
                 codex_home,
+                transaction_workspace,
                 bundle,
                 transaction_id,
                 previous,
+                legacy_overlap_marker,
                 source,
                 authority,
                 config_snapshot,
@@ -1843,7 +2066,9 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 journal.data["status"] = "NOOP"
                 journal.data["outcome"] = "already_committed"
                 journal.save()
-                _retain_and_cleanup(journal, state_root, committed=False)
+                _retain_and_cleanup(
+                    journal, state_root, committed=False, skills_root=skills_root, codex_home=codex_home
+                )
                 return {
                     "status": "already_committed",
                     "operation": "install",
@@ -1852,7 +2077,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
             targets = _prepare_install_targets(
                 skills_root,
                 codex_home,
-                transaction_id,
+                transaction_workspace,
                 previous_records,
                 staged,
             )
@@ -1886,7 +2111,9 @@ def install(options: InstallOptions) -> dict[str, Any]:
             journal.phase("CURRENT_POINTER_COMMITTED", skills_root, codex_home)
             journal.data["outcome"] = "committed"
             journal.save()
-            _retain_and_cleanup(journal, state_root, committed=True)
+            _retain_and_cleanup(
+                journal, state_root, committed=True, skills_root=skills_root, codex_home=codex_home
+            )
             _fault_after("CLEANUP_COMPLETE", skills_root, codex_home)
             return {
                 "status": "committed",
@@ -1904,7 +2131,9 @@ def install(options: InstallOptions) -> dict[str, Any]:
                         journal.save()
                         raise RecoveryError(journal.data["recovery_error"]) from exc
                 journal.data["outcome"] = "committed_recovered"
-                _retain_and_cleanup(journal, state_root, committed=True)
+                _retain_and_cleanup(
+                    journal, state_root, committed=True, skills_root=skills_root, codex_home=codex_home
+                )
                 return {
                     "status": "committed_recovered",
                     "operation": "install",
@@ -1912,7 +2141,9 @@ def install(options: InstallOptions) -> dict[str, Any]:
                     "bundle_sha256": journal.data.get("bundle_sha256"),
                 }
             _rollback_targets(journal, state_root)
-            _retain_and_cleanup(journal, state_root, committed=False)
+            _retain_and_cleanup(
+                journal, state_root, committed=False, skills_root=skills_root, codex_home=codex_home
+            )
             raise
 
 
@@ -1920,6 +2151,8 @@ def _validate_v3_for_uninstall(
     manifest: dict[str, Any],
     skills_root: Path,
     codex_home: Path,
+    *,
+    legacy_overlap_migration: bool = False,
 ) -> tuple[list[dict[str, Any]], Path]:
     if manifest.get("manifest_version") != 3 or manifest.get("transaction_protocol") != TRANSACTION_PROTOCOL:
         raise TransactionError("uninstall requires a readable v3 manifest or strict v2 migration")
@@ -1931,6 +2164,8 @@ def _validate_v3_for_uninstall(
     support_root = Path(str(targets.get("support_root", ""))).resolve(strict=False)
     if support_root != (codex_home / "coding-os").resolve(strict=False):
         raise TransactionError("v3 support root is outside the requested CodexHome")
+    if legacy_overlap_migration:
+        _legacy_overlap_manifest_marker(manifest, skills_root, codex_home)
     records = _previous_skill_records(manifest, skills_root)
     for record in records:
         live = Path(record["path"])
@@ -1958,8 +2193,15 @@ def _dry_run_uninstall(options: UninstallOptions, skills_root: Path, codex_home:
     if manifest is None:
         raise TransactionError("no owned install manifest is available for uninstall")
     if manifest.get("manifest_version") == 3:
-        records, support = _validate_v3_for_uninstall(manifest, skills_root, codex_home)
+        records, support = _validate_v3_for_uninstall(
+            manifest,
+            skills_root,
+            codex_home,
+            legacy_overlap_migration=options.legacy_overlap_migration,
+        )
     else:
+        if options.legacy_overlap_migration:
+            raise OwnershipError("legacy-overlap uninstall requires the prior v2 install to be migrated to v3 first")
         records = _previous_skill_records(manifest, skills_root)
         support = Path(str(manifest.get("support_root", ""))).resolve(strict=False)
         if support not in {
@@ -1976,11 +2218,16 @@ def _dry_run_uninstall(options: UninstallOptions, skills_root: Path, codex_home:
 
 
 def uninstall(options: UninstallOptions) -> dict[str, Any]:
-    skills_root, codex_home = _canonical_roots(options.skills_root, options.codex_home)
+    skills_root, codex_home = _canonical_roots(
+        options.skills_root,
+        options.codex_home,
+        legacy_overlap_migration=options.legacy_overlap_migration,
+    )
     _fault_configuration(skills_root, codex_home)
     if options.dry_run:
         return _dry_run_uninstall(options, skills_root, codex_home)
     transaction_id = uuid.uuid4().hex
+    transaction_workspace = _transaction_workspace_path(transaction_id, skills_root, codex_home)
     state_root = codex_home / ".coding-os-install"
     with exclusive_install_lock(state_root, transaction_id, "uninstall"):
         _recover_pending(state_root, skills_root, codex_home)
@@ -2000,6 +2247,7 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                 "journal_version": JOURNAL_VERSION,
                 "transaction_protocol": TRANSACTION_PROTOCOL,
                 "transaction_id": transaction_id,
+                "transaction_workspace": str(transaction_workspace),
                 "operation": "uninstall",
                 "status": "IN_PROGRESS",
                 "phase": None,
@@ -2015,21 +2263,27 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                 "new_pointer_sha256": None,
                 "targets": [],
                 "stage_roots": [
-                    str(skills_root / ".coding-os-stage" / transaction_id),
-                    str(codex_home / ".coding-os-stage" / transaction_id),
+                    str(transaction_workspace / "stage"),
                 ],
                 "rollback_roots": [
-                    str(skills_root / ".coding-os-rollback" / transaction_id),
-                    str(codex_home / ".coding-os-rollback" / transaction_id),
+                    str(transaction_workspace / "rollback"),
                 ],
             },
         )
         journal.save()
         try:
+            _create_transaction_workspace(transaction_id, skills_root, codex_home)
             journal.phase("LOCK_ACQUIRED", skills_root, codex_home)
             if manifest.get("manifest_version") == 3:
-                records, support_root = _validate_v3_for_uninstall(manifest, skills_root, codex_home)
+                records, support_root = _validate_v3_for_uninstall(
+                    manifest,
+                    skills_root,
+                    codex_home,
+                    legacy_overlap_migration=options.legacy_overlap_migration,
+                )
             else:
+                if options.legacy_overlap_migration:
+                    raise OwnershipError("legacy-overlap uninstall requires the prior v2 install to be migrated to v3 first")
                 records = _previous_skill_records(manifest, skills_root)
                 support_root = Path(str(manifest.get("support_root", ""))).resolve(strict=False)
                 if support_root not in {
@@ -2039,9 +2293,9 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                     raise TransactionError("legacy support root is outside the requested CodexHome")
             journal.phase("PREFLIGHT_VERIFIED", skills_root, codex_home)
             journal.phase("SOURCE_VERIFIED", skills_root, codex_home)
-            skill_rollback = skills_root / ".coding-os-rollback" / transaction_id / "skills"
-            codex_rollback = codex_home / ".coding-os-rollback" / transaction_id
-            codex_stage_home = codex_home / ".coding-os-stage" / transaction_id / "codex-home"
+            skill_rollback = transaction_workspace / "rollback" / "skills"
+            codex_rollback = transaction_workspace / "rollback" / "codex-home"
+            codex_stage_home = transaction_workspace / "stage" / "codex-home"
             codex_stage_home.mkdir(parents=True, exist_ok=False)
             targets: list[dict[str, Any]] = []
             for record in sorted(records, key=lambda value: str(value["name"]).casefold()):
@@ -2068,6 +2322,9 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                     staged_rules = codex_stage_home / "policy" / "rules" / "default.rules"
                     _atomic_write_bytes(staged_rules, remove_rules_policy_bytes(live_rules.read_bytes()))
                     targets.append(_make_target("default_rules", live_rules, staged_rules, codex_rollback / "rules/default.rules"))
+            for target in targets:
+                if Path(target["live_path"]).resolve(strict=False) == codex_home:
+                    raise TransactionError("transaction targets must never rename, move, or replace CodexHome itself")
             journal.data["targets"] = targets
             journal.save()
             journal.phase("STAGE_VERIFIED", skills_root, codex_home)
@@ -2103,7 +2360,7 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
             journal.phase("CURRENT_POINTER_COMMITTED", skills_root, codex_home)
             journal.data["outcome"] = "uninstalled"
             journal.save()
-            _retain_and_cleanup(journal, state_root, committed=True)
+            _retain_and_cleanup(journal, state_root, committed=True, skills_root=skills_root, codex_home=codex_home)
             _fault_after("CLEANUP_COMPLETE", skills_root, codex_home)
             return {"status": "uninstalled", "operation": "uninstall", "transaction_id": transaction_id}
         except Exception as exc:
@@ -2115,10 +2372,12 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                         journal.save()
                         raise RecoveryError(journal.data["recovery_error"]) from exc
                 journal.data["outcome"] = "uninstalled_recovered"
-                _retain_and_cleanup(journal, state_root, committed=True)
+                _retain_and_cleanup(
+                    journal, state_root, committed=True, skills_root=skills_root, codex_home=codex_home
+                )
                 return {"status": "uninstalled_recovered", "operation": "uninstall", "transaction_id": transaction_id}
             _rollback_targets(journal, state_root)
-            _retain_and_cleanup(journal, state_root, committed=False)
+            _retain_and_cleanup(journal, state_root, committed=False, skills_root=skills_root, codex_home=codex_home)
             raise
 
 
@@ -2143,6 +2402,7 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--expected-bundle-sha256", required=True)
     install_parser.add_argument("--expected-source-commit")
     install_parser.add_argument("--install-universal-policy", action="store_true")
+    install_parser.add_argument("--universal-bundle-id", default=UNIVERSAL_BUNDLE_ID)
     install_parser.add_argument("--refresh-capability-index", action="store_true")
     install_parser.add_argument("--authority-case-id")
     install_parser.add_argument(
@@ -2152,12 +2412,14 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--authority-reference")
     install_parser.add_argument("--case-state-engine")
     install_parser.add_argument("--case-state-root")
+    install_parser.add_argument("--legacy-overlap-migration", action="store_true")
     install_parser.add_argument("--archive-mode", action="store_true")
     install_parser.add_argument("--dry-run", action="store_true")
 
     uninstall_parser = commands.add_parser("uninstall", help="Transactionally remove recorded managed targets.")
     uninstall_parser.add_argument("--skills-root", required=True)
     uninstall_parser.add_argument("--codex-home", required=True)
+    uninstall_parser.add_argument("--legacy-overlap-migration", action="store_true")
     uninstall_parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -2188,12 +2450,14 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 expected_bundle_sha256=args.expected_bundle_sha256,
                 expected_source_commit=args.expected_source_commit,
                 install_universal_policy=args.install_universal_policy,
+                universal_bundle_id=args.universal_bundle_id,
                 refresh_capability_index=args.refresh_capability_index,
                 authority_case_id=args.authority_case_id,
                 authority_source=args.authority_source,
                 authority_reference=args.authority_reference,
                 case_state_engine=args.case_state_engine,
                 case_state_root=args.case_state_root,
+                legacy_overlap_migration=args.legacy_overlap_migration,
                 archive_mode=args.archive_mode,
                 dry_run=args.dry_run,
             )
@@ -2203,6 +2467,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             UninstallOptions(
                 skills_root=args.skills_root,
                 codex_home=args.codex_home,
+                legacy_overlap_migration=args.legacy_overlap_migration,
                 dry_run=args.dry_run,
             )
         )
