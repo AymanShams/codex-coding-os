@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -374,6 +375,96 @@ class PolicyMigrationTests(unittest.TestCase):
         self.assertEqual(it.remove_agents_policy_bytes(agents), b"pre\n\r\npost")
         rules = b"pre\r\n" + RULES_POLICY.encode() + b"\npost"
         self.assertEqual(it.remove_rules_policy_bytes(rules), b"pre\r\n\npost")
+
+
+class OwnedPathDeletionTests(unittest.TestCase):
+    def test_windows_readonly_callback_retries_only_owned_readonly_access_denied(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            target = Path(raw) / "owned.txt"
+            target.write_text("owned", encoding="utf-8")
+            error = PermissionError(13, "Access denied", str(target))
+            error.winerror = 5
+            info = mock.Mock(st_mode=stat.S_IREAD, st_file_attributes=it.FILE_ATTRIBUTE_READONLY)
+            retried: list[str] = []
+
+            def unlink(raw_path: str) -> None:
+                retried.append(raw_path)
+
+            with (
+                mock.patch.object(it, "WINDOWS_PLATFORM", True),
+                mock.patch.object(it, "_is_link_or_reparse", return_value=False),
+                mock.patch.object(Path, "stat", return_value=info),
+                mock.patch.object(it.os, "chmod") as chmod,
+            ):
+                it._retry_windows_readonly_remove(unlink, str(target), (PermissionError, error, None))
+            chmod.assert_called_once_with(target, stat.S_IREAD | stat.S_IWRITE)
+            self.assertEqual(retried, [str(target)])
+
+    def test_windows_readonly_callback_rejects_nonremove_writable_or_link_targets(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            target = Path(raw) / "owned.txt"
+            target.write_text("owned", encoding="utf-8")
+            error = PermissionError(13, "Access denied", str(target))
+            error.winerror = 5
+            writable = mock.Mock(st_mode=stat.S_IREAD | stat.S_IWRITE, st_file_attributes=0)
+            retried: list[str] = []
+
+            def unlink(raw_path: str) -> None:
+                retried.append(raw_path)
+
+            with (
+                mock.patch.object(it, "WINDOWS_PLATFORM", True),
+                mock.patch.object(it, "_is_link_or_reparse", return_value=False),
+                mock.patch.object(Path, "stat", return_value=writable),
+                mock.patch.object(it.os, "chmod") as chmod,
+                self.assertRaises(PermissionError),
+            ):
+                it._retry_windows_readonly_remove(unlink, str(target), (PermissionError, error, None))
+            chmod.assert_not_called()
+            self.assertEqual(retried, [])
+            readonly = mock.Mock(st_mode=stat.S_IREAD, st_file_attributes=it.FILE_ATTRIBUTE_READONLY)
+
+            def scandir(raw_path: str) -> None:
+                retried.append(raw_path)
+
+            with (
+                mock.patch.object(it, "WINDOWS_PLATFORM", True),
+                mock.patch.object(it, "_is_link_or_reparse", return_value=False),
+                mock.patch.object(Path, "stat", return_value=readonly),
+                mock.patch.object(it.os, "chmod") as chmod,
+                self.assertRaises(PermissionError),
+            ):
+                it._retry_windows_readonly_remove(scandir, str(target), (PermissionError, error, None))
+            chmod.assert_not_called()
+            self.assertEqual(retried, [])
+            with (
+                mock.patch.object(it, "WINDOWS_PLATFORM", True),
+                mock.patch.object(it, "_is_link_or_reparse", return_value=True),
+                mock.patch.object(it.os, "chmod") as chmod,
+                self.assertRaises(it.RecoveryError),
+            ):
+                it._retry_windows_readonly_remove(unlink, str(target), (PermissionError, error, None))
+            chmod.assert_not_called()
+            self.assertEqual(retried, [])
+
+    @unittest.skipUnless(os.name == "nt", "Windows read-only attributes are platform-specific")
+    def test_remove_owned_path_removes_windows_readonly_tree(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            owned = Path(raw) / "owned"
+            readonly_file = owned / "readonly.txt"
+            write_text(readonly_file, "owned\n")
+            os.chmod(readonly_file, stat.S_IREAD)
+            os.chmod(owned, stat.S_IREAD)
+            try:
+                it._remove_owned_path(owned)
+            finally:
+                if owned.exists():
+                    os.chmod(owned, stat.S_IREAD | stat.S_IWRITE)
+                if readonly_file.exists():
+                    os.chmod(readonly_file, stat.S_IREAD | stat.S_IWRITE)
+                if owned.exists():
+                    shutil.rmtree(owned, ignore_errors=True)
+            self.assertFalse(owned.exists())
 
 
 class RepositoryNormalizationTests(unittest.TestCase):

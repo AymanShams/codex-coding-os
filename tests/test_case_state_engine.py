@@ -98,6 +98,293 @@ def git_protocol_digest(entries: list[tuple[str, str, bytes]]) -> str:
     return hashlib.sha256(stream).hexdigest()
 
 
+class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
+    def test_real_cli_keeps_one_case_finite_across_an_implementation_child_handoff(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-parent-child-") as raw:
+            root = Path(raw)
+            state_root = root / "case-state"
+            repository_root = root / "repository"
+            branch = "codex/acceptance-implementation"
+            reentry_branch = "codex/acceptance-review"
+            reentry_worktree = root / "review-worktree"
+            repository_root.mkdir()
+            subprocess.run(["git", "-C", str(repository_root), "init", "-q"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository_root), "checkout", "-q", "-b", branch], check=True
+            )
+            subprocess.run(
+                ["git", "-C", str(repository_root), "config", "user.email", "acceptance@example.invalid"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repository_root), "config", "user.name", "Acceptance Scenario"],
+                check=True,
+            )
+            (repository_root / "candidate.txt").write_text("bounded candidate\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository_root), "add", "candidate.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository_root), "commit", "-q", "-m", "acceptance candidate"],
+                check=True,
+            )
+            head = subprocess.run(
+                ["git", "-C", str(repository_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repository_root),
+                    "worktree",
+                    "add",
+                    "-q",
+                    "-b",
+                    reentry_branch,
+                    str(reentry_worktree),
+                    head,
+                ],
+                check=True,
+            )
+
+            case_id = str(uuid.uuid4())
+            repository = "https://github.com/example/parent-child-acceptance"
+            thread = str(uuid.uuid4())
+            reentry_thread = str(uuid.uuid4())
+
+            def cli(*arguments: str, expected: int = 0) -> dict:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(SCRIPT),
+                        "--state-root",
+                        str(state_root),
+                        "--json",
+                        *arguments,
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, expected, result.stderr or result.stdout)
+                return json.loads(result.stdout)
+
+            case = cli(
+                "register",
+                "--case-id",
+                case_id,
+                "--objective",
+                "accept one bounded parent-child implementation and review",
+                "--request-id",
+                request(),
+                "--expected-store-revision",
+                "0",
+            )
+            revision = case["revision"]
+            for kind, value, binding_repository in (
+                ("repo_url", repository, None),
+                ("branch", branch, repository),
+                ("worktree", str(repository_root), None),
+                ("thread", thread, None),
+            ):
+                arguments = [
+                    "bind",
+                    "--case-id",
+                    case_id,
+                    "--kind",
+                    kind,
+                    "--value",
+                    value,
+                    "--request-id",
+                    request(),
+                    "--expected-revision",
+                    str(revision),
+                ]
+                if binding_repository:
+                    arguments.extend(["--repository", binding_repository])
+                revision = cli(*arguments)["revision"]
+
+            parent_implementation = cli(
+                "action-check",
+                "--case-id",
+                case_id,
+                "--action",
+                "implementation",
+                "--actor-role",
+                "parent",
+                "--repository",
+                repository,
+                "--branch",
+                branch,
+            )
+            self.assertFalse(parent_implementation["allowed"])
+            self.assertEqual(parent_implementation["reason_codes"], ["ROLE_ACTION_DENIED"])
+            child_implementation = cli(
+                "action-check",
+                "--case-id",
+                case_id,
+                "--action",
+                "implementation",
+                "--actor-role",
+                "implementer_child",
+                "--repository",
+                repository,
+                "--branch",
+                branch,
+            )
+            self.assertTrue(child_implementation["allowed"])
+
+            started = cli(
+                "start-implementation",
+                "--case-id",
+                case_id,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(revision),
+            )
+            revision = started["revision"]
+            repeated_implementation = cli(
+                "start-implementation",
+                "--case-id",
+                case_id,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(revision),
+                expected=2,
+            )
+            self.assertEqual(repeated_implementation["error"], "LimitError")
+
+            snapshot = cli("snapshot", "--root", str(repository_root), "--head", head)
+            child_handoff = {
+                "case_id": case_id,
+                "repository": repository,
+                "head": head,
+                "snapshot": {
+                    "contract": snapshot["contract"],
+                    "sha256": snapshot["sha256"],
+                    "head": snapshot["head"],
+                },
+            }
+            for kind, value, binding_repository in (
+                ("branch", reentry_branch, repository),
+                ("worktree", str(reentry_worktree), None),
+                ("thread", reentry_thread, None),
+            ):
+                arguments = [
+                    "bind",
+                    "--case-id",
+                    case_id,
+                    "--kind",
+                    kind,
+                    "--value",
+                    value,
+                    "--request-id",
+                    request(),
+                    "--expected-revision",
+                    str(revision),
+                ]
+                if binding_repository:
+                    arguments.extend(["--repository", binding_repository])
+                revision = cli(*arguments)["revision"]
+
+            for kind, value, binding_repository in (
+                ("branch", reentry_branch, repository),
+                ("worktree", str(reentry_worktree), None),
+                ("thread", reentry_thread, None),
+            ):
+                arguments = ["resolve", "--kind", kind, "--value", value]
+                if binding_repository:
+                    arguments.extend(["--repository", binding_repository])
+                self.assertEqual(cli(*arguments)["case_id"], case_id)
+            self.assertEqual(cli("store-status")["case_count"], 1)
+
+            parent_handoff = cli(
+                "action-check",
+                "--case-id",
+                child_handoff["case_id"],
+                "--action",
+                "case_administration",
+                "--actor-role",
+                "parent",
+            )
+            self.assertTrue(parent_handoff["allowed"])
+            frozen = cli(
+                "freeze-candidate",
+                "--case-id",
+                case_id,
+                "--heads-json",
+                json.dumps({repository: child_handoff["head"]}),
+                "--snapshots-json",
+                json.dumps({repository: child_handoff["snapshot"]}),
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(revision),
+            )
+            review = cli(
+                "start-review",
+                "--case-id",
+                case_id,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(frozen["revision"]),
+            )
+            review_child = cli(
+                "action-check",
+                "--case-id",
+                case_id,
+                "--action",
+                "review_collection",
+                "--actor-role",
+                "review_child",
+                "--repository",
+                repository,
+                "--worktree",
+                str(reentry_worktree),
+                "--head",
+                head,
+            )
+            self.assertTrue(review_child["allowed"])
+            repeated_review = cli(
+                "start-review",
+                "--case-id",
+                case_id,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(review["revision"]),
+                expected=2,
+            )
+            self.assertEqual(repeated_review["error"], "TransitionError")
+            frozen_findings = cli(
+                "freeze-findings",
+                "--case-id",
+                case_id,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(review["revision"]),
+            )
+            closed = cli(
+                "close-without-blockers",
+                "--case-id",
+                case_id,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(frozen_findings["revision"]),
+            )
+            self.assertEqual(closed["state"], "CLOSED_SUCCESS")
+            self.assertEqual(closed["case_id"], child_handoff["case_id"])
+            final_case = cli("show", "--case-id", case_id)
+            self.assertEqual(final_case["limits"]["implementation_generations"], 1)
+            self.assertEqual(final_case["limits"]["review_cohorts"], 1)
+
+
 class StoreCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos-case-state-")

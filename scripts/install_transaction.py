@@ -66,6 +66,8 @@ HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 CASE_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+FILE_ATTRIBUTE_READONLY = 0x1
+WINDOWS_PLATFORM = os.name == "nt"
 
 
 class TransactionError(RuntimeError):
@@ -723,15 +725,43 @@ def _copy_path(source: Path, target: Path) -> None:
         raise TransactionError(f"source is not a regular file or directory: {source}")
 
 
+def _retry_windows_readonly_remove(func: Any, raw_path: str, exc_info: tuple[Any, Any, Any]) -> None:
+    exc = exc_info[1]
+    if (
+        not WINDOWS_PLATFORM
+        or not isinstance(exc, PermissionError)
+        or getattr(exc, "winerror", None) != 5
+        or getattr(func, "__name__", "") not in {"unlink", "remove", "rmdir"}
+    ):
+        raise exc
+    path = Path(raw_path)
+    if _is_link_or_reparse(path):
+        raise RecoveryError(f"refusing to remove a link or reparse point: {path}")
+    try:
+        info = path.stat(follow_symlinks=False)
+    except OSError:
+        raise exc
+    readonly = bool(getattr(info, "st_file_attributes", 0) & FILE_ATTRIBUTE_READONLY) or not bool(
+        info.st_mode & stat.S_IWRITE
+    )
+    if not readonly:
+        raise exc
+    os.chmod(path, info.st_mode | stat.S_IWRITE)
+    func(raw_path)
+
+
 def _remove_owned_path(path: Path) -> None:
     if not path.exists():
         return
     if _is_link_or_reparse(path):
         raise RecoveryError(f"refusing to remove a link or reparse point: {path}")
     if path.is_dir():
-        shutil.rmtree(path)
+        shutil.rmtree(path, onerror=_retry_windows_readonly_remove)
     elif path.is_file():
-        path.unlink()
+        try:
+            os.unlink(path)
+        except PermissionError:
+            _retry_windows_readonly_remove(os.unlink, str(path), sys.exc_info())
     else:
         raise RecoveryError(f"refusing to remove a special file: {path}")
 
