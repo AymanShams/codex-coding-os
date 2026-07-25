@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import importlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -772,6 +773,41 @@ class ProposalActionGrantTests(unittest.TestCase):
                         "arbitrary",
                     ]
                 )
+
+    def test_proposal_broker_loads_path_typed_envelope_from_cli(self) -> None:
+        grant = self.grant_request()
+        grant_core = {
+            field: grant[field] for field in proposal_entrypoint.GRANT_CORE_FIELDS
+        }
+        envelope_root = self.state_root / "proposal-envelopes"
+        envelope_root.mkdir()
+        envelope_path = envelope_root / "grant.json"
+        envelope_path.write_text(
+            json.dumps(
+                {
+                    "protocol_version": proposal_entrypoint.ENVELOPE_PROTOCOL_VERSION,
+                    "schema_version": 1,
+                    "case_id": self.case_id,
+                    "expected_case_revision": self.revision,
+                    "request_id": request_id(),
+                    "grant": grant_core,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = proposal_entrypoint._load_envelope(
+            self.state_root, envelope_path
+        )
+
+        self.assertEqual(loaded["case_id"], self.case_id)
+        self.assertEqual(loaded["grant"], grant_core)
+        self.assertEqual(
+            loaded["envelope_path"],
+            engine.normalize_binding("worktree", str(envelope_path)),
+        )
 
     def test_proposal_broker_does_not_import_controller_or_supervisor(self) -> None:
         source = (SCRIPT_DIRECTORY / "case_proposal_action_broker.py").read_text(

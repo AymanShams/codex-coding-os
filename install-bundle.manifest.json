@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "c28d3fb62cf9ec682547db79b72e7cef7a01dccd5d3ee5a06a31e049bdfcdbff",
+  "aggregate_sha256": "b96a0dde3d587dcb1a7aa101be6094fd641226bc693aaaed59e41784fa2ada6e",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2368,8 +2368,8 @@
     },
     {
       "path": "scripts/agent/case_proposal_action_broker.py",
-      "sha256": "ceb2832447f187e32a7494de8c078ca84bf8e380477bdf2273205804049bf9d1",
-      "size": 11245
+      "sha256": "9ce03fbfaa24946dfd58946da80c15f2647f03589cbddba3b2ebe9fff094aacc",
+      "size": 11250
     },
     {
       "path": "scripts/agent/case_runtime_broker.py",
@@ -2608,8 +2608,8 @@
     },
     {
       "path": "tests/test_case_proposal_action_grant.py",
-      "sha256": "1f486ffdd1c0529c07b0ee161ebb106982b4217c45afed0fe9f09eb83ba4dc27",
-      "size": 32516
+      "sha256": "ca8a29ca3eb85878e8c95d3b4526dc9f552543993912dc3b853f9114e5bcf831",
+      "size": 33794
     },
     {
       "path": "tests/test_case_runtime_broker.py",

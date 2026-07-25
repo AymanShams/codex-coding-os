@@ -85,7 +85,7 @@ def _load_envelope(state_root: Path, envelope_path: Path) -> dict[str, Any]:
     expected_root.mkdir(mode=0o700, exist_ok=True)
     expected_root = expected_root.resolve(strict=True)
     path, normalized = normalized_absolute_path(
-        envelope_path, "proposal action envelope", reject_links=True
+        str(envelope_path), "proposal action envelope", reject_links=True
     )
     if (
         not path_is_within(path, expected_root)
