@@ -177,12 +177,14 @@ class SupervisorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="ccos-supervisor-")
         self.worker_temporary = tempfile.TemporaryDirectory(prefix="ccos-supervisor-worker-")
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve(strict=True)
         self.state_root = self.root / "state"
         self.state_root.mkdir()
         self.worktree = self.root / "worktree"
         self.worktree.mkdir()
-        self.worker_home = Path(self.worker_temporary.name) / "worker-home"
+        self.worker_home = (
+            Path(self.worker_temporary.name).resolve(strict=True) / "worker-home"
+        )
         self.worker_home.mkdir()
         self.proposal_root = self.root / "proposal-root"
         self.proposal_root.mkdir()

@@ -1912,7 +1912,9 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
 
         with mock.patch.dict(os.environ, sentinels, clear=False), mock.patch.object(
-            engine, "resolved_executable", return_value=sys.executable
+            engine,
+            "resolved_executable",
+            return_value=str(Path(sys.executable).resolve(strict=True)),
         ), mock.patch.object(engine.subprocess, "run", side_effect=fake_git_run):
             engine._run_git(self.repository_root, "status", "--porcelain=v1")
         git_environment = git_call["kwargs"]["env"]
@@ -1930,7 +1932,9 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             return subprocess.CompletedProcess(command, 0, stdout=b"ok", stderr=b"")
 
         with mock.patch.dict(os.environ, sentinels, clear=False), mock.patch.object(
-            broker, "_powershell_executable", return_value=sys.executable
+            broker,
+            "_powershell_executable",
+            return_value=str(Path(sys.executable).resolve(strict=True)),
         ), mock.patch.object(broker.subprocess, "run", side_effect=fake_powershell_run):
             broker._run_powershell("Write-Output ok", {"CCOS_WORKER_SID": WORKER_SID})
         powershell_environment = powershell_call["kwargs"]["env"]
