@@ -2003,6 +2003,18 @@ class BrokerHelperIsolationTests(RuntimeFixture):
                 )
 
     @unittest.skipUnless(os.name == "nt", "Windows ACL integration test")
+    def test_acl_operation_probe_succeeds_on_writable_control_root(self) -> None:
+        worker_sid = broker.windows_identity()[1]
+        with tempfile.TemporaryDirectory(prefix="ccos-acl-probe-control-") as temporary:
+            result = broker._attempt_denied_acl_operation(
+                Path(temporary),
+                "change_permissions",
+                worker_sid,
+                "a" * 64,
+            )
+            self.assertEqual(result, ("ACL_OPERATION_SUCCEEDED", 0))
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL integration test")
     def test_dacl_configuration_works_without_sacl_privilege(self) -> None:
         denied = [
             "S-1-5-21-444444444-555555555-666666666-2101",

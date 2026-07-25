@@ -683,7 +683,7 @@ try {
       [System.Security.AccessControl.AccessControlType]::Allow)
     [void]$acl.AddAccessRule($allow)
   }
-  Set-Acl -LiteralPath $env:CCOS_PROBE_ROOT -AclObject $acl -ErrorAction Stop
+  [System.IO.DirectoryInfo]::new($env:CCOS_PROBE_ROOT).SetAccessControl($acl)
   exit 0
 } catch [System.UnauthorizedAccessException] {
   exit 5
