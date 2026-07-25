@@ -19,7 +19,7 @@ from ctypes import wintypes
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import queue
 import re
 import secrets
@@ -226,10 +226,16 @@ def build_app_server_environment(
     source = os.environ if inherited is None else inherited
     binary = (executable or Path(sys.executable)).resolve(strict=True)
     home = worker_codex_home.resolve(strict=True)
-    system_root = Path(source.get("SYSTEMROOT", source.get("WINDIR", r"C:\Windows")))
+    raw_system_root = source.get("SYSTEMROOT", source.get("WINDIR", r"C:\Windows"))
+    system_root = (
+        Path(raw_system_root)
+        if os.name == "nt"
+        else PureWindowsPath(raw_system_root)
+    )
     if not system_root.is_absolute():
         raise ControllerValidationError("fixed Windows system root must be absolute")
-    system_root = system_root.resolve(strict=False)
+    if os.name == "nt":
+        system_root = system_root.resolve(strict=False)
     system32 = system_root / "System32"
     mutable = {
         "CODEX_HOME": home,
@@ -245,7 +251,7 @@ def build_app_server_environment(
         "COMSPEC": str(system32 / "cmd.exe"),
         "LOCALAPPDATA": str(mutable["LOCALAPPDATA"]),
         "NO_COLOR": "1",
-        "PATH": os.pathsep.join((str(system32), str(binary.parent))),
+        "PATH": ";".join((str(system32), str(binary.parent))),
         "PATHEXT": ".COM;.EXE;.BAT;.CMD",
         "SYSTEMDRIVE": system_root.drive or "C:",
         "SYSTEMROOT": str(system_root),

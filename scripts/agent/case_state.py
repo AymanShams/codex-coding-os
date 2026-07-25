@@ -765,11 +765,19 @@ def normalize_live_controller_evidence(
     }
 
 
-def normalized_absolute_path(value: Any, label: str, *, must_exist: bool = True) -> tuple[Path, str]:
+def normalized_absolute_path(
+    value: Any,
+    label: str,
+    *,
+    must_exist: bool = True,
+    reject_links: bool = False,
+) -> tuple[Path, str]:
     raw = _nonempty(value, label, 4096)
     candidate = Path(raw).expanduser()
     if not candidate.is_absolute():
         raise ValidationError(f"{label} must be absolute")
+    if reject_links and path_contains_link_or_reparse(candidate):
+        raise AuthorizationError(f"{label} must not traverse a link or reparse point")
     try:
         resolved = candidate.resolve(strict=must_exist)
     except OSError as exc:
@@ -3379,12 +3387,18 @@ class CaseStore:
             raise ValidationError("action grant protocol or schema version is unsupported")
         if grant.get("action") != "implementation" or grant.get("operation") != "replace_existing_file_v1":
             raise AuthorizationError("only the exact implementation file-replacement operation is supported")
-        worktree_path, worktree = normalized_absolute_path(grant.get("worktree"), "grant worktree")
+        worktree_path, worktree = normalized_absolute_path(
+            grant.get("worktree"), "grant worktree", reject_links=True
+        )
         proposal_path, proposal = normalized_absolute_path(
-            grant.get("proposal_artifact_path"), "proposal artifact path"
+            grant.get("proposal_artifact_path"),
+            "proposal artifact path",
+            reject_links=True,
         )
         worker_runtime_path, worker_runtime_root = normalized_absolute_path(
-            grant.get("worker_runtime_root"), "worker runtime root"
+            grant.get("worker_runtime_root"),
+            "worker runtime root",
+            reject_links=True,
         )
         if not worker_runtime_path.is_dir() or path_contains_link_or_reparse(worker_runtime_path):
             raise AuthorizationError("worker runtime root must be an exact direct directory")
@@ -3479,7 +3493,9 @@ class CaseStore:
             "broker_principal_sid": broker_sid,
             "app_server_sha256": app_server_sha256,
             "app_server_executable_path": normalized_absolute_path(
-                grant.get("app_server_executable_path"), "App Server executable"
+                grant.get("app_server_executable_path"),
+                "App Server executable",
+                reject_links=True,
             )[1],
             "app_server_version": app_server_version,
             "schema_file_count": schema_file_count,

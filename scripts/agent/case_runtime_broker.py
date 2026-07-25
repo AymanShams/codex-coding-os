@@ -168,7 +168,9 @@ def seal_controller_receipt(body: Mapping[str, Any], key: bytes) -> dict[str, An
         "worktree": normalize_binding("worktree", str(body.get("worktree", ""))),
         "baseline_sha256": require_snapshot_hash(str(body.get("baseline_sha256", ""))),
         "worker_runtime_root": normalized_absolute_path(
-            body.get("worker_runtime_root"), "worker runtime root"
+            body.get("worker_runtime_root"),
+            "worker runtime root",
+            reject_links=True,
         )[1],
         "worker_online_principal_sid": require_windows_sid(
             body.get("worker_online_principal_sid"), "Online worker SID"
@@ -184,7 +186,9 @@ def seal_controller_receipt(body: Mapping[str, Any], key: bytes) -> dict[str, An
         ),
         "app_server_sha256": require_snapshot_hash(str(body.get("app_server_sha256", ""))),
         "app_server_executable_path": normalized_absolute_path(
-            body.get("app_server_executable_path"), "App Server executable"
+            body.get("app_server_executable_path"),
+            "App Server executable",
+            reject_links=True,
         )[1],
         "app_server_version": require_stable_id(
             body.get("app_server_version"), "App Server version"

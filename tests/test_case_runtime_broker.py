@@ -178,8 +178,8 @@ class RuntimeFixture(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos-runtime-")
         self.worker_temp = tempfile.TemporaryDirectory(prefix="ccos-worker-runtime-")
-        self.root = Path(self.temp.name)
-        self.worker_runtime_root = Path(self.worker_temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
+        self.worker_runtime_root = Path(self.worker_temp.name).resolve(strict=True)
         self.state_root = self.root / "state"
         self.repository_root = self.root / "repository"
         self.repository_root.mkdir()
@@ -1161,8 +1161,56 @@ class RuntimeActorAndGrantTests(RuntimeFixture):
             alias.symlink_to(self.proposal)
         except OSError as exc:
             self.skipTest(f"symlink creation is unavailable: {exc}")
-        with self.assertRaises(engine.AuthorizationError):
+        self.assertTrue(alias.is_symlink(), "created proposal alias is not a symbolic link")
+        self.assertTrue(
+            engine.path_contains_link_or_reparse(alias),
+            "created proposal alias is not visible as a link or reparse point",
+        )
+        with self.assertRaisesRegex(
+            engine.AuthorizationError,
+            "proposal artifact path must not traverse a link or reparse point",
+        ):
             self.issue(self.grant_request(proposal_artifact_path=str(alias)))
+
+    def test_other_reparse_grant_paths_are_rejected_before_resolution(self) -> None:
+        cases = (
+            (
+                "worktree",
+                self.root / "worktree-alias",
+                self.repository_root,
+                True,
+                "grant worktree must not traverse a link or reparse point",
+            ),
+            (
+                "worker_runtime_root",
+                self.root / "worker-runtime-alias",
+                self.worker_runtime_root,
+                True,
+                "worker runtime root must not traverse a link or reparse point",
+            ),
+            (
+                "app_server_executable_path",
+                self.root / "app-server-alias.exe",
+                Path(sys.executable).resolve(strict=True),
+                False,
+                "App Server executable must not traverse a link or reparse point",
+            ),
+        )
+        for _, alias, target, target_is_directory, _ in cases:
+            try:
+                alias.symlink_to(target, target_is_directory=target_is_directory)
+            except OSError as exc:
+                self.skipTest(f"symlink creation is unavailable: {exc}")
+            self.assertTrue(alias.is_symlink(), f"created alias is not a symbolic link: {alias}")
+            self.assertTrue(
+                engine.path_contains_link_or_reparse(alias),
+                f"created alias is not visible as a link or reparse point: {alias}",
+            )
+        for field, alias, _, _, message in cases:
+            with self.subTest(field=field), self.assertRaisesRegex(
+                engine.AuthorizationError, message
+            ):
+                self.issue(self.grant_request(**{field: str(alias)}))
 
     def test_active_grant_blocks_unrelated_mutations_without_revision_drift(self) -> None:
         self.issue()
