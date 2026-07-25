@@ -39,6 +39,7 @@ The grant binds all of the following before it becomes `ISSUED`:
 - exact replacement SHA-256 digest for the proposal bytes
 - fixed operation `replace_existing_file_v1`
 - exact broker security identifier, or SID
+- exact `broker_dacl_v1` evidence mode
 - absolute expiry
 - pinned source and protocol identifiers required by the installed bundle
 
@@ -66,6 +67,13 @@ replacement digest, expiry, protected-root controls, and source pins. It then
 atomically replaces the one existing file, verifies the exact post-action
 digest and changed-path set, records completion, and denies replay. Failure
 uses the existing protected journal, rollback, and case-lock behavior.
+
+V2 verifies the operating-system boundary from broker-owned access-control
+descriptors before claim and after replacement. It does not launch Codex,
+App Server, or another nested sandbox to authorize the action. Real proposal
+generation and mutation-denial acceptance run outside the broker under the
+existing Codex sandbox principal. Legacy v1 retains its original two-worker
+probe behavior only for bounded recovery of already-issued records.
 
 ## Authority and trust boundary
 
@@ -139,3 +147,8 @@ worktree, head, target, baseline, proposal digest, replacement digest, broker
 SID, expired grant, unknown callers, and replay. The acceptance audit must show
 that no model, App Server, parent, child, reviewer, closure, or arbitrary tool
 path has write access to the governed target.
+
+On Windows, the real Codex proposal generator and the direct denial probe run
+as the current outer `CodexSandboxOnline` principal. The trusted broker runs as
+the separate owner principal. Acceptance must not depend on a nested
+`codex sandbox` launch or on a fabricated Offline worker execution.

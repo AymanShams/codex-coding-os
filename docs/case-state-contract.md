@@ -183,6 +183,7 @@ Before `ISSUED`, the engine binds all of the following in one canonical record:
 - exact replacement SHA-256 digest for the proposal bytes
 - fixed operation `replace_existing_file_v1`
 - exact broker security identifier, or SID
+- exact `broker_dacl_v1` evidence mode
 - absolute expiry
 - pinned source and protocol identifiers required by the installed bundle
 
@@ -218,8 +219,10 @@ the capability. At the actual replacement boundary it independently verifies:
 4. Target path, stable identity, link count, and baseline digest are exact.
 5. Proposal path, stable identity, link count, size, proposal digest, and
    replacement digest are exact.
-6. Protected-root ownership and access controls exclude every model process
-   from target mutation.
+6. Broker-owned protected-root access controls contain explicit recursive
+   mutation denials for the proposal generator, Offline sandbox account, and
+   sandbox group. V2 verifies that boundary directly and never launches a
+   nested Codex sandbox as part of authorization.
 
 The broker then claims the grant, atomically replaces only the bound target,
 verifies the exact replacement digest and changed-path set, records canonical

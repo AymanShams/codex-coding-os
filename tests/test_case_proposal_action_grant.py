@@ -23,6 +23,7 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
 
 engine = importlib.import_module("case_state")
 proposal_entrypoint = importlib.import_module("case_proposal_action_broker")
+runtime_broker = importlib.import_module("case_runtime_broker")
 
 WORKER_SID = "S-1-5-21-1111111111-2222222222-3333333333-1101"
 BROKER_SID = "S-1-5-21-1111111111-2222222222-3333333333-1102"
@@ -427,34 +428,25 @@ class ProposalActionGrantTests(unittest.TestCase):
                     }
                 )
         return {
-            "protocol_version": engine.WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION,
-            "schema_version": 2,
+            "protocol_version": engine.PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION,
+            "schema_version": 1,
             "denied_principal_sids": grant["denied_principal_sids"],
-            "membership_evidence_sha256": grant[
-                "group_membership_evidence_sha256"
-            ],
             "broker_principal_sid": BROKER_SID,
             "rules": rules,
             "observed_at": engine.utc_now(),
         }
 
     def trusted_probe(self, grant: dict) -> dict:
-        isolation = {
-            item["root_kind"]: item
-            for item in grant["isolation_evidence"]["principal_probes"][0][
-                "probe"
-            ]["protected_roots"]
-        }
         anchors = {
             "target_root": (TARGET_PATH, hashlib.sha256(BASELINE_BYTES).hexdigest()),
             "state_root": (engine.STORE_FILENAME, engine.file_sha256(self.store.path)),
             "broker_source_root": (
-                isolation["broker_source_root"]["anchor_path"],
-                isolation["broker_source_root"]["anchor_sha256_after"],
+                grant["proposal_broker_source_pins"]["manifest_path"],
+                grant["proposal_broker_source_pins"]["manifest_sha256"],
             ),
             "proposal_root": (
-                isolation["proposal_root"]["anchor_path"],
-                isolation["proposal_root"]["anchor_sha256_after"],
+                Path(grant["proposal_artifact_path"]).name,
+                grant["proposal_artifact_sha256"],
             ),
         }
         paths = {
@@ -518,6 +510,7 @@ class ProposalActionGrantTests(unittest.TestCase):
         authority = {
             "protocol_version": "ccos-proposal-action-authority-v1",
             "schema_version": 1,
+            "evidence_mode": engine.PROPOSAL_DACL_EVIDENCE_MODE,
             "authority_id": self.authority_id,
             "case_id": self.case_id,
             "expected_case_revision": self.revision,
@@ -545,6 +538,7 @@ class ProposalActionGrantTests(unittest.TestCase):
         grant = {
             "protocol_version": engine.PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
             "schema_version": 2,
+            "evidence_mode": engine.PROPOSAL_DACL_EVIDENCE_MODE,
             "grant_id": self.grant_id,
             "authority_id": self.authority_id,
             "operation_id": "replace-candidate-once",
@@ -571,12 +565,10 @@ class ProposalActionGrantTests(unittest.TestCase):
             ),
             "sandbox_executable_sha256": engine.file_sha256(Path(sys.executable)),
             "sandbox_executable_version": "0.0.0-test",
-            "group_membership_evidence": membership,
             "protected_acl_snapshot": snapshot,
             "protected_acl_snapshot_sha256": engine.canonical_json_sha256(snapshot),
             "preissue_dacl_evidence": {},
             "preissue_dacl_evidence_sha256": "0" * 64,
-            "isolation_evidence": self.isolation_evidence(membership),
             "expires_at": expires_at,
             "authority": authority,
             "authority_sha256": engine.canonical_json_sha256(authority),
@@ -588,7 +580,6 @@ class ProposalActionGrantTests(unittest.TestCase):
             "proposal_root": engine.normalize_binding(
                 "worktree", str(self.proposal_root)
             ),
-            "group_membership_evidence_sha256": engine.canonical_json_sha256(membership),
         }
         preissue = engine.CaseStore._normalize_dacl_evidence(
             self.dacl_evidence(context), context
@@ -639,7 +630,141 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.assertEqual(result["status"], "ISSUED")
         self.assertEqual(self.case["runtime"]["actors"], {})
         self.assertEqual(self.grant()["protocol_version"], engine.PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION)
+        self.assertEqual(
+            self.grant()["evidence_mode"], engine.PROPOSAL_DACL_EVIDENCE_MODE
+        )
+        self.assertNotIn("group_membership_evidence", self.grant())
+        self.assertNotIn("isolation_evidence", self.grant())
         self.assertNotIn("actor_thread_id", result)
+
+    def test_v2_broker_dacl_mode_never_calls_worker_isolation_validators(self) -> None:
+        with (
+            mock.patch.object(
+                engine.CaseStore,
+                "_normalize_sandbox_membership_evidence",
+                side_effect=AssertionError("proposal v2 must not validate worker membership"),
+            ),
+            mock.patch.object(
+                engine.CaseStore,
+                "_normalize_windows_isolation_evidence",
+                side_effect=AssertionError("proposal v2 must not validate nested probes"),
+            ),
+        ):
+            result = self.issue()
+        self.assertEqual(result["status"], "ISSUED")
+
+    def test_v2_rejects_unknown_mode_and_legacy_probe_fields(self) -> None:
+        for field, value in (
+            ("group_membership_evidence", self.membership_evidence()),
+            ("isolation_evidence", self.isolation_evidence(self.membership_evidence())),
+        ):
+            with self.subTest(field=field):
+                grant = self.grant_request()
+                grant[field] = value
+                before_revision = self.revision
+                with self.assertRaises(engine.ValidationError):
+                    self.issue(grant)
+                self.assertEqual(self.revision, before_revision)
+                self.assertEqual(self.case["runtime"]["action_grants"], {})
+        grant = self.grant_request()
+        grant["evidence_mode"] = "nested_sandbox_v1"
+        grant["authority"]["evidence_mode"] = "nested_sandbox_v1"
+        grant["authority_sha256"] = engine.canonical_json_sha256(grant["authority"])
+        with self.assertRaises(engine.AuthorizationError):
+            self.issue(grant)
+
+    def test_v2_rejects_incomplete_broker_dacl_without_issuance(self) -> None:
+        grant = self.grant_request()
+        grant["preissue_dacl_evidence"]["rules"].pop()
+        grant["preissue_dacl_evidence_sha256"] = engine.canonical_json_sha256(
+            grant["preissue_dacl_evidence"]
+        )
+        before_revision = self.revision
+        with self.assertRaises(engine.ValidationError):
+            self.issue(grant)
+        self.assertEqual(self.revision, before_revision)
+        self.assertEqual(self.case["runtime"]["action_grants"], {})
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_v2_preissue_collection_never_launches_nested_sandbox(self) -> None:
+        grant = self.grant_request()
+        context = {
+            **grant,
+            "state_root": engine.normalize_binding("worktree", str(self.state_root)),
+            "broker_source_root": engine.normalize_binding("worktree", str(ROOT)),
+            "proposal_root": engine.normalize_binding(
+                "worktree", str(self.proposal_root)
+            ),
+        }
+        dacl = self.dacl_evidence(context)
+        version_result = subprocess.CompletedProcess(
+            [str(Path(sys.executable).resolve()), "--version"],
+            0,
+            stdout=b"Python 0.0.0-test\n",
+            stderr=b"",
+        )
+        with (
+            mock.patch.object(runtime_broker, "windows_identity", return_value=("fixture\\broker", BROKER_SID)),
+            mock.patch.object(runtime_broker.subprocess, "run", return_value=version_result),
+            mock.patch.object(
+                runtime_broker,
+                "_snapshot_protected_acls",
+                return_value=self.protected_acl_snapshot(),
+            ),
+            mock.patch.object(runtime_broker, "_configure_protected_dacls"),
+            mock.patch.object(runtime_broker, "inspect_proposal_dacls", return_value=dacl),
+            mock.patch.object(
+                runtime_broker,
+                "_collect_preissue_dual_probes",
+                side_effect=AssertionError("proposal v2 must not launch dual probes"),
+            ),
+            mock.patch.object(
+                runtime_broker,
+                "_run_fixed_sandbox_probe",
+                side_effect=AssertionError("proposal v2 must not launch a sandbox"),
+            ),
+        ):
+            evidence = runtime_broker.collect_proposal_isolation_evidence(
+                store=self.store,
+                case_id=self.case_id,
+                grant_core=grant,
+            )
+        self.assertNotIn("group_membership_evidence", evidence)
+        self.assertNotIn("isolation_evidence", evidence)
+        self.assertEqual(evidence["preissue_dacl_evidence"], dacl)
+        records = runtime_broker.BrokerJournal(
+            self.state_root, self.case_id, self.grant_id
+        ).records()
+        self.assertEqual(
+            [record["event"] for record in records],
+            ["ACL_SNAPSHOT", "ACL_LOCKDOWN_INTENT", "ACL_LOCKDOWN_VERIFIED"],
+        )
+
+    def test_v2_post_replacement_rechecks_dacl_without_worker_probe(self) -> None:
+        self.issue()
+        grant = self.grant()
+        self.target.write_bytes(REPLACEMENT_BYTES)
+        dacl = self.dacl_evidence(grant)
+        with (
+            mock.patch.object(runtime_broker, "inspect_proposal_dacls", return_value=dacl),
+            mock.patch.object(
+                runtime_broker,
+                "_run_fixed_sandbox_probe",
+                side_effect=AssertionError("proposal v2 must not launch a sandbox"),
+            ),
+        ):
+            evidence = runtime_broker._collect_post_replacement_isolation_evidence(
+                self.store,
+                grant,
+                run_id="proposal-post-dacl-test",
+            )
+        self.assertEqual(evidence["schema_version"], 2)
+        self.assertEqual(
+            evidence["evidence_mode"], engine.PROPOSAL_DACL_EVIDENCE_MODE
+        )
+        self.assertNotIn("membership_evidence", evidence)
+        self.assertNotIn("isolation_evidence", evidence)
+        self.assertEqual(evidence["dacl_evidence"], dacl)
 
     def test_actor_thread_and_app_server_fields_are_rejected(self) -> None:
         initial_case = self.case

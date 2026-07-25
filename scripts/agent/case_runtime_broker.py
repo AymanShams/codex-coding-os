@@ -36,6 +36,8 @@ from case_state import (  # noqa: E402
     EMPTY_SHA256,
     FileLock,
     PROTECTED_ROOT_KINDS,
+    PROPOSAL_DACL_EVIDENCE_MODE,
+    PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION,
     PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION,
     PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
     PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION,
@@ -584,6 +586,28 @@ foreach ($item in $roots) {
         "broker_principal_sid": broker_sid,
         "rules": rules,
         "observed_at": utc_now(),
+    }
+
+
+def inspect_proposal_dacls(
+    roots: Mapping[str, str],
+    denied_principal_sids: list[str],
+    broker_sid: str,
+) -> dict[str, Any]:
+    """Inspect the proposal boundary without depending on worker launch evidence."""
+    legacy = inspect_protected_dacls(
+        roots,
+        denied_principal_sids,
+        broker_sid,
+        "0" * 64,
+    )
+    return {
+        "protocol_version": PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION,
+        "schema_version": 1,
+        "denied_principal_sids": legacy["denied_principal_sids"],
+        "broker_principal_sid": legacy["broker_principal_sid"],
+        "rules": legacy["rules"],
+        "observed_at": legacy["observed_at"],
     }
 
 
@@ -1866,7 +1890,7 @@ def collect_dual_profile_isolation_evidence(
 def collect_proposal_isolation_evidence(
     *, store: CaseStore, case_id: str, grant_core: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Lock protected roots and prove Online and Offline mutation denial for v2."""
+    """Lock proposal roots and prove the broker-owned DACL action boundary."""
     executable = Path(str(grant_core["sandbox_executable_path"])).resolve(
         strict=True
     )
@@ -1946,84 +1970,12 @@ def collect_proposal_isolation_evidence(
         raise BrokerAuthorizationError(
             "proposal probe runtime root is not an exact regular directory"
         )
-    state_nested = state_root / "probe-descendant"
-    proposal_nested = proposal_root / "probe-descendant"
-    state_nested.mkdir(mode=0o700, exist_ok=True)
-    proposal_nested.mkdir(mode=0o700, exist_ok=True)
-    source_pins = proposal_broker_source_pins(source_root)
     roots = {
         "target_root": normalize_binding("worktree", str(target_root)),
         "state_root": normalize_binding("worktree", str(state_root)),
         "broker_source_root": normalize_binding("worktree", str(source_root)),
         "proposal_root": normalize_binding("worktree", str(proposal_root)),
     }
-    root_requests = [
-        {
-            "root_kind": "target_root",
-            "path": roots["target_root"],
-            "owner_sid": broker_sid,
-            "parent_path": normalize_binding("worktree", str(target_root.parent)),
-            "parent_owner_sid": broker_sid,
-            "anchor_path": normalize_action_path(grant_core["target_path"]),
-            "anchor_sha256": require_snapshot_hash(
-                str(grant_core["baseline_sha256"])
-            ),
-            "nested_probe_parent_path": ".git",
-        },
-        {
-            "root_kind": "state_root",
-            "path": roots["state_root"],
-            "owner_sid": broker_sid,
-            "parent_path": normalize_binding("worktree", str(state_root.parent)),
-            "parent_owner_sid": broker_sid,
-            "anchor_path": STORE_FILENAME,
-            "anchor_sha256": file_sha256(store.path),
-            "nested_probe_parent_path": state_nested.name,
-        },
-        {
-            "root_kind": "broker_source_root",
-            "path": roots["broker_source_root"],
-            "owner_sid": broker_sid,
-            "parent_path": normalize_binding("worktree", str(source_root.parent)),
-            "parent_owner_sid": broker_sid,
-            "anchor_path": source_pins["manifest_path"],
-            "anchor_sha256": source_pins["manifest_sha256"],
-            "nested_probe_parent_path": "scripts/agent",
-        },
-        {
-            "root_kind": "proposal_root",
-            "path": roots["proposal_root"],
-            "owner_sid": broker_sid,
-            "parent_path": normalize_binding("worktree", str(proposal_root.parent)),
-            "parent_owner_sid": broker_sid,
-            "anchor_path": normalize_action_path(proposal.name),
-            "anchor_sha256": require_snapshot_hash(
-                str(grant_core["proposal_artifact_sha256"])
-            ),
-            "nested_probe_parent_path": proposal_nested.name,
-        },
-    ]
-    base_request = {
-        "protocol_version": WORKER_PROBE_REQUEST_PROTOCOL_VERSION,
-        "schema_version": 1,
-        "worker_principal_sid": online_sid,
-        "sandbox_group_principal_sid": group_sid,
-        "broker_principal_sid": broker_sid,
-        "protected_roots": root_requests,
-        "base_head": require_sha(
-            str(grant_core["base_head"]), "proposal grant base head"
-        ),
-        "target_path": normalize_action_path(grant_core["target_path"]),
-        "expected_status_sha256": EMPTY_SHA256,
-    }
-    readable_roots = [
-        target_root,
-        state_root,
-        source_root,
-        proposal_root,
-        executable.parent,
-        Path(sys.executable).resolve(strict=True).parent,
-    ]
     protected_and_parents = {
         *(Path(path).resolve(strict=True) for path in roots.values()),
         *(Path(path).resolve(strict=True).parent for path in roots.values()),
@@ -2042,27 +1994,52 @@ def collect_proposal_isolation_evidence(
     journal = BrokerJournal(Path(store.state_root), canonical_id, grant_id)
     run_id = f"preissue-{secrets.token_hex(16)}"
     with FileLock(journal.lock_path, timeout=30.0):
-        collected = _collect_preissue_dual_probes(
-            roots=roots,
-            grant_id=grant_id,
-            denied=denied,
-            broker_sid=broker_sid,
-            root_requests=root_requests,
-            base_request=base_request,
-            executable=executable,
-            controller_spec={},
-            online_sid=online_sid,
-            offline_sid=offline_sid,
-            group_sid=group_sid,
-            readable_roots=readable_roots,
-            worker_home=probe_runtime_root,
-            journal=journal,
-            run_id=run_id,
-            online_role="proposal_generator",
-            offline_role="offline_sandbox",
+        snapshot = _snapshot_protected_acls(roots)
+        snapshot_sha256 = canonical_json_sha256(snapshot)
+        journal.append(
+            "ACL_SNAPSHOT",
+            run_id,
+            protected_acl_snapshot=snapshot,
+            protected_acl_snapshot_sha256=snapshot_sha256,
         )
+        lockdown_intent = {
+            "roots": {kind: roots[kind] for kind in PROTECTED_ROOT_KINDS},
+            "denied_principal_sids": denied,
+            "broker_principal_sid": broker_sid,
+        }
+        journal.append(
+            "ACL_LOCKDOWN_INTENT",
+            run_id,
+            protected_acl_snapshot_sha256=snapshot_sha256,
+            lockdown_intent=lockdown_intent,
+            lockdown_intent_sha256=canonical_json_sha256(lockdown_intent),
+        )
+        try:
+            _configure_protected_dacls(roots, denied, broker_sid)
+            dacl_evidence = inspect_proposal_dacls(roots, denied, broker_sid)
+            dacl_sha256 = canonical_json_sha256(dacl_evidence)
+            journal.append(
+                "ACL_LOCKDOWN_VERIFIED",
+                run_id,
+                protected_acl_snapshot_sha256=snapshot_sha256,
+                preissue_dacl_evidence=dacl_evidence,
+                preissue_dacl_evidence_sha256=dacl_sha256,
+            )
+        except BaseException:
+            _restore_protected_acls(snapshot)
+            _verify_protected_acl_restore(snapshot)
+            journal.append(
+                "ACL_RESTORED",
+                run_id,
+                protected_acl_snapshot_sha256=snapshot_sha256,
+                restore_reason="preissue_failure",
+            )
+            raise
     return {
-        **collected,
+        "protected_acl_snapshot": snapshot,
+        "protected_acl_snapshot_sha256": snapshot_sha256,
+        "preissue_dacl_evidence": dacl_evidence,
+        "preissue_dacl_evidence_sha256": dacl_sha256,
         "collector_broker_identity_sha256": canonical_json_sha256(
             {"broker_name": broker_name, "broker_sid": broker_sid}
         ),
@@ -2116,6 +2093,33 @@ def _collect_post_replacement_isolation_evidence(
     status_sha256 = hashlib.sha256(status_raw).hexdigest()
     if _git_status_paths(root) != grant["allowed_paths"]:
         raise BrokerAuthorizationError("post-probe Git status exceeds the action grant")
+    if proposal_protocol:
+        dacl_evidence = inspect_proposal_dacls(
+            _protected_roots(grant),
+            grant["denied_principal_sids"],
+            grant["broker_principal_sid"],
+        )
+        normalized_dacl = CaseStore._normalize_dacl_evidence(dacl_evidence, grant)
+        body = {
+            "protocol_version": POST_REPLACEMENT_EVIDENCE_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "evidence_mode": PROPOSAL_DACL_EVIDENCE_MODE,
+            "grant_id": grant["grant_id"],
+            "run_id": require_stable_id(run_id, "broker run id"),
+            "target_sha256": grant["replacement_sha256"],
+            "status_sha256": status_sha256,
+            "observed_status_paths": grant["allowed_paths"],
+            "dacl_evidence": normalized_dacl,
+            "dacl_evidence_sha256": canonical_json_sha256(normalized_dacl),
+            "protected_acl_snapshot_sha256": grant[
+                "protected_acl_snapshot_sha256"
+            ],
+            "observed_at": utc_now(),
+        }
+        return {
+            **body,
+            "post_replacement_evidence_sha256": canonical_json_sha256(body),
+        }
     pre_roots = {
         item["root_kind"]: item
         for item in grant["isolation_evidence"]["principal_probes"][0]["probe"][
@@ -2390,15 +2394,33 @@ def _trusted_write_probe(
     grant: Mapping[str, Any], broker_name: str, broker_sid: str, state_store_path: Path
 ) -> dict[str, Any]:
     roots = _protected_roots(grant)
-    isolation_roots = {
-        item["root_kind"]: item
-        for item in grant["isolation_evidence"]["principal_probes"][0]["probe"]["protected_roots"]
-    }
+    proposal_mode = (
+        grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+    )
+    if proposal_mode:
+        source_pins = grant.get("proposal_broker_source_pins")
+        if not isinstance(source_pins, Mapping):
+            raise BrokerAuthorizationError(
+                "proposal grant lacks sealed broker source pins"
+            )
+        broker_anchor = normalize_action_path(source_pins["manifest_path"])
+        proposal_anchor = normalize_action_path(
+            Path(grant["proposal_artifact_path"]).name
+        )
+    else:
+        isolation_roots = {
+            item["root_kind"]: item
+            for item in grant["isolation_evidence"]["principal_probes"][0][
+                "probe"
+            ]["protected_roots"]
+        }
+        broker_anchor = isolation_roots["broker_source_root"]["anchor_path"]
+        proposal_anchor = isolation_roots["proposal_root"]["anchor_path"]
     anchor_paths = {
         "target_root": grant["target_path"],
         "state_root": STORE_FILENAME,
-        "broker_source_root": isolation_roots["broker_source_root"]["anchor_path"],
-        "proposal_root": isolation_roots["proposal_root"]["anchor_path"],
+        "broker_source_root": broker_anchor,
+        "proposal_root": proposal_anchor,
     }
     root_records: list[dict[str, Any]] = []
     nonce_digest = hashlib.sha256(grant["authorization_nonce"].encode("utf-8")).hexdigest()[:20]
@@ -2657,9 +2679,15 @@ def _restore_acl_snapshot_after_lockdown(
         broker_sid = require_windows_sid(
             lockdown_dacl_evidence.get("broker_principal_sid"), "lockdown broker SID"
         )
-        membership_sha256 = require_snapshot_hash(
-            str(lockdown_dacl_evidence.get("membership_evidence_sha256", ""))
-        )
+        dacl_protocol = lockdown_dacl_evidence.get("protocol_version")
+        if dacl_protocol == WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION:
+            require_snapshot_hash(
+                str(lockdown_dacl_evidence.get("membership_evidence_sha256", ""))
+            )
+        elif dacl_protocol != PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION:
+            raise BrokerAuthorizationError(
+                "verified lockdown DACL protocol is unsupported"
+            )
         if (
             roots != intent_roots
             or denied != denied_intent
@@ -2906,16 +2934,36 @@ def recover_completed_action_grant_cleanup(
             for name, value in post_evidence.items()
             if name != "post_replacement_evidence_sha256"
         }
-        if (
+        invalid_post = (
             post_evidence.get("post_replacement_evidence_sha256") != post_sha256
             or canonical_json_sha256(post_body) != post_sha256
             or canonical_json_sha256(post_evidence.get("dacl_evidence"))
             != post_evidence.get("dacl_evidence_sha256")
-            or canonical_json_sha256(post_evidence.get("isolation_evidence"))
-            != post_evidence.get("isolation_evidence_sha256")
-            or canonical_json_sha256(post_evidence.get("membership_evidence"))
-            != post_evidence.get("membership_evidence_sha256")
-        ):
+        )
+        if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+            expected_post_fields = {
+                "protocol_version", "schema_version", "evidence_mode", "grant_id",
+                "run_id", "target_sha256", "status_sha256",
+                "observed_status_paths", "dacl_evidence", "dacl_evidence_sha256",
+                "protected_acl_snapshot_sha256", "observed_at",
+                "post_replacement_evidence_sha256",
+            }
+            invalid_post = (
+                invalid_post
+                or set(post_evidence) != expected_post_fields
+                or post_evidence.get("schema_version") != 2
+                or post_evidence.get("evidence_mode")
+                != PROPOSAL_DACL_EVIDENCE_MODE
+            )
+        else:
+            invalid_post = (
+                invalid_post
+                or canonical_json_sha256(post_evidence.get("isolation_evidence"))
+                != post_evidence.get("isolation_evidence_sha256")
+                or canonical_json_sha256(post_evidence.get("membership_evidence"))
+                != post_evidence.get("membership_evidence_sha256")
+            )
+        if invalid_post:
             raise BrokerAuthorizationError("post-isolation journal evidence is invalid")
         completed_records = [
             record for record in records if record.get("event") == "COMPLETED"
@@ -3114,12 +3162,19 @@ def _verify_static_grant(
             receipt, grant, case["case_id"], _controller_key()
         )
     roots = _protected_roots(grant)
-    observed_dacl = inspect_protected_dacls(
-        roots,
-        grant["denied_principal_sids"],
-        broker_sid,
-        grant["group_membership_evidence_sha256"],
-    )
+    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        observed_dacl = inspect_proposal_dacls(
+            roots,
+            grant["denied_principal_sids"],
+            broker_sid,
+        )
+    else:
+        observed_dacl = inspect_protected_dacls(
+            roots,
+            grant["denied_principal_sids"],
+            broker_sid,
+            grant["group_membership_evidence_sha256"],
+        )
     normalized_dacl = CaseStore._normalize_dacl_evidence(observed_dacl, grant)
     expected_dacl = grant.get("preissue_dacl_evidence")
     if (
@@ -3582,12 +3637,19 @@ def _execute_grant(
                 broker_identity=(broker_name, broker_sid),
             )
             roots = _protected_roots(grant)
-            dacl_evidence = inspect_protected_dacls(
-                roots,
-                grant["denied_principal_sids"],
-                broker_sid,
-                grant["group_membership_evidence_sha256"],
-            )
+            if proposal_protocol:
+                dacl_evidence = inspect_proposal_dacls(
+                    roots,
+                    grant["denied_principal_sids"],
+                    broker_sid,
+                )
+            else:
+                dacl_evidence = inspect_protected_dacls(
+                    roots,
+                    grant["denied_principal_sids"],
+                    broker_sid,
+                    grant["group_membership_evidence_sha256"],
+                )
             root, target = _repository_target(grant)
             _cleanup_journal_temps(root, journal.records())
         except (OSError, CaseStateError, BrokerError) as exc:

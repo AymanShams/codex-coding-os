@@ -45,6 +45,8 @@ WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION = "ccos-windows-principal-probe-v1"
 WINDOWS_ISOLATION_EVIDENCE_PROTOCOL_VERSION = "ccos-windows-isolation-evidence-v2"
 WINDOWS_GROUP_MEMBERSHIP_PROTOCOL_VERSION = "ccos-windows-sandbox-membership-v1"
 WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION = "ccos-windows-dacl-evidence-v2"
+PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION = "ccos-proposal-dacl-evidence-v1"
+PROPOSAL_DACL_EVIDENCE_MODE = "broker_dacl_v1"
 TRUSTED_WRITE_PROBE_PROTOCOL_VERSION = "ccos-trusted-write-probe-v1"
 TERMINAL_QUARANTINE_PROTOCOL_VERSION = "ccos-terminal-quarantine-v1"
 RUNTIME_GENERATION_ABORT_PROTOCOL_VERSION = "ccos-preissue-generation-abort-v1"
@@ -3924,7 +3926,7 @@ class CaseStore:
         case_id: str, grant: Mapping[str, Any]
     ) -> dict[str, Any]:
         expected_fields = {
-            "protocol_version", "schema_version", "grant_id", "authority_id",
+            "protocol_version", "schema_version", "evidence_mode", "grant_id", "authority_id",
             "operation_id", "action", "operation", "repository", "branch",
             "worktree", "base_head", "target_path", "baseline_sha256",
             "proposal_artifact_path", "proposal_artifact_sha256", "proposal_size",
@@ -3933,9 +3935,9 @@ class CaseStore:
             "denied_principal_sids", "broker_principal_sid",
             "sandbox_executable_path", "sandbox_executable_sha256",
             "sandbox_executable_version", "probe_runtime_root",
-            "group_membership_evidence", "protected_acl_snapshot",
+            "protected_acl_snapshot",
             "protected_acl_snapshot_sha256", "preissue_dacl_evidence",
-            "preissue_dacl_evidence_sha256", "isolation_evidence", "expires_at",
+            "preissue_dacl_evidence_sha256", "expires_at",
             "authority", "authority_sha256",
         }
         if not isinstance(grant, Mapping) or set(grant) != expected_fields:
@@ -3955,6 +3957,10 @@ class CaseStore:
         ):
             raise AuthorizationError(
                 "proposal grants support only the exact implementation file-replacement operation"
+            )
+        if grant.get("evidence_mode") != PROPOSAL_DACL_EVIDENCE_MODE:
+            raise AuthorizationError(
+                "proposal grants require the exact broker_dacl_v1 evidence mode"
             )
         canonical_id = canonical_case_id(case_id)
         worktree_path, worktree = normalized_absolute_path(
@@ -4042,6 +4048,7 @@ class CaseStore:
         normalized = {
             "protocol_version": PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
             "schema_version": 2,
+            "evidence_mode": PROPOSAL_DACL_EVIDENCE_MODE,
             "grant_id": require_stable_id(grant.get("grant_id"), "grant id"),
             "authority_id": require_stable_id(
                 grant.get("authority_id"), "authority id"
@@ -4077,9 +4084,6 @@ class CaseStore:
                 "sandbox executable version",
             ),
             "probe_runtime_root": probe_runtime_root,
-            "group_membership_evidence": copy.deepcopy(
-                grant.get("group_membership_evidence")
-            ),
             "protected_acl_snapshot": copy.deepcopy(
                 grant.get("protected_acl_snapshot")
             ),
@@ -4092,7 +4096,6 @@ class CaseStore:
             "preissue_dacl_evidence_sha256": require_snapshot_hash(
                 str(grant.get("preissue_dacl_evidence_sha256", ""))
             ),
-            "isolation_evidence": copy.deepcopy(grant.get("isolation_evidence")),
             "expires_at": require_utc_timestamp(
                 grant.get("expires_at"), "grant expires_at"
             ),
@@ -4103,7 +4106,7 @@ class CaseStore:
             )
         authority = grant.get("authority")
         authority_fields = {
-            "protocol_version", "schema_version", "authority_id", "case_id",
+            "protocol_version", "schema_version", "evidence_mode", "authority_id", "case_id",
             "expected_case_revision", "grant_id", "operation_id", "action",
             "operation", "repository", "branch", "worktree", "base_head",
             "target_path", "baseline_sha256", "proposal_artifact_path",
@@ -4123,6 +4126,7 @@ class CaseStore:
         expected_authority = {
             "protocol_version": PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION,
             "schema_version": 1,
+            "evidence_mode": PROPOSAL_DACL_EVIDENCE_MODE,
             "authority_id": normalized["authority_id"],
             "case_id": canonical_id,
             "expected_case_revision": revision,
@@ -4369,31 +4373,6 @@ class CaseStore:
                 raise AuthorizationError(
                     "proposal grant expiry must be in the future and no more than 15 minutes away"
                 )
-            membership = self._normalize_sandbox_membership_evidence(
-                normalized["group_membership_evidence"],
-                app_server_sid=normalized["worker_principal_sid"],
-                model_sandbox_sid=normalized["model_worker_principal_sid"],
-                sandbox_group_sid=normalized["sandbox_group_principal_sid"],
-                online_role="proposal_generator",
-                offline_role="offline_sandbox",
-            )
-            membership_sha256 = canonical_json_sha256(membership)
-            isolation = self._normalize_windows_isolation_evidence(
-                normalized["isolation_evidence"],
-                worktree=normalized["worktree"],
-                app_server_sid=normalized["worker_principal_sid"],
-                model_sandbox_sid=normalized["model_worker_principal_sid"],
-                sandbox_group_sid=normalized["sandbox_group_principal_sid"],
-                denied_principal_sids=normalized["denied_principal_sids"],
-                broker_sid=normalized["broker_principal_sid"],
-                base_head=normalized["base_head"],
-                protected_roots=protected_roots,
-                membership_sha256=membership_sha256,
-                membership_evidence=membership,
-                online_role="proposal_generator",
-                offline_role="offline_sandbox",
-            )
-            isolation_sha256 = canonical_json_sha256(isolation)
             expected_acl_paths = {
                 path
                 for protected_path, _anchor, _digest in protected_roots.values()
@@ -4451,12 +4430,7 @@ class CaseStore:
                     name: value
                     for name, value in normalized.items()
                     if name
-                    not in {
-                        "isolation_evidence",
-                        "group_membership_evidence",
-                        "protected_acl_snapshot",
-                        "preissue_dacl_evidence",
-                    }
+                    not in {"protected_acl_snapshot", "preissue_dacl_evidence"}
                 },
                 "target_mode": target_mode,
                 "target_file_identity": target_identity,
@@ -4476,10 +4450,6 @@ class CaseStore:
                 "sealed_baseline_identity": sealed_baseline_identity,
                 "allowed_paths": allowed_paths,
                 "allowed_paths_sha256": canonical_json_sha256(allowed_paths),
-                "group_membership_evidence": membership,
-                "group_membership_evidence_sha256": membership_sha256,
-                "isolation_evidence": isolation,
-                "isolation_evidence_sha256": isolation_sha256,
                 "protected_acl_snapshot": protected_acl_snapshot,
                 "protected_acl_snapshot_sha256": protected_acl_snapshot_sha256,
                 "status": "ISSUED",
@@ -4514,7 +4484,7 @@ class CaseStore:
                 "issued_revision": recorded["issued_revision"],
                 "grant_sha256": recorded["grant_sha256"],
                 "allowed_paths_sha256": recorded["allowed_paths_sha256"],
-                "isolation_evidence_sha256": isolation_sha256,
+                "preissue_dacl_evidence_sha256": preissue_dacl_evidence_sha256,
             }
 
         return self._mutate(
@@ -4530,22 +4500,45 @@ class CaseStore:
     def _normalize_dacl_evidence(
         evidence: Mapping[str, Any], grant: Mapping[str, Any]
     ) -> dict[str, Any]:
+        proposal_mode = (
+            grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+        )
         expected_fields = {
             "protocol_version", "schema_version", "denied_principal_sids",
-            "membership_evidence_sha256", "broker_principal_sid", "rules", "observed_at",
+            "broker_principal_sid", "rules", "observed_at",
         }
+        if not proposal_mode:
+            expected_fields.add("membership_evidence_sha256")
         if not isinstance(evidence, Mapping) or set(evidence) != expected_fields:
-            raise ValidationError("DACL evidence must use the fixed ccos-windows-dacl-evidence-v2 schema")
-        if evidence.get("protocol_version") != WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION or evidence.get("schema_version") != 2:
+            protocol = (
+                PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION
+                if proposal_mode
+                else WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION
+            )
+            raise ValidationError(f"DACL evidence must use the fixed {protocol} schema")
+        expected_protocol = (
+            PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION
+            if proposal_mode
+            else WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION
+        )
+        expected_schema = 1 if proposal_mode else 2
+        if (
+            evidence.get("protocol_version") != expected_protocol
+            or evidence.get("schema_version") != expected_schema
+        ):
             raise ValidationError("DACL evidence protocol or schema version is unsupported")
         denied_principal_sids = evidence.get("denied_principal_sids")
         if denied_principal_sids != grant["denied_principal_sids"]:
             raise AuthorizationError("DACL denied principals differ from the exact action grant")
-        membership_sha256 = require_snapshot_hash(
-            str(evidence.get("membership_evidence_sha256", ""))
-        )
-        if membership_sha256 != grant["group_membership_evidence_sha256"]:
-            raise AuthorizationError("DACL membership digest differs from the exact action grant")
+        membership_sha256: str | None = None
+        if not proposal_mode:
+            membership_sha256 = require_snapshot_hash(
+                str(evidence.get("membership_evidence_sha256", ""))
+            )
+            if membership_sha256 != grant["group_membership_evidence_sha256"]:
+                raise AuthorizationError(
+                    "DACL membership digest differs from the exact action grant"
+                )
         broker_sid = require_windows_sid(evidence.get("broker_principal_sid"), "DACL broker SID")
         if broker_sid != grant["broker_principal_sid"]:
             raise AuthorizationError("DACL evidence differs from the exact action grant")
@@ -4671,15 +4664,17 @@ class CaseStore:
             PROTECTED_ROOT_KINDS.index(item["root_kind"]),
             denied_principal_sids.index(item["principal_sid"]),
         ))
-        return {
-            "protocol_version": WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION,
-            "schema_version": 2,
+        normalized = {
+            "protocol_version": expected_protocol,
+            "schema_version": expected_schema,
             "denied_principal_sids": denied_principal_sids,
-            "membership_evidence_sha256": membership_sha256,
             "broker_principal_sid": broker_sid,
             "rules": normalized_rules,
             "observed_at": require_utc_timestamp(evidence.get("observed_at"), "DACL observed_at"),
         }
+        if membership_sha256 is not None:
+            normalized["membership_evidence_sha256"] = membership_sha256
+        return normalized
 
     def _normalize_trusted_write_probe(
         self, evidence: Mapping[str, Any], grant: Mapping[str, Any]
@@ -4704,23 +4699,43 @@ class CaseStore:
             "broker_source_root": grant["broker_source_root"],
             "proposal_root": grant["proposal_root"],
         }
-        isolation_roots = {
-            item["root_kind"]: item
-            for item in grant["isolation_evidence"]["principal_probes"][0]["probe"]["protected_roots"]
-        }
+        proposal_mode = (
+            grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+        )
+        if proposal_mode:
+            source_pins = grant.get("proposal_broker_source_pins")
+            if not isinstance(source_pins, Mapping):
+                raise AuthorizationError("proposal grant lacks sealed broker source pins")
+            broker_anchor = (
+                normalize_action_path(source_pins.get("manifest_path")),
+                require_snapshot_hash(str(source_pins.get("manifest_sha256", ""))),
+            )
+            proposal_anchor = (
+                normalize_action_path(Path(grant["proposal_artifact_path"]).name),
+                require_snapshot_hash(grant["proposal_artifact_sha256"]),
+            )
+        else:
+            isolation_roots = {
+                item["root_kind"]: item
+                for item in grant["isolation_evidence"]["principal_probes"][0][
+                    "probe"
+                ]["protected_roots"]
+            }
+            broker_anchor = (
+                isolation_roots["broker_source_root"]["anchor_path"],
+                isolation_roots["broker_source_root"]["anchor_sha256_after"],
+            )
+            proposal_anchor = (
+                isolation_roots["proposal_root"]["anchor_path"],
+                isolation_roots["proposal_root"]["anchor_sha256_after"],
+            )
         expected_anchors = {
             "target_root": (
                 grant["target_path"], grant["baseline_sha256"]
             ),
             "state_root": (STORE_FILENAME, file_sha256(self.path)),
-            "broker_source_root": (
-                isolation_roots["broker_source_root"]["anchor_path"],
-                isolation_roots["broker_source_root"]["anchor_sha256_after"],
-            ),
-            "proposal_root": (
-                isolation_roots["proposal_root"]["anchor_path"],
-                isolation_roots["proposal_root"]["anchor_sha256_after"],
-            ),
+            "broker_source_root": broker_anchor,
+            "proposal_root": proposal_anchor,
         }
         raw_roots = evidence.get("protected_roots")
         if not isinstance(raw_roots, list) or len(raw_roots) != len(PROTECTED_ROOT_KINDS):

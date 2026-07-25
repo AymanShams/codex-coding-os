@@ -49,6 +49,7 @@ MAX_ENVELOPE_BYTES = 2 * 1024 * 1024
 GRANT_CORE_FIELDS = {
     "protocol_version",
     "schema_version",
+    "evidence_mode",
     "grant_id",
     "authority_id",
     "operation_id",
@@ -229,7 +230,6 @@ def execute_envelope(state_root: Path, envelope_path: Path) -> dict[str, Any]:
         )
         full_grant = {
             **grant_core,
-            "group_membership_evidence": evidence["group_membership_evidence"],
             "protected_acl_snapshot": evidence["protected_acl_snapshot"],
             "protected_acl_snapshot_sha256": evidence[
                 "protected_acl_snapshot_sha256"
@@ -238,7 +238,6 @@ def execute_envelope(state_root: Path, envelope_path: Path) -> dict[str, Any]:
             "preissue_dacl_evidence_sha256": evidence[
                 "preissue_dacl_evidence_sha256"
             ],
-            "isolation_evidence": evidence["isolation_evidence"],
         }
         issuance = store.issue_proposal_action_grant(
             case_id,

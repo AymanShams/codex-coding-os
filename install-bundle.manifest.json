@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "b96a0dde3d587dcb1a7aa101be6094fd641226bc693aaaed59e41784fa2ada6e",
+  "aggregate_sha256": "60f102cfe041e367625f119571d06a09f4b560f64dcb8077c69130a513aa3805",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2213,13 +2213,13 @@
     },
     {
       "path": "docs/architecture/adr/0002-artifact-authorized-one-shot-action.md",
-      "sha256": "ec08dbe38a22b9c410ff688a80bc5350bc53c831d790cc6d017e3f8b9e467ede",
-      "size": 7180
+      "sha256": "d8bd897d2de75ee456b84cf6f5eb05302b3df0be3f4c6e665b237c48caa3cdea",
+      "size": 7961
     },
     {
       "path": "docs/case-state-contract.md",
-      "sha256": "76d49b697ea1e07cba60c9731742deab2bc70e1c86bbda59ea70702f80d89dc5",
-      "size": 20177
+      "sha256": "752602b727fe3437b693e95cd139ea2dd48f9e43cbe29123c5248feeeded8a2b",
+      "size": 20390
     },
     {
       "path": "docs/codex-plugins-mcps-hooks.md",
@@ -2368,13 +2368,13 @@
     },
     {
       "path": "scripts/agent/case_proposal_action_broker.py",
-      "sha256": "9ce03fbfaa24946dfd58946da80c15f2647f03589cbddba3b2ebe9fff094aacc",
-      "size": 11250
+      "sha256": "6d02aad200830303a05ea76d405de903e130fb255b6fc7593d49bd9252aa3b8f",
+      "size": 11125
     },
     {
       "path": "scripts/agent/case_runtime_broker.py",
-      "sha256": "d72211f824d1322cf028a896124c609fc8e0280685cc8241767a71d2e4767278",
-      "size": 164315
+      "sha256": "e4eb06b81f5fe9b91bdc08eb05ed81e2b0df93b700988cd8fde7f1f321d5a844",
+      "size": 166871
     },
     {
       "path": "scripts/agent/case_runtime_supervisor.py",
@@ -2383,8 +2383,8 @@
     },
     {
       "path": "scripts/agent/case_state.py",
-      "sha256": "b5c6892ee783f83c1987f7fd03efc9d832075e207b6335f5ef127a6d755b6c6a",
-      "size": 321418
+      "sha256": "c623251b4c9290064338dcca03bf60422d50bc32215c553e785344343e38db0c",
+      "size": 321553
     },
     {
       "path": "scripts/agent/fresh_context_review.py",
@@ -2608,8 +2608,8 @@
     },
     {
       "path": "tests/test_case_proposal_action_grant.py",
-      "sha256": "ca8a29ca3eb85878e8c95d3b4526dc9f552543993912dc3b853f9114e5bcf831",
-      "size": 33794
+      "sha256": "e225921a7561f4ef94a2a6148218113beaa0f4ac4b66d37dc52136e3ea5a0671",
+      "size": 39489
     },
     {
       "path": "tests/test_case_runtime_broker.py",
