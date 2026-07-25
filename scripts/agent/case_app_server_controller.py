@@ -531,7 +531,7 @@ def inspect_worker_environment_acls(
     ]
     script = r"""
 $ErrorActionPreference = 'Stop'
-$items = @(ConvertFrom-Json -InputObject $env:CCOS_WORKER_ACL_PATHS_JSON)
+$items = @(ConvertFrom-Json -InputObject $env:CCOS_WORKER_ACL_PATHS_JSON | ForEach-Object { $_ })
 $result = @()
 foreach ($item in $items) {
   $resolved = [System.IO.Path]::GetFullPath([string]$item.path)

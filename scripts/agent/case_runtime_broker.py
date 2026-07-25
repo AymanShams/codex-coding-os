@@ -402,14 +402,14 @@ def inspect_protected_dacls(
     script = r"""
 $ErrorActionPreference = 'Stop'
 $roots = ConvertFrom-Json -InputObject $env:CCOS_ACL_ROOTS_JSON
-$principals = @(ConvertFrom-Json -InputObject $env:CCOS_DENIED_PRINCIPALS_JSON)
+$principals = @(ConvertFrom-Json -InputObject $env:CCOS_DENIED_PRINCIPALS_JSON | ForEach-Object { $_ })
 $sandboxGroup = $env:CCOS_SANDBOX_GROUP_SID
 $output = @()
 foreach ($item in $roots) {
   $acl = Get-Acl -LiteralPath $item.path
   $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value.ToUpperInvariant()
   $rootSddl = $acl.GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::All)
-  $parentPath = Split-Path -LiteralPath $item.path -Parent
+  $parentPath = [System.IO.Directory]::GetParent([string]$item.path).FullName
   $parentAcl = Get-Acl -LiteralPath $parentPath
   $parentOwner = $parentAcl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value.ToUpperInvariant()
   $parentSddl = $parentAcl.GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::All)
@@ -1177,8 +1177,8 @@ def _configure_protected_dacls(
     })
     script = r"""
 $ErrorActionPreference = 'Stop'
-$paths = @(ConvertFrom-Json -InputObject $env:CCOS_DACL_PATHS_JSON)
-$denied = @(ConvertFrom-Json -InputObject $env:CCOS_DENIED_PRINCIPALS_JSON)
+$paths = @(ConvertFrom-Json -InputObject $env:CCOS_DACL_PATHS_JSON | ForEach-Object { $_ })
+$denied = @(ConvertFrom-Json -InputObject $env:CCOS_DENIED_PRINCIPALS_JSON | ForEach-Object { $_ })
 $broker = [System.Security.Principal.SecurityIdentifier]::new($env:CCOS_BROKER_SID)
 $rights = [System.Security.AccessControl.FileSystemRights][Int64]::Parse($env:CCOS_DENY_MASK)
 foreach ($path in $paths) {
@@ -1195,7 +1195,7 @@ foreach ($path in $paths) {
       [System.Security.AccessControl.AccessControlType]::Deny)
     [void]$acl.AddAccessRule($rule)
   }
-  Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop
+  [System.IO.DirectoryInfo]::new($path).SetAccessControl($acl)
 }
 """
     result = _run_powershell(
@@ -1229,7 +1229,7 @@ def _snapshot_protected_acls(roots: Mapping[str, str]) -> list[dict[str, str]]:
     paths = _protected_acl_paths(roots)
     script = r"""
 $ErrorActionPreference = 'Stop'
-$paths = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_PATHS_JSON)
+$paths = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_PATHS_JSON | ForEach-Object { $_ })
 $output = @()
 foreach ($path in $paths) {
   $acl = Get-Acl -LiteralPath $path
@@ -1314,13 +1314,48 @@ def _restore_protected_acls(snapshot: Any) -> None:
     normalized = _normalize_acl_snapshot(snapshot)
     script = r"""
 $ErrorActionPreference = 'Stop'
-$items = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_SNAPSHOT_JSON)
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class CcosNativeAclRestore {
+  [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  public static extern bool SetFileSecurity(
+    string path,
+    uint securityInformation,
+    byte[] securityDescriptor);
+}
+'@
+$items = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_SNAPSHOT_JSON | ForEach-Object { $_ })
 foreach ($item in $items) {
   $acl = Get-Acl -LiteralPath $item.path
-  $acl.SetSecurityDescriptorSddlForm(
-    $item.sddl,
-    [System.Security.AccessControl.AccessControlSections]::All)
-  Set-Acl -LiteralPath $item.path -AclObject $acl -ErrorAction Stop
+  $sections = (
+    [System.Security.AccessControl.AccessControlSections]::Access -bor
+    [System.Security.AccessControl.AccessControlSections]::Owner -bor
+    [System.Security.AccessControl.AccessControlSections]::Group)
+  $acl.SetSecurityDescriptorSddlForm($item.sddl, $sections)
+  [System.IO.DirectoryInfo]::new([string]$item.path).SetAccessControl($acl)
+
+  # The managed ACL writer can add SE_DACL_AUTO_INHERITED when restoring an
+  # inherited descriptor that did not originally carry that control bit. A
+  # DACL-only native write reapplies the signed descriptor without requesting
+  # SACL privileges and preserves the original control flags exactly.
+  $raw = [System.Security.AccessControl.RawSecurityDescriptor]::new([string]$item.sddl)
+  $autoInherited = (
+    $raw.ControlFlags -band
+    [System.Security.AccessControl.ControlFlags]::DiscretionaryAclAutoInherited)
+  if (-not $autoInherited) {
+    $bytes = New-Object byte[] $raw.BinaryLength
+    $raw.GetBinaryForm($bytes, 0)
+    $daclSecurityInformation = [uint32]4
+    if (-not [CcosNativeAclRestore]::SetFileSecurity(
+        [string]$item.path,
+        $daclSecurityInformation,
+        $bytes)) {
+      $errorCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      throw "native DACL restoration failed with Win32 error $errorCode"
+    }
+  }
 }
 """
     payload = [
@@ -1345,7 +1380,7 @@ def _verify_protected_acl_restore(snapshot: Any) -> None:
     paths = [item["path"] for item in normalized]
     script = r"""
 $ErrorActionPreference = 'Stop'
-$paths = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_PATHS_JSON)
+$paths = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_PATHS_JSON | ForEach-Object { $_ })
 $output = @()
 foreach ($path in $paths) {
   $acl = Get-Acl -LiteralPath $path
@@ -2484,7 +2519,7 @@ def recover_pending_preissue_acl_lockdowns(
     expected_denied_principal_sids: list[str],
     expected_broker_principal_sid: str,
 ) -> list[dict[str, Any]]:
-    """Restore exact journal-bound ACL snapshots, including partial Set-Acl crashes."""
+    """Restore exact journal-bound ACL snapshots, including partial ACL-write crashes."""
     state_root = Path(state_root).resolve(strict=True)
     case_id = canonical_case_id(case_id)
     grant_id = require_stable_id(grant_id, "grant id")

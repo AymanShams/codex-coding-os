@@ -2002,6 +2002,36 @@ class BrokerHelperIsolationTests(RuntimeFixture):
                     "c" * 64,
                 )
 
+    @unittest.skipUnless(os.name == "nt", "Windows ACL integration test")
+    def test_dacl_configuration_works_without_sacl_privilege(self) -> None:
+        denied = [
+            "S-1-5-21-444444444-555555555-666666666-2101",
+            "S-1-5-21-444444444-555555555-666666666-2102",
+            "S-1-5-21-444444444-555555555-666666666-2103",
+        ]
+        broker_sid = broker.windows_identity()[1]
+        with tempfile.TemporaryDirectory(prefix="ccos-acl-no-sacl-") as temporary:
+            base = Path(temporary)
+            roots: dict[str, str] = {}
+            for kind in engine.PROTECTED_ROOT_KINDS:
+                root = base / f"{kind}-parent" / "root"
+                root.mkdir(parents=True)
+                roots[kind] = engine.normalize_binding("worktree", str(root))
+            snapshot = broker._snapshot_protected_acls(roots)
+            broker._configure_protected_dacls(roots, denied, broker_sid)
+            evidence = broker.inspect_protected_dacls(
+                roots,
+                denied,
+                broker_sid,
+                "c" * 64,
+            )
+            self.assertEqual(
+                len(evidence["rules"]),
+                len(engine.PROTECTED_ROOT_KINDS) * len(denied),
+            )
+            broker._restore_protected_acls(snapshot)
+            broker._verify_protected_acl_restore(snapshot)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
