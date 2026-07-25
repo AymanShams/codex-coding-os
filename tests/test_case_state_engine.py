@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 import uuid
+from unittest import mock
 from pathlib import Path
 
 
@@ -324,10 +325,35 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "--expected-revision",
                 str(revision),
             )
+            review_scope = "exact frozen parent-child acceptance candidate"
+            review_cohort = {
+                "protocol_version": engine.REVIEW_COHORT_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "cohort_id": "parent-child-review-cohort",
+                "required_receipt": {
+                    "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                    "schema_version": 1,
+                },
+                "reviewers": [
+                    {
+                        "reviewer_id": "acceptance-reviewer",
+                        "reviewer_role": "review_child",
+                        "thread_id": reentry_thread,
+                        "repository": repository,
+                        "reviewed_head": head,
+                        "snapshot": child_handoff["snapshot"],
+                        "scope": review_scope,
+                        "scope_sha256": hashlib.sha256(review_scope.encode("utf-8")).hexdigest(),
+                        "required": True,
+                    }
+                ],
+            }
             review = cli(
                 "start-review",
                 "--case-id",
                 case_id,
+                "--cohort-json",
+                json.dumps(review_cohort),
                 "--request-id",
                 request(),
                 "--expected-revision",
@@ -353,6 +379,8 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "start-review",
                 "--case-id",
                 case_id,
+                "--cohort-json",
+                json.dumps(review_cohort),
                 "--request-id",
                 request(),
                 "--expected-revision",
@@ -360,6 +388,37 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 expected=2,
             )
             self.assertEqual(repeated_review["error"], "TransitionError")
+            completion = {
+                "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "case_id": case_id,
+                "cohort_id": review_cohort["cohort_id"],
+                "reviewer_id": "acceptance-reviewer",
+                "reviewer_role": "review_child",
+                "thread_id": reentry_thread,
+                "completed_turn_id": "acceptance-review-turn",
+                "repository": repository,
+                "reviewed_head": head,
+                "snapshot": child_handoff["snapshot"],
+                "scope": review_scope,
+                "scope_sha256": hashlib.sha256(review_scope.encode("utf-8")).hexdigest(),
+                "completion_state": "COMPLETED",
+                "findings": [],
+                "finding_ids": [],
+                "completed_at": engine.utc_now(),
+                "native_completion_evidence_sha256": "9" * 64,
+            }
+            completed_review = cli(
+                "submit-review-completion",
+                "--case-id",
+                case_id,
+                "--completion-json",
+                json.dumps(completion),
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(review["revision"]),
+            )
             frozen_findings = cli(
                 "freeze-findings",
                 "--case-id",
@@ -367,7 +426,7 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "--request-id",
                 request(),
                 "--expected-revision",
-                str(review["revision"]),
+                str(completed_review["revision"]),
             )
             closed = cli(
                 "close-without-blockers",
@@ -391,6 +450,9 @@ class StoreCase(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.store = engine.CaseStore(self.root)
         self.case_id = str(uuid.uuid4())
+        self.reviewer_id = "reviewer"
+        self.reviewer_thread = f"review-thread-{self.case_id}"
+        self.review_scope = "exact frozen candidate review"
         self.case = self.store.register_case(
             self.case_id,
             objective="bounded review and repair",
@@ -406,6 +468,11 @@ class StoreCase(unittest.TestCase):
         return self.store.get_case(self.case_id)["revision"]
 
     def mutate(self, method: str, *args, **kwargs):
+        if method == "freeze_findings":
+            case = self.store.get_case(self.case_id)
+            review = case.get("review") or {}
+            if case["state"] == "REVIEW_COLLECTING" and self.reviewer_id not in review.get("receipts", {}):
+                self.submit_review_completion()
         kwargs.setdefault("request_id", request())
         kwargs.setdefault("expected_revision", self.revision)
         return getattr(self.store, method)(self.case_id, *args, **kwargs)
@@ -420,7 +487,70 @@ class StoreCase(unittest.TestCase):
 
     def begin_review(self) -> None:
         self.freeze_candidate()
-        self.mutate("start_review")
+        self.declare_review()
+
+    def review_cohort(self) -> dict:
+        case = self.store.get_case(self.case_id)
+        snapshot = dict(case["candidate"]["review_snapshots"][REPO])
+        snapshot.setdefault("head", case["candidate"]["review_heads"][REPO])
+        scope_sha256 = hashlib.sha256(self.review_scope.encode("utf-8")).hexdigest()
+        return {
+            "protocol_version": engine.REVIEW_COHORT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "cohort_id": f"cohort-{self.case_id}",
+            "required_receipt": {
+                "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                "schema_version": 1,
+            },
+            "reviewers": [
+                {
+                    "reviewer_id": self.reviewer_id,
+                    "reviewer_role": "review_child",
+                    "thread_id": self.reviewer_thread,
+                    "repository": REPO,
+                    "reviewed_head": case["candidate"]["review_heads"][REPO],
+                    "snapshot": snapshot,
+                    "scope": self.review_scope,
+                    "scope_sha256": scope_sha256,
+                    "required": True,
+                }
+            ],
+        }
+
+    def declare_review(self) -> dict:
+        case = self.store.get_case(self.case_id)
+        if self.reviewer_thread not in case["bindings"]["thread"]:
+            self.mutate("bind", kind="thread", value=self.reviewer_thread)
+        return self.mutate("start_review", cohort=self.review_cohort())
+
+    def submit_review_completion(self, **overrides) -> dict:
+        case = self.store.get_case(self.case_id)
+        assignment = case["review"]["cohort"]["reviewers"][0]
+        finding_ids = sorted(
+            item["id"] for item in case["findings"]["items"] if item["source"] == self.reviewer_id
+        )
+        completion = {
+            "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "case_id": self.case_id,
+            "cohort_id": case["review"]["cohort"]["cohort_id"],
+            "reviewer_id": self.reviewer_id,
+            "reviewer_role": "review_child",
+            "thread_id": self.reviewer_thread,
+            "completed_turn_id": f"turn-{request()}",
+            "repository": REPO,
+            "reviewed_head": assignment["reviewed_head"],
+            "snapshot": assignment["snapshot"],
+            "scope": self.review_scope,
+            "scope_sha256": assignment["scope_sha256"],
+            "completion_state": "COMPLETED",
+            "findings": [],
+            "finding_ids": finding_ids,
+            "completed_at": engine.utc_now(),
+            "native_completion_evidence_sha256": "8" * 64,
+        }
+        completion.update(overrides)
+        return self.mutate("submit_review_completion", completion=completion)
 
     def add_blocker(self, finding_id: str = "F-001", reviewed_sha: str = SHA_A) -> dict:
         return self.mutate(
@@ -430,7 +560,7 @@ class StoreCase(unittest.TestCase):
                 "candidate": "candidate-1",
                 "repo": REPO,
                 "reviewed_sha": reviewed_sha,
-                "source": "independent-reviewer-1",
+                "source": self.reviewer_id,
                 "description": "Concrete blocker",
                 "classification": "CURRENT_BLOCKER",
             },
@@ -467,6 +597,34 @@ class StoreCase(unittest.TestCase):
             authorized_ids=["F-001"],
             snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
         )
+
+
+class RuntimeGenerationAttemptTests(StoreCase):
+    def test_attempt_claim_is_one_use_and_abort_terminally_locks(self) -> None:
+        self.mutate("start_implementation")
+        attempt = {
+            "protocol_version": engine.RUNTIME_GENERATION_ATTEMPT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "attempt_id": "controller-grant-one",
+            "grant_id": "grant-one",
+            "controller_spec_sha256": "9" * 64,
+        }
+        claimed = self.mutate("claim_runtime_generation_attempt", attempt=attempt)
+        self.assertEqual(claimed["status"], "CLAIMED")
+        claimed_revision = self.revision
+        with self.assertRaises(engine.LimitError):
+            self.mutate("claim_runtime_generation_attempt", attempt=attempt)
+        self.assertEqual(self.revision, claimed_revision)
+
+        aborted = self.mutate(
+            "abort_runtime_generation_attempt", attempt_id=attempt["attempt_id"]
+        )
+        self.assertEqual(aborted["status"], "ABORTED")
+        case = self.store.get_case(self.case_id)
+        self.assertEqual(case["state"], "CASE_LOCKED")
+        self.assertEqual(case["lock_reason"], "CONTROLLER_GENERATION_ABANDONED")
+        self.assertEqual(case["runtime_generation_attempt"]["status"], "ABORTED")
+        engine.CaseStore(self.root).get_case(self.case_id)
 
 
 class IdentityAndBindingTests(StoreCase):
@@ -719,7 +877,7 @@ class FiniteLifecycleTests(StoreCase):
 
     def test_only_documented_substantive_transitions_are_allowed(self) -> None:
         with self.assertRaisesRegex(engine.TransitionError, "REGISTERED"):
-            self.mutate("start_review")
+            self.mutate("start_review", cohort={})
         self.mutate("start_implementation")
         with self.assertRaisesRegex(engine.LimitError, "implementation generation"):
             self.mutate("start_implementation")
@@ -914,7 +1072,7 @@ class ClosureAndControlFailureTests(StoreCase):
 
         legacy = self.store.get_case(self.case_id)
         self.assertNotIn("head", legacy["candidate"]["review_snapshots"][REPO])
-        self.mutate("start_review")
+        self.declare_review()
         self.add_blocker()
         self.mutate("freeze_findings")
         self.mutate(
@@ -1613,8 +1771,67 @@ class ScopeAndAuthorityTests(StoreCase):
             expected_revision=target_revision,
         )
         target_revision += 1
+        target_reviewer_thread = f"review-thread-{target_id}"
+        self.store.bind(
+            target_id,
+            kind="thread",
+            value=target_reviewer_thread,
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        target_revision += 1
+        target_scope = "unrelated exact frozen candidate"
+        target_snapshot = lifecycle_snapshot(SHA_A, "3" * 64)
         self.store.start_review(
             target_id,
+            cohort={
+                "protocol_version": engine.REVIEW_COHORT_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "cohort_id": f"cohort-{target_id}",
+                "required_receipt": {
+                    "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                    "schema_version": 1,
+                },
+                "reviewers": [
+                    {
+                        "reviewer_id": "unrelated-reviewer",
+                        "reviewer_role": "review_child",
+                        "thread_id": target_reviewer_thread,
+                        "repository": OTHER_REPO,
+                        "reviewed_head": SHA_A,
+                        "snapshot": target_snapshot,
+                        "scope": target_scope,
+                        "scope_sha256": hashlib.sha256(target_scope.encode("utf-8")).hexdigest(),
+                        "required": True,
+                    }
+                ],
+            },
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        target_revision += 1
+        self.store.submit_review_completion(
+            target_id,
+            completion={
+                "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "case_id": target_id,
+                "cohort_id": f"cohort-{target_id}",
+                "reviewer_id": "unrelated-reviewer",
+                "reviewer_role": "review_child",
+                "thread_id": target_reviewer_thread,
+                "completed_turn_id": "unrelated-review-turn",
+                "repository": OTHER_REPO,
+                "reviewed_head": SHA_A,
+                "snapshot": target_snapshot,
+                "scope": target_scope,
+                "scope_sha256": hashlib.sha256(target_scope.encode("utf-8")).hexdigest(),
+                "completion_state": "COMPLETED",
+                "findings": [],
+                "finding_ids": [],
+                "completed_at": engine.utc_now(),
+                "native_completion_evidence_sha256": "7" * 64,
+            },
             request_id=request(),
             expected_revision=target_revision,
         )
@@ -1641,6 +1858,348 @@ class ScopeAndAuthorityTests(StoreCase):
         )
         self.assertEqual(result["reason_codes"], ["SEPARATE_AUTHORITY_REQUIRED"])
         self.assertEqual(result["blocked_case_id"], self.case_id)
+
+
+class ReviewReceiptTests(StoreCase):
+    def test_three_lane_cohort_requires_all_three_exact_receipts(self) -> None:
+        self.freeze_candidate()
+        case = self.store.get_case(self.case_id)
+        snapshot = dict(case["candidate"]["review_snapshots"][REPO])
+        lanes = ["correctness", "security", "verification"]
+        reviewers = []
+        for lane in lanes:
+            thread_id = f"review-{lane}-{self.case_id}"
+            self.mutate("bind", kind="thread", value=thread_id)
+            scope = f"{lane} lane over the exact frozen candidate"
+            reviewers.append(
+                {
+                    "reviewer_id": f"reviewer-{lane}",
+                    "reviewer_role": "review_child",
+                    "thread_id": thread_id,
+                    "repository": REPO,
+                    "reviewed_head": SHA_A,
+                    "snapshot": snapshot,
+                    "scope": scope,
+                    "scope_sha256": hashlib.sha256(scope.encode("utf-8")).hexdigest(),
+                    "required": True,
+                }
+            )
+        cohort_id = f"three-lane-{self.case_id}"
+        self.mutate(
+            "start_review",
+            cohort={
+                "protocol_version": engine.REVIEW_COHORT_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "cohort_id": cohort_id,
+                "required_receipt": {
+                    "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                    "schema_version": 1,
+                },
+                "reviewers": reviewers,
+            },
+        )
+        for index, assignment in enumerate(reviewers):
+            completion = {
+                "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "case_id": self.case_id,
+                "cohort_id": cohort_id,
+                "reviewer_id": assignment["reviewer_id"],
+                "reviewer_role": "review_child",
+                "thread_id": assignment["thread_id"],
+                "completed_turn_id": f"completed-{assignment['reviewer_id']}",
+                "repository": REPO,
+                "reviewed_head": SHA_A,
+                "snapshot": snapshot,
+                "scope": assignment["scope"],
+                "scope_sha256": assignment["scope_sha256"],
+                "completion_state": "COMPLETED",
+                "findings": [],
+                "finding_ids": [],
+                "completed_at": engine.utc_now(),
+                "native_completion_evidence_sha256": hashlib.sha256(
+                    assignment["thread_id"].encode("utf-8")
+                ).hexdigest(),
+            }
+            self.mutate("submit_review_completion", completion=completion)
+            if index < 2:
+                before = self.store.get_case(self.case_id)
+                with self.assertRaisesRegex(engine.AuthorizationError, "missing required review receipts"):
+                    self.store.freeze_findings(
+                        self.case_id,
+                        request_id=request(),
+                        expected_revision=before["revision"],
+                    )
+                self.assertEqual(self.store.get_case(self.case_id), before)
+        frozen = self.store.freeze_findings(
+            self.case_id,
+            request_id=request(),
+            expected_revision=self.revision,
+        )
+        self.assertEqual(frozen["state"], "FINDINGS_FROZEN")
+        self.assertEqual(set(frozen["receipt_sha256s"]), {
+            "reviewer-correctness", "reviewer-security", "reviewer-verification"
+        })
+
+    def test_findings_cannot_freeze_until_exact_completion_receipt_arrives(self) -> None:
+        self.begin_review()
+        before = self.store.get_case(self.case_id)
+        with self.assertRaisesRegex(engine.AuthorizationError, "missing required review receipts"):
+            self.store.freeze_findings(
+                self.case_id,
+                request_id=request(),
+                expected_revision=before["revision"],
+            )
+        self.assertEqual(self.store.get_case(self.case_id), before)
+        receipt = self.submit_review_completion()
+        frozen = self.store.freeze_findings(
+            self.case_id,
+            request_id=request(),
+            expected_revision=receipt["revision"],
+        )
+        self.assertEqual(frozen["state"], "FINDINGS_FROZEN")
+        persisted = self.store.get_case(self.case_id)["review"]["receipts"][self.reviewer_id]
+        self.assertTrue(persisted["request_id"])
+        self.assertEqual(
+            persisted["receipt_sha256"],
+            engine.canonical_json_sha256(
+                {key: value for key, value in persisted.items() if key != "receipt_sha256"}
+            ),
+        )
+
+    def test_receipt_rejects_wrong_scope_and_wrong_scope_digest(self) -> None:
+        self.begin_review()
+        before = self.store.get_case(self.case_id)
+        with self.assertRaisesRegex(engine.ValidationError, "scope differs"):
+            self.submit_review_completion(scope="different scope")
+        self.assertEqual(self.store.get_case(self.case_id), before)
+        with self.assertRaisesRegex(engine.ValidationError, "scope digest differs"):
+            self.submit_review_completion(scope_sha256="f" * 64)
+        self.assertEqual(self.store.get_case(self.case_id), before)
+
+    def test_incomplete_receipt_is_terminal_for_the_one_review_cohort(self) -> None:
+        self.begin_review()
+        receipt = self.submit_review_completion(completion_state="INCOMPLETE")
+        self.assertEqual(receipt["completion_state"], "INCOMPLETE")
+        with self.assertRaisesRegex(engine.AuthorizationError, "incomplete or failed"):
+            self.store.freeze_findings(
+                self.case_id,
+                request_id=request(),
+                expected_revision=receipt["revision"],
+            )
+        with self.assertRaisesRegex(engine.ConflictError, "already submitted"):
+            self.submit_review_completion()
+
+    def test_schema_two_legacy_case_reads_without_backfill_or_write(self) -> None:
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        legacy_case = persisted["cases"][self.case_id]
+        legacy_case.pop("review")
+        legacy_case.pop("runtime")
+        legacy_case.pop("terminal_quarantine")
+        legacy_case.pop("runtime_generation_abort")
+        self.store.path.write_text(json.dumps(persisted, sort_keys=True), encoding="utf-8")
+        before = self.store.path.read_bytes()
+        loaded = self.store.get_case(self.case_id)
+        self.assertNotIn("review", loaded)
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+
+class TerminalQuarantineTests(StoreCase):
+    def close_case(self) -> dict:
+        self.begin_review()
+        self.mutate("freeze_findings")
+        self.mutate("close_without_blockers")
+        return self.store.get_case(self.case_id)
+
+    def authority(self) -> dict:
+        return {
+            "authority_id": "owner-quarantine-authorization",
+            "source": "explicit-human-instruction",
+            "authorized_by": "human-owner",
+            "scope": f"lock erroneous closure for exact case {self.case_id}",
+            "case_id": self.case_id,
+            "operation": "quarantine-terminal",
+            "expected_state": "CLOSED_SUCCESS",
+        }
+
+    @staticmethod
+    def evidence(*, published: bool = False) -> dict:
+        return {
+            "reason_code": "ERRONEOUS_TERMINAL_CLOSURE",
+            "evidence_reference": "local acceptance evidence bundle",
+            "evidence_sha256": "6" * 64,
+            "externally_published": published,
+        }
+
+    def test_exact_terminal_quarantine_preserves_limits_and_writes_backup_and_audit(self) -> None:
+        closed = self.close_case()
+        pre_bytes = self.store.path.read_bytes()
+        req = request()
+        result = self.store.quarantine_terminal(
+            self.case_id,
+            expected_state="CLOSED_SUCCESS",
+            expected_record_sha256=engine.case_record_sha256(closed),
+            authority=self.authority(),
+            evidence=self.evidence(published=True),
+            request_id=req,
+            expected_revision=closed["revision"],
+        )
+        self.assertEqual(result["state"], "CASE_LOCKED")
+        self.assertTrue(result["external_reconciliation_required"])
+        locked = self.store.get_case(self.case_id)
+        self.assertEqual(locked["limits"], closed["limits"])
+        self.assertIsNone(locked["resumable_state"])
+        backup = self.root / result["backup_path"]
+        self.assertEqual(backup.read_bytes(), pre_bytes)
+        self.assertEqual(engine.file_sha256(backup), result["pre_store_sha256"])
+        audit = self.store._quarantine_audit_records_unlocked()
+        self.assertEqual([record["phase"] for record in audit], ["PREPARED", "COMMITTED"])
+        replay = self.store.quarantine_terminal(
+            self.case_id,
+            expected_state="CLOSED_SUCCESS",
+            expected_record_sha256=engine.case_record_sha256(closed),
+            authority=self.authority(),
+            evidence=self.evidence(published=True),
+            request_id=req,
+            expected_revision=closed["revision"],
+        )
+        self.assertTrue(replay["idempotent"])
+        self.assertEqual(len(self.store._quarantine_audit_records_unlocked()), 2)
+
+    def test_quarantine_rejects_wrong_hash_revision_authority_and_nonterminal_state(self) -> None:
+        with self.assertRaisesRegex(engine.TransitionError, "CLOSED_SUCCESS"):
+            self.store.quarantine_terminal(
+                self.case_id,
+                expected_state="CLOSED_SUCCESS",
+                expected_record_sha256=engine.case_record_sha256(
+                    self.store.get_case(self.case_id)
+                ),
+                authority=self.authority(),
+                evidence=self.evidence(),
+                request_id=request(),
+                expected_revision=self.revision,
+            )
+        closed = self.close_case()
+        before = self.store.path.read_bytes()
+        with self.assertRaisesRegex(engine.RevisionConflict, "expected revision"):
+            self.store.quarantine_terminal(
+                self.case_id,
+                expected_state="CLOSED_SUCCESS",
+                expected_record_sha256=engine.case_record_sha256(closed),
+                authority=self.authority(),
+                evidence=self.evidence(),
+                request_id=request(),
+                expected_revision=closed["revision"] - 1,
+            )
+        with self.assertRaisesRegex(engine.RevisionConflict, "record hash"):
+            self.store.quarantine_terminal(
+                self.case_id,
+                expected_state="CLOSED_SUCCESS",
+                expected_record_sha256="0" * 64,
+                authority=self.authority(),
+                evidence=self.evidence(),
+                request_id=request(),
+                expected_revision=closed["revision"],
+            )
+        wrong = self.authority()
+        wrong["case_id"] = str(uuid.uuid4())
+        with self.assertRaises(engine.AuthorizationError):
+            self.store.quarantine_terminal(
+                self.case_id,
+                expected_state="CLOSED_SUCCESS",
+                expected_record_sha256=engine.case_record_sha256(closed),
+                authority=wrong,
+                evidence=self.evidence(),
+                request_id=request(),
+                expected_revision=closed["revision"],
+            )
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_quarantine_recovers_crash_after_prepared_before_store_write(self) -> None:
+        closed = self.close_case()
+        req = request()
+        original_bytes = self.store.path.read_bytes()
+        with mock.patch.object(
+            self.store,
+            "_write_unlocked",
+            side_effect=RuntimeError("crash after PREPARED"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "after PREPARED"):
+                self.store.quarantine_terminal(
+                    self.case_id,
+                    expected_state="CLOSED_SUCCESS",
+                    expected_record_sha256=engine.case_record_sha256(closed),
+                    authority=self.authority(),
+                    evidence=self.evidence(),
+                    request_id=req,
+                    expected_revision=closed["revision"],
+                )
+        self.assertEqual(self.store.path.read_bytes(), original_bytes)
+        self.assertEqual(
+            [item["phase"] for item in self.store._quarantine_audit_records_unlocked()],
+            ["PREPARED"],
+        )
+        recovered = self.store.quarantine_terminal(
+            self.case_id,
+            expected_state="CLOSED_SUCCESS",
+            expected_record_sha256=engine.case_record_sha256(closed),
+            authority=self.authority(),
+            evidence=self.evidence(),
+            request_id=req,
+            expected_revision=closed["revision"],
+        )
+        self.assertEqual(recovered["state"], "CASE_LOCKED")
+        locked = self.store.get_case(self.case_id)
+        self.assertEqual(locked["limits"], closed["limits"])
+        self.assertEqual(
+            [item["phase"] for item in self.store._quarantine_audit_records_unlocked()],
+            ["PREPARED", "COMMITTED"],
+        )
+
+    def test_quarantine_recovers_crash_after_store_write_before_committed(self) -> None:
+        closed = self.close_case()
+        req = request()
+        original_append = self.store._append_quarantine_audit_unlocked
+
+        def crash_before_committed(body, prior_records):
+            if body.get("phase") == "COMMITTED":
+                raise RuntimeError("crash before COMMITTED")
+            return original_append(body, prior_records)
+
+        with mock.patch.object(
+            self.store,
+            "_append_quarantine_audit_unlocked",
+            side_effect=crash_before_committed,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "before COMMITTED"):
+                self.store.quarantine_terminal(
+                    self.case_id,
+                    expected_state="CLOSED_SUCCESS",
+                    expected_record_sha256=engine.case_record_sha256(closed),
+                    authority=self.authority(),
+                    evidence=self.evidence(),
+                    request_id=req,
+                    expected_revision=closed["revision"],
+                )
+        self.assertEqual(self.store.get_case(self.case_id)["state"], "CASE_LOCKED")
+        self.assertEqual(
+            [item["phase"] for item in self.store._quarantine_audit_records_unlocked()],
+            ["PREPARED"],
+        )
+        recovered = self.store.quarantine_terminal(
+            self.case_id,
+            expected_state="CLOSED_SUCCESS",
+            expected_record_sha256=engine.case_record_sha256(closed),
+            authority=self.authority(),
+            evidence=self.evidence(),
+            request_id=req,
+            expected_revision=closed["revision"],
+        )
+        self.assertTrue(recovered["idempotent"])
+        self.assertEqual(self.store.get_case(self.case_id)["limits"], closed["limits"])
+        audit = self.store._quarantine_audit_records_unlocked()
+        self.assertEqual([item["phase"] for item in audit], ["PREPARED", "COMMITTED"])
+        self.assertTrue(audit[-1]["recovered"])
 
 
 class SnapshotTests(unittest.TestCase):

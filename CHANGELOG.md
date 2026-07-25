@@ -4,7 +4,34 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added immutable declared review cohorts and exact reviewer completion receipts
+  as a prerequisite for freezing findings.
+- Added one exact, audited `CLOSED_SUCCESS` quarantine operation that preserves
+  lifecycle counters, writes a protected backup, and locks only the affected
+  case.
+- Added a proposal-only App Server controller, deterministic trusted supervisor,
+  and separate-principal one-shot runtime broker for one presealed replacement
+  of one existing tracked file.
+- Added protected broker journaling, Windows ownership and DACL evidence,
+  root and nested worker-denial probes, controller source pins, and restart,
+  replay, rollback, and supervisor-loss controls.
+- Added intent-first access-control recovery, terminal preissue generation
+  aborts, active-orphan rollback, completed-action cleanup, native Windows
+  delete, rename, and replace probes, and worker-auth preservation checks.
+- Added a durable one-use generation-attempt claim and normalized, sanitized
+  initial/restart controller evidence sealed only after both process trees close.
+
+### Changed
+
+- Blocked every unrelated canonical mutation while a runtime grant is issued or
+  claimed, without advancing the case revision.
+- Sanitized and pinned Git, PowerShell, App Server, and identity helper launches
+  so controller keys and user credentials do not flow into child environments.
+- Clarified that native App Server identity is evidence only and that the
+  initial broker is a narrow feasibility primitive, not general coding
+  authority.
 
 ## [0.9.0] - 2026-07-17
 

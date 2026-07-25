@@ -15,6 +15,9 @@ import hashlib
 import json
 import os
 import re
+import secrets
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -28,12 +31,56 @@ from typing import Any, Callable, Iterable, Mapping
 
 SCHEMA_VERSION = 2
 ACTION_PROTOCOL_VERSION = "ccos-case-action-v1"
+REVIEW_COHORT_PROTOCOL_VERSION = "ccos-review-cohort-v1"
+REVIEW_COMPLETION_PROTOCOL_VERSION = "ccos-review-completion-v1"
+RUNTIME_ACTOR_PROTOCOL_VERSION = "ccos-runtime-actor-v1"
+ACTION_GRANT_PROTOCOL_VERSION = "ccos-runtime-action-grant-v1"
+ACTION_GRANT_CLAIM_PROTOCOL_VERSION = "ccos-runtime-action-claim-v1"
+ACTION_GRANT_RESULT_PROTOCOL_VERSION = "ccos-runtime-action-result-v1"
+WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION = "ccos-windows-principal-probe-v1"
+WINDOWS_ISOLATION_EVIDENCE_PROTOCOL_VERSION = "ccos-windows-isolation-evidence-v2"
+WINDOWS_GROUP_MEMBERSHIP_PROTOCOL_VERSION = "ccos-windows-sandbox-membership-v1"
+WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION = "ccos-windows-dacl-evidence-v2"
+TRUSTED_WRITE_PROBE_PROTOCOL_VERSION = "ccos-trusted-write-probe-v1"
+TERMINAL_QUARANTINE_PROTOCOL_VERSION = "ccos-terminal-quarantine-v1"
+RUNTIME_GENERATION_ABORT_PROTOCOL_VERSION = "ccos-preissue-generation-abort-v1"
+RUNTIME_GENERATION_ATTEMPT_PROTOCOL_VERSION = "ccos-runtime-generation-attempt-v1"
+LIVE_CONTROLLER_EVIDENCE_PROTOCOL_VERSION = "ccos-live-controller-evidence-v1"
+QUARANTINE_AUDIT_PROTOCOL_VERSION = "ccos-quarantine-audit-v1"
 STORE_FILENAME = "case-state.json"
 LOCK_FILENAME = ".case-state.lock"
+QUARANTINE_AUDIT_FILENAME = "quarantine-audit.jsonl"
+QUARANTINE_BACKUP_DIRECTORY = "quarantine-backups"
+ACTION_ARTIFACT_DIRECTORY = "action-artifacts"
 SNAPSHOT_CONTRACT = "ccos-git-snapshot-v1"
 GIT_SNAPSHOT_MAGIC = b"CCOS-GIT-SNAPSHOT\0"
 LEGACY_FILESYSTEM_SNAPSHOT_CONTRACT = "ccos-snapshot-v1"
 LEGACY_FILESYSTEM_SNAPSHOT_MAGIC = b"CCOS-CASE-SNAPSHOT\0"
+
+LIVE_CONTROLLER_CLIENT_METHODS = frozenset(
+    {
+        "initialize",
+        "mcpServerStatus/list",
+        "hooks/list",
+        "thread/start",
+        "turn/start",
+        "thread/read",
+        "thread/list",
+    }
+)
+LIVE_CONTROLLER_INITIAL_REQUIRED_METHODS = LIVE_CONTROLLER_CLIENT_METHODS
+LIVE_CONTROLLER_RESTART_REQUIRED_METHODS = frozenset(
+    {"initialize", "mcpServerStatus/list", "hooks/list", "thread/read", "thread/list"}
+)
+LIVE_CONTROLLER_MUTATION_APPROVAL_METHODS = frozenset(
+    {"item/fileChange/requestApproval", "item/commandExecution/requestApproval"}
+)
+LIVE_CONTROLLER_ENVIRONMENT_NAMES = frozenset(
+    {
+        "CODEX_HOME", "COMSPEC", "LOCALAPPDATA", "NO_COLOR", "PATH", "PATHEXT",
+        "SYSTEMDRIVE", "SYSTEMROOT", "TEMP", "TMP", "WINDIR",
+    }
+)
 
 CASE_STATES = {
     "REGISTERED",
@@ -69,6 +116,10 @@ ROLE_ACTIONS = {
     "parent": {"case_administration"},
     "implementer_child": {"implementation", "product_work"},
     "review_child": {"review_collection", "closure_check"},
+    "closure_child": {"closure_check"},
+    "incomplete_child": set(),
+    "closure_child": {"closure_check"},
+    "incomplete_child": set(),
     "fix_child": {"repair"},
     "publication_child": {"publication", *SEPARATE_AUTHORITY_ACTIONS},
 }
@@ -97,6 +148,22 @@ HEAD_REQUIRED_ACTIONS = {
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 FINDING_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+WINDOWS_SID_PATTERN = re.compile(r"^S-\d(?:-\d+)+$", re.IGNORECASE)
+RUNTIME_ACTOR_ROLES = frozenset(
+    {"parent", "implementer_child", "review_child", "closure_child", "incomplete_child"}
+)
+REVIEW_COMPLETION_STATES = frozenset({"COMPLETED", "FAILED", "INCOMPLETE"})
+ACTION_GRANT_STATUSES = frozenset({"ISSUED", "CLAIMED", "COMPLETED", "FAILED"})
+MAX_REPLACEMENT_BYTES = 8 * 1024 * 1024
+MAX_ACTION_GRANT_LIFETIME_SECONDS = 15 * 60
+EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+WINDOWS_REQUIRED_DENY_RIGHTS_MASK = 278 | 65536 | 64 | 262144 | 524288
+PROTECTED_ROOT_KINDS = (
+    "target_root",
+    "state_root",
+    "broker_source_root",
+    "proposal_root",
+)
 
 
 class CaseStateError(RuntimeError):
@@ -201,6 +268,571 @@ def _nonempty(value: Any, label: str, limit: int = 4096) -> str:
     if len(normalized) > limit:
         raise ValidationError(f"{label} exceeds {limit} characters")
     return normalized
+
+
+def canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def canonical_json_sha256(value: Any) -> str:
+    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def serialized_store_bytes(value: Mapping[str, Any]) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+
+
+def file_sha256(path: Path | str) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+_SUBPROCESS_ENVIRONMENT_ALLOWLIST = (
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+)
+_SECRET_ENVIRONMENT_MARKERS = (
+    "AUTH",
+    "CREDENTIAL",
+    "KEY",
+    "PASSWORD",
+    "SECRET",
+    "TOKEN",
+)
+
+
+def resolved_executable(*names: str) -> str:
+    """Resolve a helper once to an absolute file path before execution."""
+    for name in names:
+        located = shutil.which(name)
+        if located:
+            path = Path(located).resolve(strict=True)
+            if path.is_file():
+                return str(path)
+    raise SnapshotError(f"required executable is unavailable: {', '.join(names)}")
+
+
+def safe_subprocess_environment(
+    executable: str, *, extra: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Build a minimal helper environment with no inherited credentials."""
+    environment = {
+        name: os.environ[name]
+        for name in _SUBPROCESS_ENVIRONMENT_ALLOWLIST
+        if os.environ.get(name)
+    }
+    environment["PATH"] = str(Path(executable).resolve(strict=True).parent)
+    environment["LC_ALL"] = "C"
+    environment["LANG"] = "C"
+    for name, value in (extra or {}).items():
+        upper = name.upper()
+        if any(marker in upper for marker in _SECRET_ENVIRONMENT_MARKERS):
+            raise ValidationError(f"secret-like environment variable is forbidden for helpers: {name}")
+        environment[name] = value
+    return environment
+
+
+def controller_source_pins(managed_root: Path) -> dict[str, Any]:
+    manifest_path = managed_root / "install-bundle.manifest.json"
+    required_paths = (
+        "scripts/agent/case_state.py",
+        "scripts/agent/case_app_server_controller.py",
+        "scripts/agent/case_runtime_supervisor.py",
+        "scripts/agent/case_runtime_broker.py",
+    )
+    if (not manifest_path.is_file() or manifest_path.is_symlink()
+            or path_contains_link_or_reparse(manifest_path, stop=managed_root)):
+        raise StoreCorruptionError("controller install bundle manifest must be a regular direct file")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StoreCorruptionError(f"controller install bundle manifest is invalid: {exc}") from exc
+    entries = manifest.get("entries") if isinstance(manifest, Mapping) else None
+    if not isinstance(entries, list):
+        raise StoreCorruptionError("controller install bundle manifest entries are unavailable")
+    indexed = {
+        entry.get("path"): entry
+        for entry in entries
+        if isinstance(entry, Mapping) and isinstance(entry.get("path"), str)
+    }
+    pins: list[dict[str, Any]] = []
+    for relative in required_paths:
+        entry = indexed.get(relative)
+        source_path = managed_root.joinpath(*PurePosixPath(relative).parts)
+        if not isinstance(entry, Mapping) or not source_path.is_file() or source_path.is_symlink():
+            raise StoreCorruptionError(f"controller source is absent from bundle manifest: {relative}")
+        observed_sha256 = file_sha256(source_path)
+        observed_size = source_path.stat().st_size
+        if (entry.get("sha256") != observed_sha256 or entry.get("size") != observed_size):
+            raise StoreCorruptionError(f"controller source differs from bundle manifest: {relative}")
+        pins.append({"path": relative, "sha256": observed_sha256, "size": observed_size})
+    return {
+        "manifest_path": "install-bundle.manifest.json",
+        "manifest_sha256": file_sha256(manifest_path),
+        "files": pins,
+    }
+
+
+def case_record_sha256(case: Mapping[str, Any]) -> str:
+    return canonical_json_sha256(case)
+
+
+def require_utc_timestamp(value: Any, label: str) -> str:
+    raw = _nonempty(value, label, 64)
+    try:
+        parsed = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationError(f"{label} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != dt.timedelta(0):
+        raise ValidationError(f"{label} must use UTC")
+    return parsed.replace(microsecond=0).isoformat()
+
+
+def require_windows_sid(value: Any, label: str) -> str:
+    raw = _nonempty(value, label, 184).upper()
+    if not WINDOWS_SID_PATTERN.fullmatch(raw):
+        raise ValidationError(f"{label} must be a canonical Windows SID")
+    return raw
+
+
+def normalize_action_path(value: Any) -> str:
+    raw = unicodedata.normalize("NFC", _nonempty(value, "action target path", 1024)).replace("\\", "/")
+    pure = PurePosixPath(raw)
+    if pure.is_absolute() or raw != pure.as_posix() or any(part in {"", ".", ".."} for part in pure.parts):
+        raise ValidationError("action target path must be a canonical repository-relative path")
+    if ":" in pure.parts[0] or raw.startswith("//"):
+        raise ValidationError("action target path must not contain a drive or UNC prefix")
+    return pure.as_posix()
+
+
+def require_stable_id(value: Any, label: str) -> str:
+    raw = _nonempty(value, label, 128)
+    if not FINDING_ID_PATTERN.fullmatch(raw):
+        raise ValidationError(
+            f"{label} must use letters, numbers, dot, underscore, colon, or hyphen"
+        )
+    return raw
+
+
+def _normalize_live_controller_capability(raw: Any) -> dict[str, Any]:
+    expected = {
+        "client_capabilities", "mcp_server_count", "hook_count", "dynamic_tools"
+    }
+    if not isinstance(raw, Mapping) or set(raw) != expected:
+        raise ValidationError("live controller capability evidence uses an unexpected schema")
+    normalized = {
+        "client_capabilities": copy.deepcopy(raw.get("client_capabilities")),
+        "mcp_server_count": raw.get("mcp_server_count"),
+        "hook_count": raw.get("hook_count"),
+        "dynamic_tools": copy.deepcopy(raw.get("dynamic_tools")),
+    }
+    if normalized != {
+        "client_capabilities": {"experimentalApi": True},
+        "mcp_server_count": 0,
+        "hook_count": 0,
+        "dynamic_tools": [],
+    }:
+        raise AuthorizationError("live controller reported an enabled capability bypass")
+    return normalized
+
+
+def _normalize_live_controller_transport_audit(
+    raw: Any,
+    *,
+    phase: str,
+    worker_sid: str,
+    broker_sid: str,
+    app_server_sha256: str,
+    app_server_version: str,
+    environment_sha256: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw, list) or not 3 <= len(raw) <= 4096:
+        raise ValidationError("live controller transport audit has an invalid record count")
+    normalized: list[dict[str, Any]] = []
+    launch_count = identity_count = closure_count = 0
+    process_instance_sha256: str | None = None
+    observed_client_methods: set[str] = set()
+    for item in raw:
+        if not isinstance(item, Mapping):
+            raise ValidationError("live controller transport audit record is not an object")
+        event = item.get("event")
+        if event == "app_server_launch":
+            expected = {
+                "event", "sandbox_launcher_command_sha256", "app_server_command_sha256",
+                "environment_evidence", "controller_key_exposed",
+                "controller_principal_sid", "controller_principal_matches_broker",
+                "mcp_override", "shell_environment_inherit",
+            }
+            if set(item) != expected:
+                raise ValidationError("live controller launch audit uses an unexpected schema")
+            environment = item.get("environment_evidence")
+            environment_fields = {
+                "environment_names", "environment_values_sha256", "mutable_paths_sha256",
+                "path_entries_sha256", "controller_key_exposed",
+                "secret_like_name_count", "mutable_paths_within_worker_root",
+                "evidence_sha256",
+            }
+            if not isinstance(environment, Mapping) or set(environment) != environment_fields:
+                raise ValidationError("live controller environment evidence is malformed")
+            environment_body = {
+                name: copy.deepcopy(value)
+                for name, value in environment.items()
+                if name != "evidence_sha256"
+            }
+            if (
+                sorted(environment.get("environment_names", []))
+                != sorted(LIVE_CONTROLLER_ENVIRONMENT_NAMES)
+                or environment.get("environment_values_sha256") != environment_sha256
+                or environment.get("controller_key_exposed") is not False
+                or environment.get("secret_like_name_count") != 0
+                or environment.get("mutable_paths_within_worker_root") is not True
+                or require_snapshot_hash(str(environment.get("evidence_sha256", "")))
+                != canonical_json_sha256(environment_body)
+            ):
+                raise AuthorizationError("live controller environment evidence permits a bypass")
+            require_snapshot_hash(str(environment.get("mutable_paths_sha256", "")))
+            require_snapshot_hash(str(environment.get("path_entries_sha256", "")))
+            if (
+                item.get("controller_key_exposed") is not False
+                or require_windows_sid(
+                    item.get("controller_principal_sid"),
+                    "live controller principal SID",
+                )
+                != broker_sid
+                or item.get("controller_principal_matches_broker") is not True
+                or item.get("mcp_override") != "empty"
+                or item.get("shell_environment_inherit") != "none"
+            ):
+                raise AuthorizationError("live controller launch boundary differs from the sealed run")
+            require_snapshot_hash(str(item.get("sandbox_launcher_command_sha256", "")))
+            require_snapshot_hash(str(item.get("app_server_command_sha256", "")))
+            launch_count += 1
+        elif event == "restricted_app_server_identity":
+            expected = {
+                "event", "process_instance_sha256", "worker_principal_sid",
+                "principal_distinct_from_broker", "app_server_sha256",
+                "app_server_version", "command_line_sha256", "argv_sha256",
+                "argv_matches_sealed_command", "worker_environment_acl_evidence",
+                "kill_on_job_close",
+            }
+            if set(item) != expected:
+                raise ValidationError("live controller identity audit uses an unexpected schema")
+            acl_evidence = item.get("worker_environment_acl_evidence")
+            if (
+                require_windows_sid(
+                    item.get("worker_principal_sid"),
+                    "live App Server worker SID",
+                )
+                != worker_sid
+                or item.get("principal_distinct_from_broker") is not True
+                or item.get("app_server_sha256") != app_server_sha256
+                or item.get("app_server_version") != app_server_version
+                or item.get("argv_matches_sealed_command") is not True
+                or item.get("kill_on_job_close") is not True
+                or not isinstance(acl_evidence, Mapping)
+                or not acl_evidence
+                or len(canonical_json_bytes(acl_evidence)) > 262144
+            ):
+                raise AuthorizationError("live App Server process identity evidence is invalid")
+            require_snapshot_hash(str(item.get("command_line_sha256", "")))
+            require_snapshot_hash(str(item.get("argv_sha256", "")))
+            process_instance_sha256 = require_snapshot_hash(
+                str(item.get("process_instance_sha256", ""))
+            )
+            identity_count += 1
+        elif event == "client_request":
+            expected = {
+                "event", "method", "allowlisted", "shell_command_requested",
+            }
+            if set(item) != expected:
+                raise ValidationError("live controller client request audit is malformed")
+            method = str(item.get("method", ""))
+            if (
+                method not in LIVE_CONTROLLER_CLIENT_METHODS
+                or item.get("allowlisted") is not True
+                or item.get("shell_command_requested") is not False
+            ):
+                raise AuthorizationError("live controller client request exposes a bypass")
+            observed_client_methods.add(method)
+        elif event == "server_request":
+            if set(item) != {"event", "method", "outcome"}:
+                raise ValidationError("live controller server request audit is malformed")
+            method = str(item.get("method", ""))
+            outcome = str(item.get("outcome", ""))
+            if method in LIVE_CONTROLLER_MUTATION_APPROVAL_METHODS:
+                expected_outcome = "DECLINED"
+            elif method == "item/permissions/requestApproval":
+                expected_outcome = "NO_PERMISSIONS_TURN_ONLY"
+            else:
+                raise AuthorizationError(
+                    "successful live controller evidence contains a fatal server request"
+                )
+            if outcome != expected_outcome:
+                raise AuthorizationError("live controller server request was not denied exactly")
+        elif event == "app_server_process_tree_closed":
+            if set(item) != {
+                "event", "process_instance_sha256", "kill_on_job_close",
+                "descendant_exit_verified"
+            }:
+                raise ValidationError("live controller closure audit is malformed")
+            if (
+                item.get("kill_on_job_close") is not True
+                or item.get("descendant_exit_verified") is not True
+            ):
+                raise AuthorizationError("live App Server process tree did not close")
+            closure_process_sha256 = require_snapshot_hash(
+                str(item.get("process_instance_sha256", ""))
+            )
+            if (
+                process_instance_sha256 is not None
+                and closure_process_sha256 != process_instance_sha256
+            ):
+                raise AuthorizationError("live App Server closure PID differs from launch")
+            closure_count += 1
+        else:
+            raise AuthorizationError("live controller audit contains an unknown event")
+        normalized.append(copy.deepcopy(dict(item)))
+    required_methods = (
+        LIVE_CONTROLLER_INITIAL_REQUIRED_METHODS
+        if phase == "initial"
+        else LIVE_CONTROLLER_RESTART_REQUIRED_METHODS
+    )
+    if (
+        phase not in {"initial", "restart"}
+        or launch_count != 1
+        or identity_count != 1
+        or closure_count != 1
+        or normalized[-1].get("event") != "app_server_process_tree_closed"
+        or not required_methods.issubset(observed_client_methods)
+        or b"acceptForSession" in canonical_json_bytes(normalized)
+    ):
+        raise AuthorizationError("live controller audit is incomplete or enables session approval")
+    return normalized
+
+
+def normalize_live_controller_evidence(
+    raw: Any,
+    *,
+    worker_sid: str,
+    broker_sid: str,
+    app_server_sha256: str,
+    app_server_version: str,
+    environment_sha256: str,
+    expected_case_id: str | None = None,
+) -> dict[str, Any]:
+    expected = {
+        "protocol_version", "schema_version", "case_id", "initial_run",
+        "restart_run", "incomplete_child_evidence", "stale_revision_denial",
+        "all_mutation_surfaces_disabled", "both_process_trees_closed",
+    }
+    if not isinstance(raw, Mapping) or set(raw) != expected:
+        raise ValidationError("live controller evidence uses an unexpected schema")
+    if (
+        raw.get("protocol_version") != LIVE_CONTROLLER_EVIDENCE_PROTOCOL_VERSION
+        or raw.get("schema_version") != 1
+        or raw.get("all_mutation_surfaces_disabled") is not True
+        or raw.get("both_process_trees_closed") is not True
+    ):
+        raise AuthorizationError("live controller evidence does not prove the fixed boundary")
+    case_id = canonical_case_id(str(raw.get("case_id", "")))
+    if expected_case_id is not None and case_id != canonical_case_id(expected_case_id):
+        raise AuthorizationError("live controller evidence is bound to another case")
+    normalized_runs: dict[str, dict[str, Any]] = {}
+    for field, phase in (("initial_run", "initial"), ("restart_run", "restart")):
+        run = raw.get(field)
+        if not isinstance(run, Mapping) or set(run) != {
+            "capability_evidence", "capability_evidence_sha256",
+            "transport_audit", "transport_audit_sha256", "process_tree_closed",
+            "server_request_count", "server_request_policy_status",
+        }:
+            raise ValidationError("live controller run evidence uses an unexpected schema")
+        capability = _normalize_live_controller_capability(
+            run.get("capability_evidence")
+        )
+        if require_snapshot_hash(str(run.get("capability_evidence_sha256", ""))) != canonical_json_sha256(capability):
+            raise AuthorizationError("live controller capability digest is invalid")
+        audit = _normalize_live_controller_transport_audit(
+            run.get("transport_audit"),
+            phase=phase,
+            worker_sid=worker_sid,
+            broker_sid=broker_sid,
+            app_server_sha256=app_server_sha256,
+            app_server_version=app_server_version,
+            environment_sha256=environment_sha256,
+        )
+        audit_sha256 = require_snapshot_hash(str(run.get("transport_audit_sha256", "")))
+        server_request_count = sum(
+            item.get("event") == "server_request" for item in audit
+        )
+        expected_policy_status = (
+            "EXERCISED_NON_AUTHORIZING"
+            if server_request_count
+            else "UNEXERCISED"
+        )
+        if (
+            audit_sha256 != canonical_json_sha256(audit)
+            or run.get("process_tree_closed") is not True
+            or run.get("server_request_count") != server_request_count
+            or run.get("server_request_policy_status") != expected_policy_status
+        ):
+            raise AuthorizationError("live controller transport digest or closure is invalid")
+        normalized_runs[field] = {
+            "capability_evidence": capability,
+            "capability_evidence_sha256": canonical_json_sha256(capability),
+            "transport_audit": audit,
+            "transport_audit_sha256": audit_sha256,
+            "process_tree_closed": True,
+            "server_request_count": server_request_count,
+            "server_request_policy_status": expected_policy_status,
+        }
+    incomplete = raw.get("incomplete_child_evidence")
+    incomplete_fields = {
+        "thread_id", "turn_id", "completion_state", "proposal_count",
+        "action_count", "result_sha256", "evidence_sha256",
+    }
+    if not isinstance(incomplete, Mapping) or set(incomplete) != incomplete_fields:
+        raise ValidationError("incomplete child evidence uses an unexpected schema")
+    incomplete_body = {
+        name: copy.deepcopy(value)
+        for name, value in incomplete.items()
+        if name != "evidence_sha256"
+    }
+    if (
+        incomplete.get("completion_state") != "INCOMPLETE"
+        or incomplete.get("proposal_count") != 0
+        or incomplete.get("action_count") != 0
+        or require_snapshot_hash(str(incomplete.get("result_sha256", ""))) == EMPTY_SHA256
+        or require_snapshot_hash(str(incomplete.get("evidence_sha256", "")))
+        != canonical_json_sha256(incomplete_body)
+    ):
+        raise AuthorizationError("incomplete child evidence is not exact")
+    incomplete_body["thread_id"] = normalize_binding(
+        "thread", str(incomplete.get("thread_id", ""))
+    )
+    incomplete_body["turn_id"] = require_stable_id(
+        incomplete.get("turn_id"), "incomplete child turn id"
+    )
+    normalized_incomplete = {
+        **incomplete_body,
+        "evidence_sha256": canonical_json_sha256(incomplete_body),
+    }
+    stale = raw.get("stale_revision_denial")
+    stale_fields = {
+        "denial", "attempted_revision", "current_revision",
+        "authority_state_sha256_before", "authority_state_sha256_after",
+        "state_unchanged",
+    }
+    if not isinstance(stale, Mapping) or set(stale) != stale_fields:
+        raise ValidationError("stale revision denial evidence uses an unexpected schema")
+    attempted = stale.get("attempted_revision")
+    current = stale.get("current_revision")
+    if (
+        stale.get("denial") != "RevisionConflict"
+        or isinstance(attempted, bool)
+        or not isinstance(attempted, int)
+        or attempted < 0
+        or isinstance(current, bool)
+        or not isinstance(current, int)
+        or current != attempted + 1
+        or require_snapshot_hash(str(stale.get("authority_state_sha256_before", "")))
+        != require_snapshot_hash(str(stale.get("authority_state_sha256_after", "")))
+        or stale.get("state_unchanged") is not True
+    ):
+        raise AuthorizationError("stale revision denial evidence is invalid")
+    return {
+        "protocol_version": LIVE_CONTROLLER_EVIDENCE_PROTOCOL_VERSION,
+        "schema_version": 1,
+        "case_id": case_id,
+        **normalized_runs,
+        "incomplete_child_evidence": normalized_incomplete,
+        "stale_revision_denial": copy.deepcopy(dict(stale)),
+        "all_mutation_surfaces_disabled": True,
+        "both_process_trees_closed": True,
+    }
+
+
+def normalized_absolute_path(value: Any, label: str, *, must_exist: bool = True) -> tuple[Path, str]:
+    raw = _nonempty(value, label, 4096)
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        raise ValidationError(f"{label} must be absolute")
+    try:
+        resolved = candidate.resolve(strict=must_exist)
+    except OSError as exc:
+        raise ValidationError(f"{label} cannot be resolved: {exc}") from exc
+    normalized = normalize_binding("worktree", str(resolved))
+    return resolved, normalized
+
+
+def path_contains_link_or_reparse(path: Path, *, stop: Path | None = None) -> bool:
+    """Return true if an existing path component is a symlink or Windows reparse point."""
+    current = path
+    floor = stop.resolve(strict=False) if stop is not None else None
+    components: list[Path] = []
+    while True:
+        components.append(current)
+        if floor is not None and current == floor:
+            break
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    for component in reversed(components):
+        try:
+            metadata = component.lstat()
+        except OSError:
+            continue
+        if component.is_symlink():
+            return True
+        attributes = getattr(metadata, "st_file_attributes", 0)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        if attributes & reparse_flag:
+            return True
+    return False
+
+
+def regular_file_identity(path: Path, *, stop: Path | None = None) -> dict[str, Any]:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValidationError(f"cannot inspect stable file identity: {exc}") from exc
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or path.is_symlink()
+        or attributes & reparse_flag
+        or path_contains_link_or_reparse(path, stop=stop)
+    ):
+        raise AuthorizationError("authorized file must be regular and must not traverse a reparse point")
+    link_count = int(metadata.st_nlink)
+    file_id = int(metadata.st_ino)
+    volume_id = int(metadata.st_dev)
+    if link_count != 1:
+        raise AuthorizationError("authorized file must have exactly one hard link")
+    if file_id <= 0:
+        raise AuthorizationError("filesystem did not provide a stable nonzero file identity")
+    identity = {
+        "volume_id": volume_id,
+        "file_id": file_id,
+        "number_of_links": link_count,
+        "size": int(metadata.st_size),
+    }
+    return {**identity, "identity_sha256": canonical_json_sha256(identity)}
 
 
 def normalize_repo_url(value: str) -> str:
@@ -387,13 +1019,159 @@ def _new_case(case_id: str, objective: str) -> dict[str, Any]:
             "repaired_snapshots": {},
             "observed_heads": {},
         },
+        "review": {"cohort": None, "receipts": {}},
         "findings": {"items": [], "late": [], "frozen": False, "frozen_ids": []},
         "repair": {"authorized_ids": [], "authority": None, "addressed_ids": []},
         "closure": {"preflight": None, "resolutions": None},
         "control": {"active_failure": None, "history": []},
+        "runtime": {"actors": {}, "action_grants": {}},
+        "runtime_generation_attempt": None,
+        "runtime_generation_abort": None,
+        "terminal_quarantine": None,
         "lock_reason": None,
         "events": {},
     }
+
+
+def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> None:
+    """Validate v2 extension records without requiring or backfilling legacy cases."""
+    review = case.get("review")
+    if review is not None:
+        if not isinstance(review, dict) or set(review) != {"cohort", "receipts"}:
+            raise StoreCorruptionError(f"case {case_id} review record has invalid fields")
+        cohort = review["cohort"]
+        if cohort is not None:
+            required = {
+                "protocol_version", "schema_version", "cohort_id", "required_receipt",
+                "reviewers", "declared_at", "cohort_sha256",
+            }
+            if not isinstance(cohort, dict) or set(cohort) != required:
+                raise StoreCorruptionError(f"case {case_id} review cohort has invalid fields")
+            body = {name: cohort[name] for name in required - {"declared_at", "cohort_sha256"}}
+            if (cohort.get("protocol_version") != REVIEW_COHORT_PROTOCOL_VERSION
+                    or cohort.get("schema_version") != 1
+                    or not isinstance(cohort.get("reviewers"), list)
+                    or not cohort["reviewers"]
+                    or cohort.get("cohort_sha256") != canonical_json_sha256(body)):
+                raise StoreCorruptionError(f"case {case_id} review cohort is invalid")
+            try:
+                require_utc_timestamp(cohort["declared_at"], "declared_at")
+            except ValidationError as exc:
+                raise StoreCorruptionError(f"case {case_id} review cohort timestamp is invalid") from exc
+        receipts = review["receipts"]
+        if not isinstance(receipts, dict):
+            raise StoreCorruptionError(f"case {case_id} review receipts must be an object")
+        for reviewer_id, receipt in receipts.items():
+            if not isinstance(receipt, dict) or receipt.get("reviewer_id") != reviewer_id:
+                raise StoreCorruptionError(f"case {case_id} review receipt identity is invalid")
+            digest = receipt.get("receipt_sha256")
+            body = {name: value for name, value in receipt.items() if name != "receipt_sha256"}
+            if digest != canonical_json_sha256(body):
+                raise StoreCorruptionError(f"case {case_id} review receipt digest is invalid")
+    runtime = case.get("runtime")
+    if runtime is not None:
+        if not isinstance(runtime, dict) or set(runtime) != {"actors", "action_grants"}:
+            raise StoreCorruptionError(f"case {case_id} runtime record has invalid fields")
+        if not isinstance(runtime["actors"], dict) or not isinstance(runtime["action_grants"], dict):
+            raise StoreCorruptionError(f"case {case_id} runtime maps must be objects")
+        if len(runtime["action_grants"]) > 1:
+            raise StoreCorruptionError(f"case {case_id} exceeds its one runtime action grant limit")
+        for thread_id, actor in runtime["actors"].items():
+            if (not isinstance(actor, dict) or actor.get("thread_id") != thread_id
+                    or actor.get("role") not in RUNTIME_ACTOR_ROLES):
+                raise StoreCorruptionError(f"case {case_id} runtime actor is invalid")
+            digest = actor.get("actor_sha256")
+            body = {name: value for name, value in actor.items() if name != "actor_sha256"}
+            if digest != canonical_json_sha256(body):
+                raise StoreCorruptionError(f"case {case_id} runtime actor digest is invalid")
+        for grant_id, grant in runtime["action_grants"].items():
+            if (not isinstance(grant, dict) or grant.get("grant_id") != grant_id
+                    or grant.get("status") not in ACTION_GRANT_STATUSES):
+                raise StoreCorruptionError(f"case {case_id} action grant is invalid")
+            digest = grant.get("grant_sha256")
+            body = {name: value for name, value in grant.items() if name != "grant_sha256"}
+            if digest != canonical_json_sha256(body):
+                raise StoreCorruptionError(f"case {case_id} action grant digest is invalid")
+    quarantine = case.get("terminal_quarantine")
+    if quarantine is not None:
+        if not isinstance(quarantine, dict) or quarantine.get("protocol_version") != TERMINAL_QUARANTINE_PROTOCOL_VERSION:
+            raise StoreCorruptionError(f"case {case_id} terminal quarantine is invalid")
+        digest = quarantine.get("record_sha256")
+        body = {name: value for name, value in quarantine.items() if name != "record_sha256"}
+        if digest != canonical_json_sha256(body):
+            raise StoreCorruptionError(f"case {case_id} terminal quarantine digest is invalid")
+    generation_abort = case.get("runtime_generation_abort")
+    if generation_abort is not None:
+        if (
+            not isinstance(generation_abort, dict)
+            or generation_abort.get("protocol_version")
+            != RUNTIME_GENERATION_ABORT_PROTOCOL_VERSION
+        ):
+            raise StoreCorruptionError(f"case {case_id} runtime generation abort is invalid")
+        digest = generation_abort.get("record_sha256")
+        body = {
+            name: value
+            for name, value in generation_abort.items()
+            if name != "record_sha256"
+        }
+        if digest != canonical_json_sha256(body):
+            raise StoreCorruptionError(
+                f"case {case_id} runtime generation abort digest is invalid"
+            )
+    generation_attempt = case.get("runtime_generation_attempt")
+    if generation_attempt is not None:
+        expected = {
+            "protocol_version", "schema_version", "attempt_id", "grant_id",
+            "controller_spec_sha256", "status", "claimed_at", "finalized_at",
+            "abort_reason_code", "record_sha256",
+        }
+        if not isinstance(generation_attempt, dict) or set(generation_attempt) != expected:
+            raise StoreCorruptionError(
+                f"case {case_id} runtime generation attempt has invalid fields"
+            )
+        if (
+            generation_attempt.get("protocol_version")
+            != RUNTIME_GENERATION_ATTEMPT_PROTOCOL_VERSION
+            or generation_attempt.get("schema_version") != 1
+            or generation_attempt.get("status")
+            not in {"CLAIMED", "GRANT_ISSUED", "ABORTED"}
+        ):
+            raise StoreCorruptionError(
+                f"case {case_id} runtime generation attempt is invalid"
+            )
+        try:
+            require_stable_id(generation_attempt.get("attempt_id"), "attempt id")
+            require_stable_id(generation_attempt.get("grant_id"), "grant id")
+            require_snapshot_hash(str(generation_attempt.get("controller_spec_sha256", "")))
+            require_utc_timestamp(generation_attempt.get("claimed_at"), "claimed_at")
+            status = generation_attempt["status"]
+            if status == "CLAIMED":
+                if (
+                    generation_attempt.get("finalized_at") is not None
+                    or generation_attempt.get("abort_reason_code") is not None
+                ):
+                    raise ValidationError("claimed runtime generation attempt is finalized")
+            else:
+                require_utc_timestamp(generation_attempt.get("finalized_at"), "finalized_at")
+                expected_reason = (
+                    "CONTROLLER_GENERATION_ABANDONED" if status == "ABORTED" else None
+                )
+                if generation_attempt.get("abort_reason_code") != expected_reason:
+                    raise ValidationError("runtime generation attempt final reason is invalid")
+        except ValidationError as exc:
+            raise StoreCorruptionError(
+                f"case {case_id} runtime generation attempt is invalid"
+            ) from exc
+        digest = generation_attempt.get("record_sha256")
+        body = {
+            name: value
+            for name, value in generation_attempt.items()
+            if name != "record_sha256"
+        }
+        if digest != canonical_json_sha256(body):
+            raise StoreCorruptionError(
+                f"case {case_id} runtime generation attempt digest is invalid"
+            )
 
 
 def _validate_store(data: Any) -> None:
@@ -446,6 +1224,7 @@ def _validate_store(data: Any) -> None:
         for required in ("candidate", "findings", "repair", "closure", "control", "events", "bindings"):
             if not isinstance(case.get(required), dict):
                 raise StoreCorruptionError(f"case {case_id} {required} must be an object")
+        _validate_additive_case_records(case_id, case)
         bindings = case["bindings"]
         if set(bindings) != BINDING_KINDS:
             raise StoreCorruptionError(f"case {case_id} bindings must contain every canonical binding kind")
@@ -595,6 +1374,9 @@ class CaseStore:
             )
         self.path = self.state_root / STORE_FILENAME
         self.lock_path = self.state_root / LOCK_FILENAME
+        self.quarantine_audit_path = self.state_root / QUARANTINE_AUDIT_FILENAME
+        self.quarantine_backup_root = self.state_root / QUARANTINE_BACKUP_DIRECTORY
+        self.action_artifact_root = self.state_root / ACTION_ARTIFACT_DIRECTORY
 
     def _read_unlocked(self) -> dict[str, Any]:
         if not self.path.exists():
@@ -612,9 +1394,8 @@ class CaseStore:
         handle, raw_path = tempfile.mkstemp(prefix=f"{STORE_FILENAME}.", suffix=".tmp", dir=self.state_root)
         temp_path = Path(raw_path)
         try:
-            with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
-                json.dump(data, stream, ensure_ascii=False, indent=2, sort_keys=True)
-                stream.write("\n")
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(serialized_store_bytes(data))
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temp_path, self.path)
@@ -627,6 +1408,110 @@ class CaseStore:
         finally:
             if temp_path.exists():
                 temp_path.unlink()
+
+    def _quarantine_audit_records_unlocked(self) -> list[dict[str, Any]]:
+        if not self.quarantine_audit_path.exists():
+            return []
+        if (self.quarantine_audit_path.is_symlink()
+                or not self.quarantine_audit_path.is_file()
+                or path_contains_link_or_reparse(
+                    self.quarantine_audit_path, stop=self.state_root
+                )):
+            raise StoreCorruptionError("quarantine audit path must be a regular file")
+        records: list[dict[str, Any]] = []
+        previous = "0" * 64
+        try:
+            lines = self.quarantine_audit_path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise StoreCorruptionError(f"cannot read quarantine audit: {exc}") from exc
+        for sequence, line in enumerate(lines, start=1):
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise StoreCorruptionError(f"quarantine audit line {sequence} is invalid JSON") from exc
+            if (not isinstance(record, dict)
+                    or record.get("protocol_version") != QUARANTINE_AUDIT_PROTOCOL_VERSION
+                    or record.get("sequence") != sequence
+                    or record.get("previous_event_sha256") != previous):
+                raise StoreCorruptionError(f"quarantine audit chain mismatch at line {sequence}")
+            body = {name: value for name, value in record.items() if name != "event_sha256"}
+            if record.get("event_sha256") != canonical_json_sha256(body):
+                raise StoreCorruptionError(f"quarantine audit digest mismatch at line {sequence}")
+            previous = record["event_sha256"]
+            records.append(record)
+        return records
+
+    def _append_quarantine_audit_unlocked(
+        self,
+        event: Mapping[str, Any],
+        records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        self.state_root.mkdir(parents=True, exist_ok=True)
+        if path_contains_link_or_reparse(self.quarantine_audit_path, stop=self.state_root):
+            raise StoreCorruptionError("quarantine audit path must not traverse a link or reparse point")
+        if self.quarantine_audit_path.exists() and (
+            self.quarantine_audit_path.is_symlink() or not self.quarantine_audit_path.is_file()
+        ):
+            raise StoreCorruptionError("quarantine audit path must be a regular file")
+        body = {
+            "protocol_version": QUARANTINE_AUDIT_PROTOCOL_VERSION,
+            "sequence": len(records) + 1,
+            "previous_event_sha256": records[-1]["event_sha256"] if records else "0" * 64,
+            **dict(event),
+        }
+        record = {**body, "event_sha256": canonical_json_sha256(body)}
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        descriptor = os.open(self.quarantine_audit_path, flags, 0o600)
+        try:
+            with os.fdopen(descriptor, "ab", closefd=False) as stream:
+                stream.write(canonical_json_bytes(record) + b"\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            os.close(descriptor)
+        records.append(record)
+        return record
+
+    def _seal_action_artifact_unlocked(
+        self,
+        case_id: str,
+        grant_id: str,
+        artifact_kind: str,
+        proposal_path: Path,
+        *,
+        expected_size: int,
+        expected_sha256: str,
+    ) -> tuple[str, str, dict[str, Any]]:
+        if self.state_root.exists() and path_contains_link_or_reparse(self.state_root):
+            raise StoreCorruptionError("state root must not traverse a link or reparse point")
+        artifact_directory = self.action_artifact_root / case_id
+        artifact_directory.mkdir(parents=True, exist_ok=True)
+        if path_contains_link_or_reparse(artifact_directory, stop=self.state_root):
+            raise StoreCorruptionError("action artifact directory must not traverse a link or reparse point")
+        raw = proposal_path.read_bytes()
+        if len(raw) != expected_size or hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise AuthorizationError("proposal artifact changed before it could be sealed")
+        artifact_name = hashlib.sha256(
+            f"{grant_id}\0{require_stable_id(artifact_kind, 'artifact kind')}".encode("utf-8")
+        ).hexdigest() + ".bin"
+        artifact_path = artifact_directory / artifact_name
+        if artifact_path.exists():
+            if (artifact_path.is_symlink() or not artifact_path.is_file()
+                    or artifact_path.read_bytes() != raw):
+                raise StoreCorruptionError("existing sealed action artifact differs from the exact proposal")
+        else:
+            descriptor = os.open(artifact_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            try:
+                with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                    stream.write(raw)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            finally:
+                os.close(descriptor)
+        if file_sha256(artifact_path) != expected_sha256:
+            raise StoreCorruptionError("sealed action artifact digest verification failed")
+        identity = regular_file_identity(artifact_path, stop=self.state_root)
+        return artifact_path.relative_to(self.state_root).as_posix(), expected_sha256, identity
 
     def _read(self) -> dict[str, Any]:
         return self._read_unlocked()
@@ -726,6 +1611,26 @@ class CaseStore:
                 result = copy.deepcopy(prior["result"])
                 result["idempotent"] = True
                 return result
+            runtime = original.get("runtime")
+            action_grants = runtime.get("action_grants", {}) if isinstance(runtime, dict) else {}
+            active_grants = [
+                grant
+                for grant in action_grants.values()
+                if isinstance(grant, dict) and grant.get("status") in {"ISSUED", "CLAIMED"}
+            ]
+            if active_grants:
+                if len(active_grants) != 1:
+                    raise StoreCorruptionError("canonical case contains multiple active action grants")
+                active_status = active_grants[0]["status"]
+                allowed = (
+                    {"claim_action_grant", "fail_action_grant"}
+                    if active_status == "ISSUED"
+                    else {"complete_action_grant", "fail_action_grant"}
+                )
+                if operation not in allowed:
+                    raise AuthorizationError(
+                        f"case mutation {operation} is blocked while an action grant is {active_status}"
+                    )
             if expected_revision != original["revision"]:
                 raise RevisionConflict(
                     f"case {case_id} expected revision {expected_revision}, found {original['revision']}"
@@ -918,19 +1823,132 @@ class CaseStore:
             callback=change,
         )
 
-    def start_review(self, case_id: str, *, request_id: str, expected_revision: int) -> dict[str, Any]:
+    @staticmethod
+    def _normalize_review_cohort(case: Mapping[str, Any], cohort: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(cohort, Mapping):
+            raise ValidationError("review cohort must be an object")
+        required_fields = {
+            "protocol_version", "schema_version", "cohort_id", "required_receipt", "reviewers",
+        }
+        if set(cohort) != required_fields:
+            raise ValidationError("review cohort must use the fixed ccos-review-cohort-v1 schema")
+        if cohort.get("protocol_version") != REVIEW_COHORT_PROTOCOL_VERSION or cohort.get("schema_version") != 1:
+            raise ValidationError("review cohort protocol or schema version is unsupported")
+        cohort_id = _nonempty(cohort.get("cohort_id"), "review cohort id", 128)
+        if not FINDING_ID_PATTERN.fullmatch(cohort_id):
+            raise ValidationError("review cohort id must be a stable identifier")
+        receipt_contract = cohort.get("required_receipt")
+        if receipt_contract != {
+            "protocol_version": REVIEW_COMPLETION_PROTOCOL_VERSION,
+            "schema_version": 1,
+        }:
+            raise ValidationError("review cohort requires the fixed ccos-review-completion-v1 receipt")
+        reviewers = cohort.get("reviewers")
+        if not isinstance(reviewers, list) or not reviewers:
+            raise ValidationError("review cohort must contain at least one required reviewer")
+        normalized_reviewers: list[dict[str, Any]] = []
+        reviewer_ids: set[str] = set()
+        thread_ids: set[str] = set()
+        assigned_repositories: set[str] = set()
+        expected_fields = {
+            "reviewer_id", "reviewer_role", "thread_id", "repository", "reviewed_head",
+            "snapshot", "scope", "scope_sha256", "required",
+        }
+        for raw in reviewers:
+            if not isinstance(raw, Mapping) or set(raw) != expected_fields:
+                raise ValidationError("reviewer assignment must use the fixed cohort schema")
+            reviewer_id = _nonempty(raw.get("reviewer_id"), "reviewer id", 128)
+            if not FINDING_ID_PATTERN.fullmatch(reviewer_id) or reviewer_id in reviewer_ids:
+                raise ValidationError("reviewer ids must be stable and unique")
+            if raw.get("reviewer_role") != "review_child":
+                raise ValidationError("declared reviewer role must be review_child")
+            thread_id = normalize_binding("thread", str(raw.get("thread_id", "")))
+            if thread_id in thread_ids:
+                raise ValidationError("reviewer thread ids must be unique")
+            if thread_id not in case["bindings"]["thread"]:
+                raise AuthorizationError("declared reviewer thread is not canonically bound to the case")
+            runtime = case.get("runtime")
+            if isinstance(runtime, Mapping) and thread_id in runtime.get("actors", {}):
+                if runtime["actors"][thread_id].get("role") != "review_child":
+                    raise AuthorizationError("declared reviewer thread has a different canonical runtime role")
+            repository = normalize_repo_url(str(raw.get("repository", "")))
+            head = require_sha(str(raw.get("reviewed_head", "")), "reviewed head")
+            if case["candidate"]["review_heads"].get(repository) != head:
+                raise ValidationError("reviewer assignment head must match the frozen candidate head")
+            snapshot = raw.get("snapshot")
+            normalized_snapshot = CaseStore._normalize_snapshots(
+                {repository: snapshot}, {repository: head}
+            )[repository]
+            frozen_snapshot = case["candidate"]["review_snapshots"].get(repository)
+            comparable_frozen = (
+                {**frozen_snapshot, "head": head}
+                if isinstance(frozen_snapshot, Mapping) and "head" not in frozen_snapshot
+                else frozen_snapshot
+            )
+            if normalized_snapshot != comparable_frozen:
+                raise ValidationError("reviewer assignment snapshot must match the frozen candidate snapshot")
+            scope = _nonempty(raw.get("scope"), "reviewer scope", 4096)
+            scope_sha256 = require_snapshot_hash(str(raw.get("scope_sha256", "")))
+            if scope_sha256 != hashlib.sha256(scope.encode("utf-8")).hexdigest():
+                raise ValidationError("reviewer scope_sha256 must match the exact assigned scope")
+            if raw.get("required") is not True:
+                raise ValidationError("every declared cohort reviewer must be required")
+            normalized_reviewers.append({
+                "reviewer_id": reviewer_id,
+                "reviewer_role": "review_child",
+                "thread_id": thread_id,
+                "repository": repository,
+                "reviewed_head": head,
+                "snapshot": normalized_snapshot,
+                "scope": scope,
+                "scope_sha256": scope_sha256,
+                "required": True,
+            })
+            reviewer_ids.add(reviewer_id)
+            thread_ids.add(thread_id)
+            assigned_repositories.add(repository)
+        if assigned_repositories != set(case["candidate"]["review_heads"]):
+            raise ValidationError("review cohort must cover every frozen candidate repository")
+        normalized_reviewers.sort(key=lambda item: item["reviewer_id"])
+        return {
+            "protocol_version": REVIEW_COHORT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "cohort_id": cohort_id,
+            "required_receipt": {
+                "protocol_version": REVIEW_COMPLETION_PROTOCOL_VERSION,
+                "schema_version": 1,
+            },
+            "reviewers": normalized_reviewers,
+        }
+
+    def start_review(
+        self,
+        case_id: str,
+        *,
+        cohort: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
             self._require_state(case, "CANDIDATE_FROZEN", "start_review")
             if case["limits"]["review_cohorts"] >= 1:
                 raise LimitError("case already consumed its one review cohort")
+            normalized = self._normalize_review_cohort(case, cohort)
+            declared = {**normalized, "declared_at": utc_now()}
+            declared["cohort_sha256"] = canonical_json_sha256(normalized)
+            case["review"] = {"cohort": declared, "receipts": {}}
             case["limits"]["review_cohorts"] += 1
             case["state"] = "REVIEW_COLLECTING"
-            return {}
+            return {
+                "cohort_id": declared["cohort_id"],
+                "cohort_sha256": declared["cohort_sha256"],
+                "required_reviewer_ids": [item["reviewer_id"] for item in declared["reviewers"]],
+            }
 
         return self._mutate(
             case_id,
             operation="start_review",
-            payload={},
+            payload={"cohort": cohort},
             request_id=request_id,
             expected_revision=expected_revision,
             callback=change,
@@ -972,6 +1990,19 @@ class CaseStore:
                 raise ConflictError(f"finding id already exists in case: {normalized['id']}")
             item = copy.deepcopy(normalized)
             if case["state"] == "REVIEW_COLLECTING":
+                review = case.get("review")
+                cohort = review.get("cohort") if isinstance(review, Mapping) else None
+                if cohort is not None:
+                    assignment = next(
+                        (record for record in cohort["reviewers"] if record["reviewer_id"] == item["source"]),
+                        None,
+                    )
+                    if assignment is None:
+                        raise AuthorizationError("finding source is not a declared reviewer")
+                    if item["source"] in review["receipts"]:
+                        raise ConflictError("reviewer already submitted a completion receipt")
+                    if item["repo"] != assignment["repository"]:
+                        raise ValidationError("finding repository differs from the reviewer assignment")
                 expected_head = case["candidate"]["review_heads"].get(item["repo"])
                 if expected_head != item["reviewed_sha"]:
                     item["reported_classification"] = item["classification"]
@@ -1002,11 +2033,208 @@ class CaseStore:
             callback=change,
         )
 
+    def _normalize_review_completion(
+        self,
+        case: Mapping[str, Any],
+        completion: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        if not isinstance(completion, Mapping):
+            raise ValidationError("review completion must be an object")
+        expected_fields = {
+            "protocol_version", "schema_version", "case_id", "cohort_id", "reviewer_id",
+            "reviewer_role", "thread_id", "completed_turn_id", "repository", "reviewed_head",
+            "snapshot", "scope", "scope_sha256", "completion_state", "findings", "finding_ids",
+            "completed_at", "native_completion_evidence_sha256",
+        }
+        if set(completion) != expected_fields:
+            raise ValidationError("review completion must use the fixed ccos-review-completion-v1 schema")
+        if (completion.get("protocol_version") != REVIEW_COMPLETION_PROTOCOL_VERSION
+                or completion.get("schema_version") != 1):
+            raise ValidationError("review completion protocol or schema version is unsupported")
+        if canonical_case_id(str(completion.get("case_id", ""))) != case["case_id"]:
+            raise ValidationError("review completion case_id differs from the canonical case")
+        review = case.get("review")
+        cohort = review.get("cohort") if isinstance(review, Mapping) else None
+        if not isinstance(cohort, Mapping):
+            raise AuthorizationError("no review cohort was declared")
+        cohort_id = _nonempty(completion.get("cohort_id"), "review cohort id", 128)
+        if cohort_id != cohort["cohort_id"]:
+            raise ValidationError("review completion cohort_id differs from the frozen cohort")
+        reviewer_id = _nonempty(completion.get("reviewer_id"), "reviewer id", 128)
+        assignment = next(
+            (record for record in cohort["reviewers"] if record["reviewer_id"] == reviewer_id),
+            None,
+        )
+        if assignment is None:
+            raise AuthorizationError("review completion reviewer is not in the frozen cohort")
+        if completion.get("reviewer_role") != assignment["reviewer_role"]:
+            raise AuthorizationError("review completion role differs from the frozen assignment")
+        thread_id = normalize_binding("thread", str(completion.get("thread_id", "")))
+        if thread_id != assignment["thread_id"]:
+            raise AuthorizationError("review completion thread differs from the frozen assignment")
+        completed_turn_id = _nonempty(completion.get("completed_turn_id"), "completed turn id", 256)
+        repository = normalize_repo_url(str(completion.get("repository", "")))
+        if repository != assignment["repository"]:
+            raise ValidationError("review completion repository differs from the frozen assignment")
+        reviewed_head = require_sha(str(completion.get("reviewed_head", "")), "reviewed head")
+        if reviewed_head != assignment["reviewed_head"]:
+            raise ValidationError("review completion head differs from the frozen assignment")
+        snapshot = self._normalize_snapshots(
+            {repository: completion.get("snapshot")}, {repository: reviewed_head}
+        )[repository]
+        if snapshot != assignment["snapshot"]:
+            raise ValidationError("review completion snapshot differs from the frozen assignment")
+        scope = _nonempty(completion.get("scope"), "review scope", 4096)
+        if scope != assignment["scope"]:
+            raise ValidationError("review completion scope differs from the frozen assignment")
+        scope_sha256 = require_snapshot_hash(str(completion.get("scope_sha256", "")))
+        if scope_sha256 != assignment["scope_sha256"] or scope_sha256 != hashlib.sha256(
+            scope.encode("utf-8")
+        ).hexdigest():
+            raise ValidationError("review completion scope digest differs from the frozen assignment")
+        completion_state = _nonempty(completion.get("completion_state"), "completion state", 32).upper()
+        if completion_state not in REVIEW_COMPLETION_STATES:
+            raise ValidationError("review completion state must be COMPLETED, FAILED, or INCOMPLETE")
+        raw_findings = completion.get("findings")
+        raw_ids = completion.get("finding_ids")
+        if not isinstance(raw_findings, list) or not isinstance(raw_ids, list):
+            raise ValidationError("review completion findings and finding_ids must be arrays")
+        normalized_findings = [self._normalize_finding(item) for item in raw_findings]
+        finding_ids = sorted({_nonempty(item, "finding id", 128) for item in raw_ids})
+        if len(finding_ids) != len(raw_ids):
+            raise ValidationError("review completion finding_ids must be unique and sorted")
+        if completion_state != "COMPLETED" and (normalized_findings or finding_ids):
+            raise ValidationError("failed or incomplete review completion cannot report findings")
+        for finding in normalized_findings:
+            if (finding["source"] != reviewer_id or finding["repo"] != repository
+                    or finding["reviewed_sha"] != reviewed_head):
+                raise ValidationError("completion findings must match the exact reviewer assignment")
+        normalized = {
+            "protocol_version": REVIEW_COMPLETION_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "case_id": case["case_id"],
+            "cohort_id": cohort_id,
+            "reviewer_id": reviewer_id,
+            "reviewer_role": assignment["reviewer_role"],
+            "thread_id": thread_id,
+            "completed_turn_id": completed_turn_id,
+            "repository": repository,
+            "reviewed_head": reviewed_head,
+            "snapshot": snapshot,
+            "scope": scope,
+            "scope_sha256": scope_sha256,
+            "completion_state": completion_state,
+            "finding_ids": finding_ids,
+            "completed_at": require_utc_timestamp(completion.get("completed_at"), "completed_at"),
+            "native_completion_evidence_sha256": require_snapshot_hash(
+                str(completion.get("native_completion_evidence_sha256", ""))
+            ),
+        }
+        return normalized, normalized_findings
+
+    def submit_review_completion(
+        self,
+        case_id: str,
+        *,
+        completion: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        request_id = require_request_id(request_id)
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(case, "REVIEW_COLLECTING", "submit_review_completion")
+            normalized, new_findings = self._normalize_review_completion(case, completion)
+            reviewer_id = normalized["reviewer_id"]
+            review = case["review"]
+            if reviewer_id in review["receipts"]:
+                raise ConflictError("reviewer already submitted a completion receipt")
+            existing_ids = {
+                item["id"] for item in case["findings"]["items"] + case["findings"]["late"]
+            }
+            new_ids = [item["id"] for item in new_findings]
+            if len(new_ids) != len(set(new_ids)) or existing_ids.intersection(new_ids):
+                raise ConflictError("review completion contains a duplicate finding id")
+            attributed = sorted(
+                item["id"] for item in case["findings"]["items"] if item["source"] == reviewer_id
+            )
+            expected_ids = sorted([*attributed, *new_ids])
+            if normalized["finding_ids"] != expected_ids:
+                raise ValidationError(
+                    "review completion finding_ids must exactly cover every finding attributed to that reviewer"
+                )
+            for finding in new_findings:
+                item = copy.deepcopy(finding)
+                expected_head = case["candidate"]["review_heads"].get(item["repo"])
+                if expected_head != item["reviewed_sha"]:
+                    item["reported_classification"] = item["classification"]
+                    item["classification"] = "INVALID_OR_STALE"
+                    item["stale_reason"] = (
+                        f"reviewed_sha {item['reviewed_sha']} does not match frozen head {expected_head or 'missing'}"
+                    )
+                item["authorizing"] = item["classification"] == "CURRENT_BLOCKER"
+                item["late"] = False
+                case["findings"]["items"].append(item)
+            recorded = {
+                **normalized,
+                "request_id": request_id,
+                "recorded_at": utc_now(),
+            }
+            recorded["receipt_sha256"] = canonical_json_sha256(recorded)
+            review["receipts"][reviewer_id] = recorded
+            return {
+                "cohort_id": normalized["cohort_id"],
+                "reviewer_id": reviewer_id,
+                "completion_state": normalized["completion_state"],
+                "finding_ids": normalized["finding_ids"],
+                "receipt_sha256": recorded["receipt_sha256"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="submit_review_completion",
+            payload={"completion": completion},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
     def freeze_findings(self, case_id: str, *, request_id: str, expected_revision: int) -> dict[str, Any]:
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
             self._require_state(case, "REVIEW_COLLECTING", "freeze_findings")
             if case["findings"]["frozen"]:
                 raise LimitError("findings have already been frozen")
+            review = case.get("review")
+            cohort = review.get("cohort") if isinstance(review, Mapping) else None
+            if not isinstance(cohort, Mapping) or not cohort.get("reviewers"):
+                raise AuthorizationError("findings cannot be frozen without a declared nonempty review cohort")
+            if case["control"].get("active_failure") is not None:
+                raise ControlFailureError("findings cannot be frozen while a control failure remains active")
+            required_ids = [item["reviewer_id"] for item in cohort["reviewers"]]
+            receipts = review.get("receipts")
+            if not isinstance(receipts, Mapping):
+                raise StoreCorruptionError("review receipts are unavailable")
+            missing = sorted(set(required_ids) - set(receipts))
+            unexpected = sorted(set(receipts) - set(required_ids))
+            if missing:
+                raise AuthorizationError("missing required review receipts: " + ", ".join(missing))
+            if unexpected:
+                raise AuthorizationError("unexpected review receipts: " + ", ".join(unexpected))
+            unsuccessful = sorted(
+                reviewer_id
+                for reviewer_id, receipt in receipts.items()
+                if receipt.get("completion_state") != "COMPLETED"
+            )
+            if unsuccessful:
+                raise AuthorizationError("review cohort is incomplete or failed: " + ", ".join(unsuccessful))
+            receipt_finding_ids: list[str] = []
+            for reviewer_id in required_ids:
+                receipt_finding_ids.extend(receipts[reviewer_id]["finding_ids"])
+            if len(receipt_finding_ids) != len(set(receipt_finding_ids)):
+                raise ConflictError("a finding id appears in more than one completion receipt")
+            recorded_ids = sorted(item["id"] for item in case["findings"]["items"])
+            if sorted(receipt_finding_ids) != recorded_ids:
+                raise AuthorizationError("completion receipts do not exactly cover the recorded current findings")
             case["findings"]["frozen"] = True
             case["findings"]["frozen_ids"] = [item["id"] for item in case["findings"]["items"]]
             case["state"] = "FINDINGS_FROZEN"
@@ -1015,7 +2243,15 @@ class CaseStore:
                 for item in case["findings"]["items"]
                 if item["classification"] == "CURRENT_BLOCKER" and item["authorizing"]
             ]
-            return {"frozen_ids": case["findings"]["frozen_ids"], "current_blocker_ids": blockers}
+            return {
+                "cohort_id": cohort["cohort_id"],
+                "cohort_sha256": cohort["cohort_sha256"],
+                "receipt_sha256s": {
+                    reviewer_id: receipts[reviewer_id]["receipt_sha256"] for reviewer_id in sorted(receipts)
+                },
+                "frozen_ids": case["findings"]["frozen_ids"],
+                "current_blocker_ids": blockers,
+            }
 
         return self._mutate(
             case_id,
@@ -1366,6 +2602,2099 @@ class CaseStore:
             callback=change,
         )
 
+    @staticmethod
+    def _runtime_record(case: dict[str, Any], *, create: bool) -> dict[str, Any]:
+        runtime = case.get("runtime")
+        if runtime is None and create:
+            runtime = {"actors": {}, "action_grants": {}}
+            case["runtime"] = runtime
+        if not isinstance(runtime, dict) or set(runtime) != {"actors", "action_grants"}:
+            raise StoreCorruptionError("case runtime record is unavailable or invalid")
+        return runtime
+
+    def claim_runtime_generation_attempt(
+        self,
+        case_id: str,
+        *,
+        attempt: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "attempt_id", "grant_id",
+            "controller_spec_sha256",
+        }
+        if not isinstance(attempt, Mapping) or set(attempt) != expected_fields:
+            raise ValidationError("runtime generation attempt must use the fixed schema")
+        if (
+            attempt.get("protocol_version")
+            != RUNTIME_GENERATION_ATTEMPT_PROTOCOL_VERSION
+            or attempt.get("schema_version") != 1
+        ):
+            raise AuthorizationError("runtime generation attempt protocol is unauthorized")
+        normalized = {
+            "protocol_version": RUNTIME_GENERATION_ATTEMPT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "attempt_id": require_stable_id(attempt.get("attempt_id"), "attempt id"),
+            "grant_id": require_stable_id(attempt.get("grant_id"), "grant id"),
+            "controller_spec_sha256": require_snapshot_hash(
+                str(attempt.get("controller_spec_sha256", ""))
+            ),
+        }
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(case, "IMPLEMENTING", "claim_runtime_generation_attempt")
+            runtime = self._runtime_record(case, create=True)
+            if runtime["action_grants"]:
+                raise LimitError("runtime generation cannot start after a grant exists")
+            if case.get("runtime_generation_abort") is not None:
+                raise LimitError("runtime generation was already terminally aborted")
+            if case.get("runtime_generation_attempt") is not None:
+                raise LimitError("runtime generation attempt was already consumed")
+            record = {
+                **normalized,
+                "status": "CLAIMED",
+                "claimed_at": utc_now(),
+                "finalized_at": None,
+                "abort_reason_code": None,
+            }
+            record["record_sha256"] = canonical_json_sha256(record)
+            case["runtime_generation_attempt"] = record
+            return {
+                "attempt_id": record["attempt_id"],
+                "grant_id": record["grant_id"],
+                "status": "CLAIMED",
+                "record_sha256": record["record_sha256"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="claim_runtime_generation_attempt",
+            payload={"attempt": normalized},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    def abort_runtime_generation_attempt(
+        self,
+        case_id: str,
+        *,
+        attempt_id: str,
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        normalized_attempt_id = require_stable_id(attempt_id, "attempt id")
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(case, "IMPLEMENTING", "abort_runtime_generation_attempt")
+            runtime = self._runtime_record(case, create=False)
+            if runtime["action_grants"]:
+                raise AuthorizationError(
+                    "runtime generation attempt abort requires no canonical action grant"
+                )
+            attempt = case.get("runtime_generation_attempt")
+            if not isinstance(attempt, dict) or attempt.get("status") != "CLAIMED":
+                raise LimitError("runtime generation attempt is not claimable for abort")
+            if attempt.get("attempt_id") != normalized_attempt_id:
+                raise AuthorizationError("runtime generation attempt identity differs")
+            attempt["status"] = "ABORTED"
+            attempt["finalized_at"] = utc_now()
+            attempt["abort_reason_code"] = "CONTROLLER_GENERATION_ABANDONED"
+            attempt["record_sha256"] = canonical_json_sha256(
+                {name: value for name, value in attempt.items() if name != "record_sha256"}
+            )
+            case["state"] = "CASE_LOCKED"
+            case["resumable_state"] = None
+            case["lock_reason"] = "CONTROLLER_GENERATION_ABANDONED"
+            return {
+                "attempt_id": normalized_attempt_id,
+                "status": "ABORTED",
+                "record_sha256": attempt["record_sha256"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="abort_runtime_generation_attempt",
+            payload={"attempt_id": normalized_attempt_id},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    def abort_runtime_generation(
+        self,
+        case_id: str,
+        *,
+        evidence: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "grant_id",
+            "snapshot_event_sha256", "lockdown_intent_event_sha256",
+            "acl_restored_event_sha256", "reason_code",
+        }
+        if not isinstance(evidence, Mapping) or set(evidence) != expected_fields:
+            raise ValidationError(
+                "runtime generation abort evidence must use the fixed schema"
+            )
+        if (
+            evidence.get("protocol_version")
+            != RUNTIME_GENERATION_ABORT_PROTOCOL_VERSION
+            or evidence.get("schema_version") != 1
+            or evidence.get("reason_code") != "PREISSUE_GENERATION_ABANDONED"
+        ):
+            raise AuthorizationError(
+                "runtime generation abort protocol or reason is unauthorized"
+            )
+        normalized = {
+            "protocol_version": RUNTIME_GENERATION_ABORT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "grant_id": require_stable_id(evidence.get("grant_id"), "grant id"),
+            "snapshot_event_sha256": require_snapshot_hash(
+                str(evidence.get("snapshot_event_sha256", ""))
+            ),
+            "lockdown_intent_event_sha256": require_snapshot_hash(
+                str(evidence.get("lockdown_intent_event_sha256", ""))
+            ),
+            "acl_restored_event_sha256": require_snapshot_hash(
+                str(evidence.get("acl_restored_event_sha256", ""))
+            ),
+            "reason_code": "PREISSUE_GENERATION_ABANDONED",
+        }
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(case, "IMPLEMENTING", "abort_runtime_generation")
+            runtime = self._runtime_record(case, create=False)
+            if runtime["action_grants"]:
+                raise AuthorizationError(
+                    "preissue generation abort requires no canonical action grant"
+                )
+            if case.get("runtime_generation_abort") is not None:
+                raise LimitError("runtime generation was already terminally consumed")
+            record = {
+                **normalized,
+                "aborted_at": utc_now(),
+            }
+            record["record_sha256"] = canonical_json_sha256(record)
+            case["runtime_generation_abort"] = record
+            case["state"] = "CASE_LOCKED"
+            case["resumable_state"] = None
+            case["lock_reason"] = "PREISSUE_GENERATION_ABANDONED"
+            return {
+                "grant_id": normalized["grant_id"],
+                "reason_code": "PREISSUE_GENERATION_ABANDONED",
+                "record_sha256": record["record_sha256"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="abort_runtime_generation",
+            payload={"evidence": normalized},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    @staticmethod
+    def _normalize_runtime_actor(actor: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(actor, Mapping) or set(actor) != {
+            "protocol_version",
+            "schema_version",
+            "thread_id",
+            "controller_assigned_role",
+            "parent_thread_id",
+            "agent_path",
+            "identity_evidence_sha256",
+            "binding_source",
+        }:
+            raise ValidationError("runtime actor must use the fixed ccos-runtime-actor-v1 schema")
+        if actor.get("protocol_version") != RUNTIME_ACTOR_PROTOCOL_VERSION or actor.get("schema_version") != 1:
+            raise ValidationError("runtime actor protocol or schema version is unsupported")
+        thread_id = normalize_binding("thread", str(actor.get("thread_id", "")))
+        role = _nonempty(actor.get("controller_assigned_role"), "controller assigned role", 64)
+        if role not in RUNTIME_ACTOR_ROLES:
+            raise ValidationError("controller assigned role is not a supported runtime role")
+        raw_parent = actor.get("parent_thread_id")
+        parent_thread_id = (
+            None if raw_parent is None else normalize_binding("thread", str(raw_parent))
+        )
+        if role == "parent" and parent_thread_id is not None:
+            raise ValidationError("runtime parent must not name a parent thread")
+        if role != "parent" and parent_thread_id is None:
+            raise ValidationError("runtime child must name its canonical parent thread")
+        if actor.get("binding_source") != "native_thread_read":
+            raise ValidationError("runtime actor binding source must be native_thread_read")
+        return {
+            "protocol_version": RUNTIME_ACTOR_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "thread_id": thread_id,
+            "role": role,
+            "parent_thread_id": parent_thread_id,
+            "agent_path": _nonempty(actor.get("agent_path"), "native agent path", 1024),
+            "identity_evidence_sha256": require_snapshot_hash(
+                str(actor.get("identity_evidence_sha256", ""))
+            ),
+            "binding_source": "native_thread_read",
+        }
+
+    def bind_runtime_actor(
+        self,
+        case_id: str,
+        *,
+        actor: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        normalized = self._normalize_runtime_actor(actor)
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            if case["state"] in {"CLOSED_SUCCESS", "CASE_LOCKED", "CONTROL_FAILURE"}:
+                raise TransitionError(f"runtime actors cannot be bound while case is {case['state']}")
+            if normalized["thread_id"] not in case["bindings"]["thread"]:
+                raise AuthorizationError("runtime actor thread is not canonically bound to this case")
+            runtime = self._runtime_record(case, create=True)
+            actors = runtime["actors"]
+            if normalized["thread_id"] in actors:
+                raise ConflictError("runtime actor thread is already bound")
+            if any(record.get("agent_path") == normalized["agent_path"] for record in actors.values()):
+                raise ConflictError("native agent path is already bound to another runtime actor")
+            role = normalized["role"]
+            if role == "parent":
+                if any(record.get("role") == "parent" for record in actors.values()):
+                    raise LimitError("case already has its canonical runtime parent")
+            else:
+                parent = actors.get(normalized["parent_thread_id"])
+                if not isinstance(parent, Mapping) or parent.get("role") != "parent":
+                    raise AuthorizationError("runtime child parent is not the canonical bound parent")
+                if role in {"implementer_child", "closure_child", "incomplete_child"} and any(
+                    record.get("role") == role for record in actors.values()
+                ):
+                    raise LimitError(f"case already has its canonical {role}")
+            recorded = {**normalized, "bound_at": utc_now()}
+            recorded["actor_sha256"] = canonical_json_sha256(recorded)
+            actors[normalized["thread_id"]] = recorded
+            return {
+                "thread_id": normalized["thread_id"],
+                "controller_assigned_role": role,
+                "actor_sha256": recorded["actor_sha256"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="bind_runtime_actor",
+            payload={"actor": normalized},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    @staticmethod
+    def _normalize_windows_principal_probe(
+        evidence: Mapping[str, Any],
+        *,
+        worktree: str,
+        worker_sid: str,
+        sandbox_group_sid: str,
+        broker_sid: str,
+        base_head: str,
+        protected_roots: Mapping[str, tuple[str, str, str]],
+        expected_status_sha256: str = EMPTY_SHA256,
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "challenge_id", "worker_principal_sid",
+            "worker_identity_name", "worker_group_sids", "protected_roots", "head_before", "head_after",
+            "status_sha256_before", "status_sha256_after", "observed_at",
+        }
+        if not isinstance(evidence, Mapping) or set(evidence) != expected_fields:
+            raise ValidationError(
+                "principal probe must use the fixed ccos-windows-principal-probe-v1 schema"
+            )
+        if (evidence.get("protocol_version") != WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION
+                or evidence.get("schema_version") != 1):
+            raise ValidationError("principal probe protocol or schema version is unsupported")
+        observed_worker = require_windows_sid(
+            evidence.get("worker_principal_sid"), "isolation worker principal SID"
+        )
+        if observed_worker != worker_sid:
+            raise AuthorizationError("isolation evidence names a different worker principal")
+        raw_group_sids = evidence.get("worker_group_sids")
+        if not isinstance(raw_group_sids, list) or not raw_group_sids:
+            raise ValidationError("principal probe worker_group_sids must be a nonempty array")
+        worker_group_sids = sorted(
+            {require_windows_sid(item, "worker group SID") for item in raw_group_sids}
+        )
+        if len(worker_group_sids) != len(raw_group_sids):
+            raise ValidationError("principal probe worker_group_sids must be unique")
+        if sandbox_group_sid not in worker_group_sids:
+            raise AuthorizationError("principal probe does not prove sandbox-group membership")
+        challenge_id = require_stable_id(evidence.get("challenge_id"), "isolation challenge id")
+        raw_roots = evidence.get("protected_roots")
+        if not isinstance(raw_roots, list) or len(raw_roots) != len(PROTECTED_ROOT_KINDS):
+            raise ValidationError("worker isolation evidence must cover every protected root")
+        normalized_roots: list[dict[str, Any]] = []
+        observed_kinds: set[str] = set()
+        root_fields = {
+            "root_kind", "path", "owner_sid", "parent_path", "parent_owner_sid",
+            "anchor_path", "anchor_sha256_before",
+            "anchor_sha256_after", "probe_relative_path", "write_denial_error",
+            "write_denial_native_code", "probe_absent_before", "probe_absent_after",
+            "nested_probe_parent_path", "nested_probe_relative_path",
+            "nested_write_denial_error", "nested_write_denial_native_code",
+            "nested_probe_absent_before", "nested_probe_absent_after",
+            "overwrite_denial_error", "overwrite_denial_native_code",
+            "replace_capability_denial_error", "replace_capability_denial_native_code",
+            "rename_capability_denial_error", "rename_capability_denial_native_code",
+            "hard_link_relative_path", "hard_link_denial_error",
+            "hard_link_denial_native_code", "hard_link_absent_before",
+            "hard_link_absent_after", "anchor_identity_sha256_before",
+            "anchor_identity_sha256_after",
+            "acl_change_nonce", "acl_sddl_sha256_before", "acl_sddl_sha256_after",
+            "change_permissions_denial_error", "change_permissions_denial_native_code",
+            "take_ownership_denial_error", "take_ownership_denial_native_code",
+            "delete_capability_denial_error", "delete_capability_denial_native_code",
+        }
+        for raw_root in raw_roots:
+            if not isinstance(raw_root, Mapping) or set(raw_root) != root_fields:
+                raise ValidationError("protected-root evidence must use the fixed schema")
+            root_kind = str(raw_root.get("root_kind", ""))
+            if root_kind not in PROTECTED_ROOT_KINDS or root_kind in observed_kinds:
+                raise ValidationError("protected-root evidence kind is missing, duplicated, or unknown")
+            expected_path, expected_anchor, expected_sha256 = protected_roots[root_kind]
+            path = normalize_binding("worktree", str(raw_root.get("path", "")))
+            anchor_path = normalize_action_path(raw_root.get("anchor_path"))
+            if path != expected_path or anchor_path != expected_anchor:
+                raise ValidationError(f"{root_kind} evidence differs from the controller-selected root")
+            owner_sid = require_windows_sid(raw_root.get("owner_sid"), f"{root_kind} owner SID")
+            if owner_sid != broker_sid or owner_sid == worker_sid:
+                raise AuthorizationError(f"{root_kind} must be owned by the distinct broker principal")
+            parent_path = normalize_binding("worktree", str(raw_root.get("parent_path", "")))
+            parent_owner_sid = require_windows_sid(
+                raw_root.get("parent_owner_sid"), f"{root_kind} parent owner SID"
+            )
+            expected_parent = normalize_binding("worktree", str(Path(expected_path).parent))
+            if parent_path != expected_parent or parent_owner_sid != broker_sid:
+                raise AuthorizationError(f"{root_kind} parent must be broker-owned and exact")
+            before = require_snapshot_hash(str(raw_root.get("anchor_sha256_before", "")))
+            after = require_snapshot_hash(str(raw_root.get("anchor_sha256_after", "")))
+            if before != expected_sha256 or after != expected_sha256:
+                raise AuthorizationError(f"worker probe changed the {root_kind} anchor")
+            expected_probe = (
+                f".ccos-worker-{root_kind.replace('_root', '')}-probe-"
+                + hashlib.sha256(challenge_id.encode("utf-8")).hexdigest()[:20]
+            )
+            probe_path = normalize_action_path(raw_root.get("probe_relative_path"))
+            if probe_path != expected_probe:
+                raise ValidationError(f"{root_kind} probe path is not challenge-derived")
+            nested_parent_path = normalize_action_path(raw_root.get("nested_probe_parent_path"))
+            root_path = Path(expected_path)
+            nested_parent = root_path.joinpath(*PurePosixPath(nested_parent_path).parts)
+            if (not path_is_within(nested_parent, root_path) or not nested_parent.is_dir()
+                    or nested_parent == root_path
+                    or path_contains_link_or_reparse(nested_parent, stop=root_path)):
+                raise AuthorizationError(
+                    f"{root_kind} nested write probe parent is not an exact direct descendant"
+                )
+            expected_nested_probe = (
+                nested_parent_path
+                + "/.ccos-worker-nested-probe-"
+                + hashlib.sha256((challenge_id + ":" + root_kind).encode("utf-8")).hexdigest()[:20]
+            )
+            nested_probe_path = normalize_action_path(raw_root.get("nested_probe_relative_path"))
+            if nested_probe_path != expected_nested_probe:
+                raise ValidationError(f"{root_kind} nested probe path is not challenge-derived")
+            expected_acl_nonce = hashlib.sha256(
+                (challenge_id + ":" + root_kind + ":acl").encode("utf-8")
+            ).hexdigest()
+            if raw_root.get("acl_change_nonce") != expected_acl_nonce:
+                raise ValidationError(f"{root_kind} ACL probe nonce is not challenge-derived")
+            expected_hard_link = (
+                f".ccos-worker-{root_kind.replace('_root', '')}-hard-link-"
+                + hashlib.sha256(
+                    (challenge_id + ":" + root_kind + ":link").encode("utf-8")
+                ).hexdigest()[:20]
+            )
+            hard_link_path = normalize_action_path(raw_root.get("hard_link_relative_path"))
+            if hard_link_path != expected_hard_link:
+                raise ValidationError(f"{root_kind} hard-link path is not challenge-derived")
+            identity_before = require_snapshot_hash(
+                str(raw_root.get("anchor_identity_sha256_before", ""))
+            )
+            identity_after = require_snapshot_hash(
+                str(raw_root.get("anchor_identity_sha256_after", ""))
+            )
+            if identity_before != identity_after:
+                raise AuthorizationError(
+                    f"worker operation probes changed the {root_kind} anchor identity"
+                )
+            sddl_before = require_snapshot_hash(
+                str(raw_root.get("acl_sddl_sha256_before", ""))
+            )
+            sddl_after = require_snapshot_hash(
+                str(raw_root.get("acl_sddl_sha256_after", ""))
+            )
+            if sddl_before != sddl_after:
+                raise AuthorizationError(f"worker ACL probes changed the {root_kind} security descriptor")
+            denial_pairs = (
+                ("write_denial_error", "write_denial_native_code"),
+                ("nested_write_denial_error", "nested_write_denial_native_code"),
+                ("overwrite_denial_error", "overwrite_denial_native_code"),
+                ("replace_capability_denial_error", "replace_capability_denial_native_code"),
+                ("rename_capability_denial_error", "rename_capability_denial_native_code"),
+                ("hard_link_denial_error", "hard_link_denial_native_code"),
+                ("change_permissions_denial_error", "change_permissions_denial_native_code"),
+                ("take_ownership_denial_error", "take_ownership_denial_native_code"),
+                ("delete_capability_denial_error", "delete_capability_denial_native_code"),
+            )
+            if any(raw_root.get(error_name) != "ACCESS_DENIED" or raw_root.get(code_name) != 5
+                   for error_name, code_name in denial_pairs):
+                raise AuthorizationError(
+                    f"{root_kind} create, nested-create, overwrite, replace, rename, hard-link, permission, ownership, and delete probes must all be denied"
+                )
+            if (raw_root.get("probe_absent_before") is not True
+                    or raw_root.get("probe_absent_after") is not True
+                    or raw_root.get("nested_probe_absent_before") is not True
+                    or raw_root.get("nested_probe_absent_after") is not True
+                    or raw_root.get("hard_link_absent_before") is not True
+                    or raw_root.get("hard_link_absent_after") is not True):
+                raise AuthorizationError(f"worker write probe changed {root_kind}")
+            normalized_roots.append({
+                "root_kind": root_kind,
+                "path": path,
+                "owner_sid": owner_sid,
+                "parent_path": parent_path,
+                "parent_owner_sid": parent_owner_sid,
+                "anchor_path": anchor_path,
+                "anchor_sha256_before": before,
+                "anchor_sha256_after": after,
+                "probe_relative_path": probe_path,
+                "write_denial_error": "ACCESS_DENIED",
+                "write_denial_native_code": 5,
+                "probe_absent_before": True,
+                "probe_absent_after": True,
+                "nested_probe_parent_path": nested_parent_path,
+                "nested_probe_relative_path": nested_probe_path,
+                "nested_write_denial_error": "ACCESS_DENIED",
+                "nested_write_denial_native_code": 5,
+                "nested_probe_absent_before": True,
+                "nested_probe_absent_after": True,
+                "overwrite_denial_error": "ACCESS_DENIED",
+                "overwrite_denial_native_code": 5,
+                "replace_capability_denial_error": "ACCESS_DENIED",
+                "replace_capability_denial_native_code": 5,
+                "rename_capability_denial_error": "ACCESS_DENIED",
+                "rename_capability_denial_native_code": 5,
+                "hard_link_relative_path": hard_link_path,
+                "hard_link_denial_error": "ACCESS_DENIED",
+                "hard_link_denial_native_code": 5,
+                "hard_link_absent_before": True,
+                "hard_link_absent_after": True,
+                "anchor_identity_sha256_before": identity_before,
+                "anchor_identity_sha256_after": identity_after,
+                "acl_change_nonce": expected_acl_nonce,
+                "acl_sddl_sha256_before": sddl_before,
+                "acl_sddl_sha256_after": sddl_after,
+                "change_permissions_denial_error": "ACCESS_DENIED",
+                "change_permissions_denial_native_code": 5,
+                "take_ownership_denial_error": "ACCESS_DENIED",
+                "take_ownership_denial_native_code": 5,
+                "delete_capability_denial_error": "ACCESS_DENIED",
+                "delete_capability_denial_native_code": 5,
+            })
+            observed_kinds.add(root_kind)
+        normalized_roots.sort(key=lambda item: PROTECTED_ROOT_KINDS.index(item["root_kind"]))
+        head_before = require_sha(str(evidence.get("head_before", "")), "probe head before")
+        head_after = require_sha(str(evidence.get("head_after", "")), "probe head after")
+        if head_before != base_head or head_after != base_head:
+            raise AuthorizationError("worker write probe observed Git HEAD drift")
+        expected_status_sha256 = require_snapshot_hash(expected_status_sha256)
+        status_before = require_snapshot_hash(str(evidence.get("status_sha256_before", "")))
+        status_after = require_snapshot_hash(str(evidence.get("status_sha256_after", "")))
+        if status_before != expected_status_sha256 or status_after != expected_status_sha256:
+            raise AuthorizationError(
+                "worker write probe changed the exact expected Git status"
+            )
+        return {
+            "protocol_version": WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "challenge_id": challenge_id,
+            "worker_principal_sid": observed_worker,
+            "worker_identity_name": _nonempty(
+                evidence.get("worker_identity_name"), "worker identity name", 256
+            ),
+            "worker_group_sids": worker_group_sids,
+            "protected_roots": normalized_roots,
+            "head_before": head_before,
+            "head_after": head_after,
+            "status_sha256_before": status_before,
+            "status_sha256_after": status_after,
+            "observed_at": require_utc_timestamp(evidence.get("observed_at"), "probe observed_at"),
+        }
+
+    @staticmethod
+    def _normalize_sandbox_membership_evidence(
+        evidence: Mapping[str, Any],
+        *,
+        app_server_sid: str,
+        model_sandbox_sid: str,
+        sandbox_group_sid: str,
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "sandbox_group_sid", "members",
+            "observed_at",
+        }
+        if not isinstance(evidence, Mapping) or set(evidence) != expected_fields:
+            raise ValidationError(
+                "sandbox membership evidence must use the fixed ccos-windows-sandbox-membership-v1 schema"
+            )
+        if (evidence.get("protocol_version") != WINDOWS_GROUP_MEMBERSHIP_PROTOCOL_VERSION
+                or evidence.get("schema_version") != 1):
+            raise ValidationError("sandbox membership protocol or schema version is unsupported")
+        observed_group = require_windows_sid(
+            evidence.get("sandbox_group_sid"), "sandbox group SID"
+        )
+        if observed_group != sandbox_group_sid:
+            raise AuthorizationError("membership evidence names a different sandbox group")
+        raw_members = evidence.get("members")
+        if not isinstance(raw_members, list) or len(raw_members) != 2:
+            raise ValidationError("membership evidence must contain the Online and Offline principals")
+        expected_members = {
+            "app_server_host": app_server_sid,
+            "model_sandbox": model_sandbox_sid,
+        }
+        normalized_members: list[dict[str, Any]] = []
+        observed_roles: set[str] = set()
+        for raw_member in raw_members:
+            if not isinstance(raw_member, Mapping) or set(raw_member) != {
+                "principal_role", "principal_sid", "group_sids"
+            }:
+                raise ValidationError("sandbox membership member uses an unexpected schema")
+            role = str(raw_member.get("principal_role", ""))
+            if role not in expected_members or role in observed_roles:
+                raise ValidationError("sandbox membership role is missing, duplicated, or unknown")
+            principal_sid = require_windows_sid(
+                raw_member.get("principal_sid"), f"{role} principal SID"
+            )
+            if principal_sid != expected_members[role]:
+                raise AuthorizationError(f"membership evidence names a different {role} principal")
+            raw_groups = raw_member.get("group_sids")
+            if not isinstance(raw_groups, list) or not raw_groups:
+                raise ValidationError(f"{role} membership group_sids must be a nonempty array")
+            group_sids = sorted(
+                {require_windows_sid(item, f"{role} group SID") for item in raw_groups}
+            )
+            if len(group_sids) != len(raw_groups):
+                raise ValidationError(f"{role} membership group_sids must be unique")
+            if sandbox_group_sid not in group_sids:
+                raise AuthorizationError(f"{role} is not proven as a sandbox-group member")
+            normalized_members.append({
+                "principal_role": role,
+                "principal_sid": principal_sid,
+                "group_sids": group_sids,
+            })
+            observed_roles.add(role)
+        normalized_members.sort(
+            key=lambda item: ("app_server_host", "model_sandbox").index(
+                item["principal_role"]
+            )
+        )
+        return {
+            "protocol_version": WINDOWS_GROUP_MEMBERSHIP_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "sandbox_group_sid": sandbox_group_sid,
+            "members": normalized_members,
+            "observed_at": require_utc_timestamp(
+                evidence.get("observed_at"), "membership observed_at"
+            ),
+        }
+
+    @classmethod
+    def _normalize_windows_isolation_evidence(
+        cls,
+        evidence: Mapping[str, Any],
+        *,
+        worktree: str,
+        app_server_sid: str,
+        model_sandbox_sid: str,
+        sandbox_group_sid: str,
+        denied_principal_sids: list[str],
+        broker_sid: str,
+        base_head: str,
+        protected_roots: Mapping[str, tuple[str, str, str]],
+        membership_sha256: str,
+        membership_evidence: Mapping[str, Any],
+        expected_status_sha256: str = EMPTY_SHA256,
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "denied_principal_sids",
+            "membership_evidence_sha256", "principal_probes", "combined_probe_sha256",
+        }
+        if not isinstance(evidence, Mapping) or set(evidence) != expected_fields:
+            raise ValidationError(
+                "isolation evidence must use the fixed ccos-windows-isolation-evidence-v2 schema"
+            )
+        if (evidence.get("protocol_version") != WINDOWS_ISOLATION_EVIDENCE_PROTOCOL_VERSION
+                or evidence.get("schema_version") != 2):
+            raise ValidationError("isolation evidence protocol or schema version is unsupported")
+        if evidence.get("denied_principal_sids") != denied_principal_sids:
+            raise AuthorizationError("isolation evidence denied principals differ from the grant")
+        if evidence.get("membership_evidence_sha256") != membership_sha256:
+            raise AuthorizationError("isolation evidence membership digest differs from the grant")
+        raw_probes = evidence.get("principal_probes")
+        if not isinstance(raw_probes, list) or len(raw_probes) != 2:
+            raise ValidationError("isolation evidence must contain exactly Online and Offline probes")
+        expected = {
+            "app_server_host": app_server_sid,
+            "model_sandbox": model_sandbox_sid,
+        }
+        normalized_probes: list[dict[str, Any]] = []
+        observed: set[str] = set()
+        membership_groups = {
+            item["principal_role"]: item["group_sids"]
+            for item in membership_evidence["members"]
+        }
+        for raw in raw_probes:
+            if not isinstance(raw, Mapping) or set(raw) != {
+                "principal_role", "principal_sid", "probe"
+            }:
+                raise ValidationError("principal probe envelope uses an unexpected schema")
+            role = str(raw.get("principal_role", ""))
+            if role not in expected or role in observed:
+                raise ValidationError("principal probe role is missing, duplicated, or unknown")
+            principal_sid = require_windows_sid(
+                raw.get("principal_sid"), f"{role} probe SID"
+            )
+            if principal_sid != expected[role]:
+                raise AuthorizationError(f"{role} probe envelope names a different principal")
+            normalized_probe = cls._normalize_windows_principal_probe(
+                raw.get("probe"),
+                worktree=worktree,
+                worker_sid=principal_sid,
+                sandbox_group_sid=sandbox_group_sid,
+                broker_sid=broker_sid,
+                base_head=base_head,
+                protected_roots=protected_roots,
+                expected_status_sha256=expected_status_sha256,
+            )
+            if normalized_probe["worker_group_sids"] != membership_groups[role]:
+                raise AuthorizationError(
+                    f"{role} probe token groups differ from membership evidence"
+                )
+            normalized_probes.append({
+                "principal_role": role,
+                "principal_sid": principal_sid,
+                "probe": normalized_probe,
+            })
+            observed.add(role)
+        normalized_probes.sort(
+            key=lambda item: ("app_server_host", "model_sandbox").index(
+                item["principal_role"]
+            )
+        )
+        combined_body = {
+            "denied_principal_sids": denied_principal_sids,
+            "membership_evidence_sha256": membership_sha256,
+            "principal_probes": normalized_probes,
+        }
+        combined_sha256 = require_snapshot_hash(
+            str(evidence.get("combined_probe_sha256", ""))
+        )
+        if combined_sha256 != canonical_json_sha256(combined_body):
+            raise AuthorizationError("isolation evidence combined probe digest is invalid")
+        return {
+            "protocol_version": WINDOWS_ISOLATION_EVIDENCE_PROTOCOL_VERSION,
+            "schema_version": 2,
+            **combined_body,
+            "combined_probe_sha256": combined_sha256,
+        }
+
+    @staticmethod
+    def _normalize_protected_acl_snapshot(
+        snapshot: Any, *, expected_paths: set[str]
+    ) -> list[dict[str, str]]:
+        if not isinstance(snapshot, list) or len(snapshot) != len(expected_paths):
+            raise ValidationError(
+                "protected ACL snapshot must cover every unique root and parent"
+            )
+        normalized: list[dict[str, str]] = []
+        observed: set[str] = set()
+        for raw in snapshot:
+            if not isinstance(raw, Mapping) or set(raw) != {
+                "path", "owner_sid", "sddl", "sddl_sha256", "entry_sha256"
+            }:
+                raise ValidationError("protected ACL snapshot entry uses an unexpected schema")
+            path = normalize_binding("worktree", str(raw.get("path", "")))
+            if path not in expected_paths or path in observed:
+                raise ValidationError("protected ACL snapshot path is missing, duplicated, or unknown")
+            sddl = str(raw.get("sddl", ""))
+            if not sddl or len(sddl) > 262144:
+                raise ValidationError("protected ACL snapshot SDDL is invalid")
+            sddl_sha256 = require_snapshot_hash(str(raw.get("sddl_sha256", "")))
+            if hashlib.sha256(sddl.encode("utf-8")).hexdigest() != sddl_sha256:
+                raise AuthorizationError("protected ACL snapshot SDDL digest is invalid")
+            entry = {
+                "path": path,
+                "owner_sid": require_windows_sid(raw.get("owner_sid"), "ACL owner SID"),
+                "sddl": sddl,
+                "sddl_sha256": sddl_sha256,
+            }
+            entry_sha256 = require_snapshot_hash(str(raw.get("entry_sha256", "")))
+            if entry_sha256 != canonical_json_sha256(entry):
+                raise AuthorizationError("protected ACL snapshot entry digest is invalid")
+            entry["entry_sha256"] = entry_sha256
+            normalized.append(entry)
+            observed.add(path)
+        normalized.sort(
+            key=lambda item: (len(Path(item["path"]).parts), item["path"].casefold()),
+            reverse=True,
+        )
+        return normalized
+
+    @staticmethod
+    def _normalize_action_grant_request(grant: Mapping[str, Any]) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "grant_id", "actor_thread_id",
+            "actor_turn_id", "native_turn_evidence_sha256", "controller_receipt_sha256",
+            "operation_id", "action",
+            "operation", "repository", "branch", "worktree", "base_head", "target_path",
+            "baseline_sha256", "replacement_sha256", "proposal_artifact_path",
+            "proposal_size", "worker_principal_sid", "model_worker_principal_sid",
+            "sandbox_group_principal_sid", "denied_principal_sids",
+            "broker_principal_sid", "group_membership_evidence",
+            "app_server_sha256", "app_server_version", "schema_file_count",
+            "app_server_executable_path",
+            "schema_tree_sha256", "sandbox_profile_sha256",
+            "app_server_environment_sha256",
+            "live_controller_evidence", "live_controller_evidence_sha256",
+            "worker_runtime_root", "protected_acl_snapshot",
+            "protected_acl_snapshot_sha256", "preissue_dacl_evidence",
+            "preissue_dacl_evidence_sha256", "isolation_evidence", "expires_at",
+        }
+        if not isinstance(grant, Mapping) or set(grant) != expected_fields:
+            raise ValidationError(
+                "action grant must use the fixed ccos-runtime-action-grant-v1 request schema"
+            )
+        if grant.get("protocol_version") != ACTION_GRANT_PROTOCOL_VERSION or grant.get("schema_version") != 1:
+            raise ValidationError("action grant protocol or schema version is unsupported")
+        if grant.get("action") != "implementation" or grant.get("operation") != "replace_existing_file_v1":
+            raise AuthorizationError("only the exact implementation file-replacement operation is supported")
+        worktree_path, worktree = normalized_absolute_path(grant.get("worktree"), "grant worktree")
+        proposal_path, proposal = normalized_absolute_path(
+            grant.get("proposal_artifact_path"), "proposal artifact path"
+        )
+        worker_runtime_path, worker_runtime_root = normalized_absolute_path(
+            grant.get("worker_runtime_root"), "worker runtime root"
+        )
+        if not worker_runtime_path.is_dir() or path_contains_link_or_reparse(worker_runtime_path):
+            raise AuthorizationError("worker runtime root must be an exact direct directory")
+        if path_is_within(proposal_path, worktree_path):
+            raise AuthorizationError("proposal artifact must be outside the authorized worktree")
+        if path_contains_link_or_reparse(proposal_path):
+            raise AuthorizationError("proposal artifact path must not traverse a link or reparse point")
+        raw_size = grant.get("proposal_size")
+        if isinstance(raw_size, bool) or not isinstance(raw_size, int):
+            raise ValidationError("proposal_size must be an integer byte count")
+        if raw_size < 0 or raw_size > MAX_REPLACEMENT_BYTES:
+            raise ValidationError(
+                f"proposal_size must be between 0 and {MAX_REPLACEMENT_BYTES} bytes"
+            )
+        worker_sid = require_windows_sid(grant.get("worker_principal_sid"), "worker principal SID")
+        model_worker_sid = require_windows_sid(
+            grant.get("model_worker_principal_sid"), "model worker principal SID"
+        )
+        sandbox_group_sid = require_windows_sid(
+            grant.get("sandbox_group_principal_sid"), "sandbox group principal SID"
+        )
+        broker_sid = require_windows_sid(grant.get("broker_principal_sid"), "broker principal SID")
+        denied_principal_sids = grant.get("denied_principal_sids")
+        expected_denied_sids = [worker_sid, model_worker_sid, sandbox_group_sid]
+        if denied_principal_sids != expected_denied_sids or len(set(expected_denied_sids)) != 3:
+            raise AuthorizationError(
+                "denied_principal_sids must be the exact ordered Online, Offline, and sandbox-group SIDs"
+            )
+        if broker_sid in expected_denied_sids:
+            raise AuthorizationError("sandbox workers, group, and broker must be distinct principals")
+        baseline_sha256 = require_snapshot_hash(str(grant.get("baseline_sha256", "")))
+        replacement_sha256 = require_snapshot_hash(str(grant.get("replacement_sha256", "")))
+        if baseline_sha256 == replacement_sha256:
+            raise AuthorizationError("action grant replacement must differ from the exact baseline")
+        schema_file_count = grant.get("schema_file_count")
+        if (isinstance(schema_file_count, bool) or not isinstance(schema_file_count, int)
+                or schema_file_count <= 0):
+            raise ValidationError("schema_file_count must be a positive integer")
+        app_server_sha256 = require_snapshot_hash(
+            str(grant.get("app_server_sha256", ""))
+        )
+        app_server_version = require_stable_id(
+            grant.get("app_server_version"), "App Server version"
+        )
+        app_server_environment_sha256 = require_snapshot_hash(
+            str(grant.get("app_server_environment_sha256", ""))
+        )
+        live_controller_evidence = normalize_live_controller_evidence(
+            grant.get("live_controller_evidence"),
+            worker_sid=worker_sid,
+            broker_sid=broker_sid,
+            app_server_sha256=app_server_sha256,
+            app_server_version=app_server_version,
+            environment_sha256=app_server_environment_sha256,
+        )
+        live_controller_evidence_sha256 = require_snapshot_hash(
+            str(grant.get("live_controller_evidence_sha256", ""))
+        )
+        if live_controller_evidence_sha256 != canonical_json_sha256(
+            live_controller_evidence
+        ):
+            raise AuthorizationError("live controller evidence digest differs")
+        return {
+            "protocol_version": ACTION_GRANT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "grant_id": require_stable_id(grant.get("grant_id"), "grant id"),
+            "actor_thread_id": normalize_binding("thread", str(grant.get("actor_thread_id", ""))),
+            "actor_turn_id": require_stable_id(grant.get("actor_turn_id"), "actor turn id"),
+            "native_turn_evidence_sha256": require_snapshot_hash(
+                str(grant.get("native_turn_evidence_sha256", ""))
+            ),
+            "controller_receipt_sha256": require_snapshot_hash(
+                str(grant.get("controller_receipt_sha256", ""))
+            ),
+            "operation_id": require_stable_id(grant.get("operation_id"), "operation id"),
+            "action": "implementation",
+            "operation": "replace_existing_file_v1",
+            "repository": normalize_repo_url(str(grant.get("repository", ""))),
+            "branch": normalize_binding("branch", str(grant.get("branch", ""))),
+            "worktree": worktree,
+            "base_head": require_sha(str(grant.get("base_head", "")), "grant base head"),
+            "target_path": normalize_action_path(grant.get("target_path")),
+            "baseline_sha256": baseline_sha256,
+            "replacement_sha256": replacement_sha256,
+            "proposal_artifact_path": proposal,
+            "proposal_size": raw_size,
+            "worker_runtime_root": worker_runtime_root,
+            "worker_principal_sid": worker_sid,
+            "model_worker_principal_sid": model_worker_sid,
+            "sandbox_group_principal_sid": sandbox_group_sid,
+            "denied_principal_sids": expected_denied_sids,
+            "broker_principal_sid": broker_sid,
+            "app_server_sha256": app_server_sha256,
+            "app_server_executable_path": normalized_absolute_path(
+                grant.get("app_server_executable_path"), "App Server executable"
+            )[1],
+            "app_server_version": app_server_version,
+            "schema_file_count": schema_file_count,
+            "schema_tree_sha256": require_snapshot_hash(
+                str(grant.get("schema_tree_sha256", ""))
+            ),
+            "sandbox_profile_sha256": require_snapshot_hash(
+                str(grant.get("sandbox_profile_sha256", ""))
+            ),
+            "app_server_environment_sha256": app_server_environment_sha256,
+            "live_controller_evidence": live_controller_evidence,
+            "live_controller_evidence_sha256": live_controller_evidence_sha256,
+            "group_membership_evidence": copy.deepcopy(
+                grant.get("group_membership_evidence")
+            ),
+            "protected_acl_snapshot": copy.deepcopy(
+                grant.get("protected_acl_snapshot")
+            ),
+            "protected_acl_snapshot_sha256": require_snapshot_hash(
+                str(grant.get("protected_acl_snapshot_sha256", ""))
+            ),
+            "preissue_dacl_evidence": copy.deepcopy(
+                grant.get("preissue_dacl_evidence")
+            ),
+            "preissue_dacl_evidence_sha256": require_snapshot_hash(
+                str(grant.get("preissue_dacl_evidence_sha256", ""))
+            ),
+            "isolation_evidence": copy.deepcopy(grant.get("isolation_evidence")),
+            "expires_at": require_utc_timestamp(grant.get("expires_at"), "grant expires_at"),
+        }
+
+    def issue_action_grant(
+        self,
+        case_id: str,
+        *,
+        grant: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        normalized = self._normalize_action_grant_request(grant)
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(case, "IMPLEMENTING", "issue_action_grant")
+            runtime = self._runtime_record(case, create=True)
+            if runtime["action_grants"]:
+                raise LimitError("case already contains its one exact runtime action grant")
+            generation_attempt = case.get("runtime_generation_attempt")
+            if (
+                not isinstance(generation_attempt, dict)
+                or generation_attempt.get("status") != "CLAIMED"
+                or generation_attempt.get("grant_id") != normalized["grant_id"]
+            ):
+                raise AuthorizationError(
+                    "action grant requires the exact durable runtime generation attempt"
+                )
+            actor = runtime["actors"].get(normalized["actor_thread_id"])
+            if not isinstance(actor, Mapping) or actor.get("role") != "implementer_child":
+                raise AuthorizationError(
+                    "action grant actor must be the controller-bound implementation child"
+                )
+            live_evidence = normalized["live_controller_evidence"]
+            if live_evidence["case_id"] != case["case_id"]:
+                raise AuthorizationError("live controller evidence belongs to another case")
+            incomplete_thread = live_evidence["incomplete_child_evidence"]["thread_id"]
+            incomplete_actor = runtime["actors"].get(incomplete_thread)
+            if (
+                not isinstance(incomplete_actor, Mapping)
+                or incomplete_actor.get("role") != "incomplete_child"
+            ):
+                raise AuthorizationError(
+                    "live controller incomplete evidence is not bound to the incomplete child"
+                )
+            repository = normalized["repository"]
+            branch = normalized["branch"]
+            worktree_path = Path(normalized["worktree"])
+            if repository not in case["bindings"]["repo_url"]:
+                raise AuthorizationError("action grant repository is not canonically bound to this case")
+            if {"repository": repository, "value": branch} not in case["bindings"]["branch"]:
+                raise AuthorizationError("action grant branch is not canonically bound to this case")
+            if normalized["worktree"] not in case["bindings"]["worktree"]:
+                raise AuthorizationError("action grant worktree is not canonically bound to this case")
+            try:
+                exact_root = worktree_path.resolve(strict=True)
+            except OSError as exc:
+                raise ValidationError(f"grant worktree cannot be resolved: {exc}") from exc
+            if not exact_root.is_dir() or _git_repository_root(exact_root) != exact_root:
+                raise AuthorizationError("action grant worktree must be the exact Git repository root")
+            if path_contains_link_or_reparse(exact_root):
+                raise AuthorizationError("action grant worktree must not traverse a link or reparse point")
+            if _git_origin(exact_root) != repository:
+                raise AuthorizationError("Git origin differs from the canonical repository binding")
+            if _git_branch(exact_root) != branch:
+                raise AuthorizationError("Git branch differs from the canonical branch binding")
+            if _git_head(exact_root) != normalized["base_head"]:
+                raise AuthorizationError("Git HEAD differs from the exact action base head")
+            app_server_executable = Path(normalized["app_server_executable_path"])
+            if (not app_server_executable.is_file() or app_server_executable.is_symlink()
+                    or path_contains_link_or_reparse(app_server_executable)
+                    or file_sha256(app_server_executable) != normalized["app_server_sha256"]):
+                raise AuthorizationError(
+                    "App Server executable path or bytes differ from the signed grant"
+                )
+            _assert_git_worktree_clean(exact_root, "before action grant issuance")
+            target = exact_root.joinpath(*PurePosixPath(normalized["target_path"]).parts)
+            if not path_is_within(target, exact_root) or not target.is_file():
+                raise AuthorizationError("action target must be an existing regular file in the worktree")
+            if path_contains_link_or_reparse(target, stop=exact_root):
+                raise AuthorizationError("action target must not traverse a link or reparse point")
+            target_identity = regular_file_identity(target, stop=exact_root)
+            target_mode = _git_tracked_mode(exact_root, normalized["target_path"])
+            if file_sha256(target) != normalized["baseline_sha256"]:
+                raise AuthorizationError("action target baseline digest differs from the exact grant")
+            if target.stat().st_size > MAX_REPLACEMENT_BYTES:
+                raise AuthorizationError("action target exceeds the bounded single-file primitive")
+            proposal = Path(normalized["proposal_artifact_path"])
+            if not proposal.is_file() or proposal.is_symlink():
+                raise AuthorizationError("proposal artifact must remain a regular non-link file")
+            proposal_identity = regular_file_identity(proposal)
+            if proposal.stat().st_size != normalized["proposal_size"]:
+                raise AuthorizationError("proposal artifact size differs from the exact grant")
+            if file_sha256(proposal) != normalized["replacement_sha256"]:
+                raise AuthorizationError("proposal artifact digest differs from the exact grant")
+            if not self.path.is_file() or self.path.is_symlink():
+                raise StoreCorruptionError("action grant issuance requires a regular canonical store")
+            state_root_path = self.state_root.resolve(strict=True)
+            broker_source_root_path = Path(__file__).resolve().parents[2]
+            proposal_root_path = proposal.parent.resolve(strict=True)
+            if not proposal_root_path.is_dir() or path_contains_link_or_reparse(proposal_root_path):
+                raise AuthorizationError("proposal root must be an exact regular directory")
+            protected_control_roots = {
+                "target_root": exact_root,
+                "state_root": state_root_path,
+                "broker_source_root": broker_source_root_path,
+                "proposal_root": proposal_root_path,
+            }
+            overlapping_roots = [
+                (left_kind, right_kind)
+                for index, (left_kind, left_path) in enumerate(
+                    protected_control_roots.items()
+                )
+                for right_kind, right_path in list(protected_control_roots.items())[index + 1:]
+                if (
+                    left_path == right_path
+                    or path_is_within(left_path, right_path)
+                    or path_is_within(right_path, left_path)
+                )
+            ]
+            if overlapping_roots:
+                raise AuthorizationError(
+                    "target, state, broker-source, and proposal roots must be pairwise "
+                    "dedicated and nonoverlapping"
+                )
+            worker_runtime_path = Path(normalized["worker_runtime_root"]).resolve(strict=True)
+            protected_roots_and_parents = {
+                *protected_control_roots.values(),
+                *(path.parent for path in protected_control_roots.values()),
+            }
+            if any(
+                worker_runtime_path == protected_path
+                or path_is_within(worker_runtime_path, protected_path)
+                or path_is_within(protected_path, worker_runtime_path)
+                for protected_path in protected_roots_and_parents
+            ):
+                raise AuthorizationError(
+                    "worker runtime root must be dedicated and nonoverlapping with protected roots and parents"
+                )
+            proposal_anchor = normalize_action_path(proposal.name)
+            broker_source_path = broker_source_root_path / "scripts" / "agent" / "case_runtime_broker.py"
+            if not broker_source_path.is_file() or broker_source_path.is_symlink():
+                raise StoreCorruptionError("runtime broker source must be a regular sealed controller file")
+            state_root = normalize_binding("worktree", str(state_root_path))
+            broker_source_root = normalize_binding("worktree", str(broker_source_root_path))
+            proposal_root = normalize_binding("worktree", str(proposal_root_path))
+            source_pins = controller_source_pins(broker_source_root_path)
+            protected_roots = {
+                "target_root": (
+                    normalized["worktree"], normalized["target_path"], normalized["baseline_sha256"]
+                ),
+                "state_root": (state_root, STORE_FILENAME, file_sha256(self.path)),
+                "broker_source_root": (
+                    broker_source_root,
+                    source_pins["manifest_path"],
+                    source_pins["manifest_sha256"],
+                ),
+                "proposal_root": (
+                    proposal_root,
+                    proposal_anchor,
+                    normalized["replacement_sha256"],
+                ),
+            }
+            now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+            expires = dt.datetime.fromisoformat(normalized["expires_at"])
+            remaining = (expires - now).total_seconds()
+            if remaining <= 0 or remaining > MAX_ACTION_GRANT_LIFETIME_SECONDS:
+                raise AuthorizationError(
+                    "action grant expiry must be in the future and no more than 15 minutes away"
+                )
+            membership = self._normalize_sandbox_membership_evidence(
+                normalized["group_membership_evidence"],
+                app_server_sid=normalized["worker_principal_sid"],
+                model_sandbox_sid=normalized["model_worker_principal_sid"],
+                sandbox_group_sid=normalized["sandbox_group_principal_sid"],
+            )
+            membership_sha256 = canonical_json_sha256(membership)
+            isolation = self._normalize_windows_isolation_evidence(
+                normalized["isolation_evidence"],
+                worktree=normalized["worktree"],
+                app_server_sid=normalized["worker_principal_sid"],
+                model_sandbox_sid=normalized["model_worker_principal_sid"],
+                sandbox_group_sid=normalized["sandbox_group_principal_sid"],
+                denied_principal_sids=normalized["denied_principal_sids"],
+                broker_sid=normalized["broker_principal_sid"],
+                base_head=normalized["base_head"],
+                protected_roots=protected_roots,
+                membership_sha256=membership_sha256,
+                membership_evidence=membership,
+            )
+            isolation_sha256 = canonical_json_sha256(isolation)
+            expected_acl_paths = {
+                path
+                for protected_path, _anchor, _digest in protected_roots.values()
+                for path in (
+                    protected_path,
+                    normalize_binding("worktree", str(Path(protected_path).parent)),
+                )
+            }
+            protected_acl_snapshot = self._normalize_protected_acl_snapshot(
+                normalized["protected_acl_snapshot"],
+                expected_paths=expected_acl_paths,
+            )
+            protected_acl_snapshot_sha256 = canonical_json_sha256(
+                protected_acl_snapshot
+            )
+            if (
+                protected_acl_snapshot_sha256
+                != normalized["protected_acl_snapshot_sha256"]
+            ):
+                raise AuthorizationError("protected ACL snapshot digest differs")
+            sealed_artifact_path, sealed_artifact_sha256, sealed_artifact_identity = self._seal_action_artifact_unlocked(
+                case["case_id"],
+                normalized["grant_id"],
+                "replacement",
+                proposal,
+                expected_size=normalized["proposal_size"],
+                expected_sha256=normalized["replacement_sha256"],
+            )
+            sealed_baseline_path, sealed_baseline_sha256, sealed_baseline_identity = self._seal_action_artifact_unlocked(
+                case["case_id"],
+                normalized["grant_id"],
+                "baseline",
+                target,
+                expected_size=target.stat().st_size,
+                expected_sha256=normalized["baseline_sha256"],
+            )
+            if regular_file_identity(proposal) != proposal_identity:
+                raise AuthorizationError("proposal artifact identity changed while it was sealed")
+            if regular_file_identity(target, stop=exact_root) != target_identity:
+                raise AuthorizationError("action target identity changed while baseline bytes were sealed")
+            allowed_paths = [normalized["target_path"]]
+            issued_at = utc_now()
+            recorded = {
+                **{
+                    name: value
+                    for name, value in normalized.items()
+                    if name not in {
+                        "isolation_evidence", "group_membership_evidence",
+                        "protected_acl_snapshot", "preissue_dacl_evidence",
+                    }
+                },
+                "target_mode": target_mode,
+                "target_file_identity": target_identity,
+                "proposal_file_identity": proposal_identity,
+                "state_root": state_root,
+                "broker_source_root": broker_source_root,
+                "proposal_root": proposal_root,
+                "controller_source_pins": source_pins,
+                "controller_source_pins_sha256": canonical_json_sha256(source_pins),
+                "sealed_artifact_path": sealed_artifact_path,
+                "sealed_artifact_sha256": sealed_artifact_sha256,
+                "sealed_artifact_identity": sealed_artifact_identity,
+                "sealed_baseline_path": sealed_baseline_path,
+                "sealed_baseline_sha256": sealed_baseline_sha256,
+                "sealed_baseline_identity": sealed_baseline_identity,
+                "allowed_paths": allowed_paths,
+                "allowed_paths_sha256": canonical_json_sha256(allowed_paths),
+                "group_membership_evidence": membership,
+                "group_membership_evidence_sha256": membership_sha256,
+                "isolation_evidence": isolation,
+                "isolation_evidence_sha256": isolation_sha256,
+                "protected_acl_snapshot": protected_acl_snapshot,
+                "protected_acl_snapshot_sha256": protected_acl_snapshot_sha256,
+                "status": "ISSUED",
+                "authorization_nonce": secrets.token_hex(32),
+                "issued_at": issued_at,
+                "issued_revision": case["revision"] + 1,
+                "claim": None,
+                "result": None,
+            }
+            preissue_dacl_evidence = self._normalize_dacl_evidence(
+                normalized["preissue_dacl_evidence"], recorded
+            )
+            preissue_dacl_evidence_sha256 = canonical_json_sha256(
+                preissue_dacl_evidence
+            )
+            if (
+                preissue_dacl_evidence_sha256
+                != normalized["preissue_dacl_evidence_sha256"]
+            ):
+                raise AuthorizationError("preissue DACL evidence digest differs")
+            recorded["preissue_dacl_evidence"] = preissue_dacl_evidence
+            recorded["preissue_dacl_evidence_sha256"] = preissue_dacl_evidence_sha256
+            recorded["grant_sha256"] = canonical_json_sha256(recorded)
+            runtime["action_grants"][normalized["grant_id"]] = recorded
+            generation_attempt["status"] = "GRANT_ISSUED"
+            generation_attempt["finalized_at"] = issued_at
+            generation_attempt["record_sha256"] = canonical_json_sha256(
+                {
+                    name: value
+                    for name, value in generation_attempt.items()
+                    if name != "record_sha256"
+                }
+            )
+            return {
+                "grant_id": normalized["grant_id"],
+                "actor_thread_id": normalized["actor_thread_id"],
+                "status": "ISSUED",
+                "issued_revision": recorded["issued_revision"],
+                "grant_sha256": recorded["grant_sha256"],
+                "allowed_paths_sha256": recorded["allowed_paths_sha256"],
+                "isolation_evidence_sha256": isolation_sha256,
+            }
+
+        return self._mutate(
+            case_id,
+            operation="issue_action_grant",
+            payload={"grant": normalized},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    @staticmethod
+    def _normalize_dacl_evidence(
+        evidence: Mapping[str, Any], grant: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "denied_principal_sids",
+            "membership_evidence_sha256", "broker_principal_sid", "rules", "observed_at",
+        }
+        if not isinstance(evidence, Mapping) or set(evidence) != expected_fields:
+            raise ValidationError("DACL evidence must use the fixed ccos-windows-dacl-evidence-v2 schema")
+        if evidence.get("protocol_version") != WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION or evidence.get("schema_version") != 2:
+            raise ValidationError("DACL evidence protocol or schema version is unsupported")
+        denied_principal_sids = evidence.get("denied_principal_sids")
+        if denied_principal_sids != grant["denied_principal_sids"]:
+            raise AuthorizationError("DACL denied principals differ from the exact action grant")
+        membership_sha256 = require_snapshot_hash(
+            str(evidence.get("membership_evidence_sha256", ""))
+        )
+        if membership_sha256 != grant["group_membership_evidence_sha256"]:
+            raise AuthorizationError("DACL membership digest differs from the exact action grant")
+        broker_sid = require_windows_sid(evidence.get("broker_principal_sid"), "DACL broker SID")
+        if broker_sid != grant["broker_principal_sid"]:
+            raise AuthorizationError("DACL evidence differs from the exact action grant")
+        expected_paths = {
+            "target_root": grant["worktree"],
+            "state_root": grant["state_root"],
+            "broker_source_root": grant["broker_source_root"],
+            "proposal_root": grant["proposal_root"],
+        }
+        raw_rules = evidence.get("rules")
+        expected_rule_count = len(PROTECTED_ROOT_KINDS) * len(denied_principal_sids)
+        if not isinstance(raw_rules, list) or len(raw_rules) != expected_rule_count:
+            raise ValidationError(
+                "DACL evidence must contain one effective rule per protected root and denied principal"
+            )
+        normalized_rules: list[dict[str, Any]] = []
+        observed: set[tuple[str, str]] = set()
+        rule_fields = {
+            "root_kind", "principal_sid", "deny_source_sids", "path", "owner_sid",
+            "parent_path", "parent_owner_sid", "root_sddl_sha256", "parent_sddl_sha256",
+            "access_type", "is_inherited", "inheritance_flags", "rights_mask",
+            "inheritable_rights_mask", "propagation_flags", "parent_rights_mask",
+        }
+        for raw_rule in raw_rules:
+            if not isinstance(raw_rule, Mapping) or set(raw_rule) != rule_fields:
+                raise ValidationError("DACL protected-root rule must use the fixed schema")
+            root_kind = str(raw_rule.get("root_kind", ""))
+            principal_sid = require_windows_sid(
+                raw_rule.get("principal_sid"), f"{root_kind} denied principal SID"
+            )
+            pair = (root_kind, principal_sid)
+            if (root_kind not in PROTECTED_ROOT_KINDS
+                    or principal_sid not in denied_principal_sids or pair in observed):
+                raise ValidationError(
+                    "DACL root/principal rule is missing, duplicated, or unknown"
+                )
+            raw_sources = raw_rule.get("deny_source_sids")
+            if not isinstance(raw_sources, list) or not raw_sources:
+                raise ValidationError("DACL deny_source_sids must be a nonempty array")
+            deny_sources = sorted(
+                {require_windows_sid(item, "DACL deny source SID") for item in raw_sources}
+            )
+            if len(deny_sources) != len(raw_sources):
+                raise ValidationError("DACL deny_source_sids must be unique")
+            sandbox_group_sid = grant["sandbox_group_principal_sid"]
+            required_sources = {sandbox_group_sid, principal_sid}
+            if not required_sources.issubset(deny_sources) or any(
+                item not in denied_principal_sids for item in deny_sources
+            ):
+                raise AuthorizationError(
+                    f"{root_kind} effective denial for {principal_sid} lacks its explicit principal and sealed sandbox-group sources"
+                )
+            path = normalize_binding("worktree", str(raw_rule.get("path", "")))
+            owner_sid = require_windows_sid(raw_rule.get("owner_sid"), f"{root_kind} owner SID")
+            parent_path = normalize_binding("worktree", str(raw_rule.get("parent_path", "")))
+            parent_owner_sid = require_windows_sid(
+                raw_rule.get("parent_owner_sid"), f"{root_kind} parent owner SID"
+            )
+            if (path != expected_paths[root_kind] or owner_sid != broker_sid
+                    or owner_sid in denied_principal_sids
+                    or parent_path != normalize_binding("worktree", str(Path(path).parent))
+                    or parent_owner_sid != broker_sid):
+                raise AuthorizationError(f"{root_kind} owner or path differs from the exact grant")
+            root_sddl_sha256 = require_snapshot_hash(
+                str(raw_rule.get("root_sddl_sha256", ""))
+            )
+            parent_sddl_sha256 = require_snapshot_hash(
+                str(raw_rule.get("parent_sddl_sha256", ""))
+            )
+            if raw_rule.get("access_type") != "DENY" or raw_rule.get("is_inherited") is not False:
+                raise AuthorizationError(f"{root_kind} worker denial must be an explicit DENY rule")
+            raw_flags = raw_rule.get("inheritance_flags")
+            if not isinstance(raw_flags, list) or sorted(raw_flags) != ["CONTAINER_INHERIT", "OBJECT_INHERIT"]:
+                raise AuthorizationError(f"{root_kind} worker denial must inherit to files and directories")
+            propagation_flags = raw_rule.get("propagation_flags")
+            if propagation_flags != ["NONE"]:
+                raise AuthorizationError(
+                    f"{root_kind} worker denial must have no InheritOnly or NoPropagate escape"
+                )
+            rights_mask = raw_rule.get("rights_mask")
+            if isinstance(rights_mask, bool) or not isinstance(rights_mask, int):
+                raise ValidationError("DACL rights_mask must be an integer")
+            if rights_mask & WINDOWS_REQUIRED_DENY_RIGHTS_MASK != WINDOWS_REQUIRED_DENY_RIGHTS_MASK:
+                raise AuthorizationError(
+                    f"{root_kind} DENY rule lacks write, delete, permission, or ownership protection"
+                )
+            inheritable_rights_mask = raw_rule.get("inheritable_rights_mask")
+            if (isinstance(inheritable_rights_mask, bool)
+                    or not isinstance(inheritable_rights_mask, int)):
+                raise ValidationError("DACL inheritable_rights_mask must be an integer")
+            if (inheritable_rights_mask & WINDOWS_REQUIRED_DENY_RIGHTS_MASK
+                    != WINDOWS_REQUIRED_DENY_RIGHTS_MASK):
+                raise AuthorizationError(
+                    f"{root_kind} recursive DENY lacks full write, delete, permission, or ownership protection"
+                )
+            parent_rights_mask = raw_rule.get("parent_rights_mask")
+            if isinstance(parent_rights_mask, bool) or not isinstance(parent_rights_mask, int):
+                raise ValidationError("parent DACL rights mask must be an integer")
+            if parent_rights_mask & WINDOWS_REQUIRED_DENY_RIGHTS_MASK != WINDOWS_REQUIRED_DENY_RIGHTS_MASK:
+                raise AuthorizationError(
+                    f"{root_kind} parent can grant delete-child or ACL takeover capability"
+                )
+            normalized_rules.append({
+                "root_kind": root_kind,
+                "principal_sid": principal_sid,
+                "deny_source_sids": deny_sources,
+                "path": path,
+                "owner_sid": owner_sid,
+                "parent_path": parent_path,
+                "parent_owner_sid": parent_owner_sid,
+                "root_sddl_sha256": root_sddl_sha256,
+                "parent_sddl_sha256": parent_sddl_sha256,
+                "access_type": "DENY",
+                "is_inherited": False,
+                "inheritance_flags": ["CONTAINER_INHERIT", "OBJECT_INHERIT"],
+                "propagation_flags": ["NONE"],
+                "rights_mask": rights_mask,
+                "inheritable_rights_mask": inheritable_rights_mask,
+                "parent_rights_mask": parent_rights_mask,
+            })
+            observed.add(pair)
+        normalized_rules.sort(key=lambda item: (
+            PROTECTED_ROOT_KINDS.index(item["root_kind"]),
+            denied_principal_sids.index(item["principal_sid"]),
+        ))
+        return {
+            "protocol_version": WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "denied_principal_sids": denied_principal_sids,
+            "membership_evidence_sha256": membership_sha256,
+            "broker_principal_sid": broker_sid,
+            "rules": normalized_rules,
+            "observed_at": require_utc_timestamp(evidence.get("observed_at"), "DACL observed_at"),
+        }
+
+    def _normalize_trusted_write_probe(
+        self, evidence: Mapping[str, Any], grant: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "broker_principal_sid",
+            "broker_identity_name", "protected_roots", "head_before", "head_after",
+            "status_sha256_before", "status_sha256_after", "observed_at",
+        }
+        if not isinstance(evidence, Mapping) or set(evidence) != expected_fields:
+            raise ValidationError(
+                "trusted write probe must use the fixed ccos-trusted-write-probe-v1 schema"
+            )
+        if evidence.get("protocol_version") != TRUSTED_WRITE_PROBE_PROTOCOL_VERSION or evidence.get("schema_version") != 1:
+            raise ValidationError("trusted write probe protocol or schema version is unsupported")
+        broker_sid = require_windows_sid(evidence.get("broker_principal_sid"), "probe broker SID")
+        if broker_sid != grant["broker_principal_sid"]:
+            raise AuthorizationError("trusted write probe differs from the exact action grant")
+        expected_paths = {
+            "target_root": grant["worktree"],
+            "state_root": grant["state_root"],
+            "broker_source_root": grant["broker_source_root"],
+            "proposal_root": grant["proposal_root"],
+        }
+        isolation_roots = {
+            item["root_kind"]: item
+            for item in grant["isolation_evidence"]["principal_probes"][0]["probe"]["protected_roots"]
+        }
+        expected_anchors = {
+            "target_root": (
+                grant["target_path"], grant["baseline_sha256"]
+            ),
+            "state_root": (STORE_FILENAME, file_sha256(self.path)),
+            "broker_source_root": (
+                isolation_roots["broker_source_root"]["anchor_path"],
+                isolation_roots["broker_source_root"]["anchor_sha256_after"],
+            ),
+            "proposal_root": (
+                isolation_roots["proposal_root"]["anchor_path"],
+                isolation_roots["proposal_root"]["anchor_sha256_after"],
+            ),
+        }
+        raw_roots = evidence.get("protected_roots")
+        if not isinstance(raw_roots, list) or len(raw_roots) != len(PROTECTED_ROOT_KINDS):
+            raise ValidationError("trusted write probe must cover every protected root")
+        normalized_roots: list[dict[str, Any]] = []
+        observed: set[str] = set()
+        root_fields = {
+            "root_kind", "path", "anchor_path", "anchor_sha256_before",
+            "anchor_sha256_after", "probe_relative_path", "probe_content_sha256",
+            "probe_absent_after",
+        }
+        for raw_root in raw_roots:
+            if not isinstance(raw_root, Mapping) or set(raw_root) != root_fields:
+                raise ValidationError("trusted protected-root probe must use the fixed schema")
+            root_kind = str(raw_root.get("root_kind", ""))
+            if root_kind not in PROTECTED_ROOT_KINDS or root_kind in observed:
+                raise ValidationError("trusted protected-root kind is missing, duplicated, or unknown")
+            path = normalize_binding("worktree", str(raw_root.get("path", "")))
+            anchor_path = normalize_action_path(raw_root.get("anchor_path"))
+            expected_anchor_path, expected_anchor_sha256 = expected_anchors[root_kind]
+            before = require_snapshot_hash(str(raw_root.get("anchor_sha256_before", "")))
+            after = require_snapshot_hash(str(raw_root.get("anchor_sha256_after", "")))
+            if (path != expected_paths[root_kind] or anchor_path != expected_anchor_path
+                    or before != expected_anchor_sha256 or after != expected_anchor_sha256):
+                raise AuthorizationError(f"trusted probe changed or misidentified {root_kind}")
+            expected_probe = (
+                f".ccos-broker-{root_kind.replace('_root', '')}-probe-"
+                + hashlib.sha256(grant["authorization_nonce"].encode("utf-8")).hexdigest()[:20]
+            )
+            probe_path = normalize_action_path(raw_root.get("probe_relative_path"))
+            if probe_path != expected_probe or raw_root.get("probe_absent_after") is not True:
+                raise AuthorizationError(f"trusted write probe did not cleanly prove {root_kind} write access")
+            normalized_roots.append({
+                "root_kind": root_kind,
+                "path": path,
+                "anchor_path": anchor_path,
+                "anchor_sha256_before": before,
+                "anchor_sha256_after": after,
+                "probe_relative_path": probe_path,
+                "probe_content_sha256": require_snapshot_hash(
+                    str(raw_root.get("probe_content_sha256", ""))
+                ),
+                "probe_absent_after": True,
+            })
+            observed.add(root_kind)
+        normalized_roots.sort(key=lambda item: PROTECTED_ROOT_KINDS.index(item["root_kind"]))
+        head_before = require_sha(str(evidence.get("head_before", "")), "trusted probe head before")
+        head_after = require_sha(str(evidence.get("head_after", "")), "trusted probe head after")
+        if head_before != grant["base_head"] or head_after != grant["base_head"]:
+            raise AuthorizationError("trusted write probe observed Git HEAD drift")
+        status_before = require_snapshot_hash(str(evidence.get("status_sha256_before", "")))
+        status_after = require_snapshot_hash(str(evidence.get("status_sha256_after", "")))
+        if status_before != EMPTY_SHA256 or status_after != EMPTY_SHA256:
+            raise AuthorizationError("trusted write probe did not preserve a clean Git status")
+        return {
+            "protocol_version": TRUSTED_WRITE_PROBE_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "broker_principal_sid": broker_sid,
+            "broker_identity_name": _nonempty(
+                evidence.get("broker_identity_name"), "broker identity name", 256
+            ),
+            "protected_roots": normalized_roots,
+            "head_before": head_before,
+            "head_after": head_after,
+            "status_sha256_before": status_before,
+            "status_sha256_after": status_after,
+            "observed_at": require_utc_timestamp(evidence.get("observed_at"), "trusted probe observed_at"),
+        }
+
+    def claim_action_grant(
+        self,
+        case_id: str,
+        *,
+        claim: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "grant_id", "controller_receipt_sha256",
+            "broker_principal_sid", "dacl_evidence", "trusted_write_probe",
+        }
+        if not isinstance(claim, Mapping) or set(claim) != expected_fields:
+            raise ValidationError("action claim must use the fixed ccos-runtime-action-claim-v1 schema")
+        if claim.get("protocol_version") != ACTION_GRANT_CLAIM_PROTOCOL_VERSION or claim.get("schema_version") != 1:
+            raise ValidationError("action claim protocol or schema version is unsupported")
+        normalized_header = {
+            "protocol_version": ACTION_GRANT_CLAIM_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "grant_id": require_stable_id(claim.get("grant_id"), "grant id"),
+            "controller_receipt_sha256": require_snapshot_hash(
+                str(claim.get("controller_receipt_sha256", ""))
+            ),
+            "broker_principal_sid": require_windows_sid(
+                claim.get("broker_principal_sid"), "broker principal SID"
+            ),
+        }
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(case, "IMPLEMENTING", "claim_action_grant")
+            runtime = self._runtime_record(case, create=False)
+            grant = runtime["action_grants"].get(normalized_header["grant_id"])
+            if not isinstance(grant, dict):
+                raise AuthorizationError("action grant does not exist in this canonical case")
+            if grant["status"] != "ISSUED":
+                raise LimitError(f"action grant is already {grant['status']} and cannot be claimed")
+            if case["revision"] != grant["issued_revision"]:
+                raise RevisionConflict("case revision changed after action grant issuance")
+            if normalized_header["controller_receipt_sha256"] != grant["controller_receipt_sha256"]:
+                raise AuthorizationError("controller receipt differs from the exact action grant")
+            if normalized_header["broker_principal_sid"] != grant["broker_principal_sid"]:
+                raise AuthorizationError("claiming principal differs from the trusted broker principal")
+            expires = dt.datetime.fromisoformat(grant["expires_at"])
+            if dt.datetime.now(dt.timezone.utc) >= expires:
+                raise AuthorizationError("action grant expired before claim")
+            dacl = self._normalize_dacl_evidence(claim.get("dacl_evidence"), grant)
+            trusted_probe = self._normalize_trusted_write_probe(
+                claim.get("trusted_write_probe"), grant
+            )
+            claim_record = {
+                **normalized_header,
+                "dacl_evidence": dacl,
+                "dacl_evidence_sha256": canonical_json_sha256(dacl),
+                "trusted_write_probe": trusted_probe,
+                "trusted_write_probe_sha256": canonical_json_sha256(trusted_probe),
+                "claimed_at": utc_now(),
+                "claimed_revision": case["revision"] + 1,
+            }
+            claim_record["claim_sha256"] = canonical_json_sha256(claim_record)
+            grant["status"] = "CLAIMED"
+            grant["claim"] = claim_record
+            grant["grant_sha256"] = canonical_json_sha256(
+                {name: value for name, value in grant.items() if name != "grant_sha256"}
+            )
+            return {
+                "grant_id": grant["grant_id"],
+                "status": "CLAIMED",
+                "claim_sha256": claim_record["claim_sha256"],
+                "grant_sha256": grant["grant_sha256"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="claim_action_grant",
+            payload={"claim": {**normalized_header, "dacl_evidence": claim.get("dacl_evidence"), "trusted_write_probe": claim.get("trusted_write_probe")}},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    def complete_action_grant(
+        self,
+        case_id: str,
+        *,
+        completion: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "grant_id", "controller_receipt_sha256",
+            "broker_principal_sid", "post_replacement_evidence_sha256", "completed_at",
+        }
+        if not isinstance(completion, Mapping) or set(completion) != expected_fields:
+            raise ValidationError("action completion must use the fixed ccos-runtime-action-result-v1 schema")
+        if completion.get("protocol_version") != ACTION_GRANT_RESULT_PROTOCOL_VERSION or completion.get("schema_version") != 1:
+            raise ValidationError("action completion protocol or schema version is unsupported")
+        normalized = {
+            "protocol_version": ACTION_GRANT_RESULT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "grant_id": require_stable_id(completion.get("grant_id"), "grant id"),
+            "controller_receipt_sha256": require_snapshot_hash(
+                str(completion.get("controller_receipt_sha256", ""))
+            ),
+            "broker_principal_sid": require_windows_sid(
+                completion.get("broker_principal_sid"), "broker principal SID"
+            ),
+            "post_replacement_evidence_sha256": require_snapshot_hash(
+                str(completion.get("post_replacement_evidence_sha256", ""))
+            ),
+            "completed_at": require_utc_timestamp(completion.get("completed_at"), "completed_at"),
+        }
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(case, "IMPLEMENTING", "complete_action_grant")
+            runtime = self._runtime_record(case, create=False)
+            grant = runtime["action_grants"].get(normalized["grant_id"])
+            if not isinstance(grant, dict):
+                raise AuthorizationError("action grant does not exist in this canonical case")
+            if grant["status"] != "CLAIMED":
+                raise LimitError(f"action grant is {grant['status']} and cannot be completed")
+            if normalized["controller_receipt_sha256"] != grant["controller_receipt_sha256"]:
+                raise AuthorizationError("completion controller receipt differs from the grant")
+            if normalized["broker_principal_sid"] != grant["broker_principal_sid"]:
+                raise AuthorizationError("completion principal differs from the trusted broker")
+            if case["revision"] != grant["claim"]["claimed_revision"]:
+                raise RevisionConflict("case revision changed after action grant claim")
+            root = Path(grant["worktree"]).resolve(strict=True)
+            if _git_repository_root(root) != root or _git_origin(root) != grant["repository"]:
+                raise AuthorizationError("repository identity changed during the authorized action")
+            if _git_branch(root) != grant["branch"] or _git_head(root) != grant["base_head"]:
+                raise AuthorizationError("branch or HEAD changed during the authorized action")
+            target = root.joinpath(*PurePosixPath(grant["target_path"]).parts)
+            if not target.is_file() or path_contains_link_or_reparse(target, stop=root):
+                raise AuthorizationError("authorized target is no longer a regular direct file")
+            replacement_identity = regular_file_identity(target, stop=root)
+            if _git_tracked_mode(root, grant["target_path"]) != grant["target_mode"]:
+                raise AuthorizationError("authorized target mode changed")
+            observed_sha256 = file_sha256(target)
+            if observed_sha256 != grant["replacement_sha256"]:
+                raise AuthorizationError("authorized target does not contain the exact replacement bytes")
+            status_paths = _git_status_paths(root)
+            if status_paths != grant["allowed_paths"]:
+                raise AuthorizationError("Git status contains a path outside the exact action grant")
+            result_record = {
+                **normalized,
+                "actor_thread_id": grant["actor_thread_id"],
+                "actor_turn_id": grant["actor_turn_id"],
+                "operation_id": grant["operation_id"],
+                "operation": grant["operation"],
+                "repository": grant["repository"],
+                "branch": grant["branch"],
+                "worktree": grant["worktree"],
+                "base_head": grant["base_head"],
+                "target_path": grant["target_path"],
+                "baseline_sha256": grant["baseline_sha256"],
+                "replacement_sha256": observed_sha256,
+                "replacement_file_identity": replacement_identity,
+                "observed_status_paths": status_paths,
+                "live_controller_evidence_sha256": grant[
+                    "live_controller_evidence_sha256"
+                ],
+                "post_replacement_evidence_sha256": normalized[
+                    "post_replacement_evidence_sha256"
+                ],
+                "completed_revision": case["revision"] + 1,
+            }
+            result_record["result_sha256"] = canonical_json_sha256(result_record)
+            grant["status"] = "COMPLETED"
+            grant["result"] = result_record
+            grant["grant_sha256"] = canonical_json_sha256(
+                {name: value for name, value in grant.items() if name != "grant_sha256"}
+            )
+            return {
+                "grant_id": grant["grant_id"],
+                "status": "COMPLETED",
+                "result_sha256": result_record["result_sha256"],
+                "grant_sha256": grant["grant_sha256"],
+                "changed_paths": status_paths,
+            }
+
+        return self._mutate(
+            case_id,
+            operation="complete_action_grant",
+            payload={"completion": normalized},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    def fail_action_grant(
+        self,
+        case_id: str,
+        *,
+        failure: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "grant_id", "broker_principal_sid",
+            "failure_stage", "failure_code", "failure_evidence_sha256", "observed_at",
+        }
+        if not isinstance(failure, Mapping) or set(failure) != expected_fields:
+            raise ValidationError("action failure must use the fixed ccos-runtime-action-result-v1 failure schema")
+        if failure.get("protocol_version") != ACTION_GRANT_RESULT_PROTOCOL_VERSION or failure.get("schema_version") != 1:
+            raise ValidationError("action failure protocol or schema version is unsupported")
+        normalized = {
+            "protocol_version": ACTION_GRANT_RESULT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "grant_id": require_stable_id(failure.get("grant_id"), "grant id"),
+            "broker_principal_sid": require_windows_sid(
+                failure.get("broker_principal_sid"), "broker principal SID"
+            ),
+            "failure_stage": require_stable_id(failure.get("failure_stage"), "failure stage"),
+            "failure_code": require_stable_id(failure.get("failure_code"), "failure code"),
+            "failure_evidence_sha256": require_snapshot_hash(
+                str(failure.get("failure_evidence_sha256", ""))
+            ),
+            "observed_at": require_utc_timestamp(failure.get("observed_at"), "failure observed_at"),
+        }
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(case, "IMPLEMENTING", "fail_action_grant")
+            runtime = self._runtime_record(case, create=False)
+            grant = runtime["action_grants"].get(normalized["grant_id"])
+            if not isinstance(grant, dict):
+                raise AuthorizationError("action grant does not exist in this canonical case")
+            if grant["status"] not in {"ISSUED", "CLAIMED"}:
+                raise LimitError(f"only an active action grant can be failed; grant is {grant['status']}")
+            if grant["status"] == "ISSUED" and normalized["failure_stage"] not in {
+                "preclaim", "supervisor_context"
+            }:
+                raise AuthorizationError(
+                    "an unclaimed grant can only terminate at the trusted preclaim or supervisor-context boundary"
+                )
+            if (grant["status"] == "ISSUED"
+                    and normalized["failure_stage"] == "supervisor_context"
+                    and normalized["failure_code"] != "SUPERVISOR_CONTEXT_LOST"):
+                raise AuthorizationError("trusted supervisor-context loss code must be exact")
+            if normalized["broker_principal_sid"] != grant["broker_principal_sid"]:
+                raise AuthorizationError("failure principal differs from the trusted broker")
+            observed_target_sha256: str | None = None
+            observed_status_paths: list[str] | None = None
+            observation_error: str | None = None
+            try:
+                root = Path(grant["worktree"]).resolve(strict=True)
+                target = root.joinpath(*PurePosixPath(grant["target_path"]).parts)
+                if target.is_file() and not path_contains_link_or_reparse(target, stop=root):
+                    observed_target_sha256 = file_sha256(target)
+                observed_status_paths = _git_status_paths(root)
+            except (OSError, CaseStateError) as exc:
+                observation_error = type(exc).__name__
+            failure_record = {
+                **normalized,
+                "observed_target_sha256": observed_target_sha256,
+                "observed_status_paths": observed_status_paths,
+                "baseline_restored": (
+                    observed_target_sha256 == grant["baseline_sha256"]
+                    and observed_status_paths == []
+                ),
+                "observation_error": observation_error,
+                "failed_revision": case["revision"] + 1,
+            }
+            failure_record["result_sha256"] = canonical_json_sha256(failure_record)
+            grant["status"] = "FAILED"
+            grant["result"] = failure_record
+            grant["grant_sha256"] = canonical_json_sha256(
+                {name: value for name, value in grant.items() if name != "grant_sha256"}
+            )
+            case["state"] = "CASE_LOCKED"
+            case["resumable_state"] = None
+            case["lock_reason"] = (
+                "one-use action did not complete exactly: " + normalized["failure_code"]
+            )
+            return {
+                "grant_id": grant["grant_id"],
+                "status": "FAILED",
+                "result_sha256": failure_record["result_sha256"],
+                "grant_sha256": grant["grant_sha256"],
+                "lock_reason": case["lock_reason"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="fail_action_grant",
+            payload={"failure": normalized},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    @staticmethod
+    def _normalize_quarantine_authority(
+        case_id: str,
+        authority: Mapping[str, Any],
+    ) -> dict[str, str]:
+        if not isinstance(authority, Mapping):
+            raise AuthorizationError("terminal quarantine requires structured human authority")
+        expected_fields = {
+            "authority_id", "source", "authorized_by", "scope", "case_id", "operation", "expected_state",
+        }
+        if set(authority) != expected_fields:
+            raise AuthorizationError("terminal quarantine authority must use the fixed exact-case schema")
+        normalized = CaseStore._normalize_authority(authority)
+        if canonical_case_id(str(authority.get("case_id", ""))) != case_id:
+            raise AuthorizationError("terminal quarantine authority names a different case")
+        if authority.get("operation") != "quarantine-terminal":
+            raise AuthorizationError("terminal quarantine authority names a different operation")
+        if authority.get("expected_state") != "CLOSED_SUCCESS":
+            raise AuthorizationError("terminal quarantine authority must name CLOSED_SUCCESS")
+        return {
+            **normalized,
+            "case_id": case_id,
+            "operation": "quarantine-terminal",
+            "expected_state": "CLOSED_SUCCESS",
+        }
+
+    @staticmethod
+    def _normalize_quarantine_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(evidence, Mapping) or set(evidence) != {
+            "reason_code", "evidence_reference", "evidence_sha256", "externally_published",
+        }:
+            raise ValidationError("terminal quarantine evidence must use the fixed schema")
+        reason_code = _nonempty(evidence.get("reason_code"), "quarantine reason code", 128).upper()
+        if not FINDING_ID_PATTERN.fullmatch(reason_code):
+            raise ValidationError("quarantine reason code must be a stable identifier")
+        if not isinstance(evidence.get("externally_published"), bool):
+            raise ValidationError("externally_published must be a boolean")
+        return {
+            "reason_code": reason_code,
+            "evidence_reference": _nonempty(
+                evidence.get("evidence_reference"), "quarantine evidence reference", 2048
+            ),
+            "evidence_sha256": require_snapshot_hash(str(evidence.get("evidence_sha256", ""))),
+            "externally_published": evidence["externally_published"],
+        }
+
+    def quarantine_terminal(
+        self,
+        case_id: str,
+        *,
+        expected_state: str,
+        expected_record_sha256: str,
+        authority: Mapping[str, Any],
+        evidence: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        case_id = canonical_case_id(case_id)
+        request_id = require_request_id(request_id)
+        if expected_state != "CLOSED_SUCCESS":
+            raise AuthorizationError("quarantine-terminal is restricted to expected state CLOSED_SUCCESS")
+        expected_record_sha256 = require_snapshot_hash(expected_record_sha256)
+        normalized_authority = self._normalize_quarantine_authority(case_id, authority)
+        normalized_evidence = self._normalize_quarantine_evidence(evidence)
+        payload = {
+            "expected_state": expected_state,
+            "expected_record_sha256": expected_record_sha256,
+            "authority": normalized_authority,
+            "evidence": normalized_evidence,
+        }
+        fingerprint = _fingerprint("quarantine_terminal", payload)
+        with FileLock(self.lock_path):
+            data = self._read_unlocked()
+            if case_id not in data["cases"]:
+                raise ValidationError(f"case not found: {case_id}")
+            original = data["cases"][case_id]
+            audit_records = self._quarantine_audit_records_unlocked()
+            matching_prepared = [
+                record
+                for record in audit_records
+                if record.get("case_id") == case_id
+                and record.get("request_id") == request_id
+                and record.get("phase") == "PREPARED"
+            ]
+            matching_committed = [
+                record
+                for record in audit_records
+                if record.get("case_id") == case_id
+                and record.get("request_id") == request_id
+                and record.get("phase") == "COMMITTED"
+            ]
+            if len(matching_prepared) > 1 or len(matching_committed) > 1:
+                raise StoreCorruptionError(
+                    "terminal quarantine audit contains duplicate transaction phases"
+                )
+            prior = original["events"].get(request_id)
+            if prior:
+                if prior.get("fingerprint") != fingerprint:
+                    raise ConflictError("request_id was already used with a different operation payload")
+                committed = next(
+                    (
+                        record for record in audit_records
+                        if record.get("case_id") == case_id
+                        and record.get("request_id") == request_id
+                        and record.get("phase") == "COMMITTED"
+                    ),
+                    None,
+                )
+                prepared = next(
+                    (
+                        record for record in audit_records
+                        if record.get("case_id") == case_id
+                        and record.get("request_id") == request_id
+                        and record.get("phase") == "PREPARED"
+                    ),
+                    None,
+                )
+                if committed is None:
+                    if (prepared is None or not isinstance(original.get("terminal_quarantine"), Mapping)
+                            or original["terminal_quarantine"].get("request_id") != request_id):
+                        raise StoreCorruptionError("terminal quarantine lacks recoverable audit evidence")
+                    committed = self._append_quarantine_audit_unlocked(
+                        {
+                            "phase": "COMMITTED",
+                            "case_id": case_id,
+                            "request_id": request_id,
+                            "fingerprint": fingerprint,
+                            "pre_store_sha256": prepared["pre_store_sha256"],
+                            "post_store_sha256": prepared["expected_post_store_sha256"],
+                            "backup_sha256": prepared["backup_sha256"],
+                            "prepared_event_sha256": prepared["event_sha256"],
+                            "recorded_at": utc_now(),
+                            "recovered": True,
+                        },
+                        audit_records,
+                    )
+                result = copy.deepcopy(prior["result"])
+                result.update(
+                    idempotent=True,
+                    pre_store_sha256=committed["pre_store_sha256"],
+                    post_store_sha256=committed["post_store_sha256"],
+                    committed_event_sha256=committed["event_sha256"],
+                )
+                return result
+            pending_prepared = matching_prepared[0] if matching_prepared else None
+            if matching_committed:
+                raise StoreCorruptionError(
+                    "terminal quarantine COMMITTED audit exists without its canonical event"
+                )
+            if pending_prepared is not None:
+                if (
+                    pending_prepared.get("fingerprint") != fingerprint
+                    or pending_prepared.get("expected_revision") != expected_revision
+                    or pending_prepared.get("expected_state") != expected_state
+                    or pending_prepared.get("expected_record_sha256")
+                    != expected_record_sha256
+                    or file_sha256(self.path) != pending_prepared.get("pre_store_sha256")
+                    or pending_prepared.get("authority_sha256")
+                    != canonical_json_sha256(normalized_authority)
+                    or pending_prepared.get("evidence_sha256")
+                    != canonical_json_sha256(normalized_evidence)
+                ):
+                    raise StoreCorruptionError(
+                        "pending terminal quarantine PREPARED audit differs from the retry"
+                    )
+            if expected_revision != original["revision"]:
+                raise RevisionConflict(
+                    f"case {case_id} expected revision {expected_revision}, found {original['revision']}"
+                )
+            if original["state"] != "CLOSED_SUCCESS":
+                raise TransitionError(
+                    f"quarantine_terminal requires CLOSED_SUCCESS; case is {original['state']}"
+                )
+            if original.get("terminal_quarantine") is not None:
+                raise LimitError("case already consumed its one terminal quarantine")
+            actual_record_sha256 = case_record_sha256(original)
+            if actual_record_sha256 != expected_record_sha256:
+                raise RevisionConflict("terminal case record hash differs from the authorized record")
+            if not self.path.is_file() or self.path.is_symlink():
+                raise StoreCorruptionError("terminal quarantine requires a regular persisted case-state store")
+            pre_store_bytes = self.path.read_bytes()
+            pre_store_sha256 = hashlib.sha256(pre_store_bytes).hexdigest()
+            backup_directory = self.quarantine_backup_root / case_id
+            backup_directory.mkdir(parents=True, exist_ok=True)
+            if path_contains_link_or_reparse(backup_directory, stop=self.state_root):
+                raise StoreCorruptionError(
+                    "quarantine backup directory must not traverse a link or reparse point"
+                )
+            backup_name = hashlib.sha256(request_id.encode("utf-8")).hexdigest() + ".json"
+            backup_path = backup_directory / backup_name
+            if backup_path.exists():
+                if backup_path.is_symlink() or backup_path.read_bytes() != pre_store_bytes:
+                    raise StoreCorruptionError("existing quarantine backup does not match the pre-mutation store")
+            else:
+                descriptor = os.open(backup_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                try:
+                    with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                        stream.write(pre_store_bytes)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                finally:
+                    os.close(descriptor)
+            backup_sha256 = file_sha256(backup_path)
+            if backup_sha256 != pre_store_sha256:
+                raise StoreCorruptionError("quarantine backup hash verification failed")
+            case = copy.deepcopy(original)
+            quarantined_at = (
+                require_utc_timestamp(
+                    pending_prepared.get("recorded_at"), "prepared quarantine timestamp"
+                )
+                if pending_prepared is not None
+                else utc_now()
+            )
+            quarantine_record = {
+                "protocol_version": TERMINAL_QUARANTINE_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "request_id": request_id,
+                "prior_state": "CLOSED_SUCCESS",
+                "prior_revision": original["revision"],
+                "prior_record_sha256": actual_record_sha256,
+                "pre_store_sha256": pre_store_sha256,
+                "backup_path": backup_path.relative_to(self.state_root).as_posix(),
+                "backup_sha256": backup_sha256,
+                "authority": normalized_authority,
+                "evidence": normalized_evidence,
+                "quarantined_at": quarantined_at,
+            }
+            quarantine_record["record_sha256"] = canonical_json_sha256(quarantine_record)
+            case["terminal_quarantine"] = quarantine_record
+            case["state"] = "CASE_LOCKED"
+            case["resumable_state"] = None
+            case["lock_reason"] = (
+                "erroneous terminal closure quarantined by exact human authority: "
+                + normalized_evidence["reason_code"]
+            )
+            case["revision"] += 1
+            case["updated_at"] = quarantined_at
+            result = {
+                "case_id": case_id,
+                "state": case["state"],
+                "revision": case["revision"],
+                "idempotent": False,
+                "prior_state": "CLOSED_SUCCESS",
+                "record_sha256": quarantine_record["record_sha256"],
+                "backup_path": quarantine_record["backup_path"],
+                "backup_sha256": backup_sha256,
+                "external_reconciliation_required": normalized_evidence["externally_published"],
+            }
+            case["events"][request_id] = {
+                "operation": "quarantine_terminal",
+                "fingerprint": fingerprint,
+                "result": copy.deepcopy(result),
+            }
+            data["cases"][case_id] = case
+            data["revision"] += 1
+            data["updated_at"] = quarantined_at
+            result["store_revision"] = data["revision"]
+            case["events"][request_id]["result"]["store_revision"] = data["revision"]
+            _validate_store(data)
+            expected_post_store_sha256 = hashlib.sha256(serialized_store_bytes(data)).hexdigest()
+            prepared_body = {
+                    "phase": "PREPARED",
+                    "case_id": case_id,
+                    "request_id": request_id,
+                    "fingerprint": fingerprint,
+                    "expected_revision": expected_revision,
+                    "expected_state": expected_state,
+                    "expected_record_sha256": expected_record_sha256,
+                    "pre_store_sha256": pre_store_sha256,
+                    "expected_post_store_sha256": expected_post_store_sha256,
+                    "backup_path": quarantine_record["backup_path"],
+                    "backup_sha256": backup_sha256,
+                    "authority_sha256": canonical_json_sha256(normalized_authority),
+                    "evidence_sha256": canonical_json_sha256(normalized_evidence),
+                    "recorded_at": quarantined_at,
+                }
+            if pending_prepared is not None:
+                if (
+                    pending_prepared.get("expected_post_store_sha256")
+                    != expected_post_store_sha256
+                    or pending_prepared.get("backup_path")
+                    != quarantine_record["backup_path"]
+                    or pending_prepared.get("backup_sha256") != backup_sha256
+                ):
+                    raise StoreCorruptionError(
+                        "reconstructed quarantine store differs from PREPARED audit"
+                    )
+                prepared = pending_prepared
+            else:
+                prepared = self._append_quarantine_audit_unlocked(
+                    prepared_body,
+                    audit_records,
+                )
+            self._write_unlocked(data)
+            post_store_sha256 = file_sha256(self.path)
+            if post_store_sha256 != expected_post_store_sha256:
+                raise StoreCorruptionError("post-quarantine store hash verification failed")
+            committed = self._append_quarantine_audit_unlocked(
+                {
+                    "phase": "COMMITTED",
+                    "case_id": case_id,
+                    "request_id": request_id,
+                    "fingerprint": fingerprint,
+                    "pre_store_sha256": pre_store_sha256,
+                    "post_store_sha256": post_store_sha256,
+                    "backup_sha256": backup_sha256,
+                    "prepared_event_sha256": prepared["event_sha256"],
+                    "recorded_at": utc_now(),
+                    "recovered": False,
+                },
+                audit_records,
+            )
+            return {
+                **result,
+                "pre_store_sha256": pre_store_sha256,
+                "post_store_sha256": post_store_sha256,
+                "prepared_event_sha256": prepared["event_sha256"],
+                "committed_event_sha256": committed["event_sha256"],
+            }
+
     def record_control_failure(
         self,
         case_id: str,
@@ -1464,6 +4793,7 @@ class CaseStore:
     def _action_context(
         *,
         actor_role: str,
+        actor_thread_id: str | None,
         repository: str | None,
         branch: str | None,
         worktree: str | None,
@@ -1490,6 +4820,11 @@ class CaseStore:
             ),
             "head": require_sha(head, "action head") if head is not None else None,
         }
+        # Preserve the schema-2 response shape for legacy callers.  Native
+        # runtime identity is an additive boundary check and is emitted only
+        # when the caller supplies it.
+        if actor_thread_id is not None:
+            context["actor_thread_id"] = normalize_binding("thread", actor_thread_id)
         if context["pr"] is not None and normalized_repo is not None:
             pr_repository = str(context["pr"]).rsplit("#", 1)[0]
             if pr_repository != normalized_repo:
@@ -1612,6 +4947,7 @@ class CaseStore:
         action: str,
         *,
         actor_role: str,
+        actor_thread_id: str | None = None,
         repository: str | None = None,
         branch: str | None = None,
         worktree: str | None = None,
@@ -1625,6 +4961,7 @@ class CaseStore:
         action = _nonempty(action, "action", 128).casefold()
         context = self._action_context(
             actor_role=actor_role,
+            actor_thread_id=actor_thread_id,
             repository=repository,
             branch=branch,
             worktree=worktree,
@@ -1668,6 +5005,47 @@ class CaseStore:
                 reason="actor_role is not part of the case action protocol",
                 blocked_case_id=normalized_blocked_id,
             )
+        actor_thread_id = context.get("actor_thread_id")
+        if actor_thread_id is not None:
+            runtime = case.get("runtime")
+            actors = runtime.get("actors") if isinstance(runtime, Mapping) else None
+            actor = actors.get(actor_thread_id) if isinstance(actors, Mapping) else None
+            if not isinstance(actor, Mapping):
+                return self._action_response(
+                    case,
+                    action,
+                    context,
+                    allowed=False,
+                    reason_code="RUNTIME_ACTOR_UNBOUND",
+                    reason="actor thread is not bound by native controller evidence",
+                    blocked_case_id=normalized_blocked_id,
+                )
+            controller_role = str(actor.get("role", ""))
+            if controller_role != role:
+                response = self._action_response(
+                    case,
+                    action,
+                    context,
+                    allowed=False,
+                    reason_code="ACTOR_ROLE_MISMATCH",
+                    reason="caller role differs from the controller-bound native actor role",
+                    blocked_case_id=normalized_blocked_id,
+                )
+                response["controller_bound_actor_role"] = controller_role
+                return response
+            context_thread = context.get("thread")
+            if context_thread is not None and context_thread != actor_thread_id:
+                return self._action_response(
+                    case,
+                    action,
+                    context,
+                    allowed=False,
+                    reason_code="ACTOR_THREAD_CONTEXT_MISMATCH",
+                    reason="thread context differs from the controller-bound native actor thread",
+                    blocked_case_id=normalized_blocked_id,
+                )
+            if context_thread is None:
+                context["thread"] = actor_thread_id
         known_actions = set().union(*ROLE_ACTIONS.values())
         if action not in known_actions:
             return self._action_response(
@@ -1945,30 +5323,25 @@ def canonical_git_snapshot_hash_from_entries(
 
 
 def _run_git(root: Path, *arguments: str) -> bytes:
-    environment = os.environ.copy()
-    for name in (
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_COMMON_DIR",
-        "GIT_PREFIX",
-    ):
-        environment.pop(name, None)
-    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
-    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    executable = resolved_executable("git.exe", "git")
+    exact_root = Path(root).resolve(strict=True)
+    environment = safe_subprocess_environment(
+        executable,
+        extra={"GIT_NO_REPLACE_OBJECTS": "1", "GIT_OPTIONAL_LOCKS": "0"},
+    )
     try:
         result = subprocess.run(
             [
-                "git",
+                executable,
                 "--no-replace-objects",
                 "-c",
                 "core.fsmonitor=false",
                 "-c",
                 "core.untrackedCache=false",
+                "-c",
+                f"safe.directory={exact_root}",
                 "-C",
-                str(root),
+                str(exact_root),
                 *arguments,
             ],
             stdin=subprocess.DEVNULL,
@@ -2015,6 +5388,76 @@ def _git_head(root: Path) -> str:
         return require_sha(raw, "Git HEAD")
     except ValidationError as exc:
         raise SnapshotError(str(exc)) from exc
+
+
+def _git_branch(root: Path) -> str:
+    raw = _single_git_line(
+        _run_git(root, "symbolic-ref", "--quiet", "--short", "HEAD"), "branch"
+    )
+    try:
+        return normalize_binding("branch", raw)
+    except ValidationError as exc:
+        raise SnapshotError(str(exc)) from exc
+
+
+def _git_origin(root: Path) -> str:
+    raw = _single_git_line(_run_git(root, "remote", "get-url", "origin"), "origin URL")
+    try:
+        return normalize_repo_url(raw)
+    except ValidationError as exc:
+        raise SnapshotError(str(exc)) from exc
+
+
+def _git_tracked_mode(root: Path, relative_path: str) -> str:
+    raw = _run_git(root, "ls-files", "--stage", "--error-unmatch", "--", relative_path)
+    lines = raw.splitlines()
+    if len(lines) != 1:
+        raise SnapshotError("authorized action target must identify exactly one tracked file")
+    try:
+        header, observed_path = lines[0].split(b"\t", 1)
+        mode, oid, stage = header.split(b" ")
+        decoded_path = observed_path.decode("utf-8", errors="strict").replace("\\", "/")
+        decoded_mode = mode.decode("ascii", errors="strict")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise SnapshotError("Git returned a malformed tracked-file record") from exc
+    if decoded_path != relative_path or stage != b"0" or decoded_mode not in {"100644", "100755"}:
+        raise SnapshotError("authorized action target must be a stage-zero regular tracked file")
+    if not SHA_PATTERN.fullmatch(oid.decode("ascii", errors="strict")):
+        raise SnapshotError("Git returned a malformed target object identifier")
+    return decoded_mode
+
+
+def _git_status_paths(root: Path) -> list[str]:
+    raw = _run_git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    )
+    records = raw.split(b"\0")
+    paths: list[str] = []
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if not record:
+            continue
+        if len(record) < 4 or record[2:3] != b" ":
+            raise SnapshotError("Git returned malformed porcelain status")
+        status = record[:2]
+        raw_path = record[3:]
+        try:
+            path = raw_path.decode("utf-8", errors="strict").replace("\\", "/")
+        except UnicodeDecodeError as exc:
+            raise SnapshotError("Git returned a non-UTF-8 status path") from exc
+        if status[:1] in {b"R", b"C"} or status[1:2] in {b"R", b"C"}:
+            if index >= len(records) or not records[index]:
+                raise SnapshotError("Git returned malformed rename status")
+            index += 1
+        paths.append(normalize_action_path(path))
+    return sorted(set(paths))
 
 
 def _assert_git_worktree_clean(root: Path, phase: str) -> None:
@@ -2149,6 +5592,9 @@ def build_parser() -> argparse.ArgumentParser:
     command = sub.add_parser("show")
     command.add_argument("--case-id", required=True)
 
+    command = sub.add_parser("record-hash")
+    command.add_argument("--case-id", required=True)
+
     sub.add_parser("store-status")
 
     command = sub.add_parser("list")
@@ -2167,7 +5613,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name in (
         "start-implementation",
-        "start-review",
         "freeze-findings",
         "close-without-blockers",
         "start-closure-preflight",
@@ -2175,6 +5620,11 @@ def build_parser() -> argparse.ArgumentParser:
         command = sub.add_parser(name)
         command.add_argument("--case-id", required=True)
         _add_mutation_identity(command)
+
+    command = sub.add_parser("start-review")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--cohort-json", required=True)
+    _add_mutation_identity(command)
 
     command = sub.add_parser("freeze-candidate")
     command.add_argument("--case-id", required=True)
@@ -2185,6 +5635,44 @@ def build_parser() -> argparse.ArgumentParser:
     command = sub.add_parser("add-finding")
     command.add_argument("--case-id", required=True)
     command.add_argument("--finding-json", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("submit-review-completion")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--completion-json", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("bind-runtime-actor")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--actor-json", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("issue-action-grant")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--grant-json", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("claim-action-grant")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--claim-json", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("complete-action-grant")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--completion-json", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("fail-action-grant")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--failure-json", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("quarantine-terminal")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--expected-state", required=True, choices=["CLOSED_SUCCESS"])
+    command.add_argument("--expected-record-sha256", required=True)
+    command.add_argument("--authority-json", required=True)
+    command.add_argument("--evidence-json", required=True)
     _add_mutation_identity(command)
 
     command = sub.add_parser("authorize-repair")
@@ -2239,6 +5727,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--case-id", required=True)
     command.add_argument("--action", required=True)
     command.add_argument("--actor-role", required=True)
+    command.add_argument("--actor-thread-id")
     command.add_argument("--repository")
     command.add_argument("--branch")
     command.add_argument("--worktree")
@@ -2269,6 +5758,14 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         )
     if args.command == "show":
         return store.get_case(args.case_id)
+    if args.command == "record-hash":
+        case = store.get_case(args.case_id)
+        return {
+            "case_id": case["case_id"],
+            "state": case["state"],
+            "revision": case["revision"],
+            "record_sha256": case_record_sha256(case),
+        }
     if args.command == "store-status":
         return store.status()
     if args.command == "list":
@@ -2300,10 +5797,59 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             **common,
         )
     if args.command == "start-review":
-        return store.start_review(args.case_id, **common)
+        return store.start_review(
+            args.case_id,
+            cohort=_json_value(args.cohort_json, "cohort-json"),
+            **common,
+        )
     if args.command == "add-finding":
         return store.add_finding(
             args.case_id, finding=_json_value(args.finding_json, "finding-json"), **common
+        )
+    if args.command == "submit-review-completion":
+        return store.submit_review_completion(
+            args.case_id,
+            completion=_json_value(args.completion_json, "completion-json"),
+            **common,
+        )
+    if args.command == "bind-runtime-actor":
+        return store.bind_runtime_actor(
+            args.case_id,
+            actor=_json_value(args.actor_json, "actor-json"),
+            **common,
+        )
+    if args.command == "issue-action-grant":
+        return store.issue_action_grant(
+            args.case_id,
+            grant=_json_value(args.grant_json, "grant-json"),
+            **common,
+        )
+    if args.command == "claim-action-grant":
+        return store.claim_action_grant(
+            args.case_id,
+            claim=_json_value(args.claim_json, "claim-json"),
+            **common,
+        )
+    if args.command == "complete-action-grant":
+        return store.complete_action_grant(
+            args.case_id,
+            completion=_json_value(args.completion_json, "completion-json"),
+            **common,
+        )
+    if args.command == "fail-action-grant":
+        return store.fail_action_grant(
+            args.case_id,
+            failure=_json_value(args.failure_json, "failure-json"),
+            **common,
+        )
+    if args.command == "quarantine-terminal":
+        return store.quarantine_terminal(
+            args.case_id,
+            expected_state=args.expected_state,
+            expected_record_sha256=args.expected_record_sha256,
+            authority=_json_value(args.authority_json, "authority-json"),
+            evidence=_json_value(args.evidence_json, "evidence-json"),
+            **common,
         )
     if args.command == "freeze-findings":
         return store.freeze_findings(args.case_id, **common)
@@ -2362,6 +5908,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             args.case_id,
             args.action,
             actor_role=args.actor_role,
+            actor_thread_id=args.actor_thread_id,
             repository=args.repository,
             branch=args.branch,
             worktree=args.worktree,
