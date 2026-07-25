@@ -1,8 +1,14 @@
 # ADR 0001: Brokered Runtime Action Boundary
 
-- Status: Accepted for bounded implementation and live acceptance
+- Status: Superseded for production action authorization by ADR 0002
 - Decision owners: Human run-envelope authority and Codex Coding OS maintainers
 - Scope: Canonical review receipts, terminal quarantine, and one exact existing-file replacement primitive
+
+ADR 0002 replaces this ADR's App Server identity, actor, thread, turn, and
+supervisor-HMAC authorization design. Existing `ccos-runtime-action-grant-v1`
+records remain readable only for bounded terminal recovery. New v1 grant
+issuance is disabled. The reviewer-receipt and terminal-quarantine decisions in
+this ADR remain current.
 
 ## Context
 

@@ -37,6 +37,10 @@ RUNTIME_ACTOR_PROTOCOL_VERSION = "ccos-runtime-actor-v1"
 ACTION_GRANT_PROTOCOL_VERSION = "ccos-runtime-action-grant-v1"
 ACTION_GRANT_CLAIM_PROTOCOL_VERSION = "ccos-runtime-action-claim-v1"
 ACTION_GRANT_RESULT_PROTOCOL_VERSION = "ccos-runtime-action-result-v1"
+PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION = "ccos-proposal-action-grant-v2"
+PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION = "ccos-proposal-action-claim-v2"
+PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION = "ccos-proposal-action-result-v2"
+PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION = "ccos-proposal-action-authority-v1"
 WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION = "ccos-windows-principal-probe-v1"
 WINDOWS_ISOLATION_EVIDENCE_PROTOCOL_VERSION = "ccos-windows-isolation-evidence-v2"
 WINDOWS_GROUP_MEMBERSHIP_PROTOCOL_VERSION = "ccos-windows-sandbox-membership-v1"
@@ -380,6 +384,69 @@ def controller_source_pins(managed_root: Path) -> dict[str, Any]:
         if (entry.get("sha256") != observed_sha256 or entry.get("size") != observed_size):
             raise StoreCorruptionError(f"controller source differs from bundle manifest: {relative}")
         pins.append({"path": relative, "sha256": observed_sha256, "size": observed_size})
+    return {
+        "manifest_path": "install-bundle.manifest.json",
+        "manifest_sha256": file_sha256(manifest_path),
+        "files": pins,
+    }
+
+
+def proposal_broker_source_pins(managed_root: Path) -> dict[str, Any]:
+    """Pin only the actorless proposal boundary and its canonical engine."""
+    manifest_path = managed_root / "install-bundle.manifest.json"
+    required_paths = (
+        "scripts/agent/case_state.py",
+        "scripts/agent/case_runtime_broker.py",
+        "scripts/agent/case_proposal_action_broker.py",
+    )
+    if (
+        not manifest_path.is_file()
+        or manifest_path.is_symlink()
+        or path_contains_link_or_reparse(manifest_path, stop=managed_root)
+    ):
+        raise StoreCorruptionError(
+            "proposal broker install bundle manifest must be a regular direct file"
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StoreCorruptionError(
+            f"proposal broker install bundle manifest is invalid: {exc}"
+        ) from exc
+    entries = manifest.get("entries") if isinstance(manifest, Mapping) else None
+    if not isinstance(entries, list):
+        raise StoreCorruptionError(
+            "proposal broker install bundle manifest entries are unavailable"
+        )
+    indexed = {
+        entry.get("path"): entry
+        for entry in entries
+        if isinstance(entry, Mapping) and isinstance(entry.get("path"), str)
+    }
+    pins: list[dict[str, Any]] = []
+    for relative in required_paths:
+        entry = indexed.get(relative)
+        source_path = managed_root.joinpath(*PurePosixPath(relative).parts)
+        if (
+            not isinstance(entry, Mapping)
+            or not source_path.is_file()
+            or source_path.is_symlink()
+        ):
+            raise StoreCorruptionError(
+                f"proposal broker source is absent from bundle manifest: {relative}"
+            )
+        observed_sha256 = file_sha256(source_path)
+        observed_size = source_path.stat().st_size
+        if (
+            entry.get("sha256") != observed_sha256
+            or entry.get("size") != observed_size
+        ):
+            raise StoreCorruptionError(
+                f"proposal broker source differs from bundle manifest: {relative}"
+            )
+        pins.append(
+            {"path": relative, "sha256": observed_sha256, "size": observed_size}
+        )
     return {
         "manifest_path": "install-bundle.manifest.json",
         "manifest_sha256": file_sha256(manifest_path),
@@ -3147,6 +3214,8 @@ class CaseStore:
         app_server_sid: str,
         model_sandbox_sid: str,
         sandbox_group_sid: str,
+        online_role: str = "app_server_host",
+        offline_role: str = "model_sandbox",
     ) -> dict[str, Any]:
         expected_fields = {
             "protocol_version", "schema_version", "sandbox_group_sid", "members",
@@ -3167,9 +3236,14 @@ class CaseStore:
         raw_members = evidence.get("members")
         if not isinstance(raw_members, list) or len(raw_members) != 2:
             raise ValidationError("membership evidence must contain the Online and Offline principals")
+        online_role = require_stable_id(online_role, "online principal role")
+        offline_role = require_stable_id(offline_role, "offline principal role")
+        if online_role == offline_role:
+            raise ValidationError("Online and Offline principal roles must differ")
+        role_order = (online_role, offline_role)
         expected_members = {
-            "app_server_host": app_server_sid,
-            "model_sandbox": model_sandbox_sid,
+            online_role: app_server_sid,
+            offline_role: model_sandbox_sid,
         }
         normalized_members: list[dict[str, Any]] = []
         observed_roles: set[str] = set()
@@ -3203,9 +3277,7 @@ class CaseStore:
             })
             observed_roles.add(role)
         normalized_members.sort(
-            key=lambda item: ("app_server_host", "model_sandbox").index(
-                item["principal_role"]
-            )
+            key=lambda item: role_order.index(item["principal_role"])
         )
         return {
             "protocol_version": WINDOWS_GROUP_MEMBERSHIP_PROTOCOL_VERSION,
@@ -3233,6 +3305,8 @@ class CaseStore:
         membership_sha256: str,
         membership_evidence: Mapping[str, Any],
         expected_status_sha256: str = EMPTY_SHA256,
+        online_role: str = "app_server_host",
+        offline_role: str = "model_sandbox",
     ) -> dict[str, Any]:
         expected_fields = {
             "protocol_version", "schema_version", "denied_principal_sids",
@@ -3252,9 +3326,14 @@ class CaseStore:
         raw_probes = evidence.get("principal_probes")
         if not isinstance(raw_probes, list) or len(raw_probes) != 2:
             raise ValidationError("isolation evidence must contain exactly Online and Offline probes")
+        online_role = require_stable_id(online_role, "online principal role")
+        offline_role = require_stable_id(offline_role, "offline principal role")
+        if online_role == offline_role:
+            raise ValidationError("Online and Offline principal roles must differ")
+        role_order = (online_role, offline_role)
         expected = {
-            "app_server_host": app_server_sid,
-            "model_sandbox": model_sandbox_sid,
+            online_role: app_server_sid,
+            offline_role: model_sandbox_sid,
         }
         normalized_probes: list[dict[str, Any]] = []
         observed: set[str] = set()
@@ -3296,9 +3375,7 @@ class CaseStore:
             })
             observed.add(role)
         normalized_probes.sort(
-            key=lambda item: ("app_server_host", "model_sandbox").index(
-                item["principal_role"]
-            )
+            key=lambda item: role_order.index(item["principal_role"])
         )
         combined_body = {
             "denied_principal_sids": denied_principal_sids,
@@ -3534,7 +3611,12 @@ class CaseStore:
         grant: Mapping[str, Any],
         request_id: str,
         expected_revision: int,
+        allow_legacy_v1: bool = False,
     ) -> dict[str, Any]:
+        if allow_legacy_v1 is not True:
+            raise AuthorizationError(
+                "new ccos-runtime-action-grant-v1 issuance is disabled; use the actorless proposal action grant"
+            )
         normalized = self._normalize_action_grant_request(grant)
 
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
@@ -3838,6 +3920,613 @@ class CaseStore:
         )
 
     @staticmethod
+    def _normalize_proposal_action_grant_request(
+        case_id: str, grant: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version", "schema_version", "grant_id", "authority_id",
+            "operation_id", "action", "operation", "repository", "branch",
+            "worktree", "base_head", "target_path", "baseline_sha256",
+            "proposal_artifact_path", "proposal_artifact_sha256", "proposal_size",
+            "replacement_sha256", "worker_principal_sid",
+            "model_worker_principal_sid", "sandbox_group_principal_sid",
+            "denied_principal_sids", "broker_principal_sid",
+            "sandbox_executable_path", "sandbox_executable_sha256",
+            "sandbox_executable_version", "probe_runtime_root",
+            "group_membership_evidence", "protected_acl_snapshot",
+            "protected_acl_snapshot_sha256", "preissue_dacl_evidence",
+            "preissue_dacl_evidence_sha256", "isolation_evidence", "expires_at",
+            "authority", "authority_sha256",
+        }
+        if not isinstance(grant, Mapping) or set(grant) != expected_fields:
+            raise ValidationError(
+                "proposal action grant must use the fixed ccos-proposal-action-grant-v2 request schema"
+            )
+        if (
+            grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+            or grant.get("schema_version") != 2
+        ):
+            raise ValidationError(
+                "proposal action grant protocol or schema version is unsupported"
+            )
+        if (
+            grant.get("action") != "implementation"
+            or grant.get("operation") != "replace_existing_file_v1"
+        ):
+            raise AuthorizationError(
+                "proposal grants support only the exact implementation file-replacement operation"
+            )
+        canonical_id = canonical_case_id(case_id)
+        worktree_path, worktree = normalized_absolute_path(
+            grant.get("worktree"), "proposal grant worktree", reject_links=True
+        )
+        proposal_path, proposal_artifact_path = normalized_absolute_path(
+            grant.get("proposal_artifact_path"),
+            "proposal artifact path",
+            reject_links=True,
+        )
+        executable_path, sandbox_executable_path = normalized_absolute_path(
+            grant.get("sandbox_executable_path"),
+            "sandbox executable path",
+            reject_links=True,
+        )
+        probe_runtime_path, probe_runtime_root = normalized_absolute_path(
+            grant.get("probe_runtime_root"),
+            "probe runtime root",
+            reject_links=True,
+        )
+        if not probe_runtime_path.is_dir() or path_contains_link_or_reparse(
+            probe_runtime_path
+        ):
+            raise AuthorizationError(
+                "probe runtime root must be an exact regular directory"
+            )
+        if path_is_within(proposal_path, worktree_path):
+            raise AuthorizationError(
+                "proposal artifact must be outside the authorized worktree"
+            )
+        if path_contains_link_or_reparse(proposal_path):
+            raise AuthorizationError(
+                "proposal artifact path must not traverse a link or reparse point"
+            )
+        raw_size = grant.get("proposal_size")
+        if isinstance(raw_size, bool) or not isinstance(raw_size, int):
+            raise ValidationError("proposal_size must be an integer byte count")
+        if raw_size < 0 or raw_size > MAX_REPLACEMENT_BYTES:
+            raise ValidationError(
+                f"proposal_size must be between 0 and {MAX_REPLACEMENT_BYTES} bytes"
+            )
+        worker_sid = require_windows_sid(
+            grant.get("worker_principal_sid"), "Online worker principal SID"
+        )
+        model_worker_sid = require_windows_sid(
+            grant.get("model_worker_principal_sid"),
+            "Offline worker principal SID",
+        )
+        sandbox_group_sid = require_windows_sid(
+            grant.get("sandbox_group_principal_sid"), "sandbox group principal SID"
+        )
+        broker_sid = require_windows_sid(
+            grant.get("broker_principal_sid"), "broker principal SID"
+        )
+        denied_principal_sids = grant.get("denied_principal_sids")
+        expected_denied_sids = [worker_sid, model_worker_sid, sandbox_group_sid]
+        if (
+            denied_principal_sids != expected_denied_sids
+            or len(set(expected_denied_sids)) != 3
+        ):
+            raise AuthorizationError(
+                "denied_principal_sids must be the exact ordered Online, Offline, and sandbox-group SIDs"
+            )
+        if broker_sid in expected_denied_sids:
+            raise AuthorizationError(
+                "sandbox workers, group, and broker must be distinct principals"
+            )
+        baseline_sha256 = require_snapshot_hash(
+            str(grant.get("baseline_sha256", ""))
+        )
+        proposal_sha256 = require_snapshot_hash(
+            str(grant.get("proposal_artifact_sha256", ""))
+        )
+        replacement_sha256 = require_snapshot_hash(
+            str(grant.get("replacement_sha256", ""))
+        )
+        if proposal_sha256 != replacement_sha256:
+            raise AuthorizationError(
+                "proposal artifact and replacement digests must identify the same exact bytes"
+            )
+        if baseline_sha256 == replacement_sha256:
+            raise AuthorizationError(
+                "proposal action replacement must differ from the exact baseline"
+            )
+        normalized = {
+            "protocol_version": PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "grant_id": require_stable_id(grant.get("grant_id"), "grant id"),
+            "authority_id": require_stable_id(
+                grant.get("authority_id"), "authority id"
+            ),
+            "operation_id": require_stable_id(
+                grant.get("operation_id"), "operation id"
+            ),
+            "action": "implementation",
+            "operation": "replace_existing_file_v1",
+            "repository": normalize_repo_url(str(grant.get("repository", ""))),
+            "branch": normalize_binding("branch", str(grant.get("branch", ""))),
+            "worktree": worktree,
+            "base_head": require_sha(
+                str(grant.get("base_head", "")), "proposal grant base head"
+            ),
+            "target_path": normalize_action_path(grant.get("target_path")),
+            "baseline_sha256": baseline_sha256,
+            "proposal_artifact_path": proposal_artifact_path,
+            "proposal_artifact_sha256": proposal_sha256,
+            "proposal_size": raw_size,
+            "replacement_sha256": replacement_sha256,
+            "worker_principal_sid": worker_sid,
+            "model_worker_principal_sid": model_worker_sid,
+            "sandbox_group_principal_sid": sandbox_group_sid,
+            "denied_principal_sids": expected_denied_sids,
+            "broker_principal_sid": broker_sid,
+            "sandbox_executable_path": sandbox_executable_path,
+            "sandbox_executable_sha256": require_snapshot_hash(
+                str(grant.get("sandbox_executable_sha256", ""))
+            ),
+            "sandbox_executable_version": require_stable_id(
+                grant.get("sandbox_executable_version"),
+                "sandbox executable version",
+            ),
+            "probe_runtime_root": probe_runtime_root,
+            "group_membership_evidence": copy.deepcopy(
+                grant.get("group_membership_evidence")
+            ),
+            "protected_acl_snapshot": copy.deepcopy(
+                grant.get("protected_acl_snapshot")
+            ),
+            "protected_acl_snapshot_sha256": require_snapshot_hash(
+                str(grant.get("protected_acl_snapshot_sha256", ""))
+            ),
+            "preissue_dacl_evidence": copy.deepcopy(
+                grant.get("preissue_dacl_evidence")
+            ),
+            "preissue_dacl_evidence_sha256": require_snapshot_hash(
+                str(grant.get("preissue_dacl_evidence_sha256", ""))
+            ),
+            "isolation_evidence": copy.deepcopy(grant.get("isolation_evidence")),
+            "expires_at": require_utc_timestamp(
+                grant.get("expires_at"), "grant expires_at"
+            ),
+        }
+        if not executable_path.is_file() or executable_path.is_symlink():
+            raise AuthorizationError(
+                "sandbox executable must be an existing regular non-link file"
+            )
+        authority = grant.get("authority")
+        authority_fields = {
+            "protocol_version", "schema_version", "authority_id", "case_id",
+            "expected_case_revision", "grant_id", "operation_id", "action",
+            "operation", "repository", "branch", "worktree", "base_head",
+            "target_path", "baseline_sha256", "proposal_artifact_path",
+            "proposal_artifact_sha256", "proposal_size", "replacement_sha256",
+            "broker_principal_sid", "denied_principal_sids", "probe_runtime_root",
+            "expires_at",
+        }
+        if not isinstance(authority, Mapping) or set(authority) != authority_fields:
+            raise ValidationError(
+                "proposal action authority must use the fixed actorless authority schema"
+            )
+        revision = authority.get("expected_case_revision")
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+            raise ValidationError(
+                "proposal action authority expected_case_revision must be a nonnegative integer"
+            )
+        expected_authority = {
+            "protocol_version": PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "authority_id": normalized["authority_id"],
+            "case_id": canonical_id,
+            "expected_case_revision": revision,
+            "grant_id": normalized["grant_id"],
+            "operation_id": normalized["operation_id"],
+            "action": normalized["action"],
+            "operation": normalized["operation"],
+            "repository": normalized["repository"],
+            "branch": normalized["branch"],
+            "worktree": normalized["worktree"],
+            "base_head": normalized["base_head"],
+            "target_path": normalized["target_path"],
+            "baseline_sha256": normalized["baseline_sha256"],
+            "proposal_artifact_path": normalized["proposal_artifact_path"],
+            "proposal_artifact_sha256": normalized["proposal_artifact_sha256"],
+            "proposal_size": normalized["proposal_size"],
+            "replacement_sha256": normalized["replacement_sha256"],
+            "broker_principal_sid": normalized["broker_principal_sid"],
+            "denied_principal_sids": normalized["denied_principal_sids"],
+            "probe_runtime_root": normalized["probe_runtime_root"],
+            "expires_at": normalized["expires_at"],
+        }
+        if dict(authority) != expected_authority:
+            raise AuthorizationError(
+                "proposal action authority differs from the exact normalized operation"
+            )
+        authority_sha256 = require_snapshot_hash(
+            str(grant.get("authority_sha256", ""))
+        )
+        if authority_sha256 != canonical_json_sha256(expected_authority):
+            raise AuthorizationError("proposal action authority digest is invalid")
+        normalized["authority"] = expected_authority
+        normalized["authority_sha256"] = authority_sha256
+        return normalized
+
+    def issue_proposal_action_grant(
+        self,
+        case_id: str,
+        *,
+        grant: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        normalized = self._normalize_proposal_action_grant_request(case_id, grant)
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(
+                case, "IMPLEMENTING", "issue_proposal_action_grant"
+            )
+            runtime = self._runtime_record(case, create=True)
+            if runtime["action_grants"]:
+                raise LimitError(
+                    "case already contains its one exact runtime action grant"
+                )
+            authority = normalized["authority"]
+            if authority["case_id"] != case["case_id"]:
+                raise AuthorizationError("proposal authority belongs to another case")
+            if authority["expected_case_revision"] != case["revision"]:
+                raise RevisionConflict(
+                    "proposal authority revision differs from the canonical case"
+                )
+            repository = normalized["repository"]
+            branch = normalized["branch"]
+            worktree_path = Path(normalized["worktree"])
+            if repository not in case["bindings"]["repo_url"]:
+                raise AuthorizationError(
+                    "proposal repository is not canonically bound to this case"
+                )
+            if {"repository": repository, "value": branch} not in case["bindings"][
+                "branch"
+            ]:
+                raise AuthorizationError(
+                    "proposal branch is not canonically bound to this case"
+                )
+            if normalized["worktree"] not in case["bindings"]["worktree"]:
+                raise AuthorizationError(
+                    "proposal worktree is not canonically bound to this case"
+                )
+            try:
+                exact_root = worktree_path.resolve(strict=True)
+            except OSError as exc:
+                raise ValidationError(
+                    f"proposal worktree cannot be resolved: {exc}"
+                ) from exc
+            if not exact_root.is_dir() or _git_repository_root(exact_root) != exact_root:
+                raise AuthorizationError(
+                    "proposal worktree must be the exact Git repository root"
+                )
+            if path_contains_link_or_reparse(exact_root):
+                raise AuthorizationError(
+                    "proposal worktree must not traverse a link or reparse point"
+                )
+            if _git_origin(exact_root) != repository:
+                raise AuthorizationError(
+                    "Git origin differs from the proposal authority"
+                )
+            if _git_branch(exact_root) != branch:
+                raise AuthorizationError(
+                    "Git branch differs from the proposal authority"
+                )
+            if _git_head(exact_root) != normalized["base_head"]:
+                raise AuthorizationError(
+                    "Git HEAD differs from the exact proposal base head"
+                )
+            _assert_git_worktree_clean(
+                exact_root, "before proposal action grant issuance"
+            )
+            target = exact_root.joinpath(
+                *PurePosixPath(normalized["target_path"]).parts
+            )
+            if not path_is_within(target, exact_root) or not target.is_file():
+                raise AuthorizationError(
+                    "proposal target must be an existing regular file in the worktree"
+                )
+            if path_contains_link_or_reparse(target, stop=exact_root):
+                raise AuthorizationError(
+                    "proposal target must not traverse a link or reparse point"
+                )
+            target_identity = regular_file_identity(target, stop=exact_root)
+            target_mode = _git_tracked_mode(exact_root, normalized["target_path"])
+            if file_sha256(target) != normalized["baseline_sha256"]:
+                raise AuthorizationError(
+                    "proposal target baseline differs from the exact authority"
+                )
+            if target.stat().st_size > MAX_REPLACEMENT_BYTES:
+                raise AuthorizationError(
+                    "proposal target exceeds the bounded single-file primitive"
+                )
+            proposal = Path(normalized["proposal_artifact_path"])
+            if not proposal.is_file() or proposal.is_symlink():
+                raise AuthorizationError(
+                    "proposal artifact must remain a regular non-link file"
+                )
+            proposal_identity = regular_file_identity(proposal)
+            if proposal.stat().st_size != normalized["proposal_size"]:
+                raise AuthorizationError(
+                    "proposal artifact size differs from the exact authority"
+                )
+            if file_sha256(proposal) != normalized["proposal_artifact_sha256"]:
+                raise AuthorizationError(
+                    "proposal artifact digest differs from the exact authority"
+                )
+            executable = Path(normalized["sandbox_executable_path"])
+            if (
+                not executable.is_file()
+                or executable.is_symlink()
+                or path_contains_link_or_reparse(executable)
+                or file_sha256(executable)
+                != normalized["sandbox_executable_sha256"]
+            ):
+                raise AuthorizationError(
+                    "sandbox executable path or bytes differ from the proposal grant"
+                )
+            if not self.path.is_file() or self.path.is_symlink():
+                raise StoreCorruptionError(
+                    "proposal grant issuance requires a regular canonical store"
+                )
+            state_root_path = self.state_root.resolve(strict=True)
+            broker_source_root_path = Path(__file__).resolve().parents[2]
+            proposal_root_path = proposal.parent.resolve(strict=True)
+            if not proposal_root_path.is_dir() or path_contains_link_or_reparse(
+                proposal_root_path
+            ):
+                raise AuthorizationError(
+                    "proposal root must be an exact regular directory"
+                )
+            protected_control_roots = {
+                "target_root": exact_root,
+                "state_root": state_root_path,
+                "broker_source_root": broker_source_root_path,
+                "proposal_root": proposal_root_path,
+            }
+            root_items = list(protected_control_roots.items())
+            if any(
+                left_path == right_path
+                or path_is_within(left_path, right_path)
+                or path_is_within(right_path, left_path)
+                for index, (_left_kind, left_path) in enumerate(root_items)
+                for _right_kind, right_path in root_items[index + 1 :]
+            ):
+                raise AuthorizationError(
+                    "target, state, broker-source, and proposal roots must be pairwise dedicated and nonoverlapping"
+                )
+            probe_runtime_path = Path(normalized["probe_runtime_root"]).resolve(
+                strict=True
+            )
+            protected_roots_and_parents = {
+                *protected_control_roots.values(),
+                *(path.parent for path in protected_control_roots.values()),
+            }
+            if any(
+                probe_runtime_path == protected_path
+                or path_is_within(probe_runtime_path, protected_path)
+                or path_is_within(protected_path, probe_runtime_path)
+                for protected_path in protected_roots_and_parents
+            ):
+                raise AuthorizationError(
+                    "probe runtime root must be dedicated and nonoverlapping with protected roots and parents"
+                )
+            proposal_anchor = normalize_action_path(proposal.name)
+            proposal_broker_path = (
+                broker_source_root_path
+                / "scripts"
+                / "agent"
+                / "case_proposal_action_broker.py"
+            )
+            if (
+                not proposal_broker_path.is_file()
+                or proposal_broker_path.is_symlink()
+            ):
+                raise StoreCorruptionError(
+                    "proposal broker source must be a regular sealed file"
+                )
+            state_root = normalize_binding("worktree", str(state_root_path))
+            broker_source_root = normalize_binding(
+                "worktree", str(broker_source_root_path)
+            )
+            proposal_root = normalize_binding(
+                "worktree", str(proposal_root_path)
+            )
+            source_pins = proposal_broker_source_pins(broker_source_root_path)
+            protected_roots = {
+                "target_root": (
+                    normalized["worktree"],
+                    normalized["target_path"],
+                    normalized["baseline_sha256"],
+                ),
+                "state_root": (state_root, STORE_FILENAME, file_sha256(self.path)),
+                "broker_source_root": (
+                    broker_source_root,
+                    source_pins["manifest_path"],
+                    source_pins["manifest_sha256"],
+                ),
+                "proposal_root": (
+                    proposal_root,
+                    proposal_anchor,
+                    normalized["proposal_artifact_sha256"],
+                ),
+            }
+            now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+            expires = dt.datetime.fromisoformat(normalized["expires_at"])
+            remaining = (expires - now).total_seconds()
+            if remaining <= 0 or remaining > MAX_ACTION_GRANT_LIFETIME_SECONDS:
+                raise AuthorizationError(
+                    "proposal grant expiry must be in the future and no more than 15 minutes away"
+                )
+            membership = self._normalize_sandbox_membership_evidence(
+                normalized["group_membership_evidence"],
+                app_server_sid=normalized["worker_principal_sid"],
+                model_sandbox_sid=normalized["model_worker_principal_sid"],
+                sandbox_group_sid=normalized["sandbox_group_principal_sid"],
+                online_role="proposal_generator",
+                offline_role="offline_sandbox",
+            )
+            membership_sha256 = canonical_json_sha256(membership)
+            isolation = self._normalize_windows_isolation_evidence(
+                normalized["isolation_evidence"],
+                worktree=normalized["worktree"],
+                app_server_sid=normalized["worker_principal_sid"],
+                model_sandbox_sid=normalized["model_worker_principal_sid"],
+                sandbox_group_sid=normalized["sandbox_group_principal_sid"],
+                denied_principal_sids=normalized["denied_principal_sids"],
+                broker_sid=normalized["broker_principal_sid"],
+                base_head=normalized["base_head"],
+                protected_roots=protected_roots,
+                membership_sha256=membership_sha256,
+                membership_evidence=membership,
+                online_role="proposal_generator",
+                offline_role="offline_sandbox",
+            )
+            isolation_sha256 = canonical_json_sha256(isolation)
+            expected_acl_paths = {
+                path
+                for protected_path, _anchor, _digest in protected_roots.values()
+                for path in (
+                    protected_path,
+                    normalize_binding(
+                        "worktree", str(Path(protected_path).parent)
+                    ),
+                )
+            }
+            protected_acl_snapshot = self._normalize_protected_acl_snapshot(
+                normalized["protected_acl_snapshot"],
+                expected_paths=expected_acl_paths,
+            )
+            protected_acl_snapshot_sha256 = canonical_json_sha256(
+                protected_acl_snapshot
+            )
+            if (
+                protected_acl_snapshot_sha256
+                != normalized["protected_acl_snapshot_sha256"]
+            ):
+                raise AuthorizationError("protected ACL snapshot digest differs")
+            sealed_artifact_path, sealed_artifact_sha256, sealed_artifact_identity = (
+                self._seal_action_artifact_unlocked(
+                    case["case_id"],
+                    normalized["grant_id"],
+                    "replacement",
+                    proposal,
+                    expected_size=normalized["proposal_size"],
+                    expected_sha256=normalized["replacement_sha256"],
+                )
+            )
+            sealed_baseline_path, sealed_baseline_sha256, sealed_baseline_identity = (
+                self._seal_action_artifact_unlocked(
+                    case["case_id"],
+                    normalized["grant_id"],
+                    "baseline",
+                    target,
+                    expected_size=target.stat().st_size,
+                    expected_sha256=normalized["baseline_sha256"],
+                )
+            )
+            if regular_file_identity(proposal) != proposal_identity:
+                raise AuthorizationError(
+                    "proposal artifact identity changed while it was sealed"
+                )
+            if regular_file_identity(target, stop=exact_root) != target_identity:
+                raise AuthorizationError(
+                    "proposal target identity changed while baseline bytes were sealed"
+                )
+            allowed_paths = [normalized["target_path"]]
+            issued_at = utc_now()
+            recorded = {
+                **{
+                    name: value
+                    for name, value in normalized.items()
+                    if name
+                    not in {
+                        "isolation_evidence",
+                        "group_membership_evidence",
+                        "protected_acl_snapshot",
+                        "preissue_dacl_evidence",
+                    }
+                },
+                "target_mode": target_mode,
+                "target_file_identity": target_identity,
+                "proposal_file_identity": proposal_identity,
+                "state_root": state_root,
+                "broker_source_root": broker_source_root,
+                "proposal_root": proposal_root,
+                "proposal_broker_source_pins": source_pins,
+                "proposal_broker_source_pins_sha256": canonical_json_sha256(
+                    source_pins
+                ),
+                "sealed_artifact_path": sealed_artifact_path,
+                "sealed_artifact_sha256": sealed_artifact_sha256,
+                "sealed_artifact_identity": sealed_artifact_identity,
+                "sealed_baseline_path": sealed_baseline_path,
+                "sealed_baseline_sha256": sealed_baseline_sha256,
+                "sealed_baseline_identity": sealed_baseline_identity,
+                "allowed_paths": allowed_paths,
+                "allowed_paths_sha256": canonical_json_sha256(allowed_paths),
+                "group_membership_evidence": membership,
+                "group_membership_evidence_sha256": membership_sha256,
+                "isolation_evidence": isolation,
+                "isolation_evidence_sha256": isolation_sha256,
+                "protected_acl_snapshot": protected_acl_snapshot,
+                "protected_acl_snapshot_sha256": protected_acl_snapshot_sha256,
+                "status": "ISSUED",
+                "authorization_nonce": secrets.token_hex(32),
+                "issued_at": issued_at,
+                "issued_revision": case["revision"] + 1,
+                "claim": None,
+                "result": None,
+            }
+            preissue_dacl_evidence = self._normalize_dacl_evidence(
+                normalized["preissue_dacl_evidence"], recorded
+            )
+            preissue_dacl_evidence_sha256 = canonical_json_sha256(
+                preissue_dacl_evidence
+            )
+            if (
+                preissue_dacl_evidence_sha256
+                != normalized["preissue_dacl_evidence_sha256"]
+            ):
+                raise AuthorizationError("preissue DACL evidence digest differs")
+            recorded["preissue_dacl_evidence"] = preissue_dacl_evidence
+            recorded[
+                "preissue_dacl_evidence_sha256"
+            ] = preissue_dacl_evidence_sha256
+            recorded["grant_sha256"] = canonical_json_sha256(recorded)
+            runtime["action_grants"][normalized["grant_id"]] = recorded
+            return {
+                "grant_id": normalized["grant_id"],
+                "authority_id": normalized["authority_id"],
+                "authority_sha256": normalized["authority_sha256"],
+                "status": "ISSUED",
+                "issued_revision": recorded["issued_revision"],
+                "grant_sha256": recorded["grant_sha256"],
+                "allowed_paths_sha256": recorded["allowed_paths_sha256"],
+                "isolation_evidence_sha256": isolation_sha256,
+            }
+
+        return self._mutate(
+            case_id,
+            operation="issue_proposal_action_grant",
+            payload={"grant": normalized},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    @staticmethod
     def _normalize_dacl_evidence(
         evidence: Mapping[str, Any], grant: Mapping[str, Any]
     ) -> dict[str, Any]:
@@ -4109,20 +4798,29 @@ class CaseStore:
         request_id: str,
         expected_revision: int,
     ) -> dict[str, Any]:
+        if not isinstance(claim, Mapping):
+            raise ValidationError("action claim must be an object")
+        protocol = claim.get("protocol_version")
+        if protocol == ACTION_GRANT_CLAIM_PROTOCOL_VERSION:
+            schema_version = 1
+            authority_field = "controller_receipt_sha256"
+        elif protocol == PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION:
+            schema_version = 2
+            authority_field = "authority_sha256"
+        else:
+            raise ValidationError("action claim protocol is unsupported")
         expected_fields = {
-            "protocol_version", "schema_version", "grant_id", "controller_receipt_sha256",
+            "protocol_version", "schema_version", "grant_id", authority_field,
             "broker_principal_sid", "dacl_evidence", "trusted_write_probe",
         }
-        if not isinstance(claim, Mapping) or set(claim) != expected_fields:
-            raise ValidationError("action claim must use the fixed ccos-runtime-action-claim-v1 schema")
-        if claim.get("protocol_version") != ACTION_GRANT_CLAIM_PROTOCOL_VERSION or claim.get("schema_version") != 1:
-            raise ValidationError("action claim protocol or schema version is unsupported")
+        if set(claim) != expected_fields or claim.get("schema_version") != schema_version:
+            raise ValidationError("action claim does not use its fixed protocol schema")
         normalized_header = {
-            "protocol_version": ACTION_GRANT_CLAIM_PROTOCOL_VERSION,
-            "schema_version": 1,
+            "protocol_version": protocol,
+            "schema_version": schema_version,
             "grant_id": require_stable_id(claim.get("grant_id"), "grant id"),
-            "controller_receipt_sha256": require_snapshot_hash(
-                str(claim.get("controller_receipt_sha256", ""))
+            authority_field: require_snapshot_hash(
+                str(claim.get(authority_field, ""))
             ),
             "broker_principal_sid": require_windows_sid(
                 claim.get("broker_principal_sid"), "broker principal SID"
@@ -4139,8 +4837,19 @@ class CaseStore:
                 raise LimitError(f"action grant is already {grant['status']} and cannot be claimed")
             if case["revision"] != grant["issued_revision"]:
                 raise RevisionConflict("case revision changed after action grant issuance")
-            if normalized_header["controller_receipt_sha256"] != grant["controller_receipt_sha256"]:
-                raise AuthorizationError("controller receipt differs from the exact action grant")
+            expected_grant_protocol = (
+                ACTION_GRANT_PROTOCOL_VERSION
+                if protocol == ACTION_GRANT_CLAIM_PROTOCOL_VERSION
+                else PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+            )
+            if grant.get("protocol_version") != expected_grant_protocol:
+                raise AuthorizationError(
+                    "claim protocol differs from the canonical action grant"
+                )
+            if normalized_header[authority_field] != grant[authority_field]:
+                raise AuthorizationError(
+                    "claim authority digest differs from the exact action grant"
+                )
             if normalized_header["broker_principal_sid"] != grant["broker_principal_sid"]:
                 raise AuthorizationError("claiming principal differs from the trusted broker principal")
             expires = dt.datetime.fromisoformat(grant["expires_at"])
@@ -4189,20 +4898,29 @@ class CaseStore:
         request_id: str,
         expected_revision: int,
     ) -> dict[str, Any]:
+        if not isinstance(completion, Mapping):
+            raise ValidationError("action completion must be an object")
+        protocol = completion.get("protocol_version")
+        if protocol == ACTION_GRANT_RESULT_PROTOCOL_VERSION:
+            schema_version = 1
+            authority_field = "controller_receipt_sha256"
+        elif protocol == PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION:
+            schema_version = 2
+            authority_field = "authority_sha256"
+        else:
+            raise ValidationError("action completion protocol is unsupported")
         expected_fields = {
-            "protocol_version", "schema_version", "grant_id", "controller_receipt_sha256",
+            "protocol_version", "schema_version", "grant_id", authority_field,
             "broker_principal_sid", "post_replacement_evidence_sha256", "completed_at",
         }
-        if not isinstance(completion, Mapping) or set(completion) != expected_fields:
-            raise ValidationError("action completion must use the fixed ccos-runtime-action-result-v1 schema")
-        if completion.get("protocol_version") != ACTION_GRANT_RESULT_PROTOCOL_VERSION or completion.get("schema_version") != 1:
-            raise ValidationError("action completion protocol or schema version is unsupported")
+        if set(completion) != expected_fields or completion.get("schema_version") != schema_version:
+            raise ValidationError("action completion does not use its fixed protocol schema")
         normalized = {
-            "protocol_version": ACTION_GRANT_RESULT_PROTOCOL_VERSION,
-            "schema_version": 1,
+            "protocol_version": protocol,
+            "schema_version": schema_version,
             "grant_id": require_stable_id(completion.get("grant_id"), "grant id"),
-            "controller_receipt_sha256": require_snapshot_hash(
-                str(completion.get("controller_receipt_sha256", ""))
+            authority_field: require_snapshot_hash(
+                str(completion.get(authority_field, ""))
             ),
             "broker_principal_sid": require_windows_sid(
                 completion.get("broker_principal_sid"), "broker principal SID"
@@ -4221,8 +4939,19 @@ class CaseStore:
                 raise AuthorizationError("action grant does not exist in this canonical case")
             if grant["status"] != "CLAIMED":
                 raise LimitError(f"action grant is {grant['status']} and cannot be completed")
-            if normalized["controller_receipt_sha256"] != grant["controller_receipt_sha256"]:
-                raise AuthorizationError("completion controller receipt differs from the grant")
+            expected_grant_protocol = (
+                ACTION_GRANT_PROTOCOL_VERSION
+                if protocol == ACTION_GRANT_RESULT_PROTOCOL_VERSION
+                else PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+            )
+            if grant.get("protocol_version") != expected_grant_protocol:
+                raise AuthorizationError(
+                    "completion protocol differs from the canonical action grant"
+                )
+            if normalized[authority_field] != grant[authority_field]:
+                raise AuthorizationError(
+                    "completion authority digest differs from the exact action grant"
+                )
             if normalized["broker_principal_sid"] != grant["broker_principal_sid"]:
                 raise AuthorizationError("completion principal differs from the trusted broker")
             if case["revision"] != grant["claim"]["claimed_revision"]:
@@ -4244,10 +4973,8 @@ class CaseStore:
             status_paths = _git_status_paths(root)
             if status_paths != grant["allowed_paths"]:
                 raise AuthorizationError("Git status contains a path outside the exact action grant")
-            result_record = {
+            result_record: dict[str, Any] = {
                 **normalized,
-                "actor_thread_id": grant["actor_thread_id"],
-                "actor_turn_id": grant["actor_turn_id"],
                 "operation_id": grant["operation_id"],
                 "operation": grant["operation"],
                 "repository": grant["repository"],
@@ -4259,14 +4986,31 @@ class CaseStore:
                 "replacement_sha256": observed_sha256,
                 "replacement_file_identity": replacement_identity,
                 "observed_status_paths": status_paths,
-                "live_controller_evidence_sha256": grant[
-                    "live_controller_evidence_sha256"
-                ],
                 "post_replacement_evidence_sha256": normalized[
                     "post_replacement_evidence_sha256"
                 ],
                 "completed_revision": case["revision"] + 1,
             }
+            if grant["protocol_version"] == ACTION_GRANT_PROTOCOL_VERSION:
+                result_record.update(
+                    {
+                        "actor_thread_id": grant["actor_thread_id"],
+                        "actor_turn_id": grant["actor_turn_id"],
+                        "live_controller_evidence_sha256": grant[
+                            "live_controller_evidence_sha256"
+                        ],
+                    }
+                )
+            else:
+                result_record.update(
+                    {
+                        "authority_id": grant["authority_id"],
+                        "authority_sha256": grant["authority_sha256"],
+                        "proposal_artifact_sha256": grant[
+                            "proposal_artifact_sha256"
+                        ],
+                    }
+                )
             result_record["result_sha256"] = canonical_json_sha256(result_record)
             grant["status"] = "COMPLETED"
             grant["result"] = result_record
@@ -4298,17 +5042,28 @@ class CaseStore:
         request_id: str,
         expected_revision: int,
     ) -> dict[str, Any]:
+        if not isinstance(failure, Mapping):
+            raise ValidationError("action failure must be an object")
+        protocol = failure.get("protocol_version")
+        if protocol == ACTION_GRANT_RESULT_PROTOCOL_VERSION:
+            schema_version = 1
+            authority_field = None
+        elif protocol == PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION:
+            schema_version = 2
+            authority_field = "authority_sha256"
+        else:
+            raise ValidationError("action failure protocol is unsupported")
         expected_fields = {
             "protocol_version", "schema_version", "grant_id", "broker_principal_sid",
             "failure_stage", "failure_code", "failure_evidence_sha256", "observed_at",
         }
-        if not isinstance(failure, Mapping) or set(failure) != expected_fields:
-            raise ValidationError("action failure must use the fixed ccos-runtime-action-result-v1 failure schema")
-        if failure.get("protocol_version") != ACTION_GRANT_RESULT_PROTOCOL_VERSION or failure.get("schema_version") != 1:
-            raise ValidationError("action failure protocol or schema version is unsupported")
+        if authority_field:
+            expected_fields.add(authority_field)
+        if set(failure) != expected_fields or failure.get("schema_version") != schema_version:
+            raise ValidationError("action failure does not use its fixed protocol schema")
         normalized = {
-            "protocol_version": ACTION_GRANT_RESULT_PROTOCOL_VERSION,
-            "schema_version": 1,
+            "protocol_version": protocol,
+            "schema_version": schema_version,
             "grant_id": require_stable_id(failure.get("grant_id"), "grant id"),
             "broker_principal_sid": require_windows_sid(
                 failure.get("broker_principal_sid"), "broker principal SID"
@@ -4320,6 +5075,10 @@ class CaseStore:
             ),
             "observed_at": require_utc_timestamp(failure.get("observed_at"), "failure observed_at"),
         }
+        if authority_field:
+            normalized[authority_field] = require_snapshot_hash(
+                str(failure.get(authority_field, ""))
+            )
 
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
             self._require_state(case, "IMPLEMENTING", "fail_action_grant")
@@ -4327,6 +5086,19 @@ class CaseStore:
             grant = runtime["action_grants"].get(normalized["grant_id"])
             if not isinstance(grant, dict):
                 raise AuthorizationError("action grant does not exist in this canonical case")
+            expected_grant_protocol = (
+                ACTION_GRANT_PROTOCOL_VERSION
+                if protocol == ACTION_GRANT_RESULT_PROTOCOL_VERSION
+                else PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+            )
+            if grant.get("protocol_version") != expected_grant_protocol:
+                raise AuthorizationError(
+                    "failure protocol differs from the canonical action grant"
+                )
+            if authority_field and normalized[authority_field] != grant[authority_field]:
+                raise AuthorizationError(
+                    "failure authority digest differs from the exact action grant"
+                )
             if grant["status"] not in {"ISSUED", "CLAIMED"}:
                 raise LimitError(f"only an active action grant can be failed; grant is {grant['status']}")
             if grant["status"] == "ISSUED" and normalized["failure_stage"] not in {

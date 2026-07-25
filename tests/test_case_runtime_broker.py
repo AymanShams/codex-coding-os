@@ -646,6 +646,7 @@ class RuntimeFixture(unittest.TestCase):
                 grant=request,
                 request_id=request_id(),
                 expected_revision=self.revision,
+                allow_legacy_v1=True,
             )
         canonical = self.grant()
         journal = broker.BrokerJournal(self.state_root, self.case_id, self.grant_id)

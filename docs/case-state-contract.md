@@ -153,141 +153,116 @@ unrelated product work in the same repository.
 A global emergency stop is outside this case engine and is reserved for
 credential compromise or uncontrolled concurrent mutation.
 
-## Proposal-only App Server and runtime action boundary
+## Artifact-authorized runtime action boundary
 
-The App Server is an identity and proposal surface, not a mutation authority.
-Every parent, implementation, review, closure, incomplete, and unknown model
-turn runs with a read-only sandbox, network disabled, `approvalPolicy=never`,
-`dynamicTools=[]`, no selected capability roots, no MCP servers, no hooks, and
-no inherited tool environment. The controller defensively declines every file
-or command approval request, declines MCP elicitation, rejects every tool call,
-and rejects unknown server requests. It never returns `acceptForSession`.
+New production action authorization uses
+`ccos-proposal-action-grant-v2`. V2 is an actorless, one-use capability stored
+in the existing `runtime.action_grants` map. App Server identities, parent or
+child roles, thread identifiers, turn identifiers, task paths, approval
+results, and proposal-producing process identity are not fields in its
+authorization decision.
 
-Native collaboration events establish only identity evidence. The trusted
-controller correlates the sender thread, receiver thread, parent turn, agent
-path, and native spawn activity, then corroborates each identity with
-`thread/read`. A model-supplied role is never authority. Extra or ambiguous
-children remain unknown and read-only.
+The only supported operation is `replace_existing_file_v1`: replacement of one
+already existing tracked file with the exact bytes of one bound proposal
+artifact. The operation does not authorize a command, patch interpreter, path
+selection, content supplied at execution time, create, delete, rename,
+multi-file change, commit, push, pull request, publication, deployment,
+credential change, or universal synchronization.
 
-An implementation child may return a strict `COMPLETED` proposal envelope in
-its final turn. The deterministic controller binds the proposal digest and byte
-count to the case, grant, native thread, native turn, operation identifier,
-base head, target path, native evidence digest, timestamp, and nonce. The
-supervisor normalizes the initial and restart capability records, sanitized
-transport audits, process-tree closure, incomplete-child result, and stale
-revision denial. Only after both App Server process trees close does it bind the
-evidence digest into the receipt and grant and sign the receipt with an HMAC key
-held only in supervisor memory. The key is not stored in the case root, passed
-on the command line, written to logs, or inherited by App Server, Git, or
-PowerShell helpers.
+### V2 grant contract
 
-The trusted supervisor is the only component that composes the controller,
-case engine, and separate-principal broker. It generates the in-memory key,
-collects proposal evidence, issues the exact canonical grant, invokes the
-broker with the key only in the broker process environment, verifies terminal
-state, attempts one denied replay, and scrubs its key material. No supervisor
-CLI accepts arbitrary commands, file content, model role claims, or an
-unbounded mutation path.
+Before `ISSUED`, the engine binds all of the following in one canonical record:
 
-The one-use broker is a deliberately narrow feasibility primitive. It supports
-only an exact replacement of one already existing tracked file with presealed
-bytes outside the model process. It is not a general coding executor and does
-not prove arbitrary patch, command, create, delete, rename, multi-file, or
-repository-wide mutation coverage.
+- protocol `ccos-proposal-action-grant-v2`
+- stable grant identifier and exact case identifier
+- exact expected case revision
+- exact normalized repository, branch, and worktree
+- exact full base-head commit SHA
+- exact normalized existing target path and baseline SHA-256 digest
+- exact normalized proposal artifact path, SHA-256 digest, and byte size
+- exact replacement SHA-256 digest for the proposal bytes
+- fixed operation `replace_existing_file_v1`
+- exact broker security identifier, or SID
+- absolute expiry
+- pinned source and protocol identifiers required by the installed bundle
 
-Before issuance, the engine binds the exact implementer actor, thread and turn,
-repository, branch, worktree, base head, target, baseline digest, replacement
-digest, proposal identity, controller receipt digest, worker SID, broker SID,
-expiry, and source pins. Baseline and replacement bytes are copied into the
-protected state root and sealed by digest, size, device, file identifier, and
-single-link count. The target, proposal, and sealed files may not be symbolic
-links, reparse points, or hard-linked aliases. Baseline and replacement digests
-must differ.
+The expected revision is a mutation interlock. Issuance fails without changing
+state when it is stale, when a grant already exists, or when any required
+binding is absent or malformed. V1 and v2 share the one-grant-per-case limit.
+Issuance cannot reset, replace, or append to an existing grant.
 
-Windows enforcement requires distinct worker and broker principals. The target
-root, canonical state root, broker source root, dedicated proposal root, and
-each immediate parent are broker-owned. The proposal root may not overlap any
-other protected root. Explicit worker DENY access control entries must cover write,
-delete, delete-child, `WRITE_DAC`, and `WRITE_OWNER`. Recursive root denial must
-carry both container and object inheritance with no `InheritOnly` or
-`NoPropagateInherit` escape. A live worker probe must receive `ACCESS_DENIED`
-for root creation, nested-descendant creation, exact-anchor overwrite, kernel
-replace, rename, and delete access, actual hard-link creation, permission
-change, and ownership takeover. Challenge-derived paths must remain absent,
-and anchor hashes, stable identities, and security descriptor hashes must stay
-unchanged. The broker must also prove it can write and clean up a fixed probe
-under every protected root.
+The proposal artifact remains untrusted until the action boundary. The broker
+rejects symbolic links, reparse points, hard-linked aliases, unexpected file
+identity, or an unexpected byte count. It reads the exact declared number of
+bytes and requires their digest to equal both the proposal digest and the
+replacement digest in the grant. Those bytes are the complete replacement
+payload. The caller cannot substitute a target, alternate artifact, command,
+role, thread, or content.
 
-The access-control lifecycle is transactional and journaled. The broker records
-`ACL_SNAPSHOT` and `ACL_LOCKDOWN_INTENT` before changing any discretionary
-access control list, then records `ACL_LOCKDOWN_VERIFIED` only after both fixed
-worker profiles pass. Lockdown remains in force through grant issuance, claim,
-replacement, and the post-replacement dual-profile probes. Success must end in
-the exact journal suffix `POST_ISOLATION_VERIFIED`, `COMPLETED`, then
-`ACL_RESTORED`. Restoration applies parent descriptors before child
-descriptors. A restart may continue a partial restoration only when every
-current descriptor is either the exact original descriptor or the exact sealed
-lockdown descriptor. Any third state fails closed.
+### Claim and execution
 
-The denial probes exercise actual Windows `DeleteFileW`, `MoveFileExW`, and
-`ReplaceFileW` calls against broker-created sacrificial anchors in addition to
-creation, overwrite, hard-link, access-control, and ownership probes. These
-native calls run for the online App Server host profile and the offline model
-sandbox profile before grant issuance and again after replacement. A policy
-description or synthetic path comparison is not acceptance evidence.
+The grant lifecycle remains `ISSUED` to `CLAIMED` to `COMPLETED` or `FAILED`.
+Only the first successful, non-idempotent claim creates write authority. An
+idempotent response may report the prior claim but cannot authorize another
+write. An expired grant, stale revision, or failed preclaim check terminally
+consumes the grant as `FAILED` and locks the exact case.
 
-While a grant is `ISSUED`, every unrelated case mutation is denied without a
-revision change. Only claim or exact preclaim termination is allowed. While a
-grant is `CLAIMED`, only exact completion or failure is allowed. A claim is
-write authority only when its response contains `idempotent: false`. Revision
-drift, an expired grant, a source-pin mismatch, a receipt mismatch, or a failed
-preclaim check consumes the grant as `FAILED` and locks the exact case.
+The fixed separate-process broker is the only process permitted to exercise
+the capability. At the actual replacement boundary it independently verifies:
 
-The protected `broker-journal` is the broker audit. It is hash chained and
-single-instance locked. Preclaim, claim, replacement, completion, and failure
-events record the broker SID and process identifier, grant and receipt hashes,
-claim and result hashes where available, exact target path, pre-action and
-post-action target hashes, and the exact changed path. Recovery permits one
-restart from `CLAIMED` only when the target is still the exact baseline and the
-protected journal proves the prior claim. An exact replacement already present
-is completed without rewriting. Any other state rolls back atomically to the
-sealed baseline and records `FAILED` plus `CASE_LOCKED`.
+1. Its operating-system SID equals the exact broker SID in the grant.
+2. The case, expected revision, grant identifier, protocol, operation, status,
+   expiry, and source pins are exact.
+3. Repository, branch, worktree, and full base head are exact and the worktree
+   has the required clean baseline.
+4. Target path, stable identity, link count, and baseline digest are exact.
+5. Proposal path, stable identity, link count, size, proposal digest, and
+   replacement digest are exact.
+6. Protected-root ownership and access controls exclude every model process
+   from target mutation.
 
-Restart continuity is intentionally bounded. App Server or broker processes
-may restart while the trusted supervisor and its in-memory key remain alive.
-Supervisor process loss destroys the key context. On the next trusted
-supervisor startup, every persisted `ISSUED` or `CLAIMED` grant without that
-live context is consumed with `SUPERVISOR_CONTEXT_LOST` and the exact case is
-locked. It is never released, reissued, or reconstructed from a persisted
-secret.
+The broker then claims the grant, atomically replaces only the bound target,
+verifies the exact replacement digest and changed-path set, records canonical
+completion, and denies replay. Parent, implementation, reviewer, closure,
+incomplete, unknown, or forged agent identities have no role-specific mutation
+path because no agent identity is action authority.
 
-Startup recovery resolves durable state before schema inspection or App Server
-launch. A no-grant case may start only from `IMPLEMENTING`. If a crash occurred
-after `ACL_LOCKDOWN_INTENT` but before canonical grant issuance, the supervisor
-accepts at most one exact case, grant, root, and principal-bound recovery
-record, restores the snapshot, records `ACL_RESTORED`, and calls the canonical
-`ccos-preissue-generation-abort-v1` transition. That transition preserves all
-lifecycle counters and locks the case with
-`PREISSUE_GENERATION_ABANDONED`. An orphaned `ISSUED` or `CLAIMED` grant is
-rolled back to its sealed baseline, failed, and locked. A crash after canonical
-completion but before journal completion or access-control restoration may
-reconstruct only the missing `COMPLETED` record from the exact canonical result
-and post-isolation digest, then restore. None of these paths creates another
-implementation generation or grant.
+### Journal, restart, and failure
 
-After deterministic proposal, authentication, and schema preflight, the
-supervisor records one `ccos-runtime-generation-attempt-v1` claim immediately
-before the first App Server generation. Canonical grant issuance atomically
-changes that claim to `GRANT_ISSUED`. Any ordinary pre-grant failure changes it
-to `ABORTED` and locks the exact case in the same run. A process crash can leave
-only `CLAIMED`, which the next startup aborts and locks before schema inspection
-or App Server launch. No second App Server generation is permitted.
+The protected `broker-journal` is hash chained and single-instance locked. It
+records preclaim, claim, replacement, completion, failure, broker SID and
+process identifier, grant and proposal hashes, claim and result hashes, exact
+target, pre-action and post-action digests, and exact changed paths.
 
-Worker authentication is configuration, not action authority. If
-`auth.json` is absent at startup it must remain absent. If it already exists,
-the supervisor records only its bounded file identity, size, link count, and
-digest, never its content, and requires the same file and bytes to remain in
-place. The supervisor never deletes pre-existing authentication material.
+Recovery from `CLAIMED` is bounded by that journal. When the target is still the
+exact baseline, the recovery path may perform the one declared replacement.
+When the exact replacement is already present, it may complete without another
+write. Any third state rolls back atomically to the sealed baseline, records
+`FAILED`, and locks the exact case. Recovery never returns a grant to `ISSUED`,
+changes its bindings, or permits a second replacement.
+
+Any repository, branch, worktree, head, target, baseline, proposal,
+replacement, SID, expiry, revision, access-control, journal, or source-pin
+mismatch fails closed. A failed claim or pre-action verification consumes the
+grant. A post-claim failure invokes rollback and case locking. Completion
+requires exactly one changed path and the exact replacement digest.
+
+### V1 compatibility boundary
+
+Existing `ccos-runtime-action-grant-v1` records remain readable for historical
+inspection and bounded terminal recovery. An already issued or claimed v1
+grant may reach `COMPLETED` or `FAILED` only under its original receipt, actor,
+HMAC, journal, rollback, and lock rules. It cannot be released, reset,
+converted, cloned, or reissued.
+
+New v1 issuance is disabled. All new production action grants use
+`ccos-proposal-action-grant-v2`. V1 fields must not be inferred for v2, and v2
+must not acquire role, App Server, thread, turn, approval, controller-receipt,
+or supervisor-HMAC dependencies.
+
+ADR 0002 is the production authorization decision. ADR 0001 remains the
+historical v1 design and still controls recovery interpretation for records
+that already exist.
 
 Publication is eligible only from `CLOSED_SUCCESS`. Merge, deployment, release,
 credential changes, and universal synchronization are also ineligible before

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "c5e7fcc17863d76145c65568b1fbe7271afd413382abdae0bf1d1462c3fba67c",
+  "aggregate_sha256": "c28d3fb62cf9ec682547db79b72e7cef7a01dccd5d3ee5a06a31e049bdfcdbff",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2138,8 +2138,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "ce6755969804524c56ad4f2e34eba8052eb3a55c605e1ed64fb333e4a1f79e95",
-      "size": 12906
+      "sha256": "7f3262758f7266d7dd7e8ff39bf4833fc535208821e1a6fd056377128b60e5c3",
+      "size": 13388
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2208,13 +2208,18 @@
     },
     {
       "path": "docs/architecture/adr/0001-brokered-runtime-action-boundary.md",
-      "sha256": "d7412e97a4616fe8b76b6c3fdd1e3c31ed0d517128fb44959f031d142e79584a",
-      "size": 7854
+      "sha256": "fc33e339ee2c202327fe486f15f00626226a17c025c1077242482ca5145c67c5",
+      "size": 8189
+    },
+    {
+      "path": "docs/architecture/adr/0002-artifact-authorized-one-shot-action.md",
+      "sha256": "ec08dbe38a22b9c410ff688a80bc5350bc53c831d790cc6d017e3f8b9e467ede",
+      "size": 7180
     },
     {
       "path": "docs/case-state-contract.md",
-      "sha256": "250d0dc8cd57f6a2880bd6dea8d530044fac79b2febb166694142e81e24748bc",
-      "size": 23145
+      "sha256": "76d49b697ea1e07cba60c9731742deab2bc70e1c86bbda59ea70702f80d89dc5",
+      "size": 20177
     },
     {
       "path": "docs/codex-plugins-mcps-hooks.md",
@@ -2343,8 +2348,8 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "84fcdacdd21cbc6e7aefbb0d1c6f2aad2fdde00f43595e1a3f66a58b43959faa",
-      "size": 12334
+      "sha256": "b8c823e2e962882e29d07aa7fdbd46dba5c4f67a63c3c6d89877f0c00b41f38f",
+      "size": 12564
     },
     {
       "path": "pack.schema.json",
@@ -2362,9 +2367,14 @@
       "size": 103894
     },
     {
+      "path": "scripts/agent/case_proposal_action_broker.py",
+      "sha256": "ceb2832447f187e32a7494de8c078ca84bf8e380477bdf2273205804049bf9d1",
+      "size": 11245
+    },
+    {
       "path": "scripts/agent/case_runtime_broker.py",
-      "sha256": "ea80e55bc69778de1106f1b3830a41ff7d7a63292de39673e070a77ff040dbbe",
-      "size": 150494
+      "sha256": "d72211f824d1322cf028a896124c609fc8e0280685cc8241767a71d2e4767278",
+      "size": 164315
     },
     {
       "path": "scripts/agent/case_runtime_supervisor.py",
@@ -2373,8 +2383,8 @@
     },
     {
       "path": "scripts/agent/case_state.py",
-      "sha256": "3934447026ab20b55e85cd39b9a731c4b76e3f71fb53f2158ab88a0618a79908",
-      "size": 285249
+      "sha256": "b5c6892ee783f83c1987f7fd03efc9d832075e207b6335f5ef127a6d755b6c6a",
+      "size": 321418
     },
     {
       "path": "scripts/agent/fresh_context_review.py",
@@ -2597,9 +2607,14 @@
       "size": 31028
     },
     {
+      "path": "tests/test_case_proposal_action_grant.py",
+      "sha256": "1f486ffdd1c0529c07b0ee161ebb106982b4217c45afed0fe9f09eb83ba4dc27",
+      "size": 32516
+    },
+    {
       "path": "tests/test_case_runtime_broker.py",
-      "sha256": "c1d32368458704760703c8824c89da05ba0741820342c952ccde05e096f7ce94",
-      "size": 91853
+      "sha256": "38b8931475bee2f0525f7b3c541dc4a20168ff5e4048d3d371d5ceae6e4f0d73",
+      "size": 91891
     },
     {
       "path": "tests/test_case_runtime_supervisor.py",

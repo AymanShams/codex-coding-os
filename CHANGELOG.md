@@ -22,6 +22,8 @@ All notable package changes are recorded here. The authoritative package release
   delete, rename, and replace probes, and worker-auth preservation checks.
 - Added a durable one-use generation-attempt claim and normalized, sanitized
   initial/restart controller evidence sealed only after both process trees close.
+- Added the actorless `ccos-proposal-action-grant-v2` protocol and one-shot
+  proposal broker entrypoint for one exact revision-bound replacement.
 
 ### Changed
 
@@ -32,6 +34,11 @@ All notable package changes are recorded here. The authoritative package release
 - Clarified that native App Server identity is evidence only and that the
   initial broker is a narrow feasibility primitive, not general coding
   authority.
+- Replaced App Server, role, thread, turn, approval, and controller-HMAC
+  production authorization with an exact canonical capability over the case,
+  repository, head, path, baseline, proposal bytes, broker SID, and expiry.
+- Disabled new v1 runtime-grant issuance while preserving bounded recovery of
+  already persisted v1 grants.
 
 ## [0.9.0] - 2026-07-17
 

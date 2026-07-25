@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """One-shot Windows broker for a presealed canonical single-file action grant.
 
-This is an intentionally narrow feasibility primitive. The untrusted Codex/App
-Server process never invokes ``execute`` and receives no mutating tool. A
-deterministic controller binds native thread evidence, seals a turn receipt,
-and launches this broker as a distinct Windows principal.
+The production v2 boundary consumes an actorless exact-action capability. A
+proposal generator supplies bytes but has no mutation authority. Legacy v1
+receipt verification remains only for already-issued grant recovery.
 """
 
 from __future__ import annotations
@@ -32,10 +31,14 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
 
 from case_state import (  # noqa: E402
     ACTION_GRANT_CLAIM_PROTOCOL_VERSION,
+    ACTION_GRANT_PROTOCOL_VERSION,
     ACTION_GRANT_RESULT_PROTOCOL_VERSION,
     EMPTY_SHA256,
     FileLock,
     PROTECTED_ROOT_KINDS,
+    PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION,
+    PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
+    PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION,
     STORE_FILENAME,
     TRUSTED_WRITE_PROBE_PROTOCOL_VERSION,
     WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION,
@@ -68,6 +71,7 @@ from case_state import (  # noqa: E402
     normalized_absolute_path,
     path_contains_link_or_reparse,
     path_is_within,
+    proposal_broker_source_pins,
     require_request_id,
     regular_file_identity,
     require_sha,
@@ -1565,6 +1569,8 @@ def _collect_preissue_dual_probes(
     worker_home: Path,
     journal: "BrokerJournal",
     run_id: str,
+    online_role: str = "app_server_host",
+    offline_role: str = "model_sandbox",
 ) -> dict[str, Any]:
     snapshot = _snapshot_protected_acls(roots)
     snapshot_sha256 = canonical_json_sha256(snapshot)
@@ -1590,8 +1596,8 @@ def _collect_preissue_dual_probes(
     try:
         _configure_protected_dacls(roots, denied, broker_sid)
         for role, principal_sid, online in (
-            ("app_server_host", online_sid, True),
-            ("model_sandbox", offline_sid, False),
+            (require_stable_id(online_role, "online principal role"), online_sid, True),
+            (require_stable_id(offline_role, "offline principal role"), offline_sid, False),
         ):
             request = {
                 **base_request,
@@ -1857,6 +1863,212 @@ def collect_dual_profile_isolation_evidence(
     }
 
 
+def collect_proposal_isolation_evidence(
+    *, store: CaseStore, case_id: str, grant_core: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Lock protected roots and prove Online and Offline mutation denial for v2."""
+    executable = Path(str(grant_core["sandbox_executable_path"])).resolve(
+        strict=True
+    )
+    expected_executable_sha256 = require_snapshot_hash(
+        str(grant_core["sandbox_executable_sha256"])
+    )
+    if (
+        not executable.is_file()
+        or executable.is_symlink()
+        or file_sha256(executable) != expected_executable_sha256
+    ):
+        raise BrokerAuthorizationError(
+            "sandbox launcher differs from the proposal grant binary digest"
+        )
+    expected_version = require_stable_id(
+        grant_core["sandbox_executable_version"], "sandbox executable version"
+    )
+    version_environment = _probe_environment(
+        executable=executable,
+        worker_root=Path(str(grant_core["probe_runtime_root"])) / "version-probe",
+        extra_path_entries=[],
+    )
+    version_result = subprocess.run(
+        [str(executable), "--version"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        env=version_environment,
+        timeout=30,
+    )
+    version_text = (
+        version_result.stdout + b"\n" + version_result.stderr
+    ).decode("utf-8", errors="replace")
+    if version_result.returncode != 0 or expected_version not in version_text:
+        raise BrokerAuthorizationError(
+            "sandbox launcher version differs from the proposal grant"
+        )
+    broker_name, broker_sid = windows_identity()
+    expected_broker_sid = require_windows_sid(
+        grant_core["broker_principal_sid"], "broker principal SID"
+    )
+    if broker_sid != expected_broker_sid:
+        raise BrokerAuthorizationError(
+            "proposal isolation collector is not the exact broker principal"
+        )
+    online_sid = require_windows_sid(
+        grant_core["worker_principal_sid"], "Online worker SID"
+    )
+    offline_sid = require_windows_sid(
+        grant_core["model_worker_principal_sid"], "Offline worker SID"
+    )
+    group_sid = require_windows_sid(
+        grant_core["sandbox_group_principal_sid"], "sandbox group SID"
+    )
+    denied = [online_sid, offline_sid, group_sid]
+    if grant_core.get("denied_principal_sids") != denied:
+        raise BrokerAuthorizationError(
+            "proposal grant denied principals are not exact"
+        )
+    if len({*denied, broker_sid}) != 4:
+        raise BrokerAuthorizationError(
+            "proposal isolation principals must be distinct"
+        )
+    target_root = Path(str(grant_core["worktree"])).resolve(strict=True)
+    state_root = Path(str(store.state_root)).resolve(strict=True)
+    source_root = Path(__file__).resolve().parents[2]
+    proposal = Path(str(grant_core["proposal_artifact_path"])).resolve(
+        strict=True
+    )
+    proposal_root = proposal.parent
+    probe_runtime_root = Path(str(grant_core["probe_runtime_root"])).resolve(
+        strict=True
+    )
+    if not probe_runtime_root.is_dir() or path_contains_link_or_reparse(
+        probe_runtime_root
+    ):
+        raise BrokerAuthorizationError(
+            "proposal probe runtime root is not an exact regular directory"
+        )
+    state_nested = state_root / "probe-descendant"
+    proposal_nested = proposal_root / "probe-descendant"
+    state_nested.mkdir(mode=0o700, exist_ok=True)
+    proposal_nested.mkdir(mode=0o700, exist_ok=True)
+    source_pins = proposal_broker_source_pins(source_root)
+    roots = {
+        "target_root": normalize_binding("worktree", str(target_root)),
+        "state_root": normalize_binding("worktree", str(state_root)),
+        "broker_source_root": normalize_binding("worktree", str(source_root)),
+        "proposal_root": normalize_binding("worktree", str(proposal_root)),
+    }
+    root_requests = [
+        {
+            "root_kind": "target_root",
+            "path": roots["target_root"],
+            "owner_sid": broker_sid,
+            "parent_path": normalize_binding("worktree", str(target_root.parent)),
+            "parent_owner_sid": broker_sid,
+            "anchor_path": normalize_action_path(grant_core["target_path"]),
+            "anchor_sha256": require_snapshot_hash(
+                str(grant_core["baseline_sha256"])
+            ),
+            "nested_probe_parent_path": ".git",
+        },
+        {
+            "root_kind": "state_root",
+            "path": roots["state_root"],
+            "owner_sid": broker_sid,
+            "parent_path": normalize_binding("worktree", str(state_root.parent)),
+            "parent_owner_sid": broker_sid,
+            "anchor_path": STORE_FILENAME,
+            "anchor_sha256": file_sha256(store.path),
+            "nested_probe_parent_path": state_nested.name,
+        },
+        {
+            "root_kind": "broker_source_root",
+            "path": roots["broker_source_root"],
+            "owner_sid": broker_sid,
+            "parent_path": normalize_binding("worktree", str(source_root.parent)),
+            "parent_owner_sid": broker_sid,
+            "anchor_path": source_pins["manifest_path"],
+            "anchor_sha256": source_pins["manifest_sha256"],
+            "nested_probe_parent_path": "scripts/agent",
+        },
+        {
+            "root_kind": "proposal_root",
+            "path": roots["proposal_root"],
+            "owner_sid": broker_sid,
+            "parent_path": normalize_binding("worktree", str(proposal_root.parent)),
+            "parent_owner_sid": broker_sid,
+            "anchor_path": normalize_action_path(proposal.name),
+            "anchor_sha256": require_snapshot_hash(
+                str(grant_core["proposal_artifact_sha256"])
+            ),
+            "nested_probe_parent_path": proposal_nested.name,
+        },
+    ]
+    base_request = {
+        "protocol_version": WORKER_PROBE_REQUEST_PROTOCOL_VERSION,
+        "schema_version": 1,
+        "worker_principal_sid": online_sid,
+        "sandbox_group_principal_sid": group_sid,
+        "broker_principal_sid": broker_sid,
+        "protected_roots": root_requests,
+        "base_head": require_sha(
+            str(grant_core["base_head"]), "proposal grant base head"
+        ),
+        "target_path": normalize_action_path(grant_core["target_path"]),
+        "expected_status_sha256": EMPTY_SHA256,
+    }
+    readable_roots = [
+        target_root,
+        state_root,
+        source_root,
+        proposal_root,
+        executable.parent,
+        Path(sys.executable).resolve(strict=True).parent,
+    ]
+    protected_and_parents = {
+        *(Path(path).resolve(strict=True) for path in roots.values()),
+        *(Path(path).resolve(strict=True).parent for path in roots.values()),
+    }
+    if any(
+        probe_runtime_root == path
+        or path_is_within(probe_runtime_root, path)
+        or path_is_within(path, probe_runtime_root)
+        for path in protected_and_parents
+    ):
+        raise BrokerAuthorizationError(
+            "proposal probe runtime root overlaps a protected root or parent"
+        )
+    grant_id = require_stable_id(grant_core["grant_id"], "grant id")
+    canonical_id = canonical_case_id(case_id)
+    journal = BrokerJournal(Path(store.state_root), canonical_id, grant_id)
+    run_id = f"preissue-{secrets.token_hex(16)}"
+    with FileLock(journal.lock_path, timeout=30.0):
+        collected = _collect_preissue_dual_probes(
+            roots=roots,
+            grant_id=grant_id,
+            denied=denied,
+            broker_sid=broker_sid,
+            root_requests=root_requests,
+            base_request=base_request,
+            executable=executable,
+            controller_spec={},
+            online_sid=online_sid,
+            offline_sid=offline_sid,
+            group_sid=group_sid,
+            readable_roots=readable_roots,
+            worker_home=probe_runtime_root,
+            journal=journal,
+            run_id=run_id,
+            online_role="proposal_generator",
+            offline_role="offline_sandbox",
+        )
+    return {
+        **collected,
+        "collector_broker_identity_sha256": canonical_json_sha256(
+            {"broker_name": broker_name, "broker_sid": broker_sid}
+        ),
+    }
+
+
 def _collect_post_replacement_isolation_evidence(
     store: CaseStore,
     grant: Mapping[str, Any],
@@ -1864,18 +2076,32 @@ def _collect_post_replacement_isolation_evidence(
     run_id: str,
 ) -> dict[str, Any]:
     """Repeat both fixed worker probes while the replacement and DENYs are live."""
-    executable = Path(str(grant["app_server_executable_path"])).resolve(strict=True)
+    proposal_protocol = (
+        grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+    )
+    executable_field = (
+        "sandbox_executable_path" if proposal_protocol else "app_server_executable_path"
+    )
+    executable_hash_field = (
+        "sandbox_executable_sha256" if proposal_protocol else "app_server_sha256"
+    )
+    worker_root_field = "probe_runtime_root" if proposal_protocol else "worker_runtime_root"
+    online_role = "proposal_generator" if proposal_protocol else "app_server_host"
+    offline_role = "offline_sandbox" if proposal_protocol else "model_sandbox"
+    executable = Path(str(grant[executable_field])).resolve(strict=True)
     if (
         not executable.is_file()
         or executable.is_symlink()
-        or file_sha256(executable) != grant["app_server_sha256"]
+        or file_sha256(executable) != grant[executable_hash_field]
     ):
-        raise BrokerAuthorizationError("post-probe App Server binary differs from the grant")
+        raise BrokerAuthorizationError(
+            "post-probe sandbox executable differs from the grant"
+        )
     root = Path(str(grant["worktree"])).resolve(strict=True)
     state_root = Path(str(grant["state_root"])).resolve(strict=True)
     source_root = Path(str(grant["broker_source_root"])).resolve(strict=True)
     proposal_root = Path(str(grant["proposal_root"])).resolve(strict=True)
-    worker_root = Path(str(grant["worker_runtime_root"])).resolve(strict=True)
+    worker_root = Path(str(grant[worker_root_field])).resolve(strict=True)
     target = root.joinpath(*PurePosixPath(grant["target_path"]).parts)
     if file_sha256(target) != grant["replacement_sha256"]:
         raise BrokerAuthorizationError("post-probe target does not contain replacement bytes")
@@ -1971,8 +2197,8 @@ def _collect_post_replacement_isolation_evidence(
     ]
     probes: list[dict[str, Any]] = []
     for role, principal_sid, online in (
-        ("app_server_host", grant["worker_principal_sid"], True),
-        ("model_sandbox", grant["model_worker_principal_sid"], False),
+        (online_role, grant["worker_principal_sid"], True),
+        (offline_role, grant["model_worker_principal_sid"], False),
     ):
         challenge = require_stable_id(
             f"{grant['grant_id']}-post-{role}", "post worker challenge id"
@@ -2016,6 +2242,8 @@ def _collect_post_replacement_isolation_evidence(
         app_server_sid=grant["worker_principal_sid"],
         model_sandbox_sid=grant["model_worker_principal_sid"],
         sandbox_group_sid=grant["sandbox_group_principal_sid"],
+        online_role=online_role,
+        offline_role=offline_role,
     )
     canonical_groups = {
         item["principal_role"]: item["group_sids"]
@@ -2058,6 +2286,8 @@ def _collect_post_replacement_isolation_evidence(
         membership_sha256=membership_sha256,
         membership_evidence=normalized_membership,
         expected_status_sha256=status_sha256,
+        online_role=online_role,
+        offline_role=offline_role,
     )
     dacl_evidence = inspect_protected_dacls(
         _protected_roots(grant),
@@ -2104,11 +2334,24 @@ def _verify_source_pins(grant: Mapping[str, Any]) -> None:
     managed_root = Path(__file__).resolve().parents[2]
     if normalize_binding("worktree", str(managed_root)) != grant["broker_source_root"]:
         raise BrokerAuthorizationError("running broker source root differs from the canonical grant")
-    observed = controller_source_pins(managed_root)
-    if observed != grant.get("controller_source_pins"):
-        raise BrokerAuthorizationError("running controller sources differ from the pinned bundle manifest")
-    if canonical_json_sha256(observed) != grant.get("controller_source_pins_sha256"):
-        raise BrokerAuthorizationError("controller source pin digest differs from the canonical grant")
+    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        observed = proposal_broker_source_pins(managed_root)
+        expected = grant.get("proposal_broker_source_pins")
+        expected_sha256 = grant.get("proposal_broker_source_pins_sha256")
+        label = "proposal broker"
+    else:
+        observed = controller_source_pins(managed_root)
+        expected = grant.get("controller_source_pins")
+        expected_sha256 = grant.get("controller_source_pins_sha256")
+        label = "controller"
+    if observed != expected:
+        raise BrokerAuthorizationError(
+            f"running {label} sources differ from the pinned bundle manifest"
+        )
+    if canonical_json_sha256(observed) != expected_sha256:
+        raise BrokerAuthorizationError(
+            f"{label} source pin digest differs from the canonical grant"
+        )
 
 
 def _verify_original_proposal(grant: Mapping[str, Any]) -> None:
@@ -2155,6 +2398,7 @@ def _trusted_write_probe(
         "target_root": grant["target_path"],
         "state_root": STORE_FILENAME,
         "broker_source_root": isolation_roots["broker_source_root"]["anchor_path"],
+        "proposal_root": isolation_roots["proposal_root"]["anchor_path"],
     }
     root_records: list[dict[str, Any]] = []
     nonce_digest = hashlib.sha256(grant["authorization_nonce"].encode("utf-8")).hexdigest()[:20]
@@ -2780,7 +3024,7 @@ def _journal_action_details(
     claim_sha256: str | None = None,
     result_sha256: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    details: dict[str, Any] = {
         "broker_principal_sid": broker_sid,
         "broker_process_id": os.getpid(),
         "target_path": grant["target_path"],
@@ -2788,15 +3032,35 @@ def _journal_action_details(
         "target_sha256_after": require_snapshot_hash(target_sha256_after),
         "changed_path": changed_path,
         "grant_sha256": require_snapshot_hash(grant["grant_sha256"]),
-        "live_controller_evidence_sha256": require_snapshot_hash(
-            grant["live_controller_evidence_sha256"]
-        ),
-        "controller_receipt_sha256": require_snapshot_hash(
-            grant["controller_receipt_sha256"]
-        ),
         "claim_sha256": claim_sha256,
         "result_sha256": result_sha256,
     }
+    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        details.update(
+            {
+                "authority_id": require_stable_id(
+                    grant["authority_id"], "authority id"
+                ),
+                "authority_sha256": require_snapshot_hash(
+                    grant["authority_sha256"]
+                ),
+                "proposal_artifact_sha256": require_snapshot_hash(
+                    grant["proposal_artifact_sha256"]
+                ),
+            }
+        )
+    else:
+        details.update(
+            {
+                "live_controller_evidence_sha256": require_snapshot_hash(
+                    grant["live_controller_evidence_sha256"]
+                ),
+                "controller_receipt_sha256": require_snapshot_hash(
+                    grant["controller_receipt_sha256"]
+                ),
+            }
+        )
+    return details
 
 
 def _get_grant(case: Mapping[str, Any], grant_id: str) -> dict[str, Any]:
@@ -2812,7 +3076,7 @@ def _verify_static_grant(
     store: CaseStore,
     case: Mapping[str, Any],
     grant: Mapping[str, Any],
-    receipt: Mapping[str, Any],
+    receipt: Mapping[str, Any] | None,
     *,
     broker_identity: tuple[str, str] | None = None,
 ) -> tuple[str, str, str]:
@@ -2824,7 +3088,31 @@ def _verify_static_grant(
         raise BrokerAuthorizationError("broker state root differs from the exact grant")
     _verify_source_pins(grant)
     _verify_original_proposal(grant)
-    _, receipt_sha256 = verify_controller_receipt(receipt, grant, case["case_id"], _controller_key())
+    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        authority = grant.get("authority")
+        authority_sha256 = require_snapshot_hash(
+            str(grant.get("authority_sha256", ""))
+        )
+        if (
+            not isinstance(authority, Mapping)
+            or authority.get("case_id") != case["case_id"]
+            or authority.get("grant_id") != grant.get("grant_id")
+            or authority.get("expected_case_revision")
+            != grant.get("issued_revision", 0) - 1
+            or canonical_json_sha256(authority) != authority_sha256
+        ):
+            raise BrokerAuthorizationError(
+                "canonical proposal authority is missing, stale, or invalid"
+            )
+        authorization_sha256 = authority_sha256
+    else:
+        if not isinstance(receipt, Mapping):
+            raise BrokerAuthorizationError(
+                "legacy action grant requires its controller receipt"
+            )
+        _, authorization_sha256 = verify_controller_receipt(
+            receipt, grant, case["case_id"], _controller_key()
+        )
     roots = _protected_roots(grant)
     observed_dacl = inspect_protected_dacls(
         roots,
@@ -2854,7 +3142,7 @@ def _verify_static_grant(
         state_root, grant["sealed_baseline_path"], grant["sealed_baseline_sha256"],
         grant["sealed_baseline_identity"],
     )
-    return broker_name, broker_sid, receipt_sha256
+    return broker_name, broker_sid, authorization_sha256
 
 
 def _verify_lockdown_journal_binding(
@@ -3003,18 +3291,31 @@ def _record_failure(
         if isinstance(raw_before, str) and len(raw_before) == 64
         else target_after
     )
+    proposal_protocol = (
+        canonical_grant.get("protocol_version")
+        == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+    )
+    failure_payload: dict[str, Any] = {
+        "protocol_version": (
+            PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION
+            if proposal_protocol
+            else ACTION_GRANT_RESULT_PROTOCOL_VERSION
+        ),
+        "schema_version": 2 if proposal_protocol else 1,
+        "grant_id": grant["grant_id"],
+        "broker_principal_sid": broker_sid,
+        "failure_stage": require_stable_id(stage, "failure stage"),
+        "failure_code": require_stable_id(code, "failure code"),
+        "failure_evidence_sha256": canonical_json_sha256(evidence),
+        "observed_at": utc_now(),
+    }
+    if proposal_protocol:
+        failure_payload["authority_sha256"] = canonical_grant[
+            "authority_sha256"
+        ]
     result = store.fail_action_grant(
         case_id,
-        failure={
-            "protocol_version": ACTION_GRANT_RESULT_PROTOCOL_VERSION,
-            "schema_version": 1,
-            "grant_id": grant["grant_id"],
-            "broker_principal_sid": broker_sid,
-            "failure_stage": require_stable_id(stage, "failure stage"),
-            "failure_code": require_stable_id(code, "failure code"),
-            "failure_evidence_sha256": canonical_json_sha256(evidence),
-            "observed_at": utc_now(),
-        },
+        failure=failure_payload,
         request_id=f"broker-fail-{grant['grant_id']}-{run_id}",
         expected_revision=case["revision"],
     )
@@ -3119,7 +3420,7 @@ def _complete(
     store: CaseStore,
     case_id: str,
     grant: Mapping[str, Any],
-    receipt_sha256: str,
+    authorization_sha256: str,
     broker_sid: str,
     journal: BrokerJournal,
     run_id: str,
@@ -3127,13 +3428,26 @@ def _complete(
 ) -> dict[str, Any]:
     case = store.get_case(case_id)
     canonical_grant = _get_grant(case, grant["grant_id"])
+    proposal_protocol = (
+        canonical_grant.get("protocol_version")
+        == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+    )
+    result_protocol = (
+        PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION
+        if proposal_protocol
+        else ACTION_GRANT_RESULT_PROTOCOL_VERSION
+    )
+    result_schema = 2 if proposal_protocol else 1
+    authority_field = (
+        "authority_sha256" if proposal_protocol else "controller_receipt_sha256"
+    )
     result = store.complete_action_grant(
         case_id,
         completion={
-            "protocol_version": ACTION_GRANT_RESULT_PROTOCOL_VERSION,
-            "schema_version": 1,
+            "protocol_version": result_protocol,
+            "schema_version": result_schema,
             "grant_id": grant["grant_id"],
-            "controller_receipt_sha256": receipt_sha256,
+            authority_field: authorization_sha256,
             "broker_principal_sid": broker_sid,
             "post_replacement_evidence_sha256": require_snapshot_hash(
                 post_replacement_evidence_sha256
@@ -3169,7 +3483,7 @@ def _post_probe_complete_and_restore(
     store: CaseStore,
     case_id: str,
     grant: Mapping[str, Any],
-    receipt_sha256: str,
+    authorization_sha256: str,
     broker_sid: str,
     journal: BrokerJournal,
     run_id: str,
@@ -3201,7 +3515,7 @@ def _post_probe_complete_and_restore(
         store,
         case_id,
         grant,
-        receipt_sha256,
+        authorization_sha256,
         broker_sid,
         journal,
         run_id,
@@ -3218,11 +3532,11 @@ def _post_probe_complete_and_restore(
     return result
 
 
-def execute_grant(
+def _execute_grant(
     state_root: Path,
     case_id: str,
     grant_id: str,
-    controller_receipt: Mapping[str, Any],
+    controller_receipt: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     case_id = canonical_case_id(case_id)
     grant_id = require_stable_id(grant_id, "grant id")
@@ -3232,6 +3546,18 @@ def execute_grant(
     with FileLock(journal.lock_path, timeout=30.0):
         case = store.get_case(case_id)
         grant = _get_grant(case, grant_id)
+        proposal_protocol = (
+            grant.get("protocol_version")
+            == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+        )
+        if proposal_protocol and controller_receipt is not None:
+            raise BrokerAuthorizationError(
+                "actorless proposal grants do not accept controller receipts"
+            )
+        if not proposal_protocol and controller_receipt is None:
+            raise BrokerAuthorizationError(
+                "legacy action grants require a controller receipt"
+            )
         broker_name, broker_sid = windows_identity()
         if (broker_sid != grant["broker_principal_sid"]
                 or broker_sid in grant["denied_principal_sids"]):
@@ -3248,7 +3574,7 @@ def execute_grant(
             raise BrokerAuthorizationError("action grant failed and its case is locked")
         try:
             _verify_lockdown_journal_binding(grant, journal)
-            broker_name, broker_sid, receipt_sha256 = _verify_static_grant(
+            broker_name, broker_sid, authorization_sha256 = _verify_static_grant(
                 store,
                 case,
                 grant,
@@ -3311,13 +3637,24 @@ def execute_grant(
                     changed_path=None,
                 ),
             )
+            claim_protocol = (
+                PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION
+                if proposal_protocol
+                else ACTION_GRANT_CLAIM_PROTOCOL_VERSION
+            )
+            claim_schema = 2 if proposal_protocol else 1
+            authority_field = (
+                "authority_sha256"
+                if proposal_protocol
+                else "controller_receipt_sha256"
+            )
             claim_result = store.claim_action_grant(
                 case_id,
                 claim={
-                    "protocol_version": ACTION_GRANT_CLAIM_PROTOCOL_VERSION,
-                    "schema_version": 1,
+                    "protocol_version": claim_protocol,
+                    "schema_version": claim_schema,
                     "grant_id": grant_id,
-                    "controller_receipt_sha256": receipt_sha256,
+                    authority_field: authorization_sha256,
                     "broker_principal_sid": broker_sid,
                     "dacl_evidence": dacl_evidence,
                     "trusted_write_probe": trusted_probe,
@@ -3357,7 +3694,7 @@ def execute_grant(
             if target_sha256 == grant["replacement_sha256"] and _git_status_paths(root) == grant["allowed_paths"]:
                 try:
                     return _post_probe_complete_and_restore(
-                        store, case_id, grant, receipt_sha256, broker_sid, journal, run_id
+                        store, case_id, grant, authorization_sha256, broker_sid, journal, run_id
                     )
                 except BaseException as exc:
                     if _get_grant(store.get_case(case_id), grant_id)["status"] == "COMPLETED":
@@ -3417,7 +3754,7 @@ def execute_grant(
                 ),
             )
             return _post_probe_complete_and_restore(
-                store, case_id, grant, receipt_sha256, broker_sid, journal, run_id
+                store, case_id, grant, authorization_sha256, broker_sid, journal, run_id
             )
         except BaseException as exc:
             if isinstance(exc, (KeyboardInterrupt, SystemExit)):
@@ -3434,6 +3771,23 @@ def execute_grant(
                 raise BrokerPreflightError(
                     "post-claim action failed and rollback/failure recording did not complete"
                 ) from exc
+
+
+def execute_grant(
+    state_root: Path,
+    case_id: str,
+    grant_id: str,
+    controller_receipt: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Recover or consume an already-issued legacy v1 grant."""
+    return _execute_grant(state_root, case_id, grant_id, controller_receipt)
+
+
+def execute_proposal_grant(
+    state_root: Path, case_id: str, grant_id: str
+) -> dict[str, Any]:
+    """Consume one actorless v2 exact-action capability."""
+    return _execute_grant(state_root, case_id, grant_id, None)
 
 
 def build_parser() -> argparse.ArgumentParser:
