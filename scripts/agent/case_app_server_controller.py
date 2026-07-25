@@ -1281,7 +1281,16 @@ def _normalize_run_spec(
         instruction_pins.append({"path": path_text, "sha256": digest})
         observed_instruction_paths.add(path_text)
     instruction_pins.sort(key=lambda item: item["path"])
-    launch_environment = build_app_server_environment(codex_home, executable)
+    # Bind launch hashes to the canonical path strings returned in the sealed
+    # spec. Windows path normalization can change drive-letter case and path
+    # separators, so hashing the pre-normalized Path objects would make a
+    # correctly reconstructed transport fail its own signed-context check.
+    sealed_executable = Path(executable_text)
+    sealed_codex_home = Path(codex_home_text)
+    sealed_runtime_root = Path(runtime_root_text)
+    launch_environment = build_app_server_environment(
+        sealed_codex_home, sealed_executable
+    )
     binary_evidence = app_server_binary_evidence(
         executable,
         expected_sha256=str(raw.get("expected_app_server_sha256", "")),
@@ -1289,7 +1298,9 @@ def _normalize_run_spec(
         environment=launch_environment,
     )
     _sandbox_command, sandbox_state = build_sandboxed_app_server_command(
-        executable, cwd=runtime_root, worker_codex_home=codex_home
+        sealed_executable,
+        cwd=sealed_runtime_root,
+        worker_codex_home=sealed_codex_home,
     )
     app_server_environment_sha256 = canonical_json_sha256(launch_environment)
     return {

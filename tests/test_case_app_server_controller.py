@@ -330,6 +330,40 @@ class ProposalControllerTests(unittest.TestCase):
         result = instance.run(fake, CONTROLLER_KEY)
         return instance, fake, result
 
+    def test_normalized_paths_recreate_signed_transport_context(self):
+        normalized = controller_module._normalize_run_spec(self.spec)
+        executable = Path(normalized["app_server_executable"])
+        worker_codex_home = Path(normalized["worker_codex_home"])
+        runtime_root = Path(normalized["runtime_working_directory"])
+        environment = controller_module.build_app_server_environment(
+            worker_codex_home, executable
+        )
+        _command, sandbox_state = controller_module.build_sandboxed_app_server_command(
+            executable,
+            cwd=runtime_root,
+            worker_codex_home=worker_codex_home,
+        )
+        self.assertEqual(
+            controller_module.canonical_json_sha256(sandbox_state),
+            normalized["sandbox_profile_sha256"],
+        )
+        self.assertEqual(
+            controller_module.canonical_json_sha256(environment),
+            normalized["app_server_environment_sha256"],
+        )
+        transport = controller_module.AppServerTransport(
+            executable=executable,
+            expected_worker_sid=normalized["worker_principal_sid"],
+            expected_broker_sid=normalized["broker_principal_sid"],
+            expected_app_server_sha256=normalized["expected_app_server_sha256"],
+            expected_app_server_version=normalized["expected_app_server_version"],
+            expected_sandbox_profile_sha256=normalized["sandbox_profile_sha256"],
+            expected_environment_sha256=normalized["app_server_environment_sha256"],
+            worker_codex_home=worker_codex_home,
+            cwd=runtime_root,
+        )
+        self.assertEqual(transport.sandbox_state, sandbox_state)
+
     def test_run_emits_exact_receipt_grant_and_role_bindings_without_mutation(self):
         _instance, fake, draft = self.run_controller()
         self.assertNotIn("controller_receipt", draft)
