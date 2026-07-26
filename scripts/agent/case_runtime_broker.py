@@ -100,6 +100,11 @@ BROKER_JOURNAL_DIRECTORY = "broker-journal"
 POST_REPLACEMENT_EVIDENCE_PROTOCOL_VERSION = (
     "ccos-post-replacement-isolation-evidence-v1"
 )
+PROPOSAL_ACL_REFRESH_STAGES = (
+    "post_issuance",
+    "post_claim",
+    "post_replacement",
+)
 
 
 class BrokerError(RuntimeError):
@@ -1753,7 +1758,10 @@ def _canonical_restorable_sddl(value: str) -> str:
     return _DACL_CONTROL_FLAGS.sub(canonicalize, value, count=1)
 
 
-def _snapshot_protected_acls(roots: Mapping[str, str]) -> list[dict[str, str]]:
+def _read_protected_acl_descriptors(
+    roots: Mapping[str, str],
+) -> list[dict[str, str]]:
+    """Read raw and restorable ACL descriptors from one OS snapshot."""
     paths = _protected_acl_paths(roots)
     script = r"""
 $ErrorActionPreference = 'Stop'
@@ -1789,18 +1797,42 @@ foreach ($path in $paths) {
         path = normalize_binding("worktree", str(item["path"]))
         if path not in paths or path in by_path:
             raise BrokerPreflightError("protected ACL snapshot path is unexpected")
-        sddl = _canonical_restorable_sddl(str(item["sddl"]))
-        if not sddl or len(sddl) > 262144:
+        raw_sddl = str(item["sddl"])
+        canonical_sddl = _canonical_restorable_sddl(raw_sddl)
+        if (
+            not raw_sddl
+            or len(raw_sddl) > 262144
+            or not canonical_sddl
+            or len(canonical_sddl) > 262144
+        ):
             raise BrokerPreflightError("protected ACL snapshot SDDL is invalid")
-        entry = {
+        by_path[path] = {
             "path": path,
             "owner_sid": require_windows_sid(item["owner_sid"], "ACL owner SID"),
-            "sddl": sddl,
-            "sddl_sha256": hashlib.sha256(sddl.encode("utf-8")).hexdigest(),
+            "raw_sddl": raw_sddl,
+            "raw_sddl_sha256": hashlib.sha256(
+                raw_sddl.encode("utf-8")
+            ).hexdigest(),
+            "canonical_sddl": canonical_sddl,
+            "canonical_sddl_sha256": hashlib.sha256(
+                canonical_sddl.encode("utf-8")
+            ).hexdigest(),
+        }
+    return [by_path[path] for path in paths]
+
+
+def _snapshot_protected_acls(roots: Mapping[str, str]) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    for descriptor in _read_protected_acl_descriptors(roots):
+        entry = {
+            "path": descriptor["path"],
+            "owner_sid": descriptor["owner_sid"],
+            "sddl": descriptor["canonical_sddl"],
+            "sddl_sha256": descriptor["canonical_sddl_sha256"],
         }
         entry["entry_sha256"] = canonical_json_sha256(entry)
-        by_path[path] = entry
-    return [by_path[path] for path in paths]
+        entries.append(entry)
+    return entries
 
 
 def _normalize_acl_snapshot(snapshot: Any) -> list[dict[str, str]]:
@@ -3331,7 +3363,8 @@ def _restore_acl_snapshot_after_lockdown(
                 "lockdown DACL descriptor set differs from the exact intent roots and parents"
             )
         current = {
-            item["path"]: item for item in _snapshot_protected_acls(intent_roots)
+            item["path"]: item
+            for item in _read_protected_acl_descriptors(intent_roots)
         }
         original = {item["path"]: item for item in normalized_snapshot}
         for path in expected_snapshot_paths:
@@ -3339,13 +3372,14 @@ def _restore_acl_snapshot_after_lockdown(
             original_entry = original[path]
             is_original = (
                 observed_entry["owner_sid"] == original_entry["owner_sid"]
-                and observed_entry["sddl"] == original_entry["sddl"]
-                and observed_entry["sddl_sha256"] == original_entry["sddl_sha256"]
+                and observed_entry["canonical_sddl"] == original_entry["sddl"]
+                and observed_entry["canonical_sddl_sha256"]
+                == original_entry["sddl_sha256"]
             )
             lockdown_owner, lockdown_sddl_sha256 = expected_lockdown[path]
             is_lockdown = (
                 observed_entry["owner_sid"] == lockdown_owner
-                and observed_entry["sddl_sha256"] == lockdown_sddl_sha256
+                and observed_entry["raw_sddl_sha256"] == lockdown_sddl_sha256
             )
             if not is_original and not is_lockdown:
                 raise BrokerAuthorizationError(
@@ -3493,6 +3527,45 @@ def recover_pending_preissue_acl_lockdowns(
         return [restored]
 
 
+def _proposal_claimed_grant_binding(
+    grant: Mapping[str, Any],
+) -> tuple[str, str]:
+    """Reconstruct the stable CLAIMED-stage grant and claim digests."""
+    if grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        raise BrokerAuthorizationError(
+            "claimed-stage binding requires a proposal action grant"
+        )
+    status = grant.get("status")
+    if status not in {"CLAIMED", "COMPLETED"}:
+        raise BrokerAuthorizationError(
+            "claimed-stage binding requires a claimed or completed grant"
+        )
+    current_body = {
+        name: value for name, value in grant.items() if name != "grant_sha256"
+    }
+    current_sha256 = require_snapshot_hash(str(grant.get("grant_sha256", "")))
+    if canonical_json_sha256(current_body) != current_sha256:
+        raise BrokerAuthorizationError("canonical proposal grant digest is invalid")
+    claim = grant.get("claim")
+    if not isinstance(claim, Mapping):
+        raise BrokerAuthorizationError("proposal grant lacks its exact claim")
+    claim_body = {
+        name: value for name, value in claim.items() if name != "claim_sha256"
+    }
+    claim_sha256 = require_snapshot_hash(str(claim.get("claim_sha256", "")))
+    if canonical_json_sha256(claim_body) != claim_sha256:
+        raise BrokerAuthorizationError("canonical proposal claim digest is invalid")
+    claimed_body = copy.deepcopy(current_body)
+    claimed_body["status"] = "CLAIMED"
+    claimed_body["result"] = None
+    claimed_sha256 = canonical_json_sha256(claimed_body)
+    if status == "CLAIMED" and claimed_sha256 != current_sha256:
+        raise BrokerAuthorizationError(
+            "current proposal grant differs from its claimed-stage binding"
+        )
+    return claimed_sha256, claim_sha256
+
+
 def recover_completed_action_grant_cleanup(
     *, state_root: Path, case_id: str, grant_id: str
 ) -> dict[str, Any]:
@@ -3553,6 +3626,9 @@ def recover_completed_action_grant_cleanup(
             != post_evidence.get("dacl_evidence_sha256")
         )
         if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+            claimed_grant_sha256, claim_sha256 = _proposal_claimed_grant_binding(
+                grant
+            )
             expected_post_fields = {
                 "protocol_version", "schema_version", "evidence_mode", "grant_id",
                 "run_id", "target_sha256", "status_sha256",
@@ -3567,6 +3643,50 @@ def recover_completed_action_grant_cleanup(
                 or post_evidence.get("evidence_mode")
                 != PROPOSAL_DACL_EVIDENCE_MODE
             )
+            post_dacl = post_evidence.get("dacl_evidence")
+            post_dacl_rules = (
+                {
+                    name: value
+                    for name, value in post_dacl.items()
+                    if name != "observed_at"
+                }
+                if isinstance(post_dacl, Mapping)
+                else None
+            )
+            post_refreshes = [
+                record
+                for record in records
+                if record.get("event") == "ACL_LOCKDOWN_REFRESHED"
+                and record.get("refresh_stage") == "post_replacement"
+            ]
+            valid_refresh = len(post_refreshes) == 1
+            if valid_refresh:
+                refresh = post_refreshes[0]
+                count = refresh.get("protected_object_count")
+                valid_refresh = (
+                    refresh.get("sequence") < post_records[0].get("sequence")
+                    and post_records[0].get("run_id")
+                    == post_evidence.get("run_id")
+                    and refresh.get("grant_sha256") == claimed_grant_sha256
+                    and refresh.get("claim_sha256") == claim_sha256
+                    and refresh.get("broker_principal_sid")
+                    == grant["broker_principal_sid"]
+                    and refresh.get("protected_acl_snapshot_sha256")
+                    == grant["protected_acl_snapshot_sha256"]
+                    and isinstance(count, int)
+                    and not isinstance(count, bool)
+                    and 0 < count <= MAX_PROTECTED_ACL_OBJECTS
+                    and isinstance(post_dacl_rules, Mapping)
+                    and refresh.get("dacl_rules_sha256")
+                    == canonical_json_sha256(post_dacl_rules)
+                    and refresh.get("target_sha256")
+                    == grant["replacement_sha256"]
+                )
+                if valid_refresh:
+                    require_snapshot_hash(
+                        str(refresh.get("protected_object_inventory_sha256", ""))
+                    )
+            invalid_post = invalid_post or not valid_refresh
         else:
             invalid_post = (
                 invalid_post
@@ -3862,6 +3982,218 @@ def _verify_lockdown_journal_binding(
         )
 
 
+def _proposal_acl_refresh_stage(grant: Mapping[str, Any]) -> str:
+    status = grant.get("status")
+    if status == "ISSUED":
+        return "post_issuance"
+    if status != "CLAIMED":
+        raise BrokerAuthorizationError(
+            "proposal ACL refresh requires an issued or claimed grant"
+        )
+    target = Path(str(grant["worktree"])).joinpath(
+        *PurePosixPath(str(grant["target_path"])).parts
+    )
+    try:
+        replacement_is_live = (
+            target.is_file()
+            and not target.is_symlink()
+            and file_sha256(target) == grant["replacement_sha256"]
+        )
+    except OSError:
+        replacement_is_live = False
+    return "post_replacement" if replacement_is_live else "post_claim"
+
+
+def _validate_proposal_acl_inventory(
+    grant: Mapping[str, Any], roots: Mapping[str, str]
+) -> list[dict[str, str]]:
+    snapshot = _normalize_acl_snapshot(grant.get("protected_acl_snapshot"))
+    snapshot_sha256 = require_snapshot_hash(
+        str(grant.get("protected_acl_snapshot_sha256", ""))
+    )
+    if canonical_json_sha256(snapshot) != snapshot_sha256:
+        raise BrokerAuthorizationError(
+            "proposal ACL inventory snapshot digest is invalid"
+        )
+    required_snapshot_paths = {
+        path
+        for root_path in roots.values()
+        for path in (
+            root_path,
+            normalize_binding("worktree", str(Path(root_path).parent)),
+        )
+    }
+    snapshot_paths = {item["path"] for item in snapshot}
+    if not protected_acl_snapshot_paths_are_scoped(
+        snapshot_paths,
+        required_paths=required_snapshot_paths,
+        protected_roots=set(roots.values()),
+    ):
+        raise BrokerAuthorizationError(
+            "proposal ACL inventory snapshot escapes or omits the exact roots"
+        )
+    authority = grant.get("authority")
+    if not isinstance(authority, Mapping):
+        raise BrokerAuthorizationError("proposal ACL inventory lacks its authority")
+    case_id = canonical_case_id(str(authority.get("case_id", "")))
+    grant_id = require_stable_id(grant.get("grant_id"), "proposal grant id")
+    artifact_root = Path(roots["state_root"]) / ACTION_ARTIFACT_DIRECTORY
+    artifact_directory = artifact_root / case_id
+    expected_relative = {
+        "sealed_artifact_path": (
+            artifact_directory
+            / (
+                hashlib.sha256(f"{grant_id}\0replacement".encode("utf-8")).hexdigest()
+                + ".bin"
+            )
+        ).relative_to(Path(roots["state_root"])).as_posix(),
+        "sealed_baseline_path": (
+            artifact_directory
+            / (
+                hashlib.sha256(f"{grant_id}\0baseline".encode("utf-8")).hexdigest()
+                + ".bin"
+            )
+        ).relative_to(Path(roots["state_root"])).as_posix(),
+    }
+    if any(
+        normalize_action_path(str(grant.get(field, ""))) != relative
+        for field, relative in expected_relative.items()
+    ):
+        raise BrokerAuthorizationError(
+            "proposal sealed artifact path is not the deterministic grant path"
+        )
+    replacement = _sealed_path(
+        Path(roots["state_root"]),
+        grant["sealed_artifact_path"],
+        grant["replacement_sha256"],
+        grant["sealed_artifact_identity"],
+    )
+    baseline = _sealed_path(
+        Path(roots["state_root"]),
+        grant["sealed_baseline_path"],
+        grant["baseline_sha256"],
+        grant["sealed_baseline_identity"],
+    )
+    required_objects = {
+        normalize_binding("worktree", str(artifact_root)): "directory",
+        normalize_binding("worktree", str(artifact_directory)): "directory",
+        normalize_binding("worktree", str(replacement)): "file",
+        normalize_binding("worktree", str(baseline)): "file",
+    }
+    inventory = _protected_acl_inventory(roots)
+    inventory_by_path = {item["path"]: item for item in inventory}
+    if set(inventory_by_path) != snapshot_paths | set(required_objects):
+        raise BrokerAuthorizationError(
+            "proposal ACL inventory differs from the snapshot and exact sealed artifacts"
+        )
+    if any(
+        inventory_by_path.get(path, {}).get("object_type") != object_type
+        for path, object_type in required_objects.items()
+    ):
+        raise BrokerAuthorizationError(
+            "proposal ACL sealed artifact inventory has an unexpected object type"
+        )
+    return inventory
+
+
+def _refresh_proposal_acl_lockdown(
+    grant: Mapping[str, Any],
+    journal: BrokerJournal,
+    *,
+    run_id: str,
+    stage: str,
+) -> dict[str, Any]:
+    """Harden objects created after issuance, claim, or exact replacement."""
+    if grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        raise BrokerPreflightError("ACL refresh applies only to proposal action grants")
+    if stage not in PROPOSAL_ACL_REFRESH_STAGES:
+        raise BrokerPreflightError("proposal ACL refresh stage is unsupported")
+    records = journal.records()
+    refresh_records = [
+        record for record in records if record.get("event") == "ACL_LOCKDOWN_REFRESHED"
+    ]
+    if any(record.get("refresh_stage") not in PROPOSAL_ACL_REFRESH_STAGES for record in refresh_records):
+        raise BrokerAuthorizationError("proposal ACL journal has an unknown refresh stage")
+    for expected_stage in PROPOSAL_ACL_REFRESH_STAGES:
+        if sum(record.get("refresh_stage") == expected_stage for record in refresh_records) > 1:
+            raise BrokerAuthorizationError(
+                "proposal ACL journal duplicates one refresh stage"
+            )
+    matching = [
+        record for record in refresh_records if record.get("refresh_stage") == stage
+    ]
+    if stage != "post_issuance" and not any(
+        record.get("event") in {"PRECLAIM", "CLAIMED", "REPLACED"}
+        for record in records
+    ):
+        raise BrokerAuthorizationError(
+            "proposal ACL refresh stage precedes the canonical action boundary"
+        )
+    roots = _protected_roots(grant)
+    denied = grant["denied_principal_sids"]
+    broker_sid = require_windows_sid(
+        grant["broker_principal_sid"], "proposal ACL refresh broker SID"
+    )
+    inventory = _validate_proposal_acl_inventory(grant, roots)
+    if not matching:
+        _configure_protected_dacls(roots, denied, broker_sid)
+        if _protected_acl_inventory(roots) != inventory:
+            raise BrokerAuthorizationError(
+                "proposal ACL inventory changed while its lockdown was refreshed"
+            )
+    inventory_sha256 = canonical_json_sha256(inventory)
+    dacl_evidence = inspect_proposal_dacls(roots, denied, broker_sid)
+    normalized_dacl = CaseStore._normalize_dacl_evidence(dacl_evidence, grant)
+    dacl_rules = {
+        name: value
+        for name, value in normalized_dacl.items()
+        if name != "observed_at"
+    }
+    dacl_rules_sha256 = canonical_json_sha256(dacl_rules)
+    target = Path(str(grant["worktree"])).joinpath(
+        *PurePosixPath(str(grant["target_path"])).parts
+    )
+    if not target.is_file() or target.is_symlink():
+        raise BrokerAuthorizationError(
+            "proposal ACL refresh target is not an exact regular file"
+        )
+    if stage == "post_issuance":
+        claim_sha256 = None
+    else:
+        claimed_grant_sha256, claim_sha256 = _proposal_claimed_grant_binding(
+            grant
+        )
+        if claimed_grant_sha256 != grant["grant_sha256"]:
+            raise BrokerAuthorizationError(
+                "proposal ACL refresh is not bound to the claimed grant"
+            )
+    details = {
+        "grant_sha256": require_snapshot_hash(str(grant["grant_sha256"])),
+        "claim_sha256": claim_sha256,
+        "broker_principal_sid": broker_sid,
+        "protected_acl_snapshot_sha256": require_snapshot_hash(
+            str(grant["protected_acl_snapshot_sha256"])
+        ),
+        "refresh_stage": stage,
+        "protected_object_count": len(inventory),
+        "protected_object_inventory_sha256": inventory_sha256,
+        "dacl_rules_sha256": dacl_rules_sha256,
+        "target_sha256": file_sha256(target),
+    }
+    if matching:
+        if any(matching[0].get(name) != value for name, value in details.items()):
+            raise BrokerAuthorizationError(
+                "current proposal ACL refresh evidence differs from its journal"
+            )
+        return {**details, "already_refreshed": True}
+    event = journal.append("ACL_LOCKDOWN_REFRESHED", run_id, **details)
+    return {
+        **details,
+        "already_refreshed": False,
+        "journal_event_sha256": event["event_sha256"],
+    }
+
+
 def _repository_target(grant: Mapping[str, Any]) -> tuple[Path, Path]:
     root = Path(grant["worktree"]).resolve(strict=True)
     if _git_repository_root(root) != root or path_contains_link_or_reparse(root):
@@ -4155,6 +4487,13 @@ def _post_probe_complete_and_restore(
     journal: BrokerJournal,
     run_id: str,
 ) -> dict[str, Any]:
+    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        _refresh_proposal_acl_lockdown(
+            grant,
+            journal,
+            run_id=run_id,
+            stage="post_replacement",
+        )
     post_evidence = _collect_post_replacement_isolation_evidence(
         store, grant, run_id=run_id
     )
@@ -4241,6 +4580,13 @@ def _execute_grant(
             raise BrokerAuthorizationError("action grant failed and its case is locked")
         try:
             _verify_lockdown_journal_binding(grant, journal)
+            if proposal_protocol:
+                _refresh_proposal_acl_lockdown(
+                    grant,
+                    journal,
+                    run_id=run_id,
+                    stage=_proposal_acl_refresh_stage(grant),
+                )
             broker_name, broker_sid, authorization_sha256 = _verify_static_grant(
                 store,
                 case,
@@ -4357,6 +4703,32 @@ def _execute_grant(
                 ),
             )
             grant = claimed_grant
+            if proposal_protocol:
+                try:
+                    _refresh_proposal_acl_lockdown(
+                        grant,
+                        journal,
+                        run_id=run_id,
+                        stage="post_claim",
+                    )
+                except BaseException as exc:
+                    if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                        raise
+                    try:
+                        return _rollback_and_fail(
+                            store,
+                            case_id,
+                            grant,
+                            broker_sid,
+                            journal,
+                            run_id,
+                            stage="post_claim",
+                            code="POST_CLAIM_ACL_REFRESH_FAILED",
+                        )
+                    except BaseException:
+                        raise BrokerPreflightError(
+                            "post-claim ACL refresh failed and rollback did not complete"
+                        ) from exc
         elif status == "CLAIMED":
             records = journal.records()
             if not any(record["event"] in {"PRECLAIM", "CLAIMED"} for record in records):

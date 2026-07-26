@@ -657,6 +657,147 @@ class ProposalActionGrantTests(unittest.TestCase):
             ),
         )
 
+    def complete_for_cleanup_recovery(
+        self,
+        *,
+        refresh_run_id: str,
+        post_run_id: str,
+        refresh_overrides: dict | None = None,
+    ) -> tuple[runtime_broker.BrokerJournal, dict]:
+        self.issue()
+        self.claim()
+        claimed_grant = self.grant()
+        self.target.write_bytes(REPLACEMENT_BYTES)
+        normalized_dacl = engine.CaseStore._normalize_dacl_evidence(
+            self.dacl_evidence(claimed_grant), claimed_grant
+        )
+        dacl_rules = {
+            name: value
+            for name, value in normalized_dacl.items()
+            if name != "observed_at"
+        }
+        refresh_details = {
+            "grant_sha256": claimed_grant["grant_sha256"],
+            "claim_sha256": claimed_grant["claim"]["claim_sha256"],
+            "broker_principal_sid": claimed_grant["broker_principal_sid"],
+            "protected_acl_snapshot_sha256": claimed_grant[
+                "protected_acl_snapshot_sha256"
+            ],
+            "refresh_stage": "post_replacement",
+            "protected_object_count": 1,
+            "protected_object_inventory_sha256": engine.canonical_json_sha256(
+                [{"fixture": "protected-object"}]
+            ),
+            "dacl_rules_sha256": engine.canonical_json_sha256(dacl_rules),
+            "target_sha256": claimed_grant["replacement_sha256"],
+        }
+        refresh_details.update(refresh_overrides or {})
+        journal = runtime_broker.BrokerJournal(
+            self.state_root, self.case_id, self.grant_id
+        )
+        journal.append(
+            "ACL_LOCKDOWN_REFRESHED", refresh_run_id, **refresh_details
+        )
+        status_raw = runtime_broker._run_git(
+            self.repository_root,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        )
+        post_body = {
+            "protocol_version": (
+                runtime_broker.POST_REPLACEMENT_EVIDENCE_PROTOCOL_VERSION
+            ),
+            "schema_version": 2,
+            "evidence_mode": engine.PROPOSAL_DACL_EVIDENCE_MODE,
+            "grant_id": self.grant_id,
+            "run_id": post_run_id,
+            "target_sha256": claimed_grant["replacement_sha256"],
+            "status_sha256": hashlib.sha256(status_raw).hexdigest(),
+            "observed_status_paths": claimed_grant["allowed_paths"],
+            "dacl_evidence": normalized_dacl,
+            "dacl_evidence_sha256": engine.canonical_json_sha256(
+                normalized_dacl
+            ),
+            "protected_acl_snapshot_sha256": claimed_grant[
+                "protected_acl_snapshot_sha256"
+            ],
+            "observed_at": engine.utc_now(),
+        }
+        post_evidence = {
+            **post_body,
+            "post_replacement_evidence_sha256": engine.canonical_json_sha256(
+                post_body
+            ),
+        }
+        journal.append(
+            "POST_ISOLATION_VERIFIED",
+            post_run_id,
+            post_replacement_evidence=post_evidence,
+            post_replacement_evidence_sha256=post_evidence[
+                "post_replacement_evidence_sha256"
+            ],
+            protected_acl_snapshot_sha256=claimed_grant[
+                "protected_acl_snapshot_sha256"
+            ],
+            **runtime_broker._journal_action_details(
+                claimed_grant,
+                BROKER_SID,
+                target_sha256_before=claimed_grant["baseline_sha256"],
+                target_sha256_after=claimed_grant["replacement_sha256"],
+                changed_path=claimed_grant["target_path"],
+                claim_sha256=claimed_grant["claim"]["claim_sha256"],
+            ),
+        )
+        completed = self.store.complete_action_grant(
+            self.case_id,
+            completion={
+                "protocol_version": engine.PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION,
+                "schema_version": 2,
+                "grant_id": self.grant_id,
+                "authority_sha256": claimed_grant["authority_sha256"],
+                "broker_principal_sid": BROKER_SID,
+                "post_replacement_evidence_sha256": post_evidence[
+                    "post_replacement_evidence_sha256"
+                ],
+                "completed_at": engine.utc_now(),
+            },
+            request_id=request_id(),
+            expected_revision=self.revision,
+        )
+        self.assertEqual(completed["status"], "COMPLETED")
+        return journal, claimed_grant
+
+    def recover_completed_cleanup(self) -> dict:
+        restored = {
+            "restored": True,
+            "already_restored": False,
+            "protected_acl_snapshot_sha256": self.grant()[
+                "protected_acl_snapshot_sha256"
+            ],
+            "journal_event_sha256": "f" * 64,
+        }
+        with (
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\broker", BROKER_SID),
+            ),
+            mock.patch.object(runtime_broker, "_verify_source_pins"),
+            mock.patch.object(
+                runtime_broker,
+                "_restore_acl_snapshot_after_lockdown",
+                return_value=restored,
+            ),
+        ):
+            return runtime_broker.recover_completed_action_grant_cleanup(
+                state_root=self.state_root,
+                case_id=self.case_id,
+                grant_id=self.grant_id,
+            )
+
     def test_issue_succeeds_with_empty_runtime_actors(self) -> None:
         result = self.issue()
         self.assertEqual(result["status"], "ISSUED")
@@ -999,6 +1140,159 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.assertNotIn("membership_evidence", evidence)
         self.assertNotIn("isolation_evidence", evidence)
         self.assertEqual(evidence["dacl_evidence"], dacl)
+
+    def test_proposal_acl_inventory_allows_only_snapshot_and_exact_artifacts(self) -> None:
+        self.issue()
+        grant = self.grant()
+        roots = runtime_broker._protected_roots(grant)
+        snapshot_paths = {item["path"] for item in grant["protected_acl_snapshot"]}
+        artifact_root = self.state_root / engine.ACTION_ARTIFACT_DIRECTORY
+        artifact_directory = artifact_root / self.case_id
+        required_paths = {
+            engine.normalize_binding("worktree", str(artifact_root)),
+            engine.normalize_binding("worktree", str(artifact_directory)),
+            engine.normalize_binding(
+                "worktree", str(self.state_root / grant["sealed_artifact_path"])
+            ),
+            engine.normalize_binding(
+                "worktree", str(self.state_root / grant["sealed_baseline_path"])
+            ),
+        }
+        inventory = [
+            {
+                "path": path,
+                "object_type": "directory" if Path(path).is_dir() else "file",
+                "scope": "descendant",
+            }
+            for path in sorted(snapshot_paths | required_paths)
+        ]
+        with mock.patch.object(
+            runtime_broker, "_protected_acl_inventory", return_value=inventory
+        ):
+            accepted = runtime_broker._validate_proposal_acl_inventory(
+                grant, roots
+            )
+        self.assertEqual(accepted, inventory)
+
+        unexpected = [
+            *inventory,
+            {
+                "path": engine.normalize_binding(
+                    "worktree", str(self.repository_root / "unexpected.bin")
+                ),
+                "object_type": "file",
+                "scope": "descendant",
+            },
+        ]
+        with mock.patch.object(
+            runtime_broker, "_protected_acl_inventory", return_value=unexpected
+        ):
+            with self.assertRaisesRegex(
+                runtime_broker.BrokerAuthorizationError, "inventory differs"
+            ):
+                runtime_broker._validate_proposal_acl_inventory(grant, roots)
+
+    def test_proposal_acl_refresh_configures_once_then_verifies_exact_replay(self) -> None:
+        self.issue()
+        grant = self.grant()
+        journal = runtime_broker.BrokerJournal(
+            self.state_root, self.case_id, self.grant_id
+        )
+        inventory = [
+            {
+                "path": grant["worktree"],
+                "object_type": "directory",
+                "scope": "root",
+            }
+        ]
+        dacl = self.dacl_evidence(grant)
+        with (
+            mock.patch.object(
+                runtime_broker,
+                "_validate_proposal_acl_inventory",
+                return_value=inventory,
+            ),
+            mock.patch.object(
+                runtime_broker,
+                "_protected_acl_inventory",
+                return_value=inventory,
+            ),
+            mock.patch.object(
+                runtime_broker, "_configure_protected_dacls"
+            ) as configure,
+            mock.patch.object(
+                runtime_broker, "inspect_proposal_dacls", return_value=dacl
+            ),
+        ):
+            first = runtime_broker._refresh_proposal_acl_lockdown(
+                grant,
+                journal,
+                run_id="proposal-refresh-run",
+                stage="post_issuance",
+            )
+            second = runtime_broker._refresh_proposal_acl_lockdown(
+                grant,
+                journal,
+                run_id="proposal-refresh-replay",
+                stage="post_issuance",
+            )
+        configure.assert_called_once()
+        self.assertFalse(first["already_refreshed"])
+        self.assertTrue(second["already_refreshed"])
+        refreshes = [
+            record
+            for record in journal.records()
+            if record["event"] == "ACL_LOCKDOWN_REFRESHED"
+        ]
+        self.assertEqual(len(refreshes), 1)
+        self.assertEqual(refreshes[0]["refresh_stage"], "post_issuance")
+        self.assertEqual(
+            refreshes[0]["protected_object_inventory_sha256"],
+            engine.canonical_json_sha256(inventory),
+        )
+
+    def test_completed_proposal_cleanup_uses_claimed_stage_binding(self) -> None:
+        _journal, claimed_grant = self.complete_for_cleanup_recovery(
+            refresh_run_id="proposal-completion-run",
+            post_run_id="proposal-completion-run",
+        )
+        self.assertNotEqual(
+            claimed_grant["grant_sha256"], self.grant()["grant_sha256"]
+        )
+        recovered = self.recover_completed_cleanup()
+        self.assertEqual(recovered["status"], "recovered_completed")
+
+    def test_completed_proposal_cleanup_allows_split_restart_run_ids(self) -> None:
+        self.complete_for_cleanup_recovery(
+            refresh_run_id="before-crash",
+            post_run_id="after-restart",
+        )
+        recovered = self.recover_completed_cleanup()
+        self.assertEqual(recovered["status"], "recovered_completed")
+
+    def test_completed_proposal_cleanup_rejects_wrong_claimed_grant_digest(self) -> None:
+        self.complete_for_cleanup_recovery(
+            refresh_run_id="proposal-wrong-grant",
+            post_run_id="proposal-wrong-grant",
+            refresh_overrides={"grant_sha256": "1" * 64},
+        )
+        with self.assertRaisesRegex(
+            runtime_broker.BrokerAuthorizationError,
+            "post-isolation journal evidence is invalid",
+        ):
+            self.recover_completed_cleanup()
+
+    def test_completed_proposal_cleanup_rejects_wrong_claim_digest(self) -> None:
+        self.complete_for_cleanup_recovery(
+            refresh_run_id="proposal-wrong-claim",
+            post_run_id="proposal-wrong-claim",
+            refresh_overrides={"claim_sha256": "2" * 64},
+        )
+        with self.assertRaisesRegex(
+            runtime_broker.BrokerAuthorizationError,
+            "post-isolation journal evidence is invalid",
+        ):
+            self.recover_completed_cleanup()
 
     def test_actor_thread_and_app_server_fields_are_rejected(self) -> None:
         initial_case = self.case

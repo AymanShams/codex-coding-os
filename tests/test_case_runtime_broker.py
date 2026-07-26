@@ -1951,6 +1951,37 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             f"O:SYG:SYD:PAR{ace}",
         )
 
+    def test_acl_reader_preserves_raw_and_canonical_descriptor_hashes(self) -> None:
+        path = engine.normalize_binding("worktree", str(self.repository_root))
+        raw_sddl = "O:SYG:SYD:PAI(A;;FA;;;SY)"
+        canonical_sddl = "O:SYG:SYD:P(A;;FA;;;SY)"
+        result = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=json.dumps(
+                [{"path": path, "owner_sid": BROKER_SID, "sddl": raw_sddl}]
+            ).encode("utf-8"),
+            stderr=b"",
+        )
+        with mock.patch.object(
+            broker, "_protected_acl_paths", return_value=[path]
+        ), mock.patch.object(broker, "_run_powershell", return_value=result):
+            descriptors = broker._read_protected_acl_descriptors({})
+        self.assertEqual(descriptors[0]["raw_sddl"], raw_sddl)
+        self.assertEqual(descriptors[0]["canonical_sddl"], canonical_sddl)
+        self.assertEqual(
+            descriptors[0]["raw_sddl_sha256"],
+            hashlib.sha256(raw_sddl.encode("utf-8")).hexdigest(),
+        )
+        self.assertEqual(
+            descriptors[0]["canonical_sddl_sha256"],
+            hashlib.sha256(canonical_sddl.encode("utf-8")).hexdigest(),
+        )
+        self.assertNotEqual(
+            descriptors[0]["raw_sddl_sha256"],
+            descriptors[0]["canonical_sddl_sha256"],
+        )
+
     def test_acl_restore_applies_parents_before_children(self) -> None:
         captured = {}
 
@@ -1983,14 +2014,28 @@ class BrokerHelperIsolationTests(RuntimeFixture):
     def test_acl_restore_retries_from_mixed_original_and_lockdown_descriptors(self) -> None:
         self.issue()
         grant = self.grant()
-        current = copy.deepcopy(grant["protected_acl_snapshot"])
+        current = []
+        for item in grant["protected_acl_snapshot"]:
+            current.append(
+                {
+                    "path": item["path"],
+                    "owner_sid": item["owner_sid"],
+                    "raw_sddl": item["sddl"],
+                    "raw_sddl_sha256": item["sddl_sha256"],
+                    "canonical_sddl": item["sddl"],
+                    "canonical_sddl_sha256": item["sddl_sha256"],
+                }
+            )
         lockdown_rule = grant["preissue_dacl_evidence"]["rules"][0]
         changed_path = lockdown_rule["path"]
         changed = next(item for item in current if item["path"] == changed_path)
         changed["owner_sid"] = BROKER_SID
-        changed["sddl"] = "fixture-lockdown-sddl"
-        changed["sddl_sha256"] = lockdown_rule["root_sddl_sha256"]
-        changed["entry_sha256"] = "e" * 64
+        changed["raw_sddl"] = "fixture-lockdown-sddl"
+        changed["raw_sddl_sha256"] = lockdown_rule["root_sddl_sha256"]
+        changed["canonical_sddl"] = "fixture-canonical-lockdown-sddl"
+        changed["canonical_sddl_sha256"] = hashlib.sha256(
+            changed["canonical_sddl"].encode("utf-8")
+        ).hexdigest()
         journal = broker.BrokerJournal(self.state_root, self.case_id, self.grant_id)
         inventory = [
             {"path": item["path"], "object_type": "file", "scope": "descendant"}
@@ -2019,7 +2064,7 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         ), mock.patch.object(
             broker, "_protected_acl_inventory", return_value=inventory
         ), mock.patch.object(
-            broker, "_snapshot_protected_acls", return_value=current
+            broker, "_read_protected_acl_descriptors", return_value=current
         ), mock.patch.object(
             broker, "_restore_protected_acls"
         ) as restore:
