@@ -1514,6 +1514,50 @@ class RuntimeBrokerTests(RuntimeFixture):
                 self.state_root, self.case_id, self.grant_id, self.receipt
             )
 
+    def test_successful_completion_restores_acl_from_sealed_preissue_evidence(
+        self,
+    ) -> None:
+        self.issue()
+        grant = copy.deepcopy(self.grant())
+        post_dacl = copy.deepcopy(grant["preissue_dacl_evidence"])
+        post_dacl["observed_at"] = (
+            dt.datetime.fromisoformat(post_dacl["observed_at"])
+            + dt.timedelta(seconds=1)
+        ).isoformat()
+        self.assertNotEqual(post_dacl, grant["preissue_dacl_evidence"])
+
+        def fresh_post_evidence(_store, current_grant, *, run_id):
+            body = {
+                "protocol_version": broker.POST_REPLACEMENT_EVIDENCE_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "grant_id": current_grant["grant_id"],
+                "run_id": run_id,
+                "dacl_evidence": post_dacl,
+            }
+            return {
+                **body,
+                "post_replacement_evidence_sha256": engine.canonical_json_sha256(
+                    body
+                ),
+            }
+
+        with self.patched_broker(), mock.patch.object(
+            broker,
+            "_collect_post_replacement_isolation_evidence",
+            side_effect=fresh_post_evidence,
+        ), mock.patch.object(
+            broker, "_restore_acl_snapshot_after_lockdown", return_value={}
+        ) as restore:
+            result = broker.execute_grant(
+                self.state_root, self.case_id, self.grant_id, self.receipt
+            )
+
+        self.assertEqual(result["status"], "COMPLETED")
+        restore.assert_called_once()
+        restore_evidence = restore.call_args.kwargs["lockdown_dacl_evidence"]
+        self.assertEqual(restore_evidence, grant["preissue_dacl_evidence"])
+        self.assertNotEqual(restore_evidence, post_dacl)
+
     def test_broker_executes_exact_replacement_once_and_denies_second_action(self) -> None:
         self.issue()
         result = self.execute_with_patches()
@@ -2276,7 +2320,12 @@ foreach ($path in $paths) {
         )
         membership = {"fixed": "post-membership"}
         isolation = {"fixed": "post-isolation"}
-        dacl = grant["preissue_dacl_evidence"]
+        dacl = copy.deepcopy(grant["preissue_dacl_evidence"])
+        dacl["observed_at"] = (
+            dt.datetime.fromisoformat(dacl["observed_at"])
+            + dt.timedelta(seconds=1)
+        ).isoformat()
+        self.assertNotEqual(dacl, grant["preissue_dacl_evidence"])
         post_body = {
             "protocol_version": broker.POST_REPLACEMENT_EVIDENCE_PROTOCOL_VERSION,
             "schema_version": 1,

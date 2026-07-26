@@ -4254,7 +4254,7 @@ def recover_completed_action_grant_cleanup(
             run_id=f"completed-cleanup-{secrets.token_hex(16)}",
             snapshot=grant["protected_acl_snapshot"],
             snapshot_sha256=grant["protected_acl_snapshot_sha256"],
-            lockdown_dacl_evidence=post_evidence["dacl_evidence"],
+            lockdown_dacl_evidence=grant["preissue_dacl_evidence"],
             restore_reason="completed_recovery",
         )
         return {
@@ -5163,7 +5163,7 @@ def _post_probe_complete_and_restore(
         run_id=run_id,
         snapshot=grant["protected_acl_snapshot"],
         snapshot_sha256=grant["protected_acl_snapshot_sha256"],
-        lockdown_dacl_evidence=post_evidence["dacl_evidence"],
+        lockdown_dacl_evidence=grant["preissue_dacl_evidence"],
         restore_reason="completed",
     )
     return result
