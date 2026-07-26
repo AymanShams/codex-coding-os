@@ -22,6 +22,7 @@ from case_runtime_broker import (  # noqa: E402
     collect_proposal_isolation_evidence,
     execute_proposal_grant,
     file_sha256,
+    require_current_broker_principal,
     recover_completed_action_grant_cleanup,
     restore_preissue_acl_lockdown,
 )
@@ -82,9 +83,7 @@ GRANT_CORE_FIELDS = {
 
 def _load_envelope(state_root: Path, envelope_path: Path) -> dict[str, Any]:
     state_root = state_root.resolve(strict=True)
-    expected_root = state_root / "proposal-envelopes"
-    expected_root.mkdir(mode=0o700, exist_ok=True)
-    expected_root = expected_root.resolve(strict=True)
+    expected_root = (state_root / "proposal-envelopes").resolve(strict=True)
     path, normalized = normalized_absolute_path(
         str(envelope_path), "proposal action envelope", reject_links=True
     )
@@ -150,8 +149,9 @@ def _load_envelope(state_root: Path, envelope_path: Path) -> dict[str, Any]:
 
 def execute_envelope(state_root: Path, envelope_path: Path) -> dict[str, Any]:
     state_root = state_root.resolve(strict=True)
-    store = CaseStore(state_root)
     envelope = _load_envelope(state_root, envelope_path)
+    require_current_broker_principal(envelope["grant"])
+    store = CaseStore(state_root)
     case_id = envelope["case_id"]
     expected_revision = envelope["expected_case_revision"]
     grant_core = envelope["grant"]

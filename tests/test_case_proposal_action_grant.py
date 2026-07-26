@@ -752,6 +752,102 @@ class ProposalActionGrantTests(unittest.TestCase):
             ["ACL_SNAPSHOT", "ACL_LOCKDOWN_INTENT", "ACL_LOCKDOWN_VERIFIED"],
         )
 
+    def test_wrong_principal_is_rejected_before_runtime_or_action_paths(self) -> None:
+        grant = self.grant_request()
+        with (
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\worker", WORKER_SID),
+            ),
+            mock.patch.object(
+                runtime_broker,
+                "file_sha256",
+                side_effect=AssertionError("executable path must remain untouched"),
+            ),
+            mock.patch.object(
+                runtime_broker.subprocess,
+                "run",
+                side_effect=AssertionError("version probe must not start"),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                runtime_broker.BrokerAuthorizationError,
+                "exact broker principal",
+            ):
+                runtime_broker.collect_proposal_isolation_evidence(
+                    store=self.store,
+                    case_id=self.case_id,
+                    grant_core=grant,
+                )
+
+    def test_proposal_entrypoint_rejects_wrong_principal_before_case_store(self) -> None:
+        grant = self.grant_request()
+        before_revision = self.revision
+        before_target_sha256 = hashlib.sha256(self.target.read_bytes()).hexdigest()
+        grant_core = {
+            field: grant[field] for field in proposal_entrypoint.GRANT_CORE_FIELDS
+        }
+        envelope_root = self.state_root / "proposal-envelopes"
+        envelope_root.mkdir(exist_ok=True)
+        envelope_path = envelope_root / "wrong-principal.json"
+        envelope_path.write_text(
+            json.dumps(
+                {
+                    "protocol_version": proposal_entrypoint.ENVELOPE_PROTOCOL_VERSION,
+                    "schema_version": 1,
+                    "case_id": self.case_id,
+                    "expected_case_revision": self.revision,
+                    "request_id": request_id(),
+                    "grant": grant_core,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with (
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\worker", WORKER_SID),
+            ),
+            mock.patch.object(
+                proposal_entrypoint,
+                "CaseStore",
+                side_effect=AssertionError("case store must remain untouched"),
+            ),
+            mock.patch.object(
+                proposal_entrypoint,
+                "collect_proposal_isolation_evidence",
+            ) as collect_evidence,
+            mock.patch.object(
+                proposal_entrypoint,
+                "execute_proposal_grant",
+            ) as execute_grant,
+            mock.patch.object(
+                proposal_entrypoint,
+                "recover_completed_action_grant_cleanup",
+            ) as recover_cleanup,
+        ):
+            with self.assertRaisesRegex(
+                runtime_broker.BrokerAuthorizationError,
+                "exact broker principal",
+            ):
+                proposal_entrypoint.execute_envelope(
+                    self.state_root,
+                    envelope_path,
+                )
+        collect_evidence.assert_not_called()
+        execute_grant.assert_not_called()
+        recover_cleanup.assert_not_called()
+        self.assertEqual(self.revision, before_revision)
+        self.assertEqual(
+            hashlib.sha256(self.target.read_bytes()).hexdigest(),
+            before_target_sha256,
+        )
+        self.assertFalse((self.probe_runtime_root / "version-probe").exists())
+
     def test_v2_post_replacement_rechecks_dacl_without_worker_probe(self) -> None:
         self.issue()
         grant = self.grant()

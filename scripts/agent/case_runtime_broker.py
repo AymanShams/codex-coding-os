@@ -2434,10 +2434,26 @@ def collect_dual_profile_isolation_evidence(
     }
 
 
+def require_current_broker_principal(
+    grant_core: Mapping[str, Any],
+) -> tuple[str, str]:
+    """Reject a non-broker caller before any runtime or action path is touched."""
+    expected_broker_sid = require_windows_sid(
+        grant_core["broker_principal_sid"], "broker principal SID"
+    )
+    broker_name, broker_sid = windows_identity()
+    if broker_sid != expected_broker_sid:
+        raise BrokerAuthorizationError(
+            "proposal isolation collector is not the exact broker principal"
+        )
+    return broker_name, broker_sid
+
+
 def collect_proposal_isolation_evidence(
     *, store: CaseStore, case_id: str, grant_core: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Lock proposal roots and prove the broker-owned DACL action boundary."""
+    broker_name, broker_sid = require_current_broker_principal(grant_core)
     executable = Path(str(grant_core["sandbox_executable_path"])).resolve(
         strict=True
     )
@@ -2474,14 +2490,6 @@ def collect_proposal_isolation_evidence(
     if version_result.returncode != 0 or expected_version not in version_text:
         raise BrokerAuthorizationError(
             "sandbox launcher version differs from the proposal grant"
-        )
-    broker_name, broker_sid = windows_identity()
-    expected_broker_sid = require_windows_sid(
-        grant_core["broker_principal_sid"], "broker principal SID"
-    )
-    if broker_sid != expected_broker_sid:
-        raise BrokerAuthorizationError(
-            "proposal isolation collector is not the exact broker principal"
         )
     online_sid = require_windows_sid(
         grant_core["worker_principal_sid"], "Online worker SID"
