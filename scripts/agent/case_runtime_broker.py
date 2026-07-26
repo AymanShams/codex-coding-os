@@ -1735,6 +1735,21 @@ def _protected_acl_paths(roots: Mapping[str, str]) -> list[str]:
     )
 
 
+_DACL_CONTROL_FLAGS = re.compile(r"D:((?:P|AR|AI)*)")
+
+
+def _canonical_restorable_sddl(value: str) -> str:
+    """Drop only protected-DACL auto-inheritance history, not access semantics."""
+
+    def canonicalize(match: re.Match[str]) -> str:
+        tokens = re.findall(r"P|AR|AI", match.group(1))
+        if "P" in tokens and "AI" in tokens:
+            tokens = [token for token in tokens if token != "AI"]
+        return "D:" + "".join(tokens)
+
+    return _DACL_CONTROL_FLAGS.sub(canonicalize, value, count=1)
+
+
 def _snapshot_protected_acls(roots: Mapping[str, str]) -> list[dict[str, str]]:
     paths = _protected_acl_paths(roots)
     script = r"""
@@ -1771,7 +1786,7 @@ foreach ($path in $paths) {
         path = normalize_binding("worktree", str(item["path"]))
         if path not in paths or path in by_path:
             raise BrokerPreflightError("protected ACL snapshot path is unexpected")
-        sddl = str(item["sddl"])
+        sddl = _canonical_restorable_sddl(str(item["sddl"]))
         if not sddl or len(sddl) > 262144:
             raise BrokerPreflightError("protected ACL snapshot SDDL is invalid")
         entry = {
@@ -1875,14 +1890,18 @@ foreach ($item in $items) {
     throw "protected ACL restoration failed at $($item.path)`: $($_.Exception.Message)"
   }
 
-  # A DACL-only native write reapplies the signed descriptor without SACL
-  # privileges and preserves the original inheritance control flags exactly.
+  # A DACL-only native write reapplies the signed restorable descriptor without
+  # requiring SACL privileges.
   $bytes = New-Object byte[] $raw.BinaryLength
   $raw.GetBinaryForm($bytes, 0)
   [uint32]$daclSecurityInformation = 4
-  if (($raw.ControlFlags -band
-      [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0) {
-    $daclSecurityInformation = $daclSecurityInformation -bor [uint32]0x80000000
+  $daclIsProtected = (($raw.ControlFlags -band
+      [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0)
+  if ($daclIsProtected) {
+    [uint32]$protectedDaclSecurityInformation =
+      [Convert]::ToUInt32('80000000', 16)
+    $daclSecurityInformation =
+      $daclSecurityInformation -bor $protectedDaclSecurityInformation
   } else {
     $daclSecurityInformation = $daclSecurityInformation -bor [uint32]0x20000000
   }
@@ -1893,20 +1912,13 @@ foreach ($item in $items) {
     $errorCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
     throw "native DACL restoration failed with Win32 error $errorCode"
   }
-  if (($raw.ControlFlags -band
-      [System.Security.AccessControl.ControlFlags]::DiscretionaryAclAutoInherited) -ne 0) {
-    $inheritedAcl = Get-Acl -LiteralPath $item.path
-    $inheritedAcl.SetAccessRuleProtection($false, $true)
-    if ([System.IO.Directory]::Exists([string]$item.path)) {
-      [System.IO.DirectoryInfo]::new([string]$item.path).SetAccessControl($inheritedAcl)
-    } else {
-      [System.IO.FileInfo]::new([string]$item.path).SetAccessControl($inheritedAcl)
-    }
-  }
 }
 """
     payload = [
-        {"path": item["path"], "sddl": item["sddl"]}
+        {
+            "path": item["path"],
+            "sddl": _canonical_restorable_sddl(item["sddl"]),
+        }
         for item in sorted(
             normalized,
             key=lambda entry: (
@@ -1970,17 +1982,21 @@ foreach ($path in $paths) {
             raise BrokerAuthorizationError(
                 f"protected ACL owner was not restored at {path}"
             )
-        observed_sddl = str(item["sddl"])
+        expected_sddl = _canonical_restorable_sddl(reference["sddl"])
+        observed_sddl = _canonical_restorable_sddl(str(item["sddl"]))
+        expected_sddl_sha256 = hashlib.sha256(
+            expected_sddl.encode("utf-8")
+        ).hexdigest()
         observed_sddl_sha256 = hashlib.sha256(
             observed_sddl.encode("utf-8")
         ).hexdigest()
         if (
-            observed_sddl != reference["sddl"]
-            or observed_sddl_sha256 != reference["sddl_sha256"]
+            observed_sddl != expected_sddl
+            or observed_sddl_sha256 != expected_sddl_sha256
         ):
             raise BrokerAuthorizationError(
                 "protected ACL exact SDDL was not restored at "
-                f"{path}: expected={reference['sddl_sha256']}, "
+                f"{path}: expected={expected_sddl_sha256}, "
                 f"observed={observed_sddl_sha256}"
             )
         observed.add(path)

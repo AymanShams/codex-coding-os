@@ -1902,6 +1902,21 @@ class RecoveryCompositionTests(RuntimeFixture):
 
 
 class BrokerHelperIsolationTests(RuntimeFixture):
+    def test_restorable_sddl_drops_only_protected_auto_inherited_marker(self) -> None:
+        ace = "(A;;FA;;;SY)"
+        self.assertEqual(
+            broker._canonical_restorable_sddl(f"O:SYG:SYD:PAI{ace}"),
+            f"O:SYG:SYD:P{ace}",
+        )
+        self.assertEqual(
+            broker._canonical_restorable_sddl(f"O:SYG:SYD:AI{ace}"),
+            f"O:SYG:SYD:AI{ace}",
+        )
+        self.assertEqual(
+            broker._canonical_restorable_sddl(f"O:SYG:SYD:PARAI{ace}"),
+            f"O:SYG:SYD:PAR{ace}",
+        )
+
     def test_acl_restore_applies_parents_before_children(self) -> None:
         captured = {}
 
@@ -1915,6 +1930,21 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         payload = json.loads(captured["input_bytes"])
         depths = [len(Path(item["path"]).parts) for item in payload]
         self.assertEqual(depths, sorted(depths))
+
+    def test_acl_restore_uses_unsigned_protected_dacl_flag(self) -> None:
+        captured = {}
+
+        def run(script, _environment, *, input_bytes=None):
+            captured["script"] = script
+            captured["input_bytes"] = input_bytes
+            return subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+
+        with mock.patch.object(broker, "_run_powershell", side_effect=run):
+            broker._restore_protected_acls(self.protected_acl_snapshot())
+        self.assertIn(
+            "[Convert]::ToUInt32('80000000', 16)", captured["script"]
+        )
+        self.assertNotIn("[uint32]0x80000000", captured["script"])
 
     def test_acl_restore_retries_from_mixed_original_and_lockdown_descriptors(self) -> None:
         self.issue()
@@ -2573,6 +2603,35 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             )
             broker._restore_protected_acls(snapshot)
             broker._verify_protected_acl_restore(snapshot)
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL integration test")
+    def test_acl_restore_reapplies_protected_dacl_control_flag(self) -> None:
+        denied = [
+            "S-1-5-21-444444444-555555555-666666666-2201",
+            "S-1-5-21-444444444-555555555-666666666-2202",
+            "S-1-5-21-444444444-555555555-666666666-2203",
+        ]
+        broker_sid = broker.windows_identity()[1]
+        with tempfile.TemporaryDirectory(prefix="ccos-acl-protected-restore-") as temporary:
+            base = Path(temporary)
+            roots: dict[str, str] = {}
+            for kind in engine.PROTECTED_ROOT_KINDS:
+                root = base / f"{kind}-parent" / "root"
+                root.mkdir(parents=True)
+                (root / "existing.bin").write_bytes(kind.encode("ascii"))
+                roots[kind] = engine.normalize_binding("worktree", str(root))
+            baseline = broker._snapshot_protected_acls(roots)
+            try:
+                broker._configure_protected_dacls(roots, denied, broker_sid)
+                protected = broker._snapshot_protected_acls(roots)
+                self.assertTrue(any("D:P" in item["sddl"] for item in protected))
+                broker._restore_protected_acls(baseline)
+                broker._verify_protected_acl_restore(baseline)
+                broker._restore_protected_acls(protected)
+                broker._verify_protected_acl_restore(protected)
+            finally:
+                broker._restore_protected_acls(baseline)
+                broker._verify_protected_acl_restore(baseline)
 
 
 if __name__ == "__main__":
