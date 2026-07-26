@@ -163,6 +163,7 @@ REVIEW_COMPLETION_STATES = frozenset({"COMPLETED", "FAILED", "INCOMPLETE"})
 ACTION_GRANT_STATUSES = frozenset({"ISSUED", "CLAIMED", "COMPLETED", "FAILED"})
 MAX_REPLACEMENT_BYTES = 8 * 1024 * 1024
 MAX_ACTION_GRANT_LIFETIME_SECONDS = 15 * 60
+MAX_PROTECTED_ACL_SNAPSHOT_ENTRIES = 20000
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 WINDOWS_REQUIRED_DENY_RIGHTS_MASK = 278 | 65536 | 64 | 262144 | 524288
 PROTECTED_ROOT_KINDS = (
@@ -231,6 +232,20 @@ def path_is_within(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def protected_acl_snapshot_paths_are_scoped(
+    snapshot_paths: set[str],
+    *,
+    required_paths: set[str],
+    protected_roots: set[str],
+) -> bool:
+    """Accept required roots and parents plus descendants of exact roots only."""
+    return required_paths.issubset(snapshot_paths) and all(
+        path in required_paths
+        or any(path_is_within(Path(path), Path(root)) for root in protected_roots)
+        for path in snapshot_paths
+    )
 
 
 def canonical_case_id(value: str) -> str:
@@ -3575,12 +3590,22 @@ class CaseStore:
 
     @staticmethod
     def _normalize_protected_acl_snapshot(
-        snapshot: Any, *, expected_paths: set[str]
+        snapshot: Any,
+        *,
+        expected_paths: set[str],
+        protected_roots: set[str],
     ) -> list[dict[str, str]]:
-        if not isinstance(snapshot, list) or len(snapshot) != len(expected_paths):
+        if (
+            not isinstance(snapshot, list)
+            or len(snapshot) < len(expected_paths)
+            or len(snapshot) > MAX_PROTECTED_ACL_SNAPSHOT_ENTRIES
+        ):
             raise ValidationError(
-                "protected ACL snapshot must cover every unique root and parent"
+                "protected ACL snapshot must cover every root and parent within the fixed bound"
             )
+        normalized_roots = {
+            normalize_binding("worktree", str(root)) for root in protected_roots
+        }
         normalized: list[dict[str, str]] = []
         observed: set[str] = set()
         for raw in snapshot:
@@ -3589,7 +3614,7 @@ class CaseStore:
             }:
                 raise ValidationError("protected ACL snapshot entry uses an unexpected schema")
             path = normalize_binding("worktree", str(raw.get("path", "")))
-            if path not in expected_paths or path in observed:
+            if path in observed:
                 raise ValidationError("protected ACL snapshot path is missing, duplicated, or unknown")
             sddl = str(raw.get("sddl", ""))
             if not sddl or len(sddl) > 262144:
@@ -3609,6 +3634,14 @@ class CaseStore:
             entry["entry_sha256"] = entry_sha256
             normalized.append(entry)
             observed.add(path)
+        if not protected_acl_snapshot_paths_are_scoped(
+            observed,
+            required_paths=expected_paths,
+            protected_roots=normalized_roots,
+        ):
+            raise ValidationError(
+                "protected ACL snapshot escapes or omits an exact root or parent"
+            )
         normalized.sort(
             key=lambda item: (len(Path(item["path"]).parts), item["path"].casefold()),
             reverse=True,
@@ -3986,6 +4019,10 @@ class CaseStore:
             protected_acl_snapshot = self._normalize_protected_acl_snapshot(
                 normalized["protected_acl_snapshot"],
                 expected_paths=expected_acl_paths,
+                protected_roots={
+                    protected_path
+                    for protected_path, _anchor, _digest in protected_roots.values()
+                },
             )
             protected_acl_snapshot_sha256 = canonical_json_sha256(
                 protected_acl_snapshot
@@ -4563,6 +4600,10 @@ class CaseStore:
             protected_acl_snapshot = self._normalize_protected_acl_snapshot(
                 normalized["protected_acl_snapshot"],
                 expected_paths=expected_acl_paths,
+                protected_roots={
+                    protected_path
+                    for protected_path, _anchor, _digest in protected_roots.values()
+                },
             )
             protected_acl_snapshot_sha256 = canonical_json_sha256(
                 protected_acl_snapshot

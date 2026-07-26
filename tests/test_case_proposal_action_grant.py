@@ -386,6 +386,15 @@ class ProposalActionGrantTests(unittest.TestCase):
             for item in self.protected_root_requests()
             for value in (item["path"], item["parent_path"])
         }
+        paths.update(
+            engine.normalize_binding("worktree", str(path))
+            for path in (
+                self.target,
+                self.store.path,
+                ROOT / "install-bundle.manifest.json",
+                self.proposal,
+            )
+        )
         entries = []
         for index, path in enumerate(
             sorted(
@@ -404,6 +413,17 @@ class ProposalActionGrantTests(unittest.TestCase):
             entry["entry_sha256"] = engine.canonical_json_sha256(entry)
             entries.append(entry)
         return entries
+
+    def acl_snapshot_entry(self, path: Path, label: str) -> dict:
+        sddl = f"O:SYG:SYD:(A;;FA;;;SY)-{label}"
+        entry = {
+            "path": engine.normalize_binding("worktree", str(path)),
+            "owner_sid": "S-1-5-18",
+            "sddl": sddl,
+            "sddl_sha256": hashlib.sha256(sddl.encode()).hexdigest(),
+        }
+        entry["entry_sha256"] = engine.canonical_json_sha256(entry)
+        return entry
 
     def dacl_evidence(self, grant: dict) -> dict:
         rules = []
@@ -697,6 +717,112 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.assertEqual(self.revision, before_revision)
         self.assertEqual(self.case["runtime"]["action_grants"], {})
         self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_proposal_snapshot_accepts_bounded_recursive_descendants(self) -> None:
+        grant = self.grant_request()
+        snapshot = [
+            *grant["protected_acl_snapshot"],
+            self.acl_snapshot_entry(
+                self.repository_root / ".git" / "config",
+                "recursive-target-metadata",
+            ),
+            self.acl_snapshot_entry(
+                ROOT / "scripts" / "agent" / "case_state.py",
+                "recursive-source",
+            ),
+        ]
+        snapshot.sort(
+            key=lambda item: (
+                len(Path(item["path"]).parts),
+                item["path"].casefold(),
+            ),
+            reverse=True,
+        )
+        grant["protected_acl_snapshot"] = snapshot
+        grant["protected_acl_snapshot_sha256"] = engine.canonical_json_sha256(
+            snapshot
+        )
+
+        issued = self.issue(grant)
+
+        self.assertEqual(issued["status"], "ISSUED")
+        self.assertEqual(
+            {
+                item["path"]
+                for item in self.grant()["protected_acl_snapshot"]
+            },
+            {item["path"] for item in snapshot},
+        )
+
+    def test_proposal_snapshot_rejects_a_descendant_escape(self) -> None:
+        grant = self.grant_request()
+        escaped = self.repository_root.parent / "outside-protected-root.txt"
+        escaped.write_text("outside\n", encoding="utf-8")
+        snapshot = [
+            *grant["protected_acl_snapshot"],
+            self.acl_snapshot_entry(escaped, "escaped-descendant"),
+        ]
+        snapshot.sort(
+            key=lambda item: (
+                len(Path(item["path"]).parts),
+                item["path"].casefold(),
+            ),
+            reverse=True,
+        )
+        grant["protected_acl_snapshot"] = snapshot
+        grant["protected_acl_snapshot_sha256"] = engine.canonical_json_sha256(
+            snapshot
+        )
+        before_revision = self.revision
+
+        with self.assertRaisesRegex(engine.ValidationError, "escapes"):
+            self.issue(grant)
+
+        self.assertEqual(self.revision, before_revision)
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_proposal_snapshot_rejects_missing_mandatory_path(self) -> None:
+        grant = self.grant_request()
+        mandatory = self.protected_root_requests()[0]["parent_path"]
+        grant["protected_acl_snapshot"] = [
+            item
+            for item in grant["protected_acl_snapshot"]
+            if item["path"] != mandatory
+        ]
+        grant["protected_acl_snapshot_sha256"] = engine.canonical_json_sha256(
+            grant["protected_acl_snapshot"]
+        )
+
+        with self.assertRaisesRegex(engine.ValidationError, "omits"):
+            self.issue(grant)
+
+    def test_proposal_snapshot_rejects_duplicate_descendant(self) -> None:
+        grant = self.grant_request()
+        descendant = next(
+            item
+            for item in grant["protected_acl_snapshot"]
+            if item["path"]
+            == engine.normalize_binding("worktree", str(self.target))
+        )
+        grant["protected_acl_snapshot"].append(dict(descendant))
+        grant["protected_acl_snapshot_sha256"] = engine.canonical_json_sha256(
+            grant["protected_acl_snapshot"]
+        )
+
+        with self.assertRaisesRegex(engine.ValidationError, "duplicated"):
+            self.issue(grant)
+
+    def test_proposal_snapshot_rejects_more_than_fixed_bound(self) -> None:
+        grant = self.grant_request()
+        grant["protected_acl_snapshot"] = [
+            {}
+        ] * (engine.MAX_PROTECTED_ACL_SNAPSHOT_ENTRIES + 1)
+        grant["protected_acl_snapshot_sha256"] = engine.canonical_json_sha256(
+            grant["protected_acl_snapshot"]
+        )
+
+        with self.assertRaisesRegex(engine.ValidationError, "fixed bound"):
+            self.issue(grant)
 
     def test_v2_preissue_collection_never_launches_nested_sandbox(self) -> None:
         grant = self.grant_request()

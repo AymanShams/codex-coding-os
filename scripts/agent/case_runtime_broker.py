@@ -32,11 +32,13 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
 
 from case_state import (  # noqa: E402
+    ACTION_ARTIFACT_DIRECTORY,
     ACTION_GRANT_CLAIM_PROTOCOL_VERSION,
     ACTION_GRANT_PROTOCOL_VERSION,
     ACTION_GRANT_RESULT_PROTOCOL_VERSION,
     EMPTY_SHA256,
     FileLock,
+    MAX_PROTECTED_ACL_SNAPSHOT_ENTRIES,
     PROTECTED_ROOT_KINDS,
     PROPOSAL_DACL_EVIDENCE_MODE,
     PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION,
@@ -76,6 +78,7 @@ from case_state import (  # noqa: E402
     normalized_absolute_path,
     path_contains_link_or_reparse,
     path_is_within,
+    protected_acl_snapshot_paths_are_scoped,
     proposal_broker_source_pins,
     require_request_id,
     regular_file_identity,
@@ -1446,7 +1449,7 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-MAX_PROTECTED_ACL_OBJECTS = 20000
+MAX_PROTECTED_ACL_OBJECTS = MAX_PROTECTED_ACL_SNAPSHOT_ENTRIES
 
 
 def _acl_object_type(path: Path) -> str:
@@ -1801,7 +1804,11 @@ foreach ($path in $paths) {
 
 
 def _normalize_acl_snapshot(snapshot: Any) -> list[dict[str, str]]:
-    if not isinstance(snapshot, list) or not snapshot:
+    if (
+        not isinstance(snapshot, list)
+        or not snapshot
+        or len(snapshot) > MAX_PROTECTED_ACL_OBJECTS
+    ):
         raise BrokerPreflightError("protected ACL snapshot must be a nonempty array")
     normalized: list[dict[str, str]] = []
     observed: set[str] = set()
@@ -3201,9 +3208,48 @@ def _restore_acl_snapshot_after_lockdown(
             normalize_binding("worktree", str(Path(root_path).parent)),
         )
     }
-    if {item["path"] for item in normalized_snapshot} != expected_snapshot_paths:
+    snapshot_paths = {item["path"] for item in normalized_snapshot}
+    if not protected_acl_snapshot_paths_are_scoped(
+        snapshot_paths,
+        required_paths=expected_snapshot_paths,
+        protected_roots=set(intent_roots.values()),
+    ):
         raise BrokerAuthorizationError(
-            "ACL recovery snapshot paths differ from the exact intent roots and parents"
+            "ACL recovery snapshot paths escape or omit the exact intent roots and parents"
+        )
+    current_paths = {
+        item["path"] for item in _protected_acl_inventory(intent_roots)
+    }
+    artifact_directory = (
+        Path(intent_roots["state_root"])
+        / ACTION_ARTIFACT_DIRECTORY
+        / journal.case_id
+    )
+    allowed_additions = {
+        normalize_binding("worktree", str(artifact_directory.parent)),
+        normalize_binding("worktree", str(artifact_directory)),
+        *(
+            normalize_binding(
+                "worktree",
+                str(
+                    artifact_directory
+                    / (
+                        hashlib.sha256(
+                            f"{journal.grant_id}\0{artifact_kind}".encode("utf-8")
+                        ).hexdigest()
+                        + ".bin"
+                    )
+                ),
+            )
+            for artifact_kind in ("replacement", "baseline")
+        ),
+    }
+    if (
+        not snapshot_paths.issubset(current_paths)
+        or not current_paths.issubset(snapshot_paths | allowed_additions)
+    ):
+        raise BrokerAuthorizationError(
+            "current ACL inventory differs from the signed snapshot and exact sealed artifacts"
         )
     if any(
         record.get("event") == "ACL_RESTORED"
@@ -3282,7 +3328,7 @@ def _restore_acl_snapshot_after_lockdown(
                 expected_lockdown[path] = descriptor
         if set(expected_lockdown) != expected_snapshot_paths:
             raise BrokerAuthorizationError(
-                "lockdown DACL descriptor set differs from the exact snapshot"
+                "lockdown DACL descriptor set differs from the exact intent roots and parents"
             )
         current = {
             item["path"]: item for item in _snapshot_protected_acls(intent_roots)

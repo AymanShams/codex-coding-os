@@ -562,6 +562,15 @@ class RuntimeFixture(unittest.TestCase):
             for item in self.protected_root_requests()
             for value in (item["path"], item["parent_path"])
         }
+        paths.update(
+            engine.normalize_binding("worktree", str(path))
+            for path in (
+                self.target,
+                self.store.path,
+                ROOT / "install-bundle.manifest.json",
+                self.proposal,
+            )
+        )
         entries = []
         for index, path in enumerate(
             sorted(
@@ -580,6 +589,17 @@ class RuntimeFixture(unittest.TestCase):
             entry["entry_sha256"] = engine.canonical_json_sha256(entry)
             entries.append(entry)
         return entries
+
+    def acl_snapshot_entry(self, path: Path, label: str) -> dict:
+        sddl = f"O:SYG:SYD:(A;;FA;;;SY)-{label}"
+        entry = {
+            "path": engine.normalize_binding("worktree", str(path)),
+            "owner_sid": "S-1-5-18",
+            "sddl": sddl,
+            "sddl_sha256": hashlib.sha256(sddl.encode()).hexdigest(),
+        }
+        entry["entry_sha256"] = engine.canonical_json_sha256(entry)
+        return entry
 
     def grant_request(self, **overrides) -> dict:
         membership = copy.deepcopy(
@@ -1650,6 +1670,10 @@ class RecoveryCompositionTests(RuntimeFixture):
 
     @contextmanager
     def _recovery_identity_and_acl_patches(self):
+        inventory = [
+            {"path": item["path"], "object_type": "file", "scope": "descendant"}
+            for item in self.protected_acl_snapshot()
+        ]
         with mock.patch.object(
             broker,
             "windows_identity",
@@ -1658,7 +1682,11 @@ class RecoveryCompositionTests(RuntimeFixture):
             broker, "_verify_source_pins", return_value=None
         ), mock.patch.object(
             broker, "_verify_protected_acl_restore", return_value=None
-        ) as verify_restore:
+        ) as verify_restore, mock.patch.object(
+            broker, "_protected_acl_inventory", return_value=inventory
+        ), mock.patch.object(
+            broker, "_restore_protected_acls", return_value=None
+        ):
             yield verify_restore
 
     def test_recover_pending_preissue_acl_lockdown_then_terminally_aborts_generation(self) -> None:
@@ -1688,10 +1716,16 @@ class RecoveryCompositionTests(RuntimeFixture):
             lockdown_intent=intent,
             lockdown_intent_sha256=engine.canonical_json_sha256(intent),
         )
+        inventory = [
+            {"path": item["path"], "object_type": "file", "scope": "descendant"}
+            for item in snapshot
+        ]
         with mock.patch.object(
             broker,
             "_verify_protected_acl_restore",
             side_effect=[broker.BrokerAuthorizationError("lockdown active"), None],
+        ), mock.patch.object(
+            broker, "_protected_acl_inventory", return_value=inventory
         ), mock.patch.object(broker, "_restore_protected_acls") as restore:
             recovered = broker.recover_pending_preissue_acl_lockdowns(
                 state_root=self.state_root,
@@ -1958,10 +1992,32 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         changed["sddl_sha256"] = lockdown_rule["root_sddl_sha256"]
         changed["entry_sha256"] = "e" * 64
         journal = broker.BrokerJournal(self.state_root, self.case_id, self.grant_id)
+        inventory = [
+            {"path": item["path"], "object_type": "file", "scope": "descendant"}
+            for item in grant["protected_acl_snapshot"]
+        ]
+        sealed_paths = [
+            self.state_root / engine.ACTION_ARTIFACT_DIRECTORY,
+            self.state_root / engine.ACTION_ARTIFACT_DIRECTORY / self.case_id,
+            self.state_root / grant["sealed_artifact_path"],
+            self.state_root / grant["sealed_baseline_path"],
+        ]
+        inventory.extend(
+            {
+                "path": engine.normalize_binding("worktree", str(path)),
+                "object_type": "file" if path.suffix == ".bin" else "directory",
+                "scope": "descendant",
+            }
+            for path in sealed_paths
+            if engine.normalize_binding("worktree", str(path))
+            not in {item["path"] for item in inventory}
+        )
         with mock.patch.object(
             broker,
             "_verify_protected_acl_restore",
             side_effect=[broker.BrokerAuthorizationError("mixed"), None],
+        ), mock.patch.object(
+            broker, "_protected_acl_inventory", return_value=inventory
         ), mock.patch.object(
             broker, "_snapshot_protected_acls", return_value=current
         ), mock.patch.object(
@@ -1977,6 +2033,125 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             )
         self.assertTrue(result["restored"])
         restore.assert_called_once()
+
+    def test_acl_recovery_rejects_signed_descendant_escape_before_restore(self) -> None:
+        snapshot = [
+            *self.protected_acl_snapshot(),
+            self.acl_snapshot_entry(
+                self.repository_root.parent / "outside-target-root.txt",
+                "signed-escape",
+            ),
+        ]
+        snapshot.sort(
+            key=lambda item: (len(Path(item["path"]).parts), item["path"].casefold()),
+            reverse=True,
+        )
+        snapshot_sha256 = engine.canonical_json_sha256(snapshot)
+        journal = broker.BrokerJournal(self.state_root, self.case_id, self.grant_id)
+        run_id = "signed-escape-recovery"
+        journal.append(
+            "ACL_SNAPSHOT",
+            run_id,
+            protected_acl_snapshot=snapshot,
+            protected_acl_snapshot_sha256=snapshot_sha256,
+        )
+        roots = {
+            "target_root": engine.normalize_binding("worktree", str(self.repository_root)),
+            "state_root": engine.normalize_binding("worktree", str(self.state_root)),
+            "broker_source_root": engine.normalize_binding("worktree", str(ROOT)),
+            "proposal_root": engine.normalize_binding("worktree", str(self.proposal_root)),
+        }
+        intent = {
+            "roots": roots,
+            "denied_principal_sids": [WORKER_SID, OFFLINE_WORKER_SID, SANDBOX_GROUP_SID],
+            "broker_principal_sid": BROKER_SID,
+        }
+        journal.append(
+            "ACL_LOCKDOWN_INTENT",
+            run_id,
+            protected_acl_snapshot_sha256=snapshot_sha256,
+            lockdown_intent=intent,
+            lockdown_intent_sha256=engine.canonical_json_sha256(intent),
+        )
+
+        with mock.patch.object(broker, "_protected_acl_inventory") as inventory, mock.patch.object(
+            broker, "_restore_protected_acls"
+        ) as restore:
+            with self.assertRaisesRegex(broker.BrokerAuthorizationError, "escape"):
+                broker._restore_acl_snapshot_after_lockdown(
+                    journal,
+                    run_id="signed-escape-attempt",
+                    snapshot=snapshot,
+                    snapshot_sha256=snapshot_sha256,
+                    lockdown_dacl_evidence=None,
+                    restore_reason="startup_recovery",
+                )
+        inventory.assert_not_called()
+        restore.assert_not_called()
+
+    def test_acl_recovery_rejects_current_inventory_addition_and_deletion(self) -> None:
+        snapshot = self.protected_acl_snapshot()
+        snapshot_sha256 = engine.canonical_json_sha256(snapshot)
+        journal = broker.BrokerJournal(self.state_root, self.case_id, self.grant_id)
+        run_id = "inventory-drift-recovery"
+        journal.append(
+            "ACL_SNAPSHOT",
+            run_id,
+            protected_acl_snapshot=snapshot,
+            protected_acl_snapshot_sha256=snapshot_sha256,
+        )
+        roots = {
+            "target_root": engine.normalize_binding("worktree", str(self.repository_root)),
+            "state_root": engine.normalize_binding("worktree", str(self.state_root)),
+            "broker_source_root": engine.normalize_binding("worktree", str(ROOT)),
+            "proposal_root": engine.normalize_binding("worktree", str(self.proposal_root)),
+        }
+        intent = {
+            "roots": roots,
+            "denied_principal_sids": [WORKER_SID, OFFLINE_WORKER_SID, SANDBOX_GROUP_SID],
+            "broker_principal_sid": BROKER_SID,
+        }
+        journal.append(
+            "ACL_LOCKDOWN_INTENT",
+            run_id,
+            protected_acl_snapshot_sha256=snapshot_sha256,
+            lockdown_intent=intent,
+            lockdown_intent_sha256=engine.canonical_json_sha256(intent),
+        )
+        baseline_inventory = [
+            {"path": item["path"], "object_type": "file", "scope": "descendant"}
+            for item in snapshot
+        ]
+        drifted_inventories = {
+            "addition": [
+                *baseline_inventory,
+                {
+                    "path": engine.normalize_binding(
+                        "worktree", str(self.repository_root / "unexpected.bin")
+                    ),
+                    "object_type": "file",
+                    "scope": "descendant",
+                },
+            ],
+            "deletion": baseline_inventory[1:],
+        }
+
+        for drift, current_inventory in drifted_inventories.items():
+            with self.subTest(drift=drift), mock.patch.object(
+                broker, "_protected_acl_inventory", return_value=current_inventory
+            ), mock.patch.object(broker, "_restore_protected_acls") as restore:
+                with self.assertRaisesRegex(
+                    broker.BrokerAuthorizationError, "current ACL inventory differs"
+                ):
+                    broker._restore_acl_snapshot_after_lockdown(
+                        journal,
+                        run_id=f"inventory-{drift}-attempt",
+                        snapshot=snapshot,
+                        snapshot_sha256=snapshot_sha256,
+                        lockdown_dacl_evidence=None,
+                        restore_reason="startup_recovery",
+                    )
+                restore.assert_not_called()
 
     def test_native_probe_directory_inherits_windows_acl(self) -> None:
         directory = mock.Mock()
