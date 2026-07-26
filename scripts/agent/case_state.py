@@ -41,7 +41,8 @@ PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION = "ccos-proposal-action-grant-v2"
 PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION = "ccos-proposal-action-claim-v2"
 PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION = "ccos-proposal-action-result-v2"
 PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION = "ccos-proposal-action-authority-v1"
-WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION = "ccos-windows-principal-probe-v1"
+WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION_V1 = "ccos-windows-principal-probe-v1"
+WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION = "ccos-windows-principal-probe-v2"
 WINDOWS_ISOLATION_EVIDENCE_PROTOCOL_VERSION = "ccos-windows-isolation-evidence-v2"
 WINDOWS_GROUP_MEMBERSHIP_PROTOCOL_VERSION = "ccos-windows-sandbox-membership-v1"
 WINDOWS_DACL_EVIDENCE_PROTOCOL_VERSION = "ccos-windows-dacl-evidence-v2"
@@ -3072,10 +3073,17 @@ class CaseStore:
         }
         if not isinstance(evidence, Mapping) or set(evidence) != expected_fields:
             raise ValidationError(
-                "principal probe must use the fixed ccos-windows-principal-probe-v1 schema"
+                "principal probe must use a fixed supported schema"
             )
-        if (evidence.get("protocol_version") != WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION
-                or evidence.get("schema_version") != 1):
+        protocol_version = evidence.get("protocol_version")
+        if (
+            protocol_version
+            not in {
+                WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION_V1,
+                WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION,
+            }
+            or evidence.get("schema_version") != 1
+        ):
             raise ValidationError("principal probe protocol or schema version is unsupported")
         observed_worker = require_windows_sid(
             evidence.get("worker_principal_sid"), "isolation worker principal SID"
@@ -3118,6 +3126,13 @@ class CaseStore:
             "take_ownership_denial_error", "take_ownership_denial_native_code",
             "delete_capability_denial_error", "delete_capability_denial_native_code",
         }
+        hardlink_evidence_fields = {
+            "anchor_hardlink_paths_before", "anchor_hardlink_paths_after",
+            "anchor_transport_hardlink_paths_before",
+            "anchor_transport_hardlink_paths_after",
+        }
+        if protocol_version == WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION:
+            root_fields |= hardlink_evidence_fields
         for raw_root in raw_roots:
             if not isinstance(raw_root, Mapping) or set(raw_root) != root_fields:
                 raise ValidationError("protected-root evidence must use the fixed schema")
@@ -3191,6 +3206,75 @@ class CaseStore:
                 raise AuthorizationError(
                     f"worker operation probes changed the {root_kind} anchor identity"
                 )
+            normalized_hardlink_evidence: dict[str, list[str]] = {}
+            if protocol_version == WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION:
+                canonical_anchor = normalize_binding(
+                    "worktree",
+                    str(root_path.joinpath(*PurePosixPath(anchor_path).parts)),
+                )
+
+                def normalize_hardlink_paths(field: str, maximum: int) -> list[str]:
+                    raw_paths = raw_root.get(field)
+                    if (
+                        not isinstance(raw_paths, list)
+                        or not 0 <= len(raw_paths) <= maximum
+                        or any(not isinstance(item, str) for item in raw_paths)
+                    ):
+                        raise ValidationError(
+                            f"{root_kind} {field} must be a bounded path array"
+                        )
+                    paths = [normalize_binding("worktree", item) for item in raw_paths]
+                    if len(set(paths)) != len(paths):
+                        raise ValidationError(
+                            f"{root_kind} {field} must contain unique exact paths"
+                        )
+                    return sorted(paths)
+
+                hardlinks_before = normalize_hardlink_paths(
+                    "anchor_hardlink_paths_before", 2
+                )
+                hardlinks_after = normalize_hardlink_paths(
+                    "anchor_hardlink_paths_after", 2
+                )
+                transport_before = normalize_hardlink_paths(
+                    "anchor_transport_hardlink_paths_before", 1
+                )
+                transport_after = normalize_hardlink_paths(
+                    "anchor_transport_hardlink_paths_after", 1
+                )
+                for timing, hardlinks, transports in (
+                    ("before", hardlinks_before, transport_before),
+                    ("after", hardlinks_after, transport_after),
+                ):
+                    if canonical_anchor not in hardlinks or len(hardlinks) not in {1, 2}:
+                        raise AuthorizationError(
+                            f"{root_kind} {timing} hardlinks omit the canonical anchor"
+                        )
+                    extras = sorted(
+                        path for path in hardlinks if path != canonical_anchor
+                    )
+                    if transports != extras:
+                        raise AuthorizationError(
+                            f"{root_kind} {timing} transport hardlinks are not exact"
+                        )
+                    if any(
+                        path[:2].casefold() != canonical_anchor[:2].casefold()
+                        or not re.fullmatch(
+                            r"[a-z]:/work/\.tmp\.driveupload/[0-9]+",
+                            path,
+                            re.IGNORECASE,
+                        )
+                        for path in transports
+                    ):
+                        raise AuthorizationError(
+                            f"{root_kind} {timing} hardlink escaped the exact transport root"
+                        )
+                normalized_hardlink_evidence = {
+                    "anchor_hardlink_paths_before": hardlinks_before,
+                    "anchor_hardlink_paths_after": hardlinks_after,
+                    "anchor_transport_hardlink_paths_before": transport_before,
+                    "anchor_transport_hardlink_paths_after": transport_after,
+                }
             sddl_before = require_snapshot_hash(
                 str(raw_root.get("acl_sddl_sha256_before", ""))
             )
@@ -3255,6 +3339,7 @@ class CaseStore:
                 "hard_link_absent_after": True,
                 "anchor_identity_sha256_before": identity_before,
                 "anchor_identity_sha256_after": identity_after,
+                **normalized_hardlink_evidence,
                 "acl_change_nonce": expected_acl_nonce,
                 "acl_sddl_sha256_before": sddl_before,
                 "acl_sddl_sha256_after": sddl_after,
@@ -3279,7 +3364,7 @@ class CaseStore:
                 "worker write probe changed the exact expected Git status"
             )
         return {
-            "protocol_version": WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION,
+            "protocol_version": protocol_version,
             "schema_version": 1,
             "challenge_id": challenge_id,
             "worker_principal_sid": observed_worker,
@@ -3465,6 +3550,12 @@ class CaseStore:
         normalized_probes.sort(
             key=lambda item: role_order.index(item["principal_role"])
         )
+        if len({
+            item["probe"]["protocol_version"] for item in normalized_probes
+        }) != 1:
+            raise ValidationError(
+                "Online and Offline principal probes must use one protocol version"
+            )
         combined_body = {
             "denied_principal_sids": denied_principal_sids,
             "membership_evidence_sha256": membership_sha256,

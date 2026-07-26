@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import ast
 from contextlib import contextmanager, ExitStack
 from concurrent.futures import ThreadPoolExecutor
 import copy
@@ -12,7 +13,7 @@ import hashlib
 import importlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 import tempfile
@@ -419,6 +420,14 @@ class RuntimeFixture(unittest.TestCase):
         roots = []
         for item in self.protected_root_requests():
             kind = item["root_kind"]
+            canonical_anchor = engine.normalize_binding(
+                "worktree",
+                str(
+                    Path(item["path"])
+                    .joinpath(*PurePosixPath(item["anchor_path"]).parts)
+                    .resolve(strict=True)
+                ),
+            )
             probe = (
                 f".ccos-worker-{kind.replace('_root', '')}-probe-"
                 + hashlib.sha256(challenge.encode()).hexdigest()[:20]
@@ -469,6 +478,10 @@ class RuntimeFixture(unittest.TestCase):
                     "hard_link_absent_after": True,
                     "anchor_identity_sha256_before": "7" * 64,
                     "anchor_identity_sha256_after": "7" * 64,
+                    "anchor_hardlink_paths_before": [canonical_anchor],
+                    "anchor_hardlink_paths_after": [canonical_anchor],
+                    "anchor_transport_hardlink_paths_before": [],
+                    "anchor_transport_hardlink_paths_after": [],
                     "acl_change_nonce": acl_nonce,
                     "acl_sddl_sha256_before": "6" * 64,
                     "acl_sddl_sha256_after": "6" * 64,
@@ -1158,6 +1171,120 @@ class RuntimeActorAndGrantTests(RuntimeFixture):
             self.issue(self.grant_request(
                 group_membership_evidence=membership, isolation_evidence=evidence
             ))
+
+    def test_principal_probe_v1_remains_backward_compatible(self) -> None:
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
+        for envelope in evidence["principal_probes"]:
+            probe = envelope["probe"]
+            probe["protocol_version"] = engine.WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION_V1
+            for root in probe["protected_roots"]:
+                for field in (
+                    "anchor_hardlink_paths_before",
+                    "anchor_hardlink_paths_after",
+                    "anchor_transport_hardlink_paths_before",
+                    "anchor_transport_hardlink_paths_after",
+                ):
+                    root.pop(field)
+        combined = {
+            "denied_principal_sids": evidence["denied_principal_sids"],
+            "membership_evidence_sha256": evidence["membership_evidence_sha256"],
+            "principal_probes": evidence["principal_probes"],
+        }
+        evidence["combined_probe_sha256"] = engine.canonical_json_sha256(combined)
+        issued = self.issue(self.grant_request(
+            group_membership_evidence=membership,
+            isolation_evidence=evidence,
+        ))
+        self.assertEqual(issued["status"], "ISSUED")
+
+    def test_principal_probe_versions_cannot_be_mixed(self) -> None:
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
+        probe = evidence["principal_probes"][0]["probe"]
+        probe["protocol_version"] = engine.WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION_V1
+        for root in probe["protected_roots"]:
+            for field in (
+                "anchor_hardlink_paths_before",
+                "anchor_hardlink_paths_after",
+                "anchor_transport_hardlink_paths_before",
+                "anchor_transport_hardlink_paths_after",
+            ):
+                root.pop(field)
+        combined = {
+            "denied_principal_sids": evidence["denied_principal_sids"],
+            "membership_evidence_sha256": evidence["membership_evidence_sha256"],
+            "principal_probes": evidence["principal_probes"],
+        }
+        evidence["combined_probe_sha256"] = engine.canonical_json_sha256(combined)
+        with self.assertRaisesRegex(engine.ValidationError, "one protocol version"):
+            self.issue(self.grant_request(
+                group_membership_evidence=membership,
+                isolation_evidence=evidence,
+            ))
+
+    @unittest.skipUnless(os.name == "nt", "Windows transport paths are required")
+    def test_principal_probe_v2_accepts_only_exact_transport_path_evidence(self) -> None:
+        def refresh_digest(evidence: dict) -> None:
+            combined = {
+                "denied_principal_sids": evidence["denied_principal_sids"],
+                "membership_evidence_sha256": evidence["membership_evidence_sha256"],
+                "principal_probes": evidence["principal_probes"],
+            }
+            evidence["combined_probe_sha256"] = engine.canonical_json_sha256(combined)
+
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
+        root = evidence["principal_probes"][0]["probe"]["protected_roots"][0]
+        canonical = root["anchor_hardlink_paths_before"][0]
+        transport = engine.normalize_binding(
+            "worktree", f"{Path(canonical).drive}\\Work\\.tmp.driveupload\\12345"
+        )
+        root["anchor_hardlink_paths_before"].append(transport)
+        root["anchor_transport_hardlink_paths_before"].append(transport)
+        refresh_digest(evidence)
+        issued = self.issue(self.grant_request(
+            group_membership_evidence=membership,
+            isolation_evidence=evidence,
+        ))
+        self.assertEqual(issued["status"], "ISSUED")
+
+    @unittest.skipUnless(os.name == "nt", "Windows transport paths are required")
+    def test_principal_probe_v2_rejects_nontransport_or_mismatched_paths(self) -> None:
+        def refresh_digest(evidence: dict) -> None:
+            combined = {
+                "denied_principal_sids": evidence["denied_principal_sids"],
+                "membership_evidence_sha256": evidence["membership_evidence_sha256"],
+                "principal_probes": evidence["principal_probes"],
+            }
+            evidence["combined_probe_sha256"] = engine.canonical_json_sha256(combined)
+
+        for mode in ("outside", "mismatch", "duplicate"):
+            with self.subTest(mode=mode):
+                membership = self.membership_evidence()
+                evidence = self.isolation_evidence(membership)
+                root = evidence["principal_probes"][0]["probe"]["protected_roots"][0]
+                canonical = root["anchor_hardlink_paths_before"][0]
+                drive = Path(canonical).drive
+                transport = engine.normalize_binding(
+                    "worktree", f"{drive}\\Work\\.tmp.driveupload\\12345"
+                )
+                if mode == "outside":
+                    transport = engine.normalize_binding(
+                        "worktree", f"{drive}\\Temp\\outside-transport"
+                    )
+                    root["anchor_hardlink_paths_before"].append(transport)
+                    root["anchor_transport_hardlink_paths_before"].append(transport)
+                elif mode == "mismatch":
+                    root["anchor_hardlink_paths_before"].append(transport)
+                else:
+                    root["anchor_hardlink_paths_before"].append(canonical)
+                refresh_digest(evidence)
+                with self.assertRaises((engine.AuthorizationError, engine.ValidationError)):
+                    self.issue(self.grant_request(
+                        group_membership_evidence=membership,
+                        isolation_evidence=evidence,
+                    ))
 
     def test_proposal_root_must_be_dedicated_and_nonoverlapping(self) -> None:
         overlapping = self.state_root / "proposal-overlap.bin"
@@ -1961,7 +2088,13 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         ), mock.patch.object(
             broker, "_attempt_denied_hard_link", side_effect=denied_hard_link
         ), mock.patch.object(
-            broker, "regular_file_identity", return_value={"identity_sha256": "7" * 64}
+            broker,
+            "_probe_regular_file_identity",
+            side_effect=lambda path, stop=None: {
+                "identity_sha256": "7" * 64,
+                "hardlink_paths": [str(path.resolve(strict=True))],
+                "transport_hardlink_paths": [],
+            },
         ), mock.patch.object(
             broker, "_acl_sddl_sha256", return_value="b" * 64
         ):
@@ -1987,6 +2120,195 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         self.assertEqual({name for name, _nonce in acl_operations}, {"change_permissions", "take_ownership"})
         self.assertTrue(all(item["overwrite_denial_error"] == "ACCESS_DENIED" for item in evidence["protected_roots"]))
         self.assertTrue(all(item["nested_write_denial_error"] == "ACCESS_DENIED" for item in evidence["protected_roots"]))
+        self.assertTrue(
+            all(
+                item["anchor_hardlink_paths_before"]
+                == item["anchor_hardlink_paths_after"]
+                and len(item["anchor_hardlink_paths_before"]) == 1
+                and item["anchor_transport_hardlink_paths_before"] == []
+                and item["anchor_transport_hardlink_paths_after"] == []
+                for item in evidence["protected_roots"]
+            )
+        )
+
+    @unittest.skipUnless(os.name == "nt", "Windows hardlink identity is required")
+    def test_probe_identity_allows_only_one_exact_transport_hardlink(self) -> None:
+        anchor = (self.repository_root / TARGET_PATH).resolve(strict=True)
+        canonical = str(anchor)[2:]
+        native_identity = (123, 456, 2, anchor.stat().st_size)
+        allowed = [canonical, r"\Work\.tmp.driveupload\12345"]
+        absolute_allowed = sorted(
+            engine.normalize_binding("worktree", str(anchor)[:2] + item)
+            for item in allowed
+        )
+        with mock.patch.object(
+            broker, "_windows_regular_file_identity", return_value=native_identity
+        ), mock.patch.object(
+            broker, "_windows_hardlink_paths", return_value=allowed
+        ):
+            identity = broker._probe_regular_file_identity(
+                anchor, stop=self.repository_root
+            )
+        self.assertEqual(identity["number_of_links"], 2)
+        self.assertEqual(identity["hardlink_paths"], absolute_allowed)
+        self.assertEqual(
+            identity["transport_hardlink_paths"],
+            [
+                engine.normalize_binding(
+                    "worktree",
+                    str(anchor)[:2] + r"\Work\.tmp.driveupload\12345",
+                )
+            ],
+        )
+        self.assertEqual(
+            identity["identity_sha256"],
+            engine.canonical_json_sha256({
+                "volume_id": 123,
+                "file_id": 456,
+                "size": anchor.stat().st_size,
+            }),
+        )
+        with mock.patch.object(
+            broker,
+            "_windows_regular_file_identity",
+            return_value=(123, 456, 1, anchor.stat().st_size),
+        ), mock.patch.object(
+            broker, "_windows_hardlink_paths", return_value=[canonical]
+        ):
+            canonical_only = broker._probe_regular_file_identity(
+                anchor, stop=self.repository_root
+            )
+        self.assertEqual(
+            canonical_only["hardlink_paths"],
+            [engine.normalize_binding("worktree", str(anchor))],
+        )
+        self.assertEqual(canonical_only["transport_hardlink_paths"], [])
+
+    @unittest.skipUnless(os.name == "nt", "Windows hardlink identity is required")
+    def test_probe_identity_rejects_every_other_hardlink_shape(self) -> None:
+        anchor = (self.repository_root / TARGET_PATH).resolve(strict=True)
+        canonical = str(anchor)[2:]
+        cases = (
+            (
+                (123, 456, 2, anchor.stat().st_size),
+                [canonical, r"\Temp\outside-transport"],
+            ),
+            (
+                (123, 456, 3, anchor.stat().st_size),
+                [
+                    canonical,
+                    r"\Work\.tmp.driveupload\12345",
+                    r"\Work\.tmp.driveupload\67890",
+                ],
+            ),
+            (
+                (123, 456, 2, anchor.stat().st_size),
+                [canonical],
+            ),
+            (
+                (123, 456, 1, anchor.stat().st_size),
+                [r"\Work\.tmp.driveupload\12345"],
+            ),
+            (
+                (123, 456, 2, anchor.stat().st_size),
+                [canonical, canonical],
+            ),
+        )
+        for native_identity, paths in cases:
+            with self.subTest(paths=paths), mock.patch.object(
+                broker, "_windows_regular_file_identity", return_value=native_identity
+            ), mock.patch.object(
+                broker, "_windows_hardlink_paths", return_value=paths
+            ):
+                with self.assertRaisesRegex(
+                    broker.BrokerAuthorizationError, "hardlink"
+                ):
+                    broker._probe_regular_file_identity(
+                        anchor, stop=self.repository_root
+                    )
+
+    @unittest.skipUnless(os.name == "nt", "Windows hardlink identity is required")
+    def test_probe_identity_rejects_unstable_or_zero_native_identity(self) -> None:
+        anchor = (self.repository_root / TARGET_PATH).resolve(strict=True)
+        canonical = str(anchor)[2:]
+        with mock.patch.object(
+            broker,
+            "_windows_regular_file_identity",
+            side_effect=[
+                (123, 456, 1, anchor.stat().st_size),
+                (123, 789, 1, anchor.stat().st_size),
+            ],
+        ), mock.patch.object(
+            broker, "_windows_hardlink_paths", return_value=[canonical]
+        ):
+            with self.assertRaisesRegex(
+                broker.BrokerAuthorizationError, "identity changed"
+            ):
+                broker._probe_regular_file_identity(anchor, stop=self.repository_root)
+        with mock.patch.object(
+            broker,
+            "_windows_regular_file_identity",
+            return_value=(123, 0, 1, anchor.stat().st_size),
+        ), mock.patch.object(
+            broker, "_windows_hardlink_paths", return_value=[canonical]
+        ):
+            with self.assertRaisesRegex(
+                broker.BrokerAuthorizationError, "nonzero"
+            ):
+                broker._probe_regular_file_identity(anchor, stop=self.repository_root)
+
+    def test_hardlink_enumerator_fails_closed_on_timeout_or_malformed_output(self) -> None:
+        anchor = (self.repository_root / TARGET_PATH).resolve(strict=True)
+        executable = r"C:\Windows\System32\fsutil.exe"
+        with mock.patch.object(
+            broker, "resolved_executable", return_value=executable
+        ), mock.patch.object(
+            broker, "safe_subprocess_environment", return_value={}
+        ), mock.patch.object(
+            broker.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired([executable], 30),
+        ):
+            with self.assertRaisesRegex(broker.BrokerPreflightError, "timed out"):
+                broker._windows_hardlink_paths(anchor)
+        malformed = subprocess.CompletedProcess(
+            [executable], 0, stdout=b"\xff", stderr=b""
+        )
+        with mock.patch.object(
+            broker, "resolved_executable", return_value=executable
+        ), mock.patch.object(
+            broker, "safe_subprocess_environment", return_value={}
+        ), mock.patch.object(broker.subprocess, "run", return_value=malformed):
+            with self.assertRaisesRegex(broker.BrokerPreflightError, "valid UTF-8"):
+                broker._windows_hardlink_paths(anchor)
+
+    def test_probe_identity_helper_cannot_reach_action_paths(self) -> None:
+        tree = ast.parse(Path(broker.__file__).read_text(encoding="utf-8"))
+        calls: dict[str, dict[str, int]] = {}
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            names: dict[str, int] = {}
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                    names[child.func.id] = names.get(child.func.id, 0) + 1
+            calls[node.name] = names
+        private_callers = {
+            name: counts.get("_probe_regular_file_identity", 0)
+            for name, counts in calls.items()
+            if counts.get("_probe_regular_file_identity", 0)
+        }
+        self.assertEqual(private_callers, {"worker_isolation_probe": 2})
+        for action_function in (
+            "_verify_original_proposal",
+            "_sealed_path",
+            "_repository_target",
+            "_atomic_replace",
+            "_execute_grant",
+        ):
+            self.assertGreater(
+                calls[action_function].get("regular_file_identity", 0), 0
+            )
 
     def test_worker_probe_fails_closed_for_every_mutation_family(self) -> None:
         request = {
@@ -2082,8 +2404,12 @@ class BrokerHelperIsolationTests(RuntimeFixture):
                         broker, name, side_effect=overrides.get(name, default)
                     ))
                 stack.enter_context(mock.patch.object(
-                    broker, "regular_file_identity",
-                    return_value={"identity_sha256": "7" * 64},
+                    broker, "_probe_regular_file_identity",
+                    side_effect=lambda path, stop=None: {
+                        "identity_sha256": "7" * 64,
+                        "hardlink_paths": [str(path.resolve(strict=True))],
+                        "transport_hardlink_paths": [],
+                    },
                 ))
                 stack.enter_context(mock.patch.object(
                     broker, "_acl_sddl_sha256", return_value="b" * 64

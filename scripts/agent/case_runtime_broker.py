@@ -19,6 +19,7 @@ import hmac
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import secrets
 import stat
 import subprocess
@@ -63,6 +64,7 @@ from case_state import (  # noqa: E402
     _git_status_paths,
     _git_tracked_mode,
     _run_git,
+    _windows_regular_file_identity,
     canonical_case_id,
     canonical_json_bytes,
     canonical_json_sha256,
@@ -311,6 +313,7 @@ def windows_identity() -> tuple[str, str]:
         capture_output=True,
         check=False,
         env=safe_subprocess_environment(executable),
+        timeout=30,
     )
     if result.returncode != 0:
         raise BrokerPreflightError("cannot resolve the current Windows principal")
@@ -341,6 +344,7 @@ def windows_group_sids() -> list[str]:
         capture_output=True,
         check=False,
         env=safe_subprocess_environment(executable),
+        timeout=30,
     )
     if result.returncode != 0:
         raise BrokerPreflightError("cannot resolve current Windows token groups")
@@ -1027,6 +1031,127 @@ def _attempt_denied_hard_link(
     return error, code, absent_before, not link.exists()
 
 
+_PROBE_TRANSPORT_HARDLINK = re.compile(
+    r"\\work\\\.tmp\.driveupload\\[0-9]+\Z", re.IGNORECASE
+)
+
+
+def _windows_hardlink_paths(path: Path) -> list[str]:
+    try:
+        executable = resolved_executable("fsutil.exe", "fsutil")
+    except SnapshotError as exc:
+        raise BrokerPreflightError("fsutil is unavailable for probe-only hardlink evidence") from exc
+    try:
+        result = subprocess.run(
+            [executable, "hardlink", "list", str(path.resolve(strict=True))],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            env=safe_subprocess_environment(executable),
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise BrokerPreflightError(
+            "probe-only hardlink enumeration timed out"
+        ) from exc
+    if result.returncode != 0 or len(result.stdout) > 1024 * 1024:
+        raise BrokerPreflightError("cannot enumerate probe-only hardlink paths")
+    try:
+        paths = sorted({
+            line.strip()
+            for line in result.stdout.decode("utf-8", errors="strict").splitlines()
+            if line.strip()
+        })
+    except UnicodeDecodeError as exc:
+        raise BrokerPreflightError("probe-only hardlink paths are not valid UTF-8") from exc
+    if not paths:
+        raise BrokerPreflightError("probe-only hardlink enumeration is empty")
+    return paths
+
+
+def _probe_regular_file_identity(
+    path: Path, *, stop: Path | None = None
+) -> dict[str, Any]:
+    """Validate an anchor for the read-only worker probe only.
+
+    The action boundary continues to use strict ``regular_file_identity``. This
+    helper permits one observed Windows sandbox transport alias only while the
+    denied-principal probe is alive. The parent must prove canonical-only links
+    again after that process exits and before any broker action.
+    """
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValidationError(f"cannot inspect probe-only file identity: {exc}") from exc
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or path.is_symlink()
+        or attributes & reparse_flag
+        or path_contains_link_or_reparse(path, stop=stop)
+    ):
+        raise BrokerAuthorizationError(
+            "probe-only file must be regular and must not traverse a reparse point"
+        )
+    if os.name != "nt":
+        strict = regular_file_identity(path, stop=stop)
+        return {
+            **strict,
+            "hardlink_paths": [],
+            "transport_hardlink_paths": [],
+        }
+    first = _windows_regular_file_identity(path)
+    paths = _windows_hardlink_paths(path)
+    second = _windows_regular_file_identity(path)
+    if first != second:
+        raise BrokerAuthorizationError(
+            "probe-only file identity changed during hardlink inspection"
+        )
+    volume_id, file_id, link_count, file_size = first
+    resolved = str(path.resolve(strict=True))
+    if len(resolved) < 3 or resolved[1:3] != ":\\":
+        raise BrokerAuthorizationError("probe-only file is not an exact Windows drive path")
+    canonical = resolved[2:].casefold()
+    normalized = {item.casefold() for item in paths}
+    if len(normalized) != len(paths) or canonical not in normalized:
+        raise BrokerAuthorizationError(
+            "probe-only hardlinks omit or duplicate the canonical file path"
+        )
+    extras = [item for item in paths if item.casefold() != canonical]
+    if (
+        link_count != len(paths)
+        or link_count not in {1, 2}
+        or len(extras) > 1
+        or any(not _PROBE_TRANSPORT_HARDLINK.fullmatch(item) for item in extras)
+    ):
+        raise BrokerAuthorizationError(
+            "probe-only file has an unauthorized hardlink path"
+        )
+    if file_id <= 0:
+        raise BrokerAuthorizationError(
+            "probe-only filesystem identity is not stable and nonzero"
+        )
+    stable = {
+        "volume_id": volume_id,
+        "file_id": file_id,
+        "size": file_size,
+    }
+    absolute_paths = sorted(
+        normalize_binding("worktree", resolved[:2] + item) for item in paths
+    )
+    absolute_extras = sorted(
+        normalize_binding("worktree", resolved[:2] + item) for item in extras
+    )
+    return {
+        **stable,
+        "number_of_links": link_count,
+        "hardlink_paths": absolute_paths,
+        "transport_hardlink_paths": absolute_extras,
+        "identity_sha256": canonical_json_sha256(stable),
+    }
+
+
 def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
     expected_fields = {
         "protocol_version", "schema_version", "challenge_id", "worker_principal_sid",
@@ -1152,7 +1277,10 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
                 f"{kind} nested write capability was not denied"
             )
         anchor = root.joinpath(*PurePosixPath(root_record["anchor_path"]).parts)
-        anchor_identity_before = regular_file_identity(anchor, stop=root)["identity_sha256"]
+        anchor_identity_before_evidence = _probe_regular_file_identity(
+            anchor, stop=root
+        )
+        anchor_identity_before = anchor_identity_before_evidence["identity_sha256"]
         overwrite_error, overwrite_code = _attempt_denied_overwrite(anchor)
         if overwrite_error != "ACCESS_DENIED" or overwrite_code != 5:
             raise BrokerAuthorizationError(
@@ -1227,7 +1355,10 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
             )
         sddl_after = _acl_sddl_sha256(root)
         after = _anchor_digest(root, root_record["anchor_path"])
-        anchor_identity_after = regular_file_identity(anchor, stop=root)["identity_sha256"]
+        anchor_identity_after_evidence = _probe_regular_file_identity(
+            anchor, stop=root
+        )
+        anchor_identity_after = anchor_identity_after_evidence["identity_sha256"]
         if (
             after != before
             or anchor_identity_after != anchor_identity_before
@@ -1270,6 +1401,18 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
                 "hard_link_absent_after": hard_link_absent_after,
                 "anchor_identity_sha256_before": anchor_identity_before,
                 "anchor_identity_sha256_after": anchor_identity_after,
+                "anchor_hardlink_paths_before": anchor_identity_before_evidence[
+                    "hardlink_paths"
+                ],
+                "anchor_hardlink_paths_after": anchor_identity_after_evidence[
+                    "hardlink_paths"
+                ],
+                "anchor_transport_hardlink_paths_before": (
+                    anchor_identity_before_evidence["transport_hardlink_paths"]
+                ),
+                "anchor_transport_hardlink_paths_after": (
+                    anchor_identity_after_evidence["transport_hardlink_paths"]
+                ),
                 "acl_change_nonce": acl_nonce,
                 "acl_sddl_sha256_before": sddl_before,
                 "acl_sddl_sha256_after": sddl_after,

@@ -7,7 +7,7 @@ import datetime as dt
 import hashlib
 import importlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 import tempfile
@@ -263,6 +263,14 @@ class ProposalActionGrantTests(unittest.TestCase):
         roots = []
         for item in self.protected_root_requests():
             kind = item["root_kind"]
+            canonical_anchor = engine.normalize_binding(
+                "worktree",
+                str(
+                    Path(item["path"])
+                    .joinpath(*PurePosixPath(item["anchor_path"]).parts)
+                    .resolve(strict=True)
+                ),
+            )
             suffix = hashlib.sha256(challenge.encode()).hexdigest()[:20]
             nested_suffix = hashlib.sha256(
                 f"{challenge}:{kind}".encode()
@@ -315,6 +323,10 @@ class ProposalActionGrantTests(unittest.TestCase):
                     "hard_link_absent_after": True,
                     "anchor_identity_sha256_before": "7" * 64,
                     "anchor_identity_sha256_after": "7" * 64,
+                    "anchor_hardlink_paths_before": [canonical_anchor],
+                    "anchor_hardlink_paths_after": [canonical_anchor],
+                    "anchor_transport_hardlink_paths_before": [],
+                    "anchor_transport_hardlink_paths_after": [],
                     "acl_change_nonce": acl_nonce,
                     "acl_sddl_sha256_before": "6" * 64,
                     "acl_sddl_sha256_after": "6" * 64,
