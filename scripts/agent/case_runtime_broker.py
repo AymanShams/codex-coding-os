@@ -107,6 +107,9 @@ PROPOSAL_ACL_REFRESH_STAGES = (
     "post_claim",
     "post_replacement",
 )
+PROTECTED_DACL_CONFIGURATION_FAILURE_PROTOCOL_VERSION = (
+    "ccos-protected-dacl-configuration-failure-v1"
+)
 
 
 class BrokerError(RuntimeError):
@@ -119,6 +122,14 @@ class BrokerAuthorizationError(BrokerError):
 
 class BrokerPreflightError(BrokerError):
     pass
+
+
+class BrokerAclConfigurationError(BrokerPreflightError):
+    """Fail-closed protected-DACL write error with bounded local diagnostics."""
+
+    def __init__(self, diagnostic: Mapping[str, Any]) -> None:
+        self.diagnostic = dict(diagnostic)
+        super().__init__("fixed protected-object DACL configuration failed")
 
 
 def _json_value(raw: str, label: str) -> Any:
@@ -1561,6 +1572,8 @@ $items = @($payload.items | ForEach-Object { $_ })
 $denied = @($payload.denied | ForEach-Object { $_ })
 [Int64]$required = [Int64]$payload.deny_mask
 $broker = ([string]$payload.broker_sid).ToUpperInvariant()
+$system = 'S-1-5-18'
+$sandboxGroup = ([string]$denied[2]).ToUpperInvariant()
 foreach ($item in $items) {
   $acl = Get-Acl -LiteralPath ([string]$item.path)
   $owner = $acl.GetOwner(
@@ -1569,43 +1582,84 @@ foreach ($item in $items) {
   if ($owner -ne $broker -or -not $acl.AreAccessRulesProtected) {
     throw "protected object owner or inheritance boundary differs"
   }
+  $expectedInheritance =
+    [System.Security.AccessControl.InheritanceFlags]::None
+  if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
+    $expectedInheritance =
+      [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+  }
   foreach ($principal in $denied) {
-    [Int64]$mask = 0
-    [Int64]$recursiveMask = 0
-    [Int64]$nonInheritableMask = 0
+    $principalSid = ([string]$principal).ToUpperInvariant()
+    $principalRules = @()
+    $matching = @()
     foreach ($rule in $acl.Access) {
       $sid = $rule.IdentityReference.Translate(
         [System.Security.Principal.SecurityIdentifier]
       ).Value.ToUpperInvariant()
-      if ($sid -ne ([string]$principal).ToUpperInvariant() -or
-          $rule.AccessControlType -ne
-            [System.Security.AccessControl.AccessControlType]::Deny -or
-          $rule.IsInherited) {
+      if ($sid -ne $principalSid) {
         continue
       }
-      [Int64]$rights = [Int64]$rule.FileSystemRights
-      $mask = $mask -bor $rights
-      if ($rule.InheritanceFlags -eq
-            [System.Security.AccessControl.InheritanceFlags]::None) {
-        $nonInheritableMask = $nonInheritableMask -bor $rights
+      $principalRules += $rule
+      if ($rule.AccessControlType -ne
+            [System.Security.AccessControl.AccessControlType]::Deny) {
+        continue
       }
-      $flags = $rule.InheritanceFlags.ToString()
-      if ($flags -match 'ContainerInherit' -and
-          $flags -match 'ObjectInherit' -and
-          $rule.PropagationFlags -eq
-            [System.Security.AccessControl.PropagationFlags]::None) {
-        $recursiveMask = $recursiveMask -bor $rights
+      $matching += $rule
+    }
+    $expectedRuleCount = if ($principalSid -eq $sandboxGroup) { 2 } else { 1 }
+    if ($principalRules.Count -ne $expectedRuleCount) {
+      throw "protected object managed principal rule count differs"
+    }
+    if ($matching.Count -ne 1 -or $matching[0].IsInherited) {
+      throw "protected object must contain exactly one explicit mutation DENY"
+    }
+    $rule = $matching[0]
+    if ([Int64]$rule.FileSystemRights -ne $required -or
+        $rule.PropagationFlags -ne
+          [System.Security.AccessControl.PropagationFlags]::None) {
+      throw "protected object mutation DENY rights or propagation differs"
+    }
+    if ($rule.InheritanceFlags -ne $expectedInheritance) {
+      throw "protected object mutation DENY inheritance differs"
+    }
+  }
+  foreach ($allowSpec in @(
+    [PSCustomObject]@{
+      sid = $broker
+      rights = [Int64][System.Security.AccessControl.FileSystemRights]::FullControl
+    },
+    [PSCustomObject]@{
+      sid = $system
+      rights = [Int64][System.Security.AccessControl.FileSystemRights]::FullControl
+    },
+    [PSCustomObject]@{
+      sid = $sandboxGroup
+      rights = [Int64](
+        [System.Security.AccessControl.FileSystemRights]::ReadAndExecute -bor
+        [System.Security.AccessControl.FileSystemRights]::Synchronize
+      )
+    }
+  )) {
+    $matchingAllows = @()
+    foreach ($rule in $acl.Access) {
+      $sid = $rule.IdentityReference.Translate(
+        [System.Security.Principal.SecurityIdentifier]
+      ).Value.ToUpperInvariant()
+      if ($sid -eq $allowSpec.sid -and
+          $rule.AccessControlType -eq
+            [System.Security.AccessControl.AccessControlType]::Allow) {
+        $matchingAllows += $rule
       }
     }
-    if (($mask -band $required) -ne $required) {
-      throw "protected object lacks the exact mutation DENY"
+    if ($matchingAllows.Count -ne 1 -or $matchingAllows[0].IsInherited) {
+      throw "protected object must contain exactly one explicit managed ALLOW"
     }
-    if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
-      if (($recursiveMask -band $required) -ne $required) {
-        throw "protected directory lacks an exact inheritable mutation DENY"
-      }
-    } elseif (($nonInheritableMask -band $required) -ne $required) {
-      throw "protected file or parent lacks an exact non-inheritable mutation DENY"
+    $allowRule = $matchingAllows[0]
+    if ([Int64]$allowRule.FileSystemRights -ne [Int64]$allowSpec.rights -or
+        $allowRule.InheritanceFlags -ne $expectedInheritance -or
+        $allowRule.PropagationFlags -ne
+          [System.Security.AccessControl.PropagationFlags]::None) {
+      throw "protected object managed ALLOW differs"
     }
   }
 }
@@ -1635,6 +1689,101 @@ foreach ($item in $items) {
         )
 
 
+def _acl_configuration_failure_diagnostic(
+    result: subprocess.CompletedProcess[bytes],
+    items: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Accept only the fixed PowerShell failure schema and known inventory path."""
+    stderr_sha256 = hashlib.sha256(result.stderr).hexdigest()
+    fallback = {
+        "protocol_version": PROTECTED_DACL_CONFIGURATION_FAILURE_PROTOCOL_VERSION,
+        "diagnostic_status": "UNPARSEABLE",
+        "object_count": len(items),
+        "process_exit_code": int(result.returncode),
+        "stderr_sha256": stderr_sha256,
+    }
+    if result.returncode != 85 or len(result.stderr) > 16_384:
+        return fallback
+    try:
+        raw = json.loads(result.stderr.decode("utf-8", errors="strict").strip())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return fallback
+    expected_fields = {
+        "protocol_version",
+        "inventory_index",
+        "object_count",
+        "path",
+        "path_sha256",
+        "object_type",
+        "scope",
+        "error_code",
+        "native_error_code",
+        "message_sha256",
+    }
+    if not isinstance(raw, Mapping) or set(raw) != expected_fields:
+        return fallback
+    index = raw.get("inventory_index")
+    if (
+        raw.get("protocol_version")
+        != PROTECTED_DACL_CONFIGURATION_FAILURE_PROTOCOL_VERSION
+        or not isinstance(index, int)
+        or isinstance(index, bool)
+        or not 0 <= index < len(items)
+        or raw.get("object_count") != len(items)
+    ):
+        return fallback
+    expected = items[index]
+    path = raw.get("path")
+    if (
+        not isinstance(path, str)
+        or not path
+        or len(path) > 4096
+        or any(ord(character) < 32 for character in path)
+        or path != expected["path"]
+        or normalize_binding("worktree", path) != expected["path"]
+        or raw.get("path_sha256")
+        != hashlib.sha256(path.encode("utf-8")).hexdigest()
+        or raw.get("object_type") != expected["object_type"]
+        or raw.get("scope") != expected["scope"]
+    ):
+        return fallback
+    error_code = raw.get("error_code")
+    native_error_code = raw.get("native_error_code")
+    if error_code not in {
+        "ACL_CONFIGURATION_EXCEPTION",
+        "NATIVE_DACL_WRITE_FAILED",
+    }:
+        return fallback
+    if error_code == "NATIVE_DACL_WRITE_FAILED":
+        if (
+            not isinstance(native_error_code, int)
+            or isinstance(native_error_code, bool)
+            or not 0 <= native_error_code <= 0xFFFFFFFF
+        ):
+            return fallback
+    elif native_error_code is not None:
+        return fallback
+    try:
+        message_sha256 = require_snapshot_hash(str(raw.get("message_sha256", "")))
+    except CaseStateError:
+        return fallback
+    return {
+        "protocol_version": PROTECTED_DACL_CONFIGURATION_FAILURE_PROTOCOL_VERSION,
+        "diagnostic_status": "PARSED",
+        "inventory_index": index,
+        "object_count": len(items),
+        "path": path,
+        "path_sha256": raw["path_sha256"],
+        "object_type": raw["object_type"],
+        "scope": raw["scope"],
+        "error_code": error_code,
+        "native_error_code": native_error_code,
+        "message_sha256": message_sha256,
+        "process_exit_code": int(result.returncode),
+        "stderr_sha256": stderr_sha256,
+    }
+
+
 def _configure_protected_dacls(
     roots: Mapping[str, str], denied_principal_sids: list[str], broker_sid: str
 ) -> None:
@@ -1654,6 +1803,46 @@ $sandboxGroup = [System.Security.Principal.SecurityIdentifier]::new(
   [string]$denied[2]
 )
 $system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class CcosNativeAclConfigure {
+  [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  public static extern bool SetFileSecurity(
+    string path,
+    uint securityInformation,
+    byte[] securityDescriptor);
+}
+'@
+
+function Get-NativeSecurityPath {
+  param([string]$Path)
+  $full = [System.IO.Path]::GetFullPath($Path)
+  if ($full.StartsWith('\\?\', [System.StringComparison]::Ordinal)) {
+    return $full
+  }
+  if ($full.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+    return '\\?\UNC\' + $full.Substring(2)
+  }
+  return '\\?\' + $full
+}
+
+function Get-Utf8Sha256 {
+  param([string]$Text)
+  $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Text)
+  $hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.BitConverter]::ToString(
+      $hasher.ComputeHash($bytes)
+    )).Replace('-', '').ToLowerInvariant()
+  }
+  finally {
+    [Array]::Clear($bytes, 0, $bytes.Length)
+    $hasher.Dispose()
+  }
+}
+
 foreach ($item in $items) {
   $currentAcl = Get-Acl -LiteralPath ([string]$item.path)
   $currentOwner = $currentAcl.GetOwner(
@@ -1663,60 +1852,95 @@ foreach ($item in $items) {
     throw "protected ACL object is not already broker-owned: $($item.path)"
   }
 }
-foreach ($item in $items) {
+for ($index = 0; $index -lt $items.Count; $index++) {
+  $item = $items[$index]
   $path = [string]$item.path
-  $acl = Get-Acl -LiteralPath $path
-  $acl.SetAccessRuleProtection($true, $true)
-  $allowInheritance = [System.Security.AccessControl.InheritanceFlags]::None
-  if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
-    $allowInheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
-  }
-  foreach ($principal in @($broker, $system)) {
-    [void]$acl.PurgeAccessRules($principal)
-    $allowRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
-      $principal,
-      [System.Security.AccessControl.FileSystemRights]::FullControl,
-      $allowInheritance,
+  $nativeErrorCode = $null
+  $failureCode = 'ACL_CONFIGURATION_EXCEPTION'
+  $binary = $null
+  try {
+    $acl = Get-Acl -LiteralPath $path
+    # Discard inherited ACE copies before adding the one canonical managed rule.
+    # Preserving inherited rules here turns them explicit and duplicates DENYs
+    # when a newly-created descendant is refreshed after grant issuance.
+    $acl.SetAccessRuleProtection($true, $false)
+    $allowInheritance = [System.Security.AccessControl.InheritanceFlags]::None
+    if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
+      $allowInheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    }
+    foreach ($principal in @($broker, $system)) {
+      [void]$acl.PurgeAccessRules($principal)
+      $allowRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $principal,
+        [System.Security.AccessControl.FileSystemRights]::FullControl,
+        $allowInheritance,
+        [System.Security.AccessControl.PropagationFlags]::None,
+        [System.Security.AccessControl.AccessControlType]::Allow)
+      [void]$acl.AddAccessRule($allowRule)
+    }
+    foreach ($principal in $denied) {
+      $sid = [System.Security.Principal.SecurityIdentifier]::new($principal)
+      [void]$acl.PurgeAccessRules($sid)
+      $inheritance = [System.Security.AccessControl.InheritanceFlags]::None
+      if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
+        $inheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+      }
+      $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $sid,
+        $rights,
+        $inheritance,
+        [System.Security.AccessControl.PropagationFlags]::None,
+        [System.Security.AccessControl.AccessControlType]::Deny)
+      [void]$acl.AddAccessRule($rule)
+    }
+    $readInheritance = [System.Security.AccessControl.InheritanceFlags]::None
+    if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
+      $readInheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    }
+    $readRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+      $sandboxGroup,
+      [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
+      $readInheritance,
       [System.Security.AccessControl.PropagationFlags]::None,
       [System.Security.AccessControl.AccessControlType]::Allow)
-    [void]$acl.AddAccessRule($allowRule)
-  }
-  foreach ($principal in $denied) {
-    $sid = [System.Security.Principal.SecurityIdentifier]::new($principal)
-    [void]$acl.PurgeAccessRules($sid)
-    $inheritance = [System.Security.AccessControl.InheritanceFlags]::None
-    if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
-      $inheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    [void]$acl.AddAccessRule($readRule)
+    $binary = $acl.GetSecurityDescriptorBinaryForm()
+    [uint32]$securityInformation = 4
+    [uint32]$protectedDaclSecurityInformation =
+      [Convert]::ToUInt32('80000000', 16)
+    $securityInformation =
+      $securityInformation -bor $protectedDaclSecurityInformation
+    if (-not [CcosNativeAclConfigure]::SetFileSecurity(
+        (Get-NativeSecurityPath $path),
+        $securityInformation,
+        $binary)) {
+      $nativeErrorCode =
+        [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      $failureCode = 'NATIVE_DACL_WRITE_FAILED'
+      throw "native DACL write failed with Win32 error $nativeErrorCode"
     }
-    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
-      $sid,
-      $rights,
-      $inheritance,
-      [System.Security.AccessControl.PropagationFlags]::None,
-      [System.Security.AccessControl.AccessControlType]::Deny)
-    [void]$acl.AddAccessRule($rule)
   }
-  $readInheritance = [System.Security.AccessControl.InheritanceFlags]::None
-  if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
-    $readInheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
-  }
-  $readRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
-    $sandboxGroup,
-    [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
-    $readInheritance,
-    [System.Security.AccessControl.PropagationFlags]::None,
-    [System.Security.AccessControl.AccessControlType]::Allow)
-  [void]$acl.AddAccessRule($readRule)
-  try {
-    if ($item.object_type -eq 'directory') {
-      [System.IO.DirectoryInfo]::new($path).SetAccessControl($acl)
-    } elseif ($item.object_type -eq 'file') {
-      [System.IO.FileInfo]::new($path).SetAccessControl($acl)
-    } else {
-      throw "unsupported ACL object type"
+  catch {
+    $message = [string]$_.Exception.Message
+    $diagnostic = [ordered]@{
+      protocol_version = 'ccos-protected-dacl-configuration-failure-v1'
+      inventory_index = [int]$index
+      object_count = [int]$items.Count
+      path = $path
+      path_sha256 = Get-Utf8Sha256 $path
+      object_type = [string]$item.object_type
+      scope = [string]$item.scope
+      error_code = $failureCode
+      native_error_code = $nativeErrorCode
+      message_sha256 = Get-Utf8Sha256 $message
     }
-  } catch {
-    throw "protected ACL configuration failed at $path`: $($_.Exception.Message)"
+    [Console]::Error.WriteLine(($diagnostic | ConvertTo-Json -Compress))
+    exit 85
+  }
+  finally {
+    if ($null -ne $binary) {
+      [Array]::Clear($binary, 0, $binary.Length)
+    }
   }
 }
 """
@@ -1732,9 +1956,10 @@ foreach ($item in $items) {
         input_bytes=canonical_json_bytes(payload),
     )
     if result.returncode != 0:
-        raise BrokerPreflightError(
-            "fixed protected-object DACL configuration failed"
+        raise BrokerAclConfigurationError(
+            _acl_configuration_failure_diagnostic(result, items)
         )
+    _verify_protected_object_dacls(roots, denied, broker_sid)
 
 
 def _protected_acl_paths(roots: Mapping[str, str]) -> list[str]:
@@ -4561,12 +4786,19 @@ def _record_failure(
     claim_sha256 = (
         claim_record.get("claim_sha256") if isinstance(claim_record, Mapping) else None
     )
+    acl_configuration_diagnostic = evidence.get("acl_configuration_diagnostic")
+    diagnostic_details = (
+        {"acl_configuration_diagnostic": dict(acl_configuration_diagnostic)}
+        if isinstance(acl_configuration_diagnostic, Mapping)
+        else {}
+    )
     journal.append(
         "FAILED",
         run_id,
         failure_stage=stage,
         failure_code=code,
         failure_result_sha256=result["result_sha256"],
+        **diagnostic_details,
         **_journal_action_details(
             canonical_grant,
             broker_sid,
@@ -4877,6 +5109,17 @@ def _execute_grant(
                 if target.is_file() and not target.is_symlink()
                 else grant["baseline_sha256"]
             )
+            failure_evidence: dict[str, Any] = {
+                "observed_before": observed,
+                "error_type": type(exc).__name__,
+                "error_fingerprint": hashlib.sha256(
+                    f"{type(exc).__name__}:{exc}".encode("utf-8")
+                ).hexdigest(),
+            }
+            if isinstance(exc, BrokerAclConfigurationError):
+                failure_evidence["acl_configuration_diagnostic"] = dict(
+                    exc.diagnostic
+                )
             return _record_failure(
                 store,
                 case_id,
@@ -4886,13 +5129,7 @@ def _execute_grant(
                 run_id,
                 stage="preclaim",
                 code="PRECLAIM_VERIFICATION_FAILED",
-                evidence={
-                    "observed_before": observed,
-                    "error_type": type(exc).__name__,
-                    "error_fingerprint": hashlib.sha256(
-                        f"{type(exc).__name__}:{exc}".encode("utf-8")
-                    ).hexdigest(),
-                },
+                evidence=failure_evidence,
             )
         target_sha256 = file_sha256(target)
         if status == "ISSUED":
