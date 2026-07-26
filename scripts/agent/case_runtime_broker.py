@@ -110,6 +110,9 @@ PROPOSAL_ACL_REFRESH_STAGES = (
 PROTECTED_DACL_CONFIGURATION_FAILURE_PROTOCOL_VERSION = (
     "ccos-protected-dacl-configuration-failure-v1"
 )
+PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION = (
+    "ccos-protected-dacl-restoration-failure-v1"
+)
 
 
 class BrokerError(RuntimeError):
@@ -130,6 +133,14 @@ class BrokerAclConfigurationError(BrokerPreflightError):
     def __init__(self, diagnostic: Mapping[str, Any]) -> None:
         self.diagnostic = dict(diagnostic)
         super().__init__("fixed protected-object DACL configuration failed")
+
+
+class BrokerAclRestorationError(BrokerPreflightError):
+    """Fail-closed ACL restoration error with a bounded signed-inventory diagnostic."""
+
+    def __init__(self, diagnostic: Mapping[str, Any]) -> None:
+        self.diagnostic = dict(diagnostic)
+        super().__init__("signed protected-object ACL restoration failed")
 
 
 def _json_value(raw: str, label: str) -> Any:
@@ -2102,6 +2113,121 @@ def _normalize_acl_snapshot(snapshot: Any) -> list[dict[str, str]]:
     return normalized
 
 
+def _acl_restoration_failure_diagnostic(
+    result: subprocess.CompletedProcess[bytes],
+    items: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Accept only a bounded failure record bound to the signed ACL inventory."""
+
+    stderr_sha256 = hashlib.sha256(result.stderr).hexdigest()
+    fallback = {
+        "protocol_version": PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION,
+        "diagnostic_status": "UNPARSEABLE",
+        "object_count": len(items),
+        "process_exit_code": int(result.returncode),
+        "stderr_sha256": stderr_sha256,
+    }
+    if result.returncode != 86 or len(result.stderr) > 16_384:
+        return fallback
+    try:
+        raw = json.loads(result.stderr.decode("utf-8", errors="strict").strip())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return fallback
+    expected_fields = {
+        "protocol_version",
+        "inventory_index",
+        "object_count",
+        "path_sha256",
+        "signed_entry_sha256",
+        "error_code",
+        "native_error_code",
+        "security_information",
+        "message_sha256",
+    }
+    if not isinstance(raw, Mapping) or set(raw) != expected_fields:
+        return fallback
+    index = raw.get("inventory_index")
+    if (
+        raw.get("protocol_version")
+        != PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION
+        or not isinstance(index, int)
+        or isinstance(index, bool)
+        or not 0 <= index < len(items)
+        or raw.get("object_count") != len(items)
+    ):
+        return fallback
+    expected = items[index]
+    if (
+        raw.get("path_sha256")
+        != hashlib.sha256(expected["path"].encode("utf-8")).hexdigest()
+        or raw.get("signed_entry_sha256") != expected["entry_sha256"]
+    ):
+        return fallback
+    error_code = raw.get("error_code")
+    native_error_code = raw.get("native_error_code")
+    security_information = raw.get("security_information")
+    if error_code not in {
+        "ACL_RESTORATION_EXCEPTION",
+        "NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED",
+    }:
+        return fallback
+    if (
+        not isinstance(security_information, int)
+        or isinstance(security_information, bool)
+        or not 0 <= security_information <= 0xFFFFFFFF
+    ):
+        return fallback
+    if security_information != 0:
+        allowed_security_information = 0x80000000 | 0x20000000 | 0x4 | 0x2 | 0x1
+        protected = bool(security_information & 0x80000000)
+        unprotected = bool(security_information & 0x20000000)
+        signed_control = _DACL_CONTROL_FLAGS.search(expected["sddl"])
+        signed_is_protected = (
+            signed_control is not None
+            and "P" in re.findall(r"P|AR|AI", signed_control.group(1))
+        )
+        if (
+            security_information & ~allowed_security_information
+            or (security_information & 0x4) != 0x4
+            or protected == unprotected
+            or signed_control is None
+            or protected != signed_is_protected
+        ):
+            return fallback
+    if error_code == "NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED":
+        if (
+            not isinstance(native_error_code, int)
+            or isinstance(native_error_code, bool)
+            or not 0 <= native_error_code <= 0xFFFFFFFF
+            or security_information == 0
+        ):
+            return fallback
+    elif native_error_code is not None:
+        return fallback
+    try:
+        path_sha256 = require_snapshot_hash(str(raw.get("path_sha256", "")))
+        signed_entry_sha256 = require_snapshot_hash(
+            str(raw.get("signed_entry_sha256", ""))
+        )
+        message_sha256 = require_snapshot_hash(str(raw.get("message_sha256", "")))
+    except CaseStateError:
+        return fallback
+    return {
+        "protocol_version": PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION,
+        "diagnostic_status": "PARSED",
+        "inventory_index": index,
+        "object_count": len(items),
+        "path_sha256": path_sha256,
+        "signed_entry_sha256": signed_entry_sha256,
+        "error_code": error_code,
+        "native_error_code": native_error_code,
+        "security_information": security_information,
+        "message_sha256": message_sha256,
+        "process_exit_code": int(result.returncode),
+        "stderr_sha256": stderr_sha256,
+    }
+
+
 def _restore_protected_acls(snapshot: Any) -> None:
     normalized = _normalize_acl_snapshot(snapshot)
     script = r"""
@@ -2111,8 +2237,9 @@ using System;
 using System.Runtime.InteropServices;
 
 public static class CcosNativeAclRestore {
-  [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-  public static extern bool SetFileSecurity(
+  [DllImport("advapi32.dll", EntryPoint = "SetFileSecurityW", ExactSpelling = true,
+    SetLastError = true, CharSet = CharSet.Unicode)]
+  public static extern bool SetFileSecurityW(
     string path,
     uint securityInformation,
     byte[] securityDescriptor);
@@ -2131,65 +2258,95 @@ function Get-NativeSecurityPath {
   return '\\?\' + $full
 }
 
-$items = @(ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()) | ForEach-Object { $_ })
-foreach ($item in $items) {
-  $acl = Get-Acl -LiteralPath $item.path
-  $currentSddl = $acl.GetSecurityDescriptorSddlForm(
-    [System.Security.AccessControl.AccessControlSections]::All
-  )
-  if ($currentSddl -ceq [string]$item.sddl) {
-    continue
-  }
-  $raw = [System.Security.AccessControl.RawSecurityDescriptor]::new([string]$item.sddl)
-  $sections = [System.Security.AccessControl.AccessControlSections]::Access
-  $currentOwner = $acl.GetOwner(
-    [System.Security.Principal.SecurityIdentifier]
-  ).Value.ToUpperInvariant()
-  $currentGroup = $acl.GetGroup(
-    [System.Security.Principal.SecurityIdentifier]
-  ).Value.ToUpperInvariant()
-  if ($currentOwner -ne $raw.Owner.Value.ToUpperInvariant()) {
-    $sections = $sections -bor
-      [System.Security.AccessControl.AccessControlSections]::Owner
-  }
-  if ($currentGroup -ne $raw.Group.Value.ToUpperInvariant()) {
-    $sections = $sections -bor
-      [System.Security.AccessControl.AccessControlSections]::Group
-  }
-  $acl.SetSecurityDescriptorSddlForm($item.sddl, $sections)
+function Get-Utf8Sha256 {
+  param([string]$Value)
+  $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Value)
+  $hasher = [System.Security.Cryptography.SHA256]::Create()
   try {
-    if ([System.IO.Directory]::Exists([string]$item.path)) {
-      [System.IO.DirectoryInfo]::new([string]$item.path).SetAccessControl($acl)
-    } elseif ([System.IO.File]::Exists([string]$item.path)) {
-      [System.IO.FileInfo]::new([string]$item.path).SetAccessControl($acl)
-    } else {
-      throw "protected ACL restoration path is absent"
-    }
-  } catch {
-    throw "protected ACL restoration failed at $($item.path)`: $($_.Exception.Message)"
+    return ([System.BitConverter]::ToString(
+      $hasher.ComputeHash($bytes)
+    )).Replace('-', '').ToLowerInvariant()
   }
+  finally {
+    [Array]::Clear($bytes, 0, $bytes.Length)
+    $hasher.Dispose()
+  }
+}
 
-  # A DACL-only native write reapplies the signed restorable descriptor without
-  # requiring SACL privileges.
-  $bytes = New-Object byte[] $raw.BinaryLength
-  $raw.GetBinaryForm($bytes, 0)
-  [uint32]$daclSecurityInformation = 4
-  $daclIsProtected = (($raw.ControlFlags -band
-      [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0)
-  if ($daclIsProtected) {
-    [uint32]$protectedDaclSecurityInformation =
-      [Convert]::ToUInt32('80000000', 16)
-    $daclSecurityInformation =
-      $daclSecurityInformation -bor $protectedDaclSecurityInformation
-  } else {
-    $daclSecurityInformation = $daclSecurityInformation -bor [uint32]0x20000000
+$items = @(ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()) | ForEach-Object { $_ })
+for ($index = 0; $index -lt $items.Count; $index++) {
+  $item = $items[$index]
+  $nativeErrorCode = $null
+  $failureCode = 'ACL_RESTORATION_EXCEPTION'
+  $binary = $null
+  [uint32]$securityInformation = 0
+  try {
+    $acl = Get-Acl -LiteralPath ([string]$item.path)
+    $currentSddl = $acl.GetSecurityDescriptorSddlForm(
+      [System.Security.AccessControl.AccessControlSections]::All
+    )
+    if ($currentSddl -ceq [string]$item.sddl) {
+      continue
+    }
+    $raw = [System.Security.AccessControl.RawSecurityDescriptor]::new(
+      [string]$item.sddl
+    )
+    $currentOwner = $acl.GetOwner(
+      [System.Security.Principal.SecurityIdentifier]
+    ).Value.ToUpperInvariant()
+    $currentGroup = $acl.GetGroup(
+      [System.Security.Principal.SecurityIdentifier]
+    ).Value.ToUpperInvariant()
+    $binary = New-Object byte[] $raw.BinaryLength
+    $raw.GetBinaryForm($binary, 0)
+    # Apply the DACL control mode and only the changed identity fields in one
+    # extended-path native call. SACL security information is never requested.
+    $securityInformation = [uint32]4
+    $daclIsProtected = (($raw.ControlFlags -band
+        [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0)
+    if ($daclIsProtected) {
+      [uint32]$protectedDaclSecurityInformation =
+        [Convert]::ToUInt32('80000000', 16)
+      $securityInformation =
+        $securityInformation -bor $protectedDaclSecurityInformation
+    } else {
+      $securityInformation = $securityInformation -bor [uint32]0x20000000
+    }
+    if ($currentOwner -ne $raw.Owner.Value.ToUpperInvariant()) {
+      $securityInformation = $securityInformation -bor [uint32]0x1
+    }
+    if ($currentGroup -ne $raw.Group.Value.ToUpperInvariant()) {
+      $securityInformation = $securityInformation -bor [uint32]0x2
+    }
+    $failureCode = 'NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED'
+    if (-not [CcosNativeAclRestore]::SetFileSecurityW(
+        (Get-NativeSecurityPath ([string]$item.path)),
+        $securityInformation,
+        $binary)) {
+      $nativeErrorCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      throw "native security descriptor restoration failed"
+    }
   }
-  if (-not [CcosNativeAclRestore]::SetFileSecurity(
-      (Get-NativeSecurityPath ([string]$item.path)),
-      $daclSecurityInformation,
-      $bytes)) {
-    $errorCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-    throw "native DACL restoration failed with Win32 error $errorCode"
+  catch {
+    $message = [string]$_.Exception.Message
+    $diagnostic = [ordered]@{
+      protocol_version = 'ccos-protected-dacl-restoration-failure-v1'
+      inventory_index = [int]$index
+      object_count = [int]$items.Count
+      path_sha256 = Get-Utf8Sha256 ([string]$item.path)
+      signed_entry_sha256 = [string]$item.entry_sha256
+      error_code = $failureCode
+      native_error_code = $nativeErrorCode
+      security_information = [uint64]$securityInformation
+      message_sha256 = Get-Utf8Sha256 $message
+    }
+    [Console]::Error.WriteLine(($diagnostic | ConvertTo-Json -Compress))
+    exit 86
+  }
+  finally {
+    if ($null -ne $binary) {
+      [Array]::Clear($binary, 0, $binary.Length)
+    }
   }
 }
 """
@@ -2197,6 +2354,7 @@ foreach ($item in $items) {
         {
             "path": item["path"],
             "sddl": _canonical_restorable_sddl(item["sddl"]),
+            "entry_sha256": item["entry_sha256"],
         }
         for item in sorted(
             normalized,
@@ -2211,7 +2369,9 @@ foreach ($item in $items) {
         input_bytes=canonical_json_bytes(payload),
     )
     if result.returncode != 0:
-        raise BrokerPreflightError("protected ACL restoration failed")
+        raise BrokerAclRestorationError(
+            _acl_restoration_failure_diagnostic(result, payload)
+        )
 
 
 def _verify_protected_acl_restore(snapshot: Any) -> None:
@@ -5382,6 +5542,8 @@ def main(argv: list[str] | None = None) -> int:
             raise AssertionError(args.command)
     except (BrokerError, CaseStateError, OSError) as exc:
         payload = {"ok": False, "error": type(exc).__name__, "message": str(exc)}
+        if isinstance(exc, BrokerAclRestorationError):
+            payload["acl_restoration_diagnostic"] = dict(exc.diagnostic)
         if args.json:
             print(json.dumps(payload, sort_keys=True))
         else:

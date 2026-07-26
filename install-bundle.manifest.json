@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "c042f69dd0e48bcdea72d42f4c335fea49ebb9b4f2be9d0253c7cff1c57ff3f8",
+  "aggregate_sha256": "a37c5cdb79457dfe58002da4837802fc2e7430c2a2b0ec4386dca04bbe0f8b68",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2368,13 +2368,13 @@
     },
     {
       "path": "scripts/agent/case_proposal_action_broker.py",
-      "sha256": "6d5c1d0742d68c246af99170093f9e7aedc0a620a767c6c49cd85d32d18c7881",
-      "size": 13331
+      "sha256": "1e352d69a79626f91a45b9bff445ddf95d3948803a74eef8d93304ab8540e23f",
+      "size": 13484
     },
     {
       "path": "scripts/agent/case_runtime_broker.py",
-      "sha256": "81b1546d92a1c9d40d85f2f8f9e4b2d4be6d9faa674d580b59f516747490abe3",
-      "size": 224906
+      "sha256": "55d0aa995bd053841a16ca57a9e17c7153a8437dbcb3b8143ba2a1b1e5ddf613",
+      "size": 230733
     },
     {
       "path": "scripts/agent/case_runtime_supervisor.py",
@@ -2608,13 +2608,13 @@
     },
     {
       "path": "tests/test_case_proposal_action_grant.py",
-      "sha256": "9463589f489cd2286ce7339d54803497a5dc31b783d3b6d2f29c2535dd9d897d",
-      "size": 95361
+      "sha256": "c5fc0aaae43aed34aec4e306e0e026066b3d92f827eebb96c7d60388a8c86677",
+      "size": 96997
     },
     {
       "path": "tests/test_case_runtime_broker.py",
-      "sha256": "7df69b6baa5b31e79b9f4b5f44c2f4f366fe0076d348685b4bc40a17410d79ed",
-      "size": 140854
+      "sha256": "d38f21228dc3b817f75f9eb5563f7348fed72e3f372c50694c863915968a762f",
+      "size": 173801
     },
     {
       "path": "tests/test_case_runtime_supervisor.py",

@@ -22,6 +22,7 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
 
 from case_runtime_broker import (  # noqa: E402
+    BrokerAclRestorationError,
     BrokerError,
     collect_proposal_isolation_evidence,
     execute_proposal_grant,
@@ -336,13 +337,16 @@ def main(argv: list[str] | None = None) -> int:
             attempt_secret_provider=_read_attempt_secret_from_stdin,
         )
     except (BrokerError, CaseStateError, OSError) as exc:
+        payload = {
+            "ok": False,
+            "error": type(exc).__name__,
+            "message": str(exc),
+        }
+        if isinstance(exc, BrokerAclRestorationError):
+            payload["acl_restoration_diagnostic"] = dict(exc.diagnostic)
         print(
             json.dumps(
-                {
-                    "ok": False,
-                    "error": type(exc).__name__,
-                    "message": str(exc),
-                },
+                payload,
                 sort_keys=True,
             )
         )

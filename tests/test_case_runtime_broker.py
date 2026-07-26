@@ -48,6 +48,11 @@ def request_id() -> str:
 
 
 class RuntimeFixture(unittest.TestCase):
+    broker_sid = BROKER_SID
+
+    def fixture_state_root(self) -> Path:
+        return self.root / "state"
+
     def _live_transport_audit(self, phase: str) -> list[dict]:
         environment_body = {
             "environment_names": sorted(engine.LIVE_CONTROLLER_ENVIRONMENT_NAMES),
@@ -77,7 +82,7 @@ class RuntimeFixture(unittest.TestCase):
                 "app_server_command_sha256": "d" * 64,
                 "environment_evidence": environment,
                 "controller_key_exposed": False,
-                "controller_principal_sid": BROKER_SID,
+                "controller_principal_sid": self.broker_sid,
                 "controller_principal_matches_broker": True,
                 "mcp_override": "empty",
                 "shell_environment_inherit": "none",
@@ -94,7 +99,7 @@ class RuntimeFixture(unittest.TestCase):
                 "argv_matches_sealed_command": True,
                 "worker_environment_acl_evidence": {
                     "record_count": 3,
-                    "owner_sid": BROKER_SID,
+                    "owner_sid": self.broker_sid,
                     "evidence_sha256": "1" * 64,
                 },
                 "kill_on_job_close": True,
@@ -169,7 +174,7 @@ class RuntimeFixture(unittest.TestCase):
         return engine.normalize_live_controller_evidence(
             raw,
             worker_sid=WORKER_SID,
-            broker_sid=BROKER_SID,
+            broker_sid=self.broker_sid,
             app_server_sha256=engine.file_sha256(Path(sys.executable)),
             app_server_version="0.0.0-test",
             environment_sha256="4" * 64,
@@ -181,7 +186,7 @@ class RuntimeFixture(unittest.TestCase):
         self.worker_temp = tempfile.TemporaryDirectory(prefix="ccos-worker-runtime-")
         self.root = Path(self.temp.name).resolve(strict=True)
         self.worker_runtime_root = Path(self.worker_temp.name).resolve(strict=True)
-        self.state_root = self.root / "state"
+        self.state_root = self.fixture_state_root()
         self.repository_root = self.root / "repository"
         self.repository_root.mkdir()
         subprocess.run(["git", "-C", str(self.repository_root), "init", "-q"], check=True)
@@ -298,7 +303,7 @@ class RuntimeFixture(unittest.TestCase):
             "worker_online_principal_sid": WORKER_SID,
             "worker_offline_principal_sid": OFFLINE_WORKER_SID,
             "sandbox_group_principal_sid": SANDBOX_GROUP_SID,
-            "broker_principal_sid": BROKER_SID,
+            "broker_principal_sid": self.broker_sid,
             "app_server_sha256": engine.file_sha256(Path(sys.executable)),
             "app_server_executable_path": engine.normalize_binding(
                 "worktree", str(Path(sys.executable).resolve())
@@ -376,9 +381,9 @@ class RuntimeFixture(unittest.TestCase):
             {
                 "root_kind": "target_root",
                 "path": target_path,
-                "owner_sid": BROKER_SID,
+                "owner_sid": self.broker_sid,
                 "parent_path": engine.normalize_binding("worktree", str(self.repository_root.parent)),
-                "parent_owner_sid": BROKER_SID,
+                "parent_owner_sid": self.broker_sid,
                 "anchor_path": TARGET_PATH,
                 "anchor_sha256": hashlib.sha256(BASELINE_BYTES).hexdigest(),
                 "nested_probe_parent_path": "probe-descendant",
@@ -386,9 +391,9 @@ class RuntimeFixture(unittest.TestCase):
             {
                 "root_kind": "state_root",
                 "path": state_path,
-                "owner_sid": BROKER_SID,
+                "owner_sid": self.broker_sid,
                 "parent_path": engine.normalize_binding("worktree", str(self.state_root.parent)),
-                "parent_owner_sid": BROKER_SID,
+                "parent_owner_sid": self.broker_sid,
                 "anchor_path": engine.STORE_FILENAME,
                 "anchor_sha256": engine.file_sha256(self.store.path),
                 "nested_probe_parent_path": "probe-descendant",
@@ -396,9 +401,9 @@ class RuntimeFixture(unittest.TestCase):
             {
                 "root_kind": "broker_source_root",
                 "path": source_path,
-                "owner_sid": BROKER_SID,
+                "owner_sid": self.broker_sid,
                 "parent_path": engine.normalize_binding("worktree", str(ROOT.parent)),
-                "parent_owner_sid": BROKER_SID,
+                "parent_owner_sid": self.broker_sid,
                 "anchor_path": "install-bundle.manifest.json",
                 "anchor_sha256": self.source_pins["manifest_sha256"],
                 "nested_probe_parent_path": "scripts/agent",
@@ -406,9 +411,9 @@ class RuntimeFixture(unittest.TestCase):
             {
                 "root_kind": "proposal_root",
                 "path": proposal_path,
-                "owner_sid": BROKER_SID,
+                "owner_sid": self.broker_sid,
                 "parent_path": engine.normalize_binding("worktree", str(self.proposal_root.parent)),
-                "parent_owner_sid": BROKER_SID,
+                "parent_owner_sid": self.broker_sid,
                 "anchor_path": self.proposal.name,
                 "anchor_sha256": hashlib.sha256(REPLACEMENT_BYTES).hexdigest(),
                 "nested_probe_parent_path": "probe-descendant",
@@ -448,9 +453,9 @@ class RuntimeFixture(unittest.TestCase):
                 {
                     "root_kind": kind,
                     "path": item["path"],
-                    "owner_sid": BROKER_SID,
+                    "owner_sid": self.broker_sid,
                     "parent_path": item["parent_path"],
-                    "parent_owner_sid": BROKER_SID,
+                    "parent_owner_sid": self.broker_sid,
                     "anchor_path": item["anchor_path"],
                     "anchor_sha256_before": item["anchor_sha256"],
                     "anchor_sha256_after": item["anchor_sha256"],
@@ -632,7 +637,7 @@ class RuntimeFixture(unittest.TestCase):
             "denied_principal_sids": [
                 WORKER_SID, OFFLINE_WORKER_SID, SANDBOX_GROUP_SID
             ],
-            "broker_principal_sid": BROKER_SID,
+            "broker_principal_sid": self.broker_sid,
             "app_server_sha256": engine.file_sha256(Path(sys.executable)),
             "app_server_executable_path": engine.normalize_binding(
                 "worktree", str(Path(sys.executable).resolve())
@@ -749,9 +754,9 @@ class RuntimeFixture(unittest.TestCase):
                             {principal_sid, grant["sandbox_group_principal_sid"]}
                         ),
                         "path": path,
-                        "owner_sid": BROKER_SID,
+                        "owner_sid": self.broker_sid,
                         "parent_path": engine.normalize_binding("worktree", str(Path(path).parent)),
-                        "parent_owner_sid": BROKER_SID,
+                        "parent_owner_sid": self.broker_sid,
                         "root_sddl_sha256": "a" * 64,
                         "parent_sddl_sha256": "b" * 64,
                         "access_type": "DENY",
@@ -768,7 +773,7 @@ class RuntimeFixture(unittest.TestCase):
             "schema_version": 2,
             "denied_principal_sids": grant["denied_principal_sids"],
             "membership_evidence_sha256": grant["group_membership_evidence_sha256"],
-            "broker_principal_sid": BROKER_SID,
+            "broker_principal_sid": self.broker_sid,
             "rules": rules,
             "observed_at": engine.utc_now(),
         }
@@ -816,7 +821,7 @@ class RuntimeFixture(unittest.TestCase):
         return {
             "protocol_version": engine.TRUSTED_WRITE_PROBE_PROTOCOL_VERSION,
             "schema_version": 1,
-            "broker_principal_sid": BROKER_SID,
+            "broker_principal_sid": self.broker_sid,
             "broker_identity_name": "fixture\\broker",
             "protected_roots": roots,
             "head_before": self.head,
@@ -835,7 +840,7 @@ class RuntimeFixture(unittest.TestCase):
                 "schema_version": 1,
                 "grant_id": self.grant_id,
                 "controller_receipt_sha256": grant["controller_receipt_sha256"],
-                "broker_principal_sid": BROKER_SID,
+                "broker_principal_sid": self.broker_sid,
                 "dacl_evidence": self.dacl_evidence(grant),
                 "trusted_write_probe": self.trusted_probe(grant),
             },
@@ -874,7 +879,11 @@ class RuntimeFixture(unittest.TestCase):
             }
 
         return (
-            mock.patch.object(broker, "windows_identity", return_value=("fixture\\broker", BROKER_SID)),
+            mock.patch.object(
+                broker,
+                "windows_identity",
+                return_value=("fixture\\broker", self.broker_sid),
+            ),
             mock.patch.object(broker, "_verify_source_pins", return_value=None),
             mock.patch.object(
                 broker,
@@ -1991,6 +2000,506 @@ class RecoveryCompositionTests(RuntimeFixture):
         )
 
 
+class WindowsCompletedAclRecoveryIntegrationTests(RuntimeFixture):
+    def fixture_state_root(self) -> Path:
+        desired_length = 180
+        segment_length = desired_length - len(str(self.root)) - 1
+        self.assertGreater(segment_length, 32)
+        self.assertLessEqual(segment_length, 255)
+        state_root = self.root / ("s" * segment_length)
+        self.assertEqual(len(str(state_root)), desired_length)
+        return state_root
+
+    def setUp(self) -> None:
+        self.broker_sid = (
+            broker.windows_identity()[1] if os.name == "nt" else BROKER_SID
+        )
+        super().setUp()
+
+    def apply_acl_descriptors_with_test_native_api(
+        self, snapshot: list[dict], *, lockdown: bool = False
+    ) -> None:
+        script = r"""
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class CcosTestNativeAclApply {
+  [DllImport("advapi32.dll", EntryPoint = "SetFileSecurityW", ExactSpelling = true,
+    SetLastError = true, CharSet = CharSet.Unicode)]
+  public static extern bool SetFileSecurityW(
+    string path,
+    uint securityInformation,
+    byte[] securityDescriptor);
+}
+'@
+
+function Get-TestNativePath {
+  param([string]$Path)
+  $full = [System.IO.Path]::GetFullPath($Path)
+  if ($full.StartsWith('\\?\', [System.StringComparison]::Ordinal)) {
+    return $full
+  }
+  if ($full.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+    return '\\?\UNC\' + $full.Substring(2)
+  }
+  return '\\?\' + $full
+}
+
+$payload = ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd())
+$items = @($payload.items | ForEach-Object { $_ })
+if ([string]$payload.mode -eq 'lockdown') {
+  $broker = [System.Security.Principal.SecurityIdentifier]::new(
+    [string]$payload.broker_sid
+  )
+  $system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+  $denied = @($payload.denied | ForEach-Object {
+    [System.Security.Principal.SecurityIdentifier]::new([string]$_)
+  })
+  $sandboxGroup = $denied[2]
+  $denyRights = [System.Security.AccessControl.FileSystemRights][Int64](
+    $payload.deny_mask
+  )
+}
+foreach ($item in $items) {
+  $binary = $null
+  try {
+    [uint32]$securityInformation = 4
+    if ([string]$payload.mode -eq 'lockdown') {
+      if ([string]$item.object_type -eq 'directory') {
+        $acl = [System.Security.AccessControl.DirectorySecurity]::new()
+      } else {
+        $acl = [System.Security.AccessControl.FileSecurity]::new()
+      }
+      $acl.SetAccessRuleProtection($true, $false)
+      $inheritance = [System.Security.AccessControl.InheritanceFlags]::None
+      if ([string]$item.object_type -eq 'directory') {
+        $inheritance = [System.Security.AccessControl.InheritanceFlags](
+          [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+          [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+        )
+      }
+      foreach ($principal in @($broker, $system)) {
+        [void]$acl.PurgeAccessRules($principal)
+        [void]$acl.AddAccessRule(
+          [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $principal,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            $inheritance,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Allow
+          )
+        )
+      }
+      foreach ($principal in $denied) {
+        [void]$acl.PurgeAccessRules($principal)
+        [void]$acl.AddAccessRule(
+          [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $principal,
+            $denyRights,
+            $inheritance,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Deny
+          )
+        )
+      }
+      [void]$acl.AddAccessRule(
+        [System.Security.AccessControl.FileSystemAccessRule]::new(
+          $sandboxGroup,
+          [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
+          $inheritance,
+          [System.Security.AccessControl.PropagationFlags]::None,
+          [System.Security.AccessControl.AccessControlType]::Allow
+        )
+      )
+      $binary = $acl.GetSecurityDescriptorBinaryForm()
+      $securityInformation = $securityInformation -bor
+        [Convert]::ToUInt32('80000000', 16)
+    } else {
+      $raw = [System.Security.AccessControl.RawSecurityDescriptor]::new(
+        [string]$item.sddl
+      )
+      $binary = New-Object byte[] $raw.BinaryLength
+      $raw.GetBinaryForm($binary, 0)
+      if (($raw.ControlFlags -band
+          [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0) {
+        $securityInformation = $securityInformation -bor
+          [Convert]::ToUInt32('80000000', 16)
+      } else {
+        $securityInformation = $securityInformation -bor
+          [Convert]::ToUInt32('20000000', 16)
+      }
+    }
+    if (-not [CcosTestNativeAclApply]::SetFileSecurityW(
+        (Get-TestNativePath ([string]$item.path)),
+        $securityInformation,
+        $binary)) {
+      $nativeError = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      throw "test native ACL application failed with Win32 error $nativeError"
+    }
+  }
+  finally {
+    if ($null -ne $binary) {
+      [Array]::Clear($binary, 0, $binary.Length)
+    }
+  }
+}
+"""
+        payload = {
+            "mode": "lockdown" if lockdown else "descriptor",
+            "broker_sid": self.broker_sid,
+            "denied": [WORKER_SID, OFFLINE_WORKER_SID, SANDBOX_GROUP_SID],
+            "deny_mask": engine.WINDOWS_REQUIRED_DENY_RIGHTS_MASK,
+            "items": [
+                {
+                    "path": item["path"],
+                    "sddl": item.get("sddl"),
+                    "object_type": (
+                        "directory" if Path(item["path"]).is_dir() else "file"
+                    ),
+                }
+                for item in sorted(
+                    snapshot,
+                    key=lambda item: (
+                        len(Path(item["path"]).parts),
+                        item["path"].casefold(),
+                    ),
+                )
+            ],
+        }
+        result = broker._run_powershell(
+            script, {}, input_bytes=engine.canonical_json_bytes(payload)
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            result.stderr.decode("utf-8", errors="replace"),
+        )
+
+    def read_acl_topology(self, paths: list[Path]) -> list[dict]:
+        script = r"""
+$ErrorActionPreference = 'Stop'
+$paths = @(ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()) | ForEach-Object { $_ })
+$result = @()
+foreach ($path in $paths) {
+  $acl = Get-Acl -LiteralPath ([string]$path)
+  $explicitRules = @($acl.Access | Where-Object { -not $_.IsInherited })
+  $result += [PSCustomObject]@{
+    protected = [bool]$acl.AreAccessRulesProtected
+    inherited_rule_count = @($acl.Access | Where-Object { $_.IsInherited }).Count
+    explicit_rule_count = $explicitRules.Count
+    explicit_rules = @($explicitRules | ForEach-Object {
+      [PSCustomObject]@{
+        principal_sid = $_.IdentityReference.Translate(
+          [System.Security.Principal.SecurityIdentifier]
+        ).Value.ToUpperInvariant()
+        access_type = $_.AccessControlType.ToString()
+        rights_mask = [Int64]$_.FileSystemRights
+        inheritance_flags = [Int32]$_.InheritanceFlags
+        propagation_flags = [Int32]$_.PropagationFlags
+      }
+    })
+  }
+}
+@($result) | ConvertTo-Json -Compress -Depth 5
+"""
+        result = broker._run_powershell(
+            script,
+            {},
+            input_bytes=engine.canonical_json_bytes(
+                [engine.normalize_binding("worktree", str(path)) for path in paths]
+            ),
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            result.stderr.decode("utf-8", errors="replace"),
+        )
+        return json.loads(result.stdout.decode("utf-8"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL integration test")
+    def test_exact_long_completed_cleanup_restores_once_and_restart_only_verifies(
+        self,
+    ) -> None:
+        journal = broker.BrokerJournal(
+            self.state_root, self.case_id, self.grant_id
+        )
+        journal.ensure_file()
+        journal.lock_path.touch()
+        exact_journal_paths = [
+            self.state_root / broker.BROKER_JOURNAL_DIRECTORY,
+            journal.directory,
+            journal.lock_path,
+            journal.path,
+        ]
+        self.assertEqual(len(str(journal.lock_path)), 302)
+        self.assertEqual(len(str(journal.path)), 303)
+        original_journal_topology = self.read_acl_topology(exact_journal_paths)
+        self.assertTrue(
+            all(
+                not item["protected"] and item["inherited_rule_count"] > 0
+                for item in original_journal_topology
+            )
+        )
+        roots = {
+            "target_root": engine.normalize_binding(
+                "worktree", str(self.repository_root)
+            ),
+            "state_root": engine.normalize_binding("worktree", str(self.state_root)),
+            "broker_source_root": engine.normalize_binding("worktree", str(ROOT)),
+            "proposal_root": engine.normalize_binding(
+                "worktree", str(self.proposal_root)
+            ),
+        }
+        snapshot = broker._snapshot_protected_acls(roots)
+        grant_request = self.grant_request(
+            protected_acl_snapshot=snapshot,
+            protected_acl_snapshot_sha256=engine.canonical_json_sha256(snapshot),
+        )
+        self.issue(grant_request)
+        self.claim()
+        self.target.write_bytes(REPLACEMENT_BYTES)
+        grant = self.grant()
+        self.assertEqual(engine._git_status_paths(self.repository_root), [TARGET_PATH])
+        journal.append(
+            "REPLACED",
+            "completed-acl-crash",
+            **broker._journal_action_details(
+                grant,
+                self.broker_sid,
+                target_sha256_before=grant["baseline_sha256"],
+                target_sha256_after=grant["replacement_sha256"],
+                changed_path=grant["target_path"],
+                claim_sha256=grant["claim"]["claim_sha256"],
+            ),
+        )
+        membership = {"fixed": "post-membership"}
+        isolation = {"fixed": "post-isolation"}
+        dacl = grant["preissue_dacl_evidence"]
+        post_body = {
+            "protocol_version": broker.POST_REPLACEMENT_EVIDENCE_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "grant_id": self.grant_id,
+            "run_id": "completed-acl-crash",
+            "target_sha256": grant["replacement_sha256"],
+            "status_sha256": "9" * 64,
+            "observed_status_paths": grant["allowed_paths"],
+            "membership_evidence": membership,
+            "membership_evidence_sha256": engine.canonical_json_sha256(membership),
+            "isolation_evidence": isolation,
+            "isolation_evidence_sha256": engine.canonical_json_sha256(isolation),
+            "dacl_evidence": dacl,
+            "dacl_evidence_sha256": engine.canonical_json_sha256(dacl),
+            "protected_acl_snapshot_sha256": grant[
+                "protected_acl_snapshot_sha256"
+            ],
+            "observed_at": engine.utc_now(),
+        }
+        post_evidence = {
+            **post_body,
+            "post_replacement_evidence_sha256": engine.canonical_json_sha256(
+                post_body
+            ),
+        }
+        journal.append(
+            "POST_ISOLATION_VERIFIED",
+            "completed-acl-crash",
+            post_replacement_evidence=post_evidence,
+            post_replacement_evidence_sha256=post_evidence[
+                "post_replacement_evidence_sha256"
+            ],
+            protected_acl_snapshot_sha256=grant[
+                "protected_acl_snapshot_sha256"
+            ],
+        )
+        self.store.complete_action_grant(
+            self.case_id,
+            completion={
+                "protocol_version": engine.ACTION_GRANT_RESULT_PROTOCOL_VERSION,
+                "schema_version": 1,
+                "grant_id": self.grant_id,
+                "controller_receipt_sha256": grant[
+                    "controller_receipt_sha256"
+                ],
+                "broker_principal_sid": self.broker_sid,
+                "post_replacement_evidence_sha256": post_evidence[
+                    "post_replacement_evidence_sha256"
+                ],
+                "completed_at": engine.utc_now(),
+            },
+            request_id=request_id(),
+            expected_revision=self.revision,
+        )
+        completed_grant = self.grant()
+        journal.append(
+            "COMPLETED",
+            "completed-acl-crash",
+            **broker._journal_action_details(
+                completed_grant,
+                self.broker_sid,
+                target_sha256_before=completed_grant["baseline_sha256"],
+                target_sha256_after=completed_grant["replacement_sha256"],
+                changed_path=completed_grant["target_path"],
+                claim_sha256=completed_grant["claim"]["claim_sha256"],
+                result_sha256=completed_grant["result"]["result_sha256"],
+            ),
+        )
+        self.assertEqual(journal.records()[-1]["event"], "COMPLETED")
+        self.assertFalse(
+            any(item["event"] == "ACL_RESTORED" for item in journal.records())
+        )
+
+        journal_paths = {
+            engine.normalize_binding("worktree", str(path))
+            for path in exact_journal_paths
+        }
+        journal_baseline = [
+            item
+            for item in completed_grant["protected_acl_snapshot"]
+            if item["path"] in journal_paths
+        ]
+        self.assertEqual(len(journal_baseline), 4)
+
+        revision_before_cleanup = self.revision
+        records_before_cleanup = journal.records()
+        try:
+            self.apply_acl_descriptors_with_test_native_api(
+                journal_baseline,
+                lockdown=True,
+            )
+            protected_journal_topology = self.read_acl_topology(
+                exact_journal_paths
+            )
+            self.assertEqual(len(protected_journal_topology), 4)
+            for index, item in enumerate(protected_journal_topology):
+                inheritance_flags = 3 if index < 2 else 0
+                expected_rules = sorted(
+                    [
+                        (
+                            WORKER_SID,
+                            "Deny",
+                            engine.WINDOWS_REQUIRED_DENY_RIGHTS_MASK,
+                            inheritance_flags,
+                            0,
+                        ),
+                        (
+                            OFFLINE_WORKER_SID,
+                            "Deny",
+                            engine.WINDOWS_REQUIRED_DENY_RIGHTS_MASK,
+                            inheritance_flags,
+                            0,
+                        ),
+                        (
+                            SANDBOX_GROUP_SID,
+                            "Deny",
+                            engine.WINDOWS_REQUIRED_DENY_RIGHTS_MASK,
+                            inheritance_flags,
+                            0,
+                        ),
+                        (
+                            "S-1-5-18",
+                            "Allow",
+                            2032127,
+                            inheritance_flags,
+                            0,
+                        ),
+                        (
+                            self.broker_sid,
+                            "Allow",
+                            2032127,
+                            inheritance_flags,
+                            0,
+                        ),
+                        (
+                            SANDBOX_GROUP_SID,
+                            "Allow",
+                            1179817,
+                            inheritance_flags,
+                            0,
+                        ),
+                    ]
+                )
+                observed_rules = sorted(
+                    (
+                        rule["principal_sid"],
+                        rule["access_type"],
+                        rule["rights_mask"],
+                        rule["inheritance_flags"],
+                        rule["propagation_flags"],
+                    )
+                    for rule in item["explicit_rules"]
+                )
+                self.assertTrue(item["protected"])
+                self.assertEqual(item["inherited_rule_count"], 0)
+                self.assertEqual(item["explicit_rule_count"], 6)
+                self.assertEqual(observed_rules, expected_rules)
+            with self.assertRaises(broker.BrokerAuthorizationError):
+                broker._verify_protected_acl_restore(
+                    completed_grant["protected_acl_snapshot"]
+                )
+            with mock.patch.object(
+                broker, "_verify_source_pins", return_value=None
+            ):
+                first = broker.recover_completed_action_grant_cleanup(
+                    state_root=self.state_root,
+                    case_id=self.case_id,
+                    grant_id=self.grant_id,
+                )
+            self.assertEqual(first["status"], "recovered_completed")
+            self.assertTrue(first["acl_restore"]["restored"])
+            self.assertFalse(first["acl_restore"]["already_restored"])
+            records_after_cleanup = journal.records()
+            self.assertEqual(
+                sum(item["event"] == "ACL_RESTORED" for item in records_after_cleanup),
+                1,
+            )
+
+            module_name = f"case_runtime_broker_restart_{uuid.uuid4().hex}"
+            module_path = SCRIPT_DIRECTORY / "case_runtime_broker.py"
+            specification = importlib.util.spec_from_file_location(
+                module_name, module_path
+            )
+            self.assertIsNotNone(specification)
+            self.assertIsNotNone(specification.loader)
+            restarted_broker = importlib.util.module_from_spec(specification)
+            specification.loader.exec_module(restarted_broker)
+            with mock.patch.object(
+                restarted_broker, "_verify_source_pins", return_value=None
+            ):
+                second = restarted_broker.recover_completed_action_grant_cleanup(
+                    state_root=self.state_root,
+                    case_id=self.case_id,
+                    grant_id=self.grant_id,
+                )
+            self.assertEqual(second["status"], "recovered_completed")
+            self.assertTrue(second["acl_restore"]["already_restored"])
+            self.assertEqual(journal.records(), records_after_cleanup)
+        finally:
+            self.apply_acl_descriptors_with_test_native_api(journal_baseline)
+            broker._verify_protected_acl_restore(journal_baseline)
+
+        self.assertEqual(
+            self.read_acl_topology(exact_journal_paths),
+            original_journal_topology,
+        )
+
+        final_records = journal.records()
+        for event in ("REPLACED", "COMPLETED", "ACL_RESTORED"):
+            self.assertEqual(sum(item["event"] == event for item in final_records), 1)
+        self.assertEqual(
+            len(self.store.get_case(self.case_id)["runtime"]["action_grants"]), 1
+        )
+        self.assertEqual(self.grant()["status"], "COMPLETED")
+        self.assertEqual(self.revision, revision_before_cleanup)
+        self.assertEqual(self.target.read_bytes(), REPLACEMENT_BYTES)
+        self.assertEqual(engine._git_status_paths(self.repository_root), [TARGET_PATH])
+        self.assertEqual(
+            len(records_before_cleanup) + 1,
+            len(final_records),
+        )
+
+
 class BrokerHelperIsolationTests(RuntimeFixture):
     def test_restorable_sddl_drops_only_protected_auto_inherited_marker(self) -> None:
         ace = "(A;;FA;;;SY)"
@@ -2147,6 +2656,264 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         )
         self.assertNotIn("C:/untrusted/escape", raised.exception.diagnostic.values())
 
+    def test_acl_restoration_failure_retains_only_signed_inventory_diagnostic(
+        self,
+    ) -> None:
+        snapshot = self.protected_acl_snapshot()
+        ordered = sorted(
+            broker._normalize_acl_snapshot(snapshot),
+            key=lambda item: (len(Path(item["path"]).parts), item["path"].casefold()),
+        )
+        expected = ordered[0]
+        raw_diagnostic = {
+            "protocol_version": (
+                broker.PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION
+            ),
+            "inventory_index": 0,
+            "object_count": len(ordered),
+            "path_sha256": hashlib.sha256(
+                expected["path"].encode("utf-8")
+            ).hexdigest(),
+            "signed_entry_sha256": expected["entry_sha256"],
+            "error_code": "NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED",
+            "native_error_code": 5,
+            "security_information": 0x20000004,
+            "message_sha256": "a" * 64,
+        }
+        stderr = json.dumps(raw_diagnostic, separators=(",", ":")).encode("utf-8")
+        failed = subprocess.CompletedProcess(
+            [], 86, stdout=b"", stderr=stderr
+        )
+
+        with mock.patch.object(broker, "_run_powershell", return_value=failed):
+            with self.assertRaises(broker.BrokerAclRestorationError) as raised:
+                broker._restore_protected_acls(snapshot)
+
+        diagnostic = raised.exception.diagnostic
+        self.assertEqual(diagnostic["diagnostic_status"], "PARSED")
+        self.assertEqual(diagnostic["inventory_index"], 0)
+        self.assertEqual(diagnostic["path_sha256"], raw_diagnostic["path_sha256"])
+        self.assertEqual(diagnostic["signed_entry_sha256"], expected["entry_sha256"])
+        self.assertEqual(diagnostic["native_error_code"], 5)
+        self.assertEqual(diagnostic["security_information"], 0x20000004)
+        self.assertNotIn("path", diagnostic)
+        self.assertNotIn("sddl", diagnostic)
+        self.assertNotIn(expected["path"], json.dumps(diagnostic, sort_keys=True))
+        self.assertNotIn(stderr.decode("utf-8"), str(raised.exception))
+
+        pre_mask_diagnostic = {
+            **raw_diagnostic,
+            "error_code": "ACL_RESTORATION_EXCEPTION",
+            "native_error_code": None,
+            "security_information": 0,
+        }
+        pre_mask_failure = subprocess.CompletedProcess(
+            [],
+            86,
+            stdout=b"",
+            stderr=json.dumps(
+                pre_mask_diagnostic, separators=(",", ":")
+            ).encode("utf-8"),
+        )
+        with mock.patch.object(
+            broker, "_run_powershell", return_value=pre_mask_failure
+        ):
+            with self.assertRaises(broker.BrokerAclRestorationError) as pre_mask:
+                broker._restore_protected_acls(snapshot)
+        self.assertEqual(pre_mask.exception.diagnostic["diagnostic_status"], "PARSED")
+        self.assertEqual(pre_mask.exception.diagnostic["security_information"], 0)
+
+    def test_acl_restoration_rejects_untrusted_subprocess_diagnostic(self) -> None:
+        snapshot = self.protected_acl_snapshot()
+        raw_diagnostic = {
+            "protocol_version": (
+                broker.PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION
+            ),
+            "inventory_index": 0,
+            "object_count": len(snapshot),
+            "path_sha256": "f" * 64,
+            "signed_entry_sha256": "e" * 64,
+            "error_code": "NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED",
+            "native_error_code": 5,
+            "security_information": 0x20000004,
+            "message_sha256": "d" * 64,
+        }
+        failed = subprocess.CompletedProcess(
+            [],
+            86,
+            stdout=b"",
+            stderr=json.dumps(raw_diagnostic, separators=(",", ":")).encode("utf-8"),
+        )
+
+        with mock.patch.object(broker, "_run_powershell", return_value=failed):
+            with self.assertRaises(broker.BrokerAclRestorationError) as raised:
+                broker._restore_protected_acls(snapshot)
+
+        diagnostic = raised.exception.diagnostic
+        self.assertEqual(diagnostic["diagnostic_status"], "UNPARSEABLE")
+        self.assertNotIn("path_sha256", diagnostic)
+        self.assertNotIn("signed_entry_sha256", diagnostic)
+
+    def test_acl_restoration_rejects_forbidden_security_information(self) -> None:
+        snapshot = self.protected_acl_snapshot()
+        ordered = sorted(
+            broker._normalize_acl_snapshot(snapshot),
+            key=lambda item: (len(Path(item["path"]).parts), item["path"].casefold()),
+        )
+        expected = ordered[0]
+        for invalid_mask in (
+            0x2000000C,  # SACL bit present.
+            0xA0000004,  # Protected and unprotected are both present.
+            0x20000000,  # DACL bit is absent.
+            0x80000008,  # SACL replaces the required DACL bit.
+        ):
+            with self.subTest(security_information=invalid_mask):
+                raw_diagnostic = {
+                    "protocol_version": (
+                        broker.PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION
+                    ),
+                    "inventory_index": 0,
+                    "object_count": len(ordered),
+                    "path_sha256": hashlib.sha256(
+                        expected["path"].encode("utf-8")
+                    ).hexdigest(),
+                    "signed_entry_sha256": expected["entry_sha256"],
+                    "error_code": "NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED",
+                    "native_error_code": 5,
+                    "security_information": invalid_mask,
+                    "message_sha256": "a" * 64,
+                }
+                failed = subprocess.CompletedProcess(
+                    [],
+                    86,
+                    stdout=b"",
+                    stderr=json.dumps(
+                        raw_diagnostic, separators=(",", ":")
+                    ).encode("utf-8"),
+                )
+                with mock.patch.object(
+                    broker, "_run_powershell", return_value=failed
+                ):
+                    with self.assertRaises(
+                        broker.BrokerAclRestorationError
+                    ) as raised:
+                        broker._restore_protected_acls(snapshot)
+                self.assertEqual(
+                    raised.exception.diagnostic["diagnostic_status"],
+                    "UNPARSEABLE",
+                )
+
+    def test_acl_restoration_rejects_control_bit_opposite_signed_sddl(self) -> None:
+        snapshot = self.protected_acl_snapshot()
+        ordered = sorted(
+            broker._normalize_acl_snapshot(snapshot),
+            key=lambda item: (len(Path(item["path"]).parts), item["path"].casefold()),
+        )
+        expected = ordered[0]
+        self.assertNotIn("D:P", expected["sddl"])
+        raw_diagnostic = {
+            "protocol_version": (
+                broker.PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION
+            ),
+            "inventory_index": 0,
+            "object_count": len(ordered),
+            "path_sha256": hashlib.sha256(
+                expected["path"].encode("utf-8")
+            ).hexdigest(),
+            "signed_entry_sha256": expected["entry_sha256"],
+            "error_code": "NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED",
+            "native_error_code": 5,
+            "security_information": 0x80000004,
+            "message_sha256": "a" * 64,
+        }
+        failed = subprocess.CompletedProcess(
+            [],
+            86,
+            stdout=b"",
+            stderr=json.dumps(raw_diagnostic, separators=(",", ":")).encode(
+                "utf-8"
+            ),
+        )
+        with mock.patch.object(broker, "_run_powershell", return_value=failed):
+            with self.assertRaises(broker.BrokerAclRestorationError) as raised:
+                broker._restore_protected_acls(snapshot)
+        self.assertEqual(
+            raised.exception.diagnostic["diagnostic_status"], "UNPARSEABLE"
+        )
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL integration test")
+    def test_acl_restoration_diagnostic_runs_in_selected_windows_powershell(
+        self,
+    ) -> None:
+        missing_path = engine.normalize_binding(
+            "worktree", str(self.root / "missing-acl-restoration-target")
+        )
+        sddl = "O:SYG:SYD:(A;;FA;;;SY)"
+        entry = {
+            "path": missing_path,
+            "owner_sid": "S-1-5-18",
+            "sddl": sddl,
+            "sddl_sha256": hashlib.sha256(sddl.encode("utf-8")).hexdigest(),
+        }
+        entry["entry_sha256"] = engine.canonical_json_sha256(entry)
+
+        with self.assertRaises(broker.BrokerAclRestorationError) as raised:
+            broker._restore_protected_acls([entry])
+
+        diagnostic = raised.exception.diagnostic
+        self.assertEqual(diagnostic["diagnostic_status"], "PARSED")
+        self.assertEqual(diagnostic["error_code"], "ACL_RESTORATION_EXCEPTION")
+        self.assertIsNone(diagnostic["native_error_code"])
+        self.assertEqual(diagnostic["security_information"], 0)
+        self.assertEqual(
+            diagnostic["path_sha256"],
+            hashlib.sha256(missing_path.encode("utf-8")).hexdigest(),
+        )
+        self.assertNotIn(missing_path, json.dumps(diagnostic, sort_keys=True))
+
+    def test_cli_json_exposes_bounded_acl_restoration_diagnostic(self) -> None:
+        diagnostic = {
+            "protocol_version": (
+                broker.PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION
+            ),
+            "diagnostic_status": "PARSED",
+            "inventory_index": 7,
+            "object_count": 12,
+            "path_sha256": "a" * 64,
+            "signed_entry_sha256": "b" * 64,
+            "error_code": "NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED",
+            "native_error_code": 5,
+            "security_information": 0x80000007,
+            "message_sha256": "c" * 64,
+            "process_exit_code": 86,
+            "stderr_sha256": "d" * 64,
+        }
+        error = broker.BrokerAclRestorationError(diagnostic)
+        with mock.patch.object(
+            broker, "execute_grant", side_effect=error
+        ), mock.patch("builtins.print") as printed:
+            exit_code = broker.main(
+                [
+                    "--json",
+                    "execute",
+                    "--state-root",
+                    str(self.state_root),
+                    "--case-id",
+                    self.case_id,
+                    "--grant-id",
+                    self.grant_id,
+                    "--controller-receipt-json",
+                    "{}",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        payload = json.loads(printed.call_args.args[0])
+        self.assertEqual(payload["error"], "BrokerAclRestorationError")
+        self.assertEqual(payload["acl_restoration_diagnostic"], diagnostic)
+        self.assertNotIn("path", payload["acl_restoration_diagnostic"])
+        self.assertNotIn("sddl", payload["acl_restoration_diagnostic"])
+
     def test_acl_restore_applies_parents_before_children(self) -> None:
         captured = {}
 
@@ -2160,6 +2927,45 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         payload = json.loads(captured["input_bytes"])
         depths = [len(Path(item["path"]).parts) for item in payload]
         self.assertEqual(depths, sorted(depths))
+
+    def test_acl_restore_uses_only_native_security_descriptor_write(self) -> None:
+        captured = {}
+
+        def run(script, _environment, *, input_bytes=None):
+            captured["script"] = script
+            return subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+
+        with mock.patch.object(broker, "_run_powershell", side_effect=run):
+            broker._restore_protected_acls(self.protected_acl_snapshot())
+
+        self.assertNotIn(".SetAccessControl", captured["script"])
+
+    def test_acl_restore_native_write_uses_exact_selected_field_mask(self) -> None:
+        captured = {}
+
+        def run(script, _environment, *, input_bytes=None):
+            captured["script"] = script
+            return subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+
+        with mock.patch.object(broker, "_run_powershell", side_effect=run):
+            broker._restore_protected_acls(self.protected_acl_snapshot())
+
+        script = captured["script"]
+        self.assertIn('EntryPoint = "SetFileSecurityW"', script)
+        self.assertIn("[System.BitConverter]::ToString(", script)
+        self.assertNotIn("[Convert]::ToHexString", script)
+        self.assertIn("[uint32]$securityInformation = 0", script)
+        self.assertIn("$securityInformation = [uint32]4", script)
+        self.assertIn("[Convert]::ToUInt32('80000000', 16)", script)
+        self.assertIn("[uint32]0x20000000", script)
+        self.assertIn("$securityInformation -bor [uint32]0x1", script)
+        self.assertIn("$securityInformation -bor [uint32]0x2", script)
+        self.assertIn("[CcosNativeAclRestore]::SetFileSecurityW(", script)
+        self.assertIn(
+            "security_information = [uint64]$securityInformation", script
+        )
+        self.assertNotIn("SACL_SECURITY_INFORMATION", script)
+        self.assertNotIn("AccessControlSections]::Audit", script)
 
     def test_acl_restore_uses_unsigned_protected_dacl_flag(self) -> None:
         captured = {}
@@ -3144,7 +3950,6 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             finally:
                 broker._restore_protected_acls(baseline)
                 broker._verify_protected_acl_restore(baseline)
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

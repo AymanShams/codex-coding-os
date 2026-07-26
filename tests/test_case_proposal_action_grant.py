@@ -2292,6 +2292,45 @@ class ProposalActionGrantTests(unittest.TestCase):
                     ]
                 )
 
+    def test_proposal_broker_cli_exposes_bounded_acl_restoration_diagnostic(
+        self,
+    ) -> None:
+        diagnostic = {
+            "protocol_version": (
+                runtime_broker.PROTECTED_DACL_RESTORATION_FAILURE_PROTOCOL_VERSION
+            ),
+            "diagnostic_status": "PARSED",
+            "inventory_index": 7,
+            "object_count": 12,
+            "path_sha256": "a" * 64,
+            "signed_entry_sha256": "b" * 64,
+            "error_code": "NATIVE_SECURITY_DESCRIPTOR_WRITE_FAILED",
+            "native_error_code": 5,
+            "security_information": 0x20000004,
+            "message_sha256": "c" * 64,
+            "process_exit_code": 86,
+            "stderr_sha256": "d" * 64,
+        }
+        error = runtime_broker.BrokerAclRestorationError(diagnostic)
+        with mock.patch.object(
+            proposal_entrypoint, "execute_envelope", side_effect=error
+        ), mock.patch("builtins.print") as printed:
+            exit_code = proposal_entrypoint.main(
+                [
+                    "--state-root",
+                    str(self.state_root),
+                    "--envelope",
+                    str(self.state_root / "proposal-envelopes" / "grant.json"),
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        payload = json.loads(printed.call_args.args[0])
+        self.assertEqual(payload["error"], "BrokerAclRestorationError")
+        self.assertEqual(payload["acl_restoration_diagnostic"], diagnostic)
+        self.assertNotIn("path", payload["acl_restoration_diagnostic"])
+        self.assertNotIn("sddl", payload["acl_restoration_diagnostic"])
+
     def test_runtime_broker_exposes_narrow_orphan_recovery_cli(self) -> None:
         parser = runtime_broker.build_parser()
         parsed = parser.parse_args(
