@@ -2011,6 +2011,21 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         )
         self.assertNotIn("[uint32]0x80000000", captured["script"])
 
+    def test_acl_restore_passes_extended_length_path_to_native_write(self) -> None:
+        captured = {}
+
+        def run(script, _environment, *, input_bytes=None):
+            captured["script"] = script
+            captured["input_bytes"] = input_bytes
+            return subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+
+        with mock.patch.object(broker, "_run_powershell", side_effect=run):
+            broker._restore_protected_acls(self.protected_acl_snapshot())
+        self.assertIn("function Get-NativeSecurityPath", captured["script"])
+        self.assertIn(
+            "(Get-NativeSecurityPath ([string]$item.path))", captured["script"]
+        )
+
     def test_acl_restore_retries_from_mixed_original_and_lockdown_descriptors(self) -> None:
         self.issue()
         grant = self.grant()
@@ -2849,6 +2864,48 @@ class BrokerHelperIsolationTests(RuntimeFixture):
                 broker._verify_protected_acl_restore(baseline)
                 broker._restore_protected_acls(protected)
                 broker._verify_protected_acl_restore(protected)
+            finally:
+                broker._restore_protected_acls(baseline)
+                broker._verify_protected_acl_restore(baseline)
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL integration test")
+    def test_acl_restore_supports_extended_length_descendant_path(self) -> None:
+        denied = [
+            "S-1-5-21-444444444-555555555-666666666-2301",
+            "S-1-5-21-444444444-555555555-666666666-2302",
+            "S-1-5-21-444444444-555555555-666666666-2303",
+        ]
+        broker_sid = broker.windows_identity()[1]
+        with tempfile.TemporaryDirectory(prefix="ccos-acl-long-restore-") as temporary:
+            base = Path(temporary)
+            roots: dict[str, str] = {}
+            root_paths: dict[str, Path] = {}
+            for kind in engine.PROTECTED_ROOT_KINDS:
+                root = base / f"{kind}-parent" / "root"
+                root.mkdir(parents=True)
+                (root / "existing.bin").write_bytes(kind.encode("ascii"))
+                roots[kind] = engine.normalize_binding("worktree", str(root))
+                root_paths[kind] = root
+
+            long_directory = root_paths[engine.PROTECTED_ROOT_KINDS[0]]
+            segment_number = 0
+            while len(str(long_directory / "restore-target.bin")) <= 270:
+                long_directory /= f"segment-{segment_number:02d}-" + ("x" * 24)
+                segment_number += 1
+            long_directory.mkdir(parents=True)
+            long_target = long_directory / "restore-target.bin"
+            long_target.write_bytes(b"extended-length ACL restore\n")
+            self.assertGreater(len(str(long_target)), 260)
+
+            baseline = broker._snapshot_protected_acls(roots)
+            self.assertGreater(
+                max(len(item["path"]) for item in baseline),
+                260,
+            )
+            try:
+                broker._configure_protected_dacls(roots, denied, broker_sid)
+                broker._restore_protected_acls(baseline)
+                broker._verify_protected_acl_restore(baseline)
             finally:
                 broker._restore_protected_acls(baseline)
                 broker._verify_protected_acl_restore(baseline)

@@ -1893,6 +1893,19 @@ public static class CcosNativeAclRestore {
     byte[] securityDescriptor);
 }
 '@
+
+function Get-NativeSecurityPath {
+  param([string]$Path)
+  $full = [System.IO.Path]::GetFullPath($Path)
+  if ($full.StartsWith('\\?\', [System.StringComparison]::Ordinal)) {
+    return $full
+  }
+  if ($full.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+    return '\\?\UNC\' + $full.Substring(2)
+  }
+  return '\\?\' + $full
+}
+
 $items = @(ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()) | ForEach-Object { $_ })
 foreach ($item in $items) {
   $acl = Get-Acl -LiteralPath $item.path
@@ -1947,7 +1960,7 @@ foreach ($item in $items) {
     $daclSecurityInformation = $daclSecurityInformation -bor [uint32]0x20000000
   }
   if (-not [CcosNativeAclRestore]::SetFileSecurity(
-      [string]$item.path,
+      (Get-NativeSecurityPath ([string]$item.path)),
       $daclSecurityInformation,
       $bytes)) {
     $errorCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
