@@ -43,6 +43,8 @@ from case_state import (  # noqa: E402
     PROPOSAL_DACL_EVIDENCE_MODE,
     PROPOSAL_DACL_EVIDENCE_PROTOCOL_VERSION,
     PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION,
+    PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION,
+    PROPOSAL_ACTION_GRANT_CORE_FIELDS,
     PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
     PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION,
     STORE_FILENAME,
@@ -2588,6 +2590,67 @@ def collect_proposal_isolation_evidence(
     journal = BrokerJournal(Path(store.state_root), canonical_id, grant_id)
     run_id = f"preissue-{secrets.token_hex(16)}"
     with FileLock(journal.lock_path, timeout=30.0):
+        case = store.get_case(canonical_id)
+        runtime = case.get("runtime")
+        grants = (
+            runtime.get("action_grants") if isinstance(runtime, Mapping) else None
+        )
+        canonical_grant = grants.get(grant_id) if isinstance(grants, Mapping) else None
+        if (
+            not isinstance(grants, Mapping)
+            or set(grants) != {grant_id}
+            or not isinstance(canonical_grant, Mapping)
+            or canonical_grant.get("status") != "ARMED"
+        ):
+            raise BrokerAuthorizationError(
+                "proposal isolation collection requires the sole canonical ARMED grant"
+            )
+        arm = canonical_grant.get("arm")
+        if not isinstance(arm, Mapping):
+            raise BrokerAuthorizationError(
+                "proposal isolation collection requires its canonical arm"
+            )
+        canonical_core = {
+            field: canonical_grant.get(field)
+            for field in PROPOSAL_ACTION_GRANT_CORE_FIELDS
+        }
+        supplied_core = {
+            field: grant_core.get(field)
+            for field in PROPOSAL_ACTION_GRANT_CORE_FIELDS
+        }
+        arm_body = {name: value for name, value in arm.items() if name != "arm_sha256"}
+        if (
+            supplied_core != canonical_core
+            or arm.get("grant_core_sha256")
+            != canonical_json_sha256(canonical_core)
+            or arm.get("arm_sha256") != canonical_json_sha256(arm_body)
+        ):
+            raise BrokerAuthorizationError(
+                "proposal isolation collection differs from the canonical arm"
+            )
+        if case.get("revision") != arm.get("armed_revision"):
+            raise BrokerAuthorizationError(
+                "canonical case revision changed after proposal arm"
+            )
+        if dt.datetime.now(dt.timezone.utc).replace(
+            microsecond=0
+        ) >= dt.datetime.fromisoformat(str(arm.get("lease_expires_at", ""))):
+            raise BrokerAuthorizationError(
+                "canonical proposal arm lease expired before isolation collection"
+            )
+        recovery_roots = arm.get("recovery_roots")
+        if (
+            not isinstance(recovery_roots, Mapping)
+            or dict(recovery_roots) != roots
+            or arm.get("recovery_roots_sha256") != canonical_json_sha256(roots)
+        ):
+            raise BrokerAuthorizationError(
+                "proposal isolation roots differ from the canonical arm"
+            )
+        if journal.records() != []:
+            raise BrokerAuthorizationError(
+                "proposal isolation collection requires an empty preissue journal"
+            )
         journal.ensure_file()
         snapshot = _snapshot_protected_acls(roots)
         snapshot_sha256 = canonical_json_sha256(snapshot)
@@ -3459,10 +3522,68 @@ def recover_pending_preissue_acl_lockdowns(
         return []
     with FileLock(journal.lock_path, timeout=30.0):
         records = journal.records()
+        if not records:
+            # The journal file is created before any ACL evidence is captured.
+            # No record means no ACL write was authorized or attempted.
+            return []
         snapshots = [record for record in records if record.get("event") == "ACL_SNAPSHOT"]
+        intents = [record for record in records if record.get("event") == "ACL_LOCKDOWN_INTENT"]
+        if not intents:
+            if (
+                len(snapshots) != 1
+                or len(records) != 1
+                or records[0].get("event") != "ACL_SNAPSHOT"
+            ):
+                raise BrokerAuthorizationError(
+                    "pre-intent ACL journal has an unexpected event shape"
+                )
+            snapshot_record = snapshots[0]
+            snapshot_sha256 = require_snapshot_hash(
+                str(snapshot_record.get("protected_acl_snapshot_sha256", ""))
+            )
+            if snapshot_sha256 != canonical_json_sha256(
+                snapshot_record.get("protected_acl_snapshot")
+            ):
+                raise BrokerAuthorizationError(
+                    "pre-intent ACL snapshot digest is invalid"
+                )
+            normalized_snapshot = _normalize_acl_snapshot(
+                snapshot_record.get("protected_acl_snapshot")
+            )
+            required_paths = {
+                path
+                for root_path in normalized_roots.values()
+                for path in (
+                    root_path,
+                    normalize_binding("worktree", str(Path(root_path).parent)),
+                )
+            }
+            if not protected_acl_snapshot_paths_are_scoped(
+                {item["path"] for item in normalized_snapshot},
+                required_paths=required_paths,
+                protected_roots=set(normalized_roots.values()),
+            ):
+                raise BrokerAuthorizationError(
+                    "pre-intent ACL snapshot escapes or omits exact recovery roots"
+                )
+            # ACL mutation begins only after ACL_LOCKDOWN_INTENT. Prove that the
+            # signed original snapshot still matches before treating this as a
+            # safe no-op crash boundary.
+            _verify_protected_acl_restore(normalized_snapshot)
+            return [
+                {
+                    "restored": False,
+                    "already_restored": True,
+                    "recovery_state": "PREINTENT_ORIGINAL",
+                    "protected_acl_snapshot_sha256": snapshot_sha256,
+                    "grant_id": grant_id,
+                    "snapshot_event_sha256": snapshot_record["event_sha256"],
+                    "lockdown_intent_event_sha256": None,
+                    "acl_restored_event_sha256": None,
+                }
+            ]
         if len(snapshots) != 1:
             raise BrokerAuthorizationError("journal lacks one exact ACL snapshot")
-        intents = [record for record in records if record.get("event") == "ACL_LOCKDOWN_INTENT"]
         if len(intents) != 1:
             raise BrokerAuthorizationError("journal lacks one exact ACL lockdown intent")
         expected_intent = {
@@ -3750,20 +3871,84 @@ def recover_completed_action_grant_cleanup(
 def recover_orphaned_action_grant(
     *, state_root: Path, case_id: str, grant_id: str
 ) -> dict[str, Any]:
-    """Trusted startup recovery for ISSUED, CLAIMED, FAILED, or COMPLETED grants."""
+    """Trusted startup recovery for every non-new proposal grant status."""
     case_id = canonical_case_id(case_id)
     grant_id = require_stable_id(grant_id, "grant id")
     store = CaseStore(Path(state_root))
     journal = BrokerJournal(store.state_root, case_id, grant_id)
+    cancelled_recovery: dict[str, Any] | None = None
     with FileLock(journal.lock_path, timeout=30.0):
-        grant = _get_grant(store.get_case(case_id), grant_id)
+        case = store.get_case(case_id)
+        grant = _get_grant(case, grant_id)
         _broker_name, broker_sid = windows_identity()
         if broker_sid != grant["broker_principal_sid"]:
             raise BrokerAuthorizationError(
                 "orphan recovery is not running as the sealed broker principal"
             )
         status = grant["status"]
-        if status == "COMPLETED":
+        cancelled_now = False
+        if status == "ARMED":
+            arm = grant.get("arm")
+            if not isinstance(arm, Mapping):
+                raise BrokerAuthorizationError(
+                    "orphaned proposal arm lacks its canonical lease"
+                )
+            evidence = {
+                "case_id": case_id,
+                "grant_id": grant_id,
+                "arm_sha256": arm.get("arm_sha256"),
+                "recovery": "orphaned_supervisor_context",
+            }
+            try:
+                store.cancel_armed_proposal_action_grant(
+                    case_id,
+                    grant_id=grant_id,
+                    expected_arm_sha256=str(arm.get("arm_sha256", "")),
+                    cancellation={
+                        "protocol_version": (
+                            PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION
+                        ),
+                        "schema_version": 1,
+                        "reason_code": "SUPERVISOR_CONTEXT_LOST",
+                        "evidence_sha256": canonical_json_sha256(evidence),
+                        "cancelled_at": utc_now(),
+                    },
+                    request_id=f"broker-cancel-orphaned-arm-{grant_id}",
+                    expected_revision=case["revision"],
+                )
+                cancelled_now = True
+            except CaseStateError as cancellation_error:
+                # ARMED -> ISSUED may win the exact-revision race after the
+                # preissue journal lock was released. Reread under this recovery
+                # lock and converge on the observed canonical status.
+                case = store.get_case(case_id)
+                grant = _get_grant(case, grant_id)
+                status = grant["status"]
+                if status == "ARMED":
+                    raise cancellation_error
+            else:
+                case = store.get_case(case_id)
+                grant = _get_grant(case, grant_id)
+                status = grant["status"]
+        if status == "CANCELLED":
+            arm = grant.get("arm")
+            recovery_roots = (
+                arm.get("recovery_roots") if isinstance(arm, Mapping) else None
+            )
+            if not isinstance(recovery_roots, Mapping):
+                raise BrokerAuthorizationError(
+                    "cancelled proposal arm lacks exact ACL recovery roots"
+                )
+            cancelled_recovery = {
+                "status": "CANCELLED" if cancelled_now else "cancelled_stable",
+                "cancellation_sha256": grant["cancellation"]["cancellation_sha256"],
+                "expected_roots": dict(recovery_roots),
+                "expected_denied_principal_sids": list(
+                    grant["denied_principal_sids"]
+                ),
+                "expected_broker_principal_sid": grant["broker_principal_sid"],
+            }
+        elif status == "COMPLETED":
             # Release the lock before entering the public completed recovery lock.
             pass
         elif status == "FAILED":
@@ -3789,6 +3974,24 @@ def recover_orphaned_action_grant(
             )
         else:
             raise BrokerAuthorizationError("orphan recovery found an unknown grant status")
+    if cancelled_recovery is not None:
+        acl_recovery = recover_pending_preissue_acl_lockdowns(
+            state_root=store.state_root,
+            case_id=case_id,
+            grant_id=grant_id,
+            expected_roots=cancelled_recovery.pop("expected_roots"),
+            expected_denied_principal_sids=cancelled_recovery.pop(
+                "expected_denied_principal_sids"
+            ),
+            expected_broker_principal_sid=cancelled_recovery.pop(
+                "expected_broker_principal_sid"
+            ),
+        )
+        return {
+            **cancelled_recovery,
+            "grant_id": grant_id,
+            "acl_recovery": acl_recovery,
+        }
     return recover_completed_action_grant_cleanup(
         state_root=state_root, case_id=case_id, grant_id=grant_id
     )
@@ -3852,6 +4055,25 @@ def _get_grant(case: Mapping[str, Any], grant_id: str) -> dict[str, Any]:
     return copy.deepcopy(grant)
 
 
+def _verify_proposal_execution_nonce(
+    grant: Mapping[str, Any], execution_nonce: str | None
+) -> None:
+    if grant.get("status") not in {"ISSUED", "CLAIMED"}:
+        return
+    if not isinstance(execution_nonce, str) or not execution_nonce or len(execution_nonce) > 256:
+        raise BrokerAuthorizationError(
+            "active proposal grant requires its one in-memory execution nonce"
+        )
+    expected = require_snapshot_hash(
+        str(grant.get("execution_nonce_sha256", ""))
+    )
+    observed = hashlib.sha256(execution_nonce.encode("utf-8")).hexdigest()
+    if not secrets.compare_digest(observed, expected):
+        raise BrokerAuthorizationError(
+            "proposal execution nonce differs from the exact canonical grant"
+        )
+
+
 def _verify_static_grant(
     store: CaseStore,
     case: Mapping[str, Any],
@@ -3878,7 +4100,11 @@ def _verify_static_grant(
             or authority.get("case_id") != case["case_id"]
             or authority.get("grant_id") != grant.get("grant_id")
             or authority.get("expected_case_revision")
-            != grant.get("issued_revision", 0) - 1
+            != (
+                grant.get("arm", {}).get("authority_revision")
+                if isinstance(grant.get("arm"), Mapping)
+                else grant.get("issued_revision", 0) - 1
+            )
             or canonical_json_sha256(authority) != authority_sha256
         ):
             raise BrokerAuthorizationError(
@@ -4543,10 +4769,17 @@ def _execute_grant(
     case_id: str,
     grant_id: str,
     controller_receipt: Mapping[str, Any] | None,
+    execution_nonce: str | None = None,
 ) -> dict[str, Any]:
     case_id = canonical_case_id(case_id)
     grant_id = require_stable_id(grant_id, "grant id")
     store = CaseStore(state_root)
+    initial_grant = _get_grant(store.get_case(case_id), grant_id)
+    if (
+        initial_grant.get("protocol_version")
+        == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+    ):
+        _verify_proposal_execution_nonce(initial_grant, execution_nonce)
     journal = BrokerJournal(store.state_root, case_id, grant_id)
     run_id = secrets.token_hex(16)
     with FileLock(journal.lock_path, timeout=30.0):
@@ -4571,6 +4804,12 @@ def _execute_grant(
                 "broker did not run as the exact distinct trusted principal"
             )
         status = grant["status"]
+        if proposal_protocol:
+            _verify_proposal_execution_nonce(grant, execution_nonce)
+        if status == "ARMED":
+            raise BrokerAuthorizationError(
+                "proposal action grant is armed but has not been issued"
+            )
         if status == "COMPLETED":
             _verify_protected_acl_restore(grant["protected_acl_snapshot"])
             raise BrokerAuthorizationError(
@@ -4578,6 +4817,10 @@ def _execute_grant(
             )
         if status == "FAILED":
             raise BrokerAuthorizationError("action grant failed and its case is locked")
+        if status == "CANCELLED":
+            raise BrokerAuthorizationError(
+                "proposal action arm was cancelled and its case is locked"
+            )
         try:
             _verify_lockdown_journal_binding(grant, journal)
             if proposal_protocol:
@@ -4830,10 +5073,20 @@ def execute_grant(
 
 
 def execute_proposal_grant(
-    state_root: Path, case_id: str, grant_id: str
+    state_root: Path,
+    case_id: str,
+    grant_id: str,
+    *,
+    execution_nonce: str | None = None,
 ) -> dict[str, Any]:
     """Consume one actorless v2 exact-action capability."""
-    return _execute_grant(state_root, case_id, grant_id, None)
+    return _execute_grant(
+        state_root,
+        case_id,
+        grant_id,
+        None,
+        execution_nonce=execution_nonce,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -4849,6 +5102,11 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--case-id", required=True)
     command.add_argument("--grant-id", required=True)
     command.add_argument("--controller-receipt-json", required=True)
+
+    command = sub.add_parser("recover-orphaned")
+    command.add_argument("--state-root", required=True, type=Path)
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--grant-id", required=True)
     return parser
 
 
@@ -4863,6 +5121,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.case_id,
                 args.grant_id,
                 _json_value(args.controller_receipt_json, "controller-receipt-json"),
+            )
+        elif args.command == "recover-orphaned":
+            result = recover_orphaned_action_grant(
+                state_root=args.state_root,
+                case_id=args.case_id,
+                grant_id=args.grant_id,
             )
         else:
             raise AssertionError(args.command)

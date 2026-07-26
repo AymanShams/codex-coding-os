@@ -126,6 +126,9 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.case_id = str(uuid.uuid4())
         self.grant_id = "proposal-grant-one"
         self.authority_id = "proposal-authority-one"
+        self.attempt_secret = hashlib.sha256(
+            f"fixture-attempt-secret:{self.case_id}".encode("utf-8")
+        ).hexdigest()
         self.store.register_case(
             self.case_id,
             objective="prove one actorless exact-proposal action",
@@ -622,21 +625,103 @@ class ProposalActionGrantTests(unittest.TestCase):
         )
         return grant
 
+    def arm_record(self, grant: dict) -> dict:
+        return {
+            "protocol_version": engine.PROPOSAL_ACTION_ARM_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "lease_id": "proposal-lease-one",
+            "attempt_id": "proposal-attempt-one",
+            "attempt_secret_sha256": hashlib.sha256(
+                self.attempt_secret.encode("ascii")
+            ).hexdigest(),
+            "supervisor_pid": 4242,
+            "supervisor_creation_time_100ns": 133700000000000000,
+            "supervisor_ready_sha256": "d" * 64,
+            "lease_expires_at": grant["expires_at"],
+        }
+
+    def arm(
+        self, grant: dict | None = None, *, expected_revision: int | None = None
+    ) -> dict:
+        full_grant = grant or self.grant_request()
+        core = {
+            field: full_grant[field]
+            for field in proposal_entrypoint.GRANT_CORE_FIELDS
+        }
+        return self.store.arm_proposal_action_grant(
+            self.case_id,
+            grant=core,
+            arm=self.arm_record(full_grant),
+            request_id=request_id(),
+            expected_revision=(
+                self.revision if expected_revision is None else expected_revision
+            ),
+        )
+
     def issue(self, grant: dict | None = None, *, expected_revision: int | None = None) -> dict:
+        full_grant = grant or self.grant_request()
+        arm_result = self.arm(full_grant, expected_revision=expected_revision)
         with mock.patch.object(
             engine, "proposal_broker_source_pins", return_value=self.source_pins
         ):
-            return self.store.issue_proposal_action_grant(
+            return self.store.issue_armed_proposal_action_grant(
                 self.case_id,
-                grant=grant or self.grant_request(),
+                grant=full_grant,
+                expected_arm_sha256=arm_result["arm_sha256"],
+                attempt_secret=self.attempt_secret,
                 request_id=request_id(),
-                expected_revision=(
-                    self.revision if expected_revision is None else expected_revision
-                ),
+                expected_revision=self.revision,
             )
+
+    def write_envelope(
+        self,
+        grant: dict,
+        *,
+        expected_revision: int,
+        name: str = "grant.json",
+    ) -> Path:
+        envelope_root = self.state_root / "proposal-envelopes"
+        envelope_root.mkdir(exist_ok=True)
+        envelope_path = envelope_root / name
+        envelope_path.write_text(
+            json.dumps(
+                {
+                    "protocol_version": proposal_entrypoint.ENVELOPE_PROTOCOL_VERSION,
+                    "schema_version": 1,
+                    "case_id": self.case_id,
+                    "expected_case_revision": expected_revision,
+                    "request_id": request_id(),
+                    "grant": {
+                        field: grant[field]
+                        for field in proposal_entrypoint.GRANT_CORE_FIELDS
+                    },
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return envelope_path
 
     def grant(self) -> dict:
         return self.case["runtime"]["action_grants"][self.grant_id]
+
+    def alternate_source_file(self, name: str) -> Path:
+        source_root = self.root / "alternate-source"
+        agent_root = source_root / "scripts" / "agent"
+        agent_root.mkdir(parents=True, exist_ok=True)
+        for source_name in (
+            "case_state.py",
+            "case_runtime_broker.py",
+            "case_proposal_action_broker.py",
+        ):
+            (agent_root / source_name).write_bytes(
+                (SCRIPT_DIRECTORY / source_name).read_bytes()
+            )
+        (source_root / "install-bundle.manifest.json").write_bytes(
+            (ROOT / "install-bundle.manifest.json").read_bytes()
+        )
+        return agent_root / name
 
     def claim(self, *, expected_revision: int | None = None) -> dict:
         grant = self.grant()
@@ -798,6 +883,560 @@ class ProposalActionGrantTests(unittest.TestCase):
                 grant_id=self.grant_id,
             )
 
+    def test_arm_binds_one_exact_prearm_revision_and_blocks_other_mutations(self) -> None:
+        grant = self.grant_request()
+        authority_revision = self.revision
+
+        armed = self.arm(grant)
+
+        self.assertEqual(armed["status"], "ARMED")
+        self.assertEqual(self.revision, authority_revision + 1)
+        canonical = self.grant()
+        self.assertEqual(canonical["status"], "ARMED")
+        self.assertEqual(canonical["arm"]["authority_revision"], authority_revision)
+        self.assertEqual(canonical["arm"]["armed_revision"], self.revision)
+        self.assertEqual(canonical["arm"]["attempt_id"], "proposal-attempt-one")
+        self.assertEqual(
+            canonical["arm"]["recovery_roots"],
+            {
+                "target_root": engine.normalize_binding(
+                    "worktree", str(self.repository_root)
+                ),
+                "state_root": engine.normalize_binding(
+                    "worktree", str(self.state_root)
+                ),
+                "broker_source_root": engine.normalize_binding(
+                    "worktree", str(ROOT)
+                ),
+                "proposal_root": engine.normalize_binding(
+                    "worktree", str(self.proposal_root)
+                ),
+            },
+        )
+        self.assertEqual(
+            canonical["arm"]["recovery_roots_sha256"],
+            engine.canonical_json_sha256(canonical["arm"]["recovery_roots"]),
+        )
+        self.assertEqual(
+            canonical["arm"]["attempt_secret_sha256"],
+            hashlib.sha256(self.attempt_secret.encode("ascii")).hexdigest(),
+        )
+        self.assertNotIn(self.attempt_secret, json.dumps(canonical, sort_keys=True))
+        with self.assertRaisesRegex(engine.AuthorizationError, "blocked"):
+            self.store.start_implementation(
+                self.case_id,
+                request_id=request_id(),
+                expected_revision=self.revision,
+            )
+        self.assertEqual(self.revision, authority_revision + 1)
+
+    def test_armed_issue_requires_exact_arm_revision_and_plaintext_secret(self) -> None:
+        grant = self.grant_request()
+        armed = self.arm(grant)
+        armed_revision = self.revision
+        attempts = (
+            ("0" * 64, self.attempt_secret, armed_revision, engine.AuthorizationError),
+            (
+                armed["arm_sha256"],
+                "b" * 64,
+                armed_revision,
+                engine.AuthorizationError,
+            ),
+            (
+                armed["arm_sha256"],
+                self.attempt_secret,
+                armed_revision - 1,
+                engine.RevisionConflict,
+            ),
+        )
+        with mock.patch.object(
+            engine, "proposal_broker_source_pins", return_value=self.source_pins
+        ):
+            for arm_sha256, secret, revision, error in attempts:
+                with self.subTest(
+                    arm_sha256=arm_sha256,
+                    secret=secret,
+                    revision=revision,
+                ):
+                    with self.assertRaises(error):
+                        self.store.issue_armed_proposal_action_grant(
+                            self.case_id,
+                            grant=grant,
+                            expected_arm_sha256=arm_sha256,
+                            attempt_secret=secret,
+                            request_id=request_id(),
+                            expected_revision=revision,
+                        )
+                    self.assertEqual(self.revision, armed_revision)
+                    self.assertEqual(self.grant()["status"], "ARMED")
+
+            issued = self.store.issue_armed_proposal_action_grant(
+                self.case_id,
+                grant=grant,
+                expected_arm_sha256=armed["arm_sha256"],
+                attempt_secret=self.attempt_secret,
+                request_id=request_id(),
+                expected_revision=armed_revision,
+            )
+
+        self.assertEqual(issued["status"], "ISSUED")
+        self.assertEqual(self.grant()["status"], "ISSUED")
+        self.assertEqual(
+            self.grant()["execution_nonce_sha256"],
+            hashlib.sha256(self.attempt_secret.encode("ascii")).hexdigest(),
+        )
+        self.assertNotIn(self.attempt_secret, json.dumps(self.case, sort_keys=True))
+        self.assertNotIn(
+            self.attempt_secret, self.store.path.read_text(encoding="utf-8")
+        )
+
+    def test_direct_proposal_issuance_is_disabled(self) -> None:
+        initial_case = self.case
+        with self.assertRaisesRegex(engine.AuthorizationError, "canonically armed"):
+            self.store.issue_proposal_action_grant(
+                self.case_id,
+                grant=self.grant_request(),
+                request_id=request_id(),
+                expected_revision=self.revision,
+            )
+        self.assertEqual(self.case, initial_case)
+
+    def test_arm_cancellation_is_terminal_and_idempotent(self) -> None:
+        grant = self.grant_request()
+        armed = self.arm(grant)
+        armed_revision = self.revision
+        cancellation = {
+            "protocol_version": engine.PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "reason_code": "SUPERVISOR_CONTEXT_LOST",
+            "evidence_sha256": "e" * 64,
+            "cancelled_at": engine.utc_now(),
+        }
+        cancellation_request_id = request_id()
+
+        cancelled = self.store.cancel_armed_proposal_action_grant(
+            self.case_id,
+            grant_id=self.grant_id,
+            expected_arm_sha256=armed["arm_sha256"],
+            cancellation=cancellation,
+            request_id=cancellation_request_id,
+            expected_revision=armed_revision,
+        )
+        replay = self.store.cancel_armed_proposal_action_grant(
+            self.case_id,
+            grant_id=self.grant_id,
+            expected_arm_sha256=armed["arm_sha256"],
+            cancellation=cancellation,
+            request_id=cancellation_request_id,
+            expected_revision=armed_revision,
+        )
+
+        self.assertEqual(cancelled["status"], "CANCELLED")
+        self.assertTrue(replay["idempotent"])
+        self.assertEqual(self.case["state"], "CASE_LOCKED")
+        self.assertEqual(self.grant()["status"], "CANCELLED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_orphaned_arm_recovery_cancels_without_target_mutation(self) -> None:
+        self.arm(self.grant_request())
+        with mock.patch.object(
+            runtime_broker,
+            "windows_identity",
+            return_value=("fixture\\broker", BROKER_SID),
+        ):
+            recovered = runtime_broker.recover_orphaned_action_grant(
+                state_root=self.state_root,
+                case_id=self.case_id,
+                grant_id=self.grant_id,
+            )
+            replay = runtime_broker.recover_orphaned_action_grant(
+                state_root=self.state_root,
+                case_id=self.case_id,
+                grant_id=self.grant_id,
+            )
+
+        self.assertEqual(recovered["status"], "CANCELLED")
+        self.assertEqual(replay["status"], "cancelled_stable")
+        self.assertEqual(self.case["state"], "CASE_LOCKED")
+        self.assertEqual(self.grant()["status"], "CANCELLED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_orphaned_arm_recovery_accepts_empty_preissue_journal(self) -> None:
+        self.arm(self.grant_request())
+        journal = runtime_broker.BrokerJournal(
+            self.state_root, self.case_id, self.grant_id
+        )
+        journal.ensure_file()
+
+        with mock.patch.object(
+            runtime_broker,
+            "windows_identity",
+            return_value=("fixture\\broker", BROKER_SID),
+        ):
+            recovered = runtime_broker.recover_orphaned_action_grant(
+                state_root=self.state_root,
+                case_id=self.case_id,
+                grant_id=self.grant_id,
+            )
+
+        self.assertEqual(recovered["status"], "CANCELLED")
+        self.assertEqual(recovered["acl_recovery"], [])
+        self.assertEqual(journal.records(), [])
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_orphaned_arm_recovery_proves_snapshot_only_preintent_is_original(self) -> None:
+        grant = self.grant_request()
+        self.arm(grant)
+        snapshot = grant["protected_acl_snapshot"]
+        journal = runtime_broker.BrokerJournal(
+            self.state_root, self.case_id, self.grant_id
+        )
+        snapshot_event = journal.append(
+            "ACL_SNAPSHOT",
+            "snapshot-only-crash",
+            protected_acl_snapshot=snapshot,
+            protected_acl_snapshot_sha256=engine.canonical_json_sha256(snapshot),
+        )
+
+        with (
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\broker", BROKER_SID),
+            ),
+            mock.patch.object(
+                runtime_broker, "_verify_protected_acl_restore"
+            ) as verify_original,
+            mock.patch.object(
+                runtime_broker, "_restore_protected_acls"
+            ) as restore,
+        ):
+            recovered = runtime_broker.recover_orphaned_action_grant(
+                state_root=self.state_root,
+                case_id=self.case_id,
+                grant_id=self.grant_id,
+            )
+
+        verify_original.assert_called_once_with(snapshot)
+        restore.assert_not_called()
+        acl_recovery = recovered["acl_recovery"]
+        self.assertEqual(len(acl_recovery), 1)
+        self.assertEqual(acl_recovery[0]["recovery_state"], "PREINTENT_ORIGINAL")
+        self.assertEqual(
+            acl_recovery[0]["snapshot_event_sha256"],
+            snapshot_event["event_sha256"],
+        )
+        self.assertIsNone(acl_recovery[0]["lockdown_intent_event_sha256"])
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_orphaned_arm_recovery_restores_postintent_preissue_lockdown(self) -> None:
+        grant = self.grant_request()
+        self.arm(grant)
+        canonical = self.grant()
+        snapshot = grant["protected_acl_snapshot"]
+        snapshot_sha256 = engine.canonical_json_sha256(snapshot)
+        roots = canonical["arm"]["recovery_roots"]
+        intent = {
+            "roots": roots,
+            "denied_principal_sids": canonical["denied_principal_sids"],
+            "broker_principal_sid": canonical["broker_principal_sid"],
+        }
+        journal = runtime_broker.BrokerJournal(
+            self.state_root, self.case_id, self.grant_id
+        )
+        journal.append(
+            "ACL_SNAPSHOT",
+            "postintent-crash",
+            protected_acl_snapshot=snapshot,
+            protected_acl_snapshot_sha256=snapshot_sha256,
+        )
+        journal.append(
+            "ACL_LOCKDOWN_INTENT",
+            "postintent-crash",
+            protected_acl_snapshot_sha256=snapshot_sha256,
+            lockdown_intent=intent,
+            lockdown_intent_sha256=engine.canonical_json_sha256(intent),
+        )
+        inventory = [
+            {"path": item["path"], "object_type": "file", "scope": "descendant"}
+            for item in snapshot
+        ]
+
+        with (
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\broker", BROKER_SID),
+            ),
+            mock.patch.object(
+                runtime_broker,
+                "_verify_protected_acl_restore",
+                side_effect=[
+                    runtime_broker.BrokerAuthorizationError("lockdown active"),
+                    None,
+                ],
+            ),
+            mock.patch.object(
+                runtime_broker,
+                "_protected_acl_inventory",
+                return_value=inventory,
+            ),
+            mock.patch.object(runtime_broker, "_restore_protected_acls") as restore,
+        ):
+            recovered = runtime_broker.recover_orphaned_action_grant(
+                state_root=self.state_root,
+                case_id=self.case_id,
+                grant_id=self.grant_id,
+            )
+
+        restore.assert_called_once_with(snapshot)
+        self.assertEqual(recovered["status"], "CANCELLED")
+        self.assertEqual(len(recovered["acl_recovery"]), 1)
+        self.assertTrue(recovered["acl_recovery"][0]["restored"])
+        self.assertEqual(journal.records()[-1]["event"], "ACL_RESTORED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_orphaned_arm_recovery_converges_when_issuance_wins_revision_race(self) -> None:
+        grant = self.grant_request()
+        armed = self.arm(grant)
+        armed_revision = self.revision
+
+        def issuance_wins(*_args: object, **_kwargs: object) -> None:
+            self.store.issue_armed_proposal_action_grant(
+                self.case_id,
+                grant=grant,
+                expected_arm_sha256=armed["arm_sha256"],
+                attempt_secret=self.attempt_secret,
+                request_id=request_id(),
+                expected_revision=armed_revision,
+            )
+            raise engine.RevisionConflict("issuance won")
+
+        with (
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\broker", BROKER_SID),
+            ),
+            mock.patch.object(
+                engine, "proposal_broker_source_pins", return_value=self.source_pins
+            ),
+            mock.patch.object(
+                engine.CaseStore,
+                "cancel_armed_proposal_action_grant",
+                side_effect=issuance_wins,
+            ),
+            mock.patch.object(
+                runtime_broker,
+                "_rollback_and_fail",
+                return_value={"status": "FAILED", "race_converged": True},
+            ) as rollback,
+        ):
+            recovered = runtime_broker.recover_orphaned_action_grant(
+                state_root=self.state_root,
+                case_id=self.case_id,
+                grant_id=self.grant_id,
+            )
+
+        self.assertTrue(recovered["race_converged"])
+        rollback.assert_called_once()
+        self.assertEqual(rollback.call_args.args[2]["status"], "ISSUED")
+        self.assertEqual(self.grant()["status"], "ISSUED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_envelope_without_canonical_arm_denies_before_secret_or_action(self) -> None:
+        grant = self.grant_request()
+        revision = self.revision
+        envelope = self.write_envelope(grant, expected_revision=revision)
+        secret_provider = mock.Mock(return_value=self.attempt_secret)
+        with (
+            mock.patch.object(proposal_entrypoint, "require_current_broker_principal"),
+            mock.patch.object(
+                proposal_entrypoint, "collect_proposal_isolation_evidence"
+            ) as collect_evidence,
+            mock.patch.object(
+                proposal_entrypoint, "execute_proposal_grant"
+            ) as execute_grant,
+        ):
+            with self.assertRaisesRegex(
+                engine.AuthorizationError, "NOT_CANONICALLY_ARMED"
+            ):
+                proposal_entrypoint.execute_envelope(
+                    self.state_root,
+                    envelope,
+                    attempt_secret_provider=secret_provider,
+                )
+
+        secret_provider.assert_not_called()
+        collect_evidence.assert_not_called()
+        execute_grant.assert_not_called()
+        self.assertEqual(self.revision, revision)
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_armed_envelope_missing_or_wrong_secret_denies_before_action(self) -> None:
+        grant = self.grant_request()
+        authority_revision = self.revision
+        self.arm(grant)
+        armed_revision = self.revision
+        envelope = self.write_envelope(
+            grant, expected_revision=authority_revision
+        )
+        with (
+            mock.patch.object(proposal_entrypoint, "require_current_broker_principal"),
+            mock.patch.object(
+                proposal_entrypoint, "collect_proposal_isolation_evidence"
+            ) as collect_evidence,
+            mock.patch.object(
+                proposal_entrypoint, "execute_proposal_grant"
+            ) as execute_grant,
+        ):
+            for supplied in (None, "b" * 64):
+                with self.subTest(supplied=supplied):
+                    with self.assertRaises(engine.AuthorizationError):
+                        proposal_entrypoint.execute_envelope(
+                            self.state_root,
+                            envelope,
+                            attempt_secret=supplied,
+                        )
+
+        collect_evidence.assert_not_called()
+        execute_grant.assert_not_called()
+        self.assertEqual(self.revision, armed_revision)
+        self.assertEqual(self.grant()["status"], "ARMED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_issue_denies_when_live_source_root_differs_from_canonical_arm(self) -> None:
+        grant = self.grant_request()
+        armed = self.arm(grant)
+        armed_revision = self.revision
+        store_before = self.store.path.read_bytes()
+        alternate_module = self.alternate_source_file("case_state.py")
+        journal_root = self.state_root / runtime_broker.BROKER_JOURNAL_DIRECTORY
+
+        with (
+            mock.patch.object(engine, "__file__", str(alternate_module)),
+            mock.patch.object(
+                engine.CaseStore,
+                "_seal_action_artifact_unlocked",
+                side_effect=AssertionError("issue must deny before sealing evidence"),
+            ) as seal_artifact,
+            mock.patch.object(
+                engine,
+                "proposal_broker_source_pins",
+                side_effect=AssertionError("issue must deny before reading source pins"),
+            ) as source_pins,
+        ):
+            with self.assertRaisesRegex(
+                engine.AuthorizationError, "recovery roots differ"
+            ):
+                self.store.issue_armed_proposal_action_grant(
+                    self.case_id,
+                    grant=grant,
+                    expected_arm_sha256=armed["arm_sha256"],
+                    attempt_secret=self.attempt_secret,
+                    request_id=request_id(),
+                    expected_revision=armed_revision,
+                )
+
+        seal_artifact.assert_not_called()
+        source_pins.assert_not_called()
+        self.assertEqual(self.store.path.read_bytes(), store_before)
+        self.assertEqual(self.revision, armed_revision)
+        self.assertEqual(self.grant()["status"], "ARMED")
+        self.assertFalse(journal_root.exists())
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_exact_secret_issues_once_and_fresh_envelope_resume_is_denied(self) -> None:
+        grant = self.grant_request()
+        authority_revision = self.revision
+        self.arm(grant)
+        envelope = self.write_envelope(
+            grant, expected_revision=authority_revision
+        )
+        evidence = {
+            field: grant[field]
+            for field in engine.PROPOSAL_ACTION_GRANT_ISSUANCE_EVIDENCE_FIELDS
+        }
+        late_secret_provider = mock.Mock(return_value=self.attempt_secret)
+        with (
+            mock.patch.object(proposal_entrypoint, "require_current_broker_principal"),
+            mock.patch.object(
+                proposal_entrypoint,
+                "collect_proposal_isolation_evidence",
+                return_value=evidence,
+            ) as collect_evidence,
+            mock.patch.object(
+                engine, "proposal_broker_source_pins", return_value=self.source_pins
+            ),
+            mock.patch.object(
+                proposal_entrypoint,
+                "execute_proposal_grant",
+                return_value={"status": "COMPLETED"},
+            ) as execute_grant,
+        ):
+            result = proposal_entrypoint.execute_envelope(
+                self.state_root,
+                envelope,
+                attempt_secret=self.attempt_secret,
+            )
+            with self.assertRaisesRegex(
+                engine.AuthorizationError, "cannot be resumed"
+            ):
+                proposal_entrypoint.execute_envelope(
+                    self.state_root,
+                    envelope,
+                    attempt_secret_provider=late_secret_provider,
+                )
+
+        self.assertEqual(result["status"], "COMPLETED")
+        self.assertEqual(self.grant()["status"], "ISSUED")
+        collect_evidence.assert_called_once()
+        execute_grant.assert_called_once_with(
+            self.state_root.resolve(strict=True),
+            self.case_id,
+            self.grant_id,
+            execution_nonce=self.attempt_secret,
+        )
+        late_secret_provider.assert_not_called()
+        self.assertNotIn(self.attempt_secret, json.dumps(result, sort_keys=True))
+        self.assertNotIn(self.attempt_secret, json.dumps(self.case, sort_keys=True))
+        self.assertNotIn(
+            self.attempt_secret, self.store.path.read_text(encoding="utf-8")
+        )
+
+    def test_runtime_proposal_execution_requires_nonce_before_journal_creation(self) -> None:
+        self.issue()
+        token = hashlib.sha256(
+            f"{self.case_id}\0{self.grant_id}".encode("utf-8")
+        ).hexdigest()
+        journal_directory = (
+            self.state_root
+            / runtime_broker.BROKER_JOURNAL_DIRECTORY
+            / self.case_id
+        )
+        journal_lock = journal_directory / f"{token}.lock"
+
+        with self.assertRaisesRegex(
+            runtime_broker.BrokerAuthorizationError, "in-memory execution nonce"
+        ):
+            runtime_broker.execute_proposal_grant(
+                self.state_root, self.case_id, self.grant_id
+            )
+        with self.assertRaisesRegex(
+            runtime_broker.BrokerAuthorizationError, "differs"
+        ):
+            runtime_broker.execute_proposal_grant(
+                self.state_root,
+                self.case_id,
+                self.grant_id,
+                execution_nonce="b" * 64,
+            )
+
+        self.assertFalse(journal_lock.exists())
+        self.assertFalse(journal_directory.exists())
+        self.assertEqual(self.grant()["status"], "ISSUED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
     def test_issue_succeeds_with_empty_runtime_actors(self) -> None:
         result = self.issue()
         self.assertEqual(result["status"], "ISSUED")
@@ -809,6 +1448,28 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.assertNotIn("group_membership_evidence", self.grant())
         self.assertNotIn("isolation_evidence", self.grant())
         self.assertNotIn("actor_thread_id", result)
+
+    def test_issued_grant_rejects_recovery_root_binding_corruption(self) -> None:
+        self.issue()
+        data = json.loads(self.store.path.read_text(encoding="utf-8"))
+        grant = data["cases"][self.case_id]["runtime"]["action_grants"][
+            self.grant_id
+        ]
+        grant["broker_source_root"] = engine.normalize_binding(
+            "worktree", str(self.root / "tampered-source-root")
+        )
+        grant["grant_sha256"] = engine.canonical_json_sha256(
+            {name: value for name, value in grant.items() if name != "grant_sha256"}
+        )
+        self.store.path.write_text(
+            json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            engine.StoreCorruptionError, "recovery roots differ from issued roots"
+        ):
+            engine.CaseStore(self.state_root).get_case(self.case_id)
 
     def test_v2_broker_dacl_mode_never_calls_worker_isolation_validators(self) -> None:
         with (
@@ -836,7 +1497,9 @@ class ProposalActionGrantTests(unittest.TestCase):
                 grant[field] = value
                 before_revision = self.revision
                 with self.assertRaises(engine.ValidationError):
-                    self.issue(grant)
+                    self.store._normalize_proposal_action_grant_request(
+                        self.case_id, grant
+                    )
                 self.assertEqual(self.revision, before_revision)
                 self.assertEqual(self.case["runtime"]["action_grants"], {})
         grant = self.grant_request()
@@ -844,7 +1507,7 @@ class ProposalActionGrantTests(unittest.TestCase):
         grant["authority"]["evidence_mode"] = "nested_sandbox_v1"
         grant["authority_sha256"] = engine.canonical_json_sha256(grant["authority"])
         with self.assertRaises(engine.AuthorizationError):
-            self.issue(grant)
+            self.store._normalize_proposal_action_grant_request(self.case_id, grant)
 
     def test_v2_rejects_incomplete_broker_dacl_without_issuance(self) -> None:
         grant = self.grant_request()
@@ -855,8 +1518,8 @@ class ProposalActionGrantTests(unittest.TestCase):
         before_revision = self.revision
         with self.assertRaises(engine.ValidationError):
             self.issue(grant)
-        self.assertEqual(self.revision, before_revision)
-        self.assertEqual(self.case["runtime"]["action_grants"], {})
+        self.assertEqual(self.revision, before_revision + 1)
+        self.assertEqual(self.grant()["status"], "ARMED")
         self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
 
     def test_proposal_snapshot_accepts_bounded_recursive_descendants(self) -> None:
@@ -919,7 +1582,8 @@ class ProposalActionGrantTests(unittest.TestCase):
         with self.assertRaisesRegex(engine.ValidationError, "escapes"):
             self.issue(grant)
 
-        self.assertEqual(self.revision, before_revision)
+        self.assertEqual(self.revision, before_revision + 1)
+        self.assertEqual(self.grant()["status"], "ARMED")
         self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
 
     def test_proposal_snapshot_rejects_missing_mandatory_path(self) -> None:
@@ -967,6 +1631,7 @@ class ProposalActionGrantTests(unittest.TestCase):
 
     def test_v2_preissue_collection_never_launches_nested_sandbox(self) -> None:
         grant = self.grant_request()
+        self.arm(grant)
         context = {
             **grant,
             "state_root": engine.normalize_binding("worktree", str(self.state_root)),
@@ -1018,6 +1683,204 @@ class ProposalActionGrantTests(unittest.TestCase):
             [record["event"] for record in records],
             ["ACL_SNAPSHOT", "ACL_LOCKDOWN_INTENT", "ACL_LOCKDOWN_VERIFIED"],
         )
+
+    def test_preissue_collection_denies_cross_source_root_before_side_effects(self) -> None:
+        grant = self.grant_request()
+        self.arm(grant)
+        armed_revision = self.revision
+        store_before = self.store.path.read_bytes()
+        alternate_module = self.alternate_source_file("case_runtime_broker.py")
+        token = hashlib.sha256(
+            f"{self.case_id}\0{self.grant_id}".encode("utf-8")
+        ).hexdigest()
+        journal_path = (
+            self.state_root
+            / runtime_broker.BROKER_JOURNAL_DIRECTORY
+            / self.case_id
+            / f"{token}.jsonl"
+        )
+        version_result = subprocess.CompletedProcess(
+            [str(Path(sys.executable).resolve()), "--version"],
+            0,
+            stdout=b"Python 0.0.0-test\n",
+            stderr=b"",
+        )
+
+        with (
+            mock.patch.object(runtime_broker, "__file__", str(alternate_module)),
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\broker", BROKER_SID),
+            ),
+            mock.patch.object(
+                runtime_broker.subprocess, "run", return_value=version_result
+            ),
+            mock.patch.object(
+                runtime_broker, "_snapshot_protected_acls"
+            ) as snapshot,
+            mock.patch.object(
+                runtime_broker, "_configure_protected_dacls"
+            ) as configure,
+            mock.patch.object(
+                runtime_broker.BrokerJournal, "ensure_file"
+            ) as ensure_file,
+        ):
+            with self.assertRaisesRegex(
+                runtime_broker.BrokerAuthorizationError,
+                "roots differ from the canonical arm",
+            ):
+                runtime_broker.collect_proposal_isolation_evidence(
+                    store=self.store,
+                    case_id=self.case_id,
+                    grant_core=grant,
+                )
+
+        ensure_file.assert_not_called()
+        snapshot.assert_not_called()
+        configure.assert_not_called()
+        self.assertFalse(journal_path.exists())
+        self.assertEqual(self.store.path.read_bytes(), store_before)
+        self.assertEqual(self.revision, armed_revision)
+        self.assertEqual(self.grant()["status"], "ARMED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_cancelled_arm_cannot_resume_preissue_collection(self) -> None:
+        grant = self.grant_request()
+        authority_revision = self.revision
+        self.arm(grant)
+        armed_revision = self.revision
+        envelope = self.write_envelope(
+            grant, expected_revision=authority_revision
+        )
+        token = hashlib.sha256(
+            f"{self.case_id}\0{self.grant_id}".encode("utf-8")
+        ).hexdigest()
+        journal_path = (
+            self.state_root
+            / runtime_broker.BROKER_JOURNAL_DIRECTORY
+            / self.case_id
+            / f"{token}.jsonl"
+        )
+        version_result = subprocess.CompletedProcess(
+            [str(Path(sys.executable).resolve()), "--version"],
+            0,
+            stdout=b"Python 0.0.0-test\n",
+            stderr=b"",
+        )
+
+        def cancel_then_collect(**kwargs: object) -> dict:
+            runtime_broker.recover_orphaned_action_grant(
+                state_root=self.state_root,
+                case_id=self.case_id,
+                grant_id=self.grant_id,
+            )
+            return runtime_broker.collect_proposal_isolation_evidence(**kwargs)
+
+        with (
+            mock.patch.object(proposal_entrypoint, "require_current_broker_principal"),
+            mock.patch.object(
+                proposal_entrypoint,
+                "collect_proposal_isolation_evidence",
+                side_effect=cancel_then_collect,
+            ),
+            mock.patch.object(
+                proposal_entrypoint, "execute_proposal_grant"
+            ) as execute_grant,
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\broker", BROKER_SID),
+            ),
+            mock.patch.object(
+                runtime_broker.subprocess, "run", return_value=version_result
+            ),
+            mock.patch.object(
+                runtime_broker, "_snapshot_protected_acls"
+            ) as snapshot,
+            mock.patch.object(
+                runtime_broker, "_configure_protected_dacls"
+            ) as configure,
+            mock.patch.object(
+                runtime_broker.BrokerJournal, "ensure_file"
+            ) as ensure_file,
+        ):
+            with self.assertRaisesRegex(
+                runtime_broker.BrokerAuthorizationError,
+                "sole canonical ARMED grant",
+            ):
+                proposal_entrypoint.execute_envelope(
+                    self.state_root,
+                    envelope,
+                    attempt_secret=self.attempt_secret,
+                )
+
+        ensure_file.assert_not_called()
+        snapshot.assert_not_called()
+        configure.assert_not_called()
+        execute_grant.assert_not_called()
+        self.assertFalse(journal_path.exists())
+        self.assertEqual(self.revision, armed_revision + 1)
+        self.assertEqual(self.grant()["status"], "CANCELLED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
+
+    def test_nonempty_preissue_journal_denies_duplicate_collector(self) -> None:
+        grant = self.grant_request()
+        self.arm(grant)
+        armed_revision = self.revision
+        journal = runtime_broker.BrokerJournal(
+            self.state_root, self.case_id, self.grant_id
+        )
+        journal.append(
+            "ACL_SNAPSHOT",
+            "first-collector",
+            protected_acl_snapshot=[],
+            protected_acl_snapshot_sha256=engine.canonical_json_sha256([]),
+        )
+        journal_before = journal.path.read_bytes()
+        version_result = subprocess.CompletedProcess(
+            [str(Path(sys.executable).resolve()), "--version"],
+            0,
+            stdout=b"Python 0.0.0-test\n",
+            stderr=b"",
+        )
+
+        with (
+            mock.patch.object(
+                runtime_broker,
+                "windows_identity",
+                return_value=("fixture\\broker", BROKER_SID),
+            ),
+            mock.patch.object(
+                runtime_broker.subprocess, "run", return_value=version_result
+            ),
+            mock.patch.object(
+                runtime_broker, "_snapshot_protected_acls"
+            ) as snapshot,
+            mock.patch.object(
+                runtime_broker, "_configure_protected_dacls"
+            ) as configure,
+            mock.patch.object(
+                runtime_broker.BrokerJournal, "ensure_file"
+            ) as ensure_file,
+        ):
+            with self.assertRaisesRegex(
+                runtime_broker.BrokerAuthorizationError,
+                "empty preissue journal",
+            ):
+                runtime_broker.collect_proposal_isolation_evidence(
+                    store=self.store,
+                    case_id=self.case_id,
+                    grant_core=grant,
+                )
+
+        ensure_file.assert_not_called()
+        snapshot.assert_not_called()
+        configure.assert_not_called()
+        self.assertEqual(journal.path.read_bytes(), journal_before)
+        self.assertEqual(self.revision, armed_revision)
+        self.assertEqual(self.grant()["status"], "ARMED")
+        self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
 
     def test_wrong_principal_is_rejected_before_runtime_or_action_paths(self) -> None:
         grant = self.grant_request()
@@ -1313,7 +2176,9 @@ class ProposalActionGrantTests(unittest.TestCase):
                             grant["authority"]
                         )
                     with self.assertRaises(engine.ValidationError):
-                        self.issue(grant)
+                        self.store._normalize_proposal_action_grant_request(
+                            self.case_id, grant
+                        )
                     self.assertEqual(self.case, initial_case)
 
     def test_stale_issue_revision_is_rejected_without_mutation(self) -> None:
@@ -1426,6 +2291,36 @@ class ProposalActionGrantTests(unittest.TestCase):
                         "arbitrary",
                     ]
                 )
+
+    def test_runtime_broker_exposes_narrow_orphan_recovery_cli(self) -> None:
+        parser = runtime_broker.build_parser()
+        parsed = parser.parse_args(
+            [
+                "recover-orphaned",
+                "--state-root",
+                str(self.state_root),
+                "--case-id",
+                self.case_id,
+                "--grant-id",
+                self.grant_id,
+            ]
+        )
+        self.assertEqual(parsed.command, "recover-orphaned")
+        self.assertEqual(parsed.state_root, self.state_root)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "recover-orphaned",
+                    "--state-root",
+                    str(self.state_root),
+                    "--case-id",
+                    self.case_id,
+                    "--grant-id",
+                    self.grant_id,
+                    "--controller-receipt-json",
+                    "{}",
+                ]
+            )
 
     def test_proposal_broker_loads_path_typed_envelope_from_cli(self) -> None:
         grant = self.grant_request()

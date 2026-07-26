@@ -54,6 +54,7 @@ jobs:
           python -B .\tests\test_case_app_server_controller.py
           python -B .\tests\test_case_runtime_supervisor.py
           python -B .\tests\test_case_runtime_broker.py
+          python -B .\tests\test_case_proposal_action_grant.py
 
       - name: Smoke test workflow gates
         shell: pwsh
@@ -132,3 +133,4 @@ jobs:
           python -B ./tests/test_case_app_server_controller.py
           python -B ./tests/test_case_runtime_supervisor.py
           python -B ./tests/test_case_runtime_broker.py
+          python -B ./tests/test_case_proposal_action_grant.py

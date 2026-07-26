@@ -41,6 +41,10 @@ PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION = "ccos-proposal-action-grant-v2"
 PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION = "ccos-proposal-action-claim-v2"
 PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION = "ccos-proposal-action-result-v2"
 PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION = "ccos-proposal-action-authority-v1"
+PROPOSAL_ACTION_ARM_PROTOCOL_VERSION = "ccos-proposal-action-arm-v1"
+PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION = (
+    "ccos-proposal-action-cancellation-v1"
+)
 WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION_V1 = "ccos-windows-principal-probe-v1"
 WINDOWS_PRINCIPAL_PROBE_PROTOCOL_VERSION = "ccos-windows-principal-probe-v2"
 WINDOWS_ISOLATION_EVIDENCE_PROTOCOL_VERSION = "ccos-windows-isolation-evidence-v2"
@@ -160,7 +164,9 @@ RUNTIME_ACTOR_ROLES = frozenset(
     {"parent", "implementer_child", "review_child", "closure_child", "incomplete_child"}
 )
 REVIEW_COMPLETION_STATES = frozenset({"COMPLETED", "FAILED", "INCOMPLETE"})
-ACTION_GRANT_STATUSES = frozenset({"ISSUED", "CLAIMED", "COMPLETED", "FAILED"})
+ACTION_GRANT_STATUSES = frozenset(
+    {"ARMED", "ISSUED", "CLAIMED", "COMPLETED", "FAILED", "CANCELLED"}
+)
 MAX_REPLACEMENT_BYTES = 8 * 1024 * 1024
 MAX_ACTION_GRANT_LIFETIME_SECONDS = 15 * 60
 MAX_PROTECTED_ACL_SNAPSHOT_ENTRIES = 20000
@@ -171,6 +177,49 @@ PROTECTED_ROOT_KINDS = (
     "state_root",
     "broker_source_root",
     "proposal_root",
+)
+
+PROPOSAL_ACTION_GRANT_CORE_FIELDS = frozenset(
+    {
+        "protocol_version",
+        "schema_version",
+        "evidence_mode",
+        "grant_id",
+        "authority_id",
+        "operation_id",
+        "action",
+        "operation",
+        "repository",
+        "branch",
+        "worktree",
+        "base_head",
+        "target_path",
+        "baseline_sha256",
+        "proposal_artifact_path",
+        "proposal_artifact_sha256",
+        "proposal_size",
+        "replacement_sha256",
+        "worker_principal_sid",
+        "model_worker_principal_sid",
+        "sandbox_group_principal_sid",
+        "denied_principal_sids",
+        "broker_principal_sid",
+        "sandbox_executable_path",
+        "sandbox_executable_sha256",
+        "sandbox_executable_version",
+        "probe_runtime_root",
+        "expires_at",
+        "authority",
+        "authority_sha256",
+    }
+)
+PROPOSAL_ACTION_GRANT_ISSUANCE_EVIDENCE_FIELDS = frozenset(
+    {
+        "protected_acl_snapshot",
+        "protected_acl_snapshot_sha256",
+        "preissue_dacl_evidence",
+        "preissue_dacl_evidence_sha256",
+    }
 )
 
 
@@ -1271,6 +1320,127 @@ def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> No
             body = {name: value for name, value in grant.items() if name != "grant_sha256"}
             if digest != canonical_json_sha256(body):
                 raise StoreCorruptionError(f"case {case_id} action grant digest is invalid")
+            arm = grant.get("arm")
+            if grant.get("status") in {"ARMED", "CANCELLED"} or arm is not None:
+                arm_fields = {
+                    "protocol_version", "schema_version", "lease_id",
+                    "attempt_id", "attempt_secret_sha256",
+                    "supervisor_pid", "supervisor_creation_time_100ns",
+                    "supervisor_ready_sha256", "lease_expires_at", "case_id",
+                    "grant_id", "authority_revision", "grant_core_sha256",
+                    "recovery_roots", "recovery_roots_sha256", "armed_at",
+                    "armed_revision", "arm_sha256",
+                }
+                recovery_roots = arm.get("recovery_roots") if isinstance(arm, dict) else None
+                if (
+                    not isinstance(arm, dict)
+                    or set(arm) != arm_fields
+                    or arm.get("protocol_version")
+                    != PROPOSAL_ACTION_ARM_PROTOCOL_VERSION
+                    or arm.get("schema_version") != 1
+                    or arm.get("case_id") != case_id
+                    or arm.get("grant_id") != grant_id
+                    or arm.get("arm_sha256")
+                    != canonical_json_sha256(
+                        {
+                            name: value
+                            for name, value in arm.items()
+                            if name != "arm_sha256"
+                        }
+                    )
+                    or any(name not in grant for name in PROPOSAL_ACTION_GRANT_CORE_FIELDS)
+                    or arm.get("grant_core_sha256")
+                    != canonical_json_sha256(
+                        {
+                            name: grant[name]
+                            for name in PROPOSAL_ACTION_GRANT_CORE_FIELDS
+                        }
+                    )
+                    or not isinstance(recovery_roots, dict)
+                    or set(recovery_roots) != set(PROTECTED_ROOT_KINDS)
+                    or arm.get("recovery_roots_sha256")
+                    != canonical_json_sha256(recovery_roots)
+                    or recovery_roots.get("target_root") != grant.get("worktree")
+                    or recovery_roots.get("proposal_root")
+                    != normalize_binding(
+                        "worktree",
+                        str(Path(str(grant.get("proposal_artifact_path", ""))).parent),
+                    )
+                ):
+                    raise StoreCorruptionError(
+                        f"case {case_id} proposal action arm is invalid"
+                    )
+                if grant.get("status") == "ARMED":
+                    expected_grant_fields = set(PROPOSAL_ACTION_GRANT_CORE_FIELDS) | {
+                        "status", "arm", "claim", "result", "grant_sha256"
+                    }
+                    if (
+                        set(grant) != expected_grant_fields
+                        or grant.get("claim") is not None
+                        or grant.get("result") is not None
+                        or arm.get("armed_revision") != case.get("revision")
+                    ):
+                        raise StoreCorruptionError(
+                            f"case {case_id} armed proposal grant is invalid"
+                        )
+                elif grant.get("status") in {
+                    "ISSUED", "CLAIMED", "COMPLETED", "FAILED"
+                }:
+                    if grant.get("execution_nonce_sha256") != arm.get(
+                        "attempt_secret_sha256"
+                    ):
+                        raise StoreCorruptionError(
+                            f"case {case_id} proposal execution nonce binding is invalid"
+                        )
+                    issued_roots = {
+                        "target_root": grant.get("worktree"),
+                        "state_root": grant.get("state_root"),
+                        "broker_source_root": grant.get("broker_source_root"),
+                        "proposal_root": grant.get("proposal_root"),
+                    }
+                    if recovery_roots != issued_roots:
+                        raise StoreCorruptionError(
+                            f"case {case_id} proposal action recovery roots "
+                            "differ from issued roots"
+                        )
+            if grant.get("status") == "CANCELLED":
+                cancellation = grant.get("cancellation")
+                cancellation_fields = {
+                    "protocol_version", "schema_version", "reason_code",
+                    "evidence_sha256", "cancelled_at", "arm_sha256",
+                    "cancelled_revision", "cancellation_sha256",
+                }
+                if (
+                    not isinstance(cancellation, dict)
+                    or set(cancellation) != cancellation_fields
+                    or cancellation.get("protocol_version")
+                    != PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION
+                    or cancellation.get("schema_version") != 1
+                    or cancellation.get("arm_sha256") != arm.get("arm_sha256")
+                    or cancellation.get("cancellation_sha256")
+                    != canonical_json_sha256(
+                        {
+                            name: value
+                            for name, value in cancellation.items()
+                            if name != "cancellation_sha256"
+                        }
+                    )
+                    or case.get("state") != "CASE_LOCKED"
+                    or case.get("lock_reason") != cancellation.get("reason_code")
+                    or cancellation.get("cancelled_revision")
+                    != case.get("revision")
+                    or set(grant)
+                    != set(PROPOSAL_ACTION_GRANT_CORE_FIELDS)
+                    | {
+                        "status", "arm", "claim", "result", "cancellation",
+                        "grant_sha256",
+                    }
+                    or grant.get("claim") is not None
+                    or grant.get("result") is not None
+                ):
+                    raise StoreCorruptionError(
+                        f"case {case_id} proposal arm cancellation is invalid"
+                    )
     quarantine = case.get("terminal_quarantine")
     if quarantine is not None:
         if not isinstance(quarantine, dict) or quarantine.get("protocol_version") != TERMINAL_QUARANTINE_PROTOCOL_VERSION:
@@ -1795,17 +1965,22 @@ class CaseStore:
             active_grants = [
                 grant
                 for grant in action_grants.values()
-                if isinstance(grant, dict) and grant.get("status") in {"ISSUED", "CLAIMED"}
+                if isinstance(grant, dict)
+                and grant.get("status") in {"ARMED", "ISSUED", "CLAIMED"}
             ]
             if active_grants:
                 if len(active_grants) != 1:
                     raise StoreCorruptionError("canonical case contains multiple active action grants")
                 active_status = active_grants[0]["status"]
-                allowed = (
-                    {"claim_action_grant", "fail_action_grant"}
-                    if active_status == "ISSUED"
-                    else {"complete_action_grant", "fail_action_grant"}
-                )
+                if active_status == "ARMED":
+                    allowed = {
+                        "issue_armed_proposal_action_grant",
+                        "cancel_armed_proposal_action_grant",
+                    }
+                elif active_status == "ISSUED":
+                    allowed = {"claim_action_grant", "fail_action_grant"}
+                else:
+                    allowed = {"complete_action_grant", "fail_action_grant"}
                 if operation not in allowed:
                     raise AuthorizationError(
                         f"case mutation {operation} is blocked while an action grant is {active_status}"
@@ -4137,23 +4312,14 @@ class CaseStore:
 
     @staticmethod
     def _normalize_proposal_action_grant_request(
-        case_id: str, grant: Mapping[str, Any]
+        case_id: str,
+        grant: Mapping[str, Any],
+        *,
+        include_issuance_evidence: bool = True,
     ) -> dict[str, Any]:
-        expected_fields = {
-            "protocol_version", "schema_version", "evidence_mode", "grant_id", "authority_id",
-            "operation_id", "action", "operation", "repository", "branch",
-            "worktree", "base_head", "target_path", "baseline_sha256",
-            "proposal_artifact_path", "proposal_artifact_sha256", "proposal_size",
-            "replacement_sha256", "worker_principal_sid",
-            "model_worker_principal_sid", "sandbox_group_principal_sid",
-            "denied_principal_sids", "broker_principal_sid",
-            "sandbox_executable_path", "sandbox_executable_sha256",
-            "sandbox_executable_version", "probe_runtime_root",
-            "protected_acl_snapshot",
-            "protected_acl_snapshot_sha256", "preissue_dacl_evidence",
-            "preissue_dacl_evidence_sha256", "expires_at",
-            "authority", "authority_sha256",
-        }
+        expected_fields = set(PROPOSAL_ACTION_GRANT_CORE_FIELDS)
+        if include_issuance_evidence:
+            expected_fields.update(PROPOSAL_ACTION_GRANT_ISSUANCE_EVIDENCE_FIELDS)
         if not isinstance(grant, Mapping) or set(grant) != expected_fields:
             raise ValidationError(
                 "proposal action grant must use the fixed ccos-proposal-action-grant-v2 request schema"
@@ -4298,22 +4464,27 @@ class CaseStore:
                 "sandbox executable version",
             ),
             "probe_runtime_root": probe_runtime_root,
-            "protected_acl_snapshot": copy.deepcopy(
-                grant.get("protected_acl_snapshot")
-            ),
-            "protected_acl_snapshot_sha256": require_snapshot_hash(
-                str(grant.get("protected_acl_snapshot_sha256", ""))
-            ),
-            "preissue_dacl_evidence": copy.deepcopy(
-                grant.get("preissue_dacl_evidence")
-            ),
-            "preissue_dacl_evidence_sha256": require_snapshot_hash(
-                str(grant.get("preissue_dacl_evidence_sha256", ""))
-            ),
             "expires_at": require_utc_timestamp(
                 grant.get("expires_at"), "grant expires_at"
             ),
         }
+        if include_issuance_evidence:
+            normalized.update(
+                {
+                    "protected_acl_snapshot": copy.deepcopy(
+                        grant.get("protected_acl_snapshot")
+                    ),
+                    "protected_acl_snapshot_sha256": require_snapshot_hash(
+                        str(grant.get("protected_acl_snapshot_sha256", ""))
+                    ),
+                    "preissue_dacl_evidence": copy.deepcopy(
+                        grant.get("preissue_dacl_evidence")
+                    ),
+                    "preissue_dacl_evidence_sha256": require_snapshot_hash(
+                        str(grant.get("preissue_dacl_evidence_sha256", ""))
+                    ),
+                }
+            )
         if not executable_path.is_file() or executable_path.is_symlink():
             raise AuthorizationError(
                 "sandbox executable must be an existing regular non-link file"
@@ -4376,20 +4547,80 @@ class CaseStore:
         normalized["authority_sha256"] = authority_sha256
         return normalized
 
-    def issue_proposal_action_grant(
+    @staticmethod
+    def _normalize_proposal_action_arm(arm: Mapping[str, Any]) -> dict[str, Any]:
+        expected_fields = {
+            "protocol_version",
+            "schema_version",
+            "lease_id",
+            "attempt_id",
+            "attempt_secret_sha256",
+            "supervisor_pid",
+            "supervisor_creation_time_100ns",
+            "supervisor_ready_sha256",
+            "lease_expires_at",
+        }
+        if not isinstance(arm, Mapping) or set(arm) != expected_fields:
+            raise ValidationError(
+                "proposal action arm must use the fixed ccos-proposal-action-arm-v1 schema"
+            )
+        if (
+            arm.get("protocol_version") != PROPOSAL_ACTION_ARM_PROTOCOL_VERSION
+            or arm.get("schema_version") != 1
+        ):
+            raise ValidationError("proposal action arm protocol is unsupported")
+        supervisor_pid = arm.get("supervisor_pid")
+        creation_time = arm.get("supervisor_creation_time_100ns")
+        if (
+            isinstance(supervisor_pid, bool)
+            or not isinstance(supervisor_pid, int)
+            or supervisor_pid <= 0
+        ):
+            raise ValidationError("proposal action arm supervisor_pid must be positive")
+        if (
+            isinstance(creation_time, bool)
+            or not isinstance(creation_time, int)
+            or creation_time <= 0
+        ):
+            raise ValidationError(
+                "proposal action arm supervisor creation identity must be positive"
+            )
+        return {
+            "protocol_version": PROPOSAL_ACTION_ARM_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "lease_id": require_stable_id(arm.get("lease_id"), "arm lease id"),
+            "attempt_id": require_stable_id(
+                arm.get("attempt_id"), "proposal action attempt id"
+            ),
+            "attempt_secret_sha256": require_snapshot_hash(
+                str(arm.get("attempt_secret_sha256", ""))
+            ),
+            "supervisor_pid": supervisor_pid,
+            "supervisor_creation_time_100ns": creation_time,
+            "supervisor_ready_sha256": require_snapshot_hash(
+                str(arm.get("supervisor_ready_sha256", ""))
+            ),
+            "lease_expires_at": require_utc_timestamp(
+                arm.get("lease_expires_at"), "arm lease_expires_at"
+            ),
+        }
+
+    def arm_proposal_action_grant(
         self,
         case_id: str,
         *,
         grant: Mapping[str, Any],
+        arm: Mapping[str, Any],
         request_id: str,
         expected_revision: int,
     ) -> dict[str, Any]:
-        normalized = self._normalize_proposal_action_grant_request(case_id, grant)
+        normalized = self._normalize_proposal_action_grant_request(
+            case_id, grant, include_issuance_evidence=False
+        )
+        normalized_arm = self._normalize_proposal_action_arm(arm)
 
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
-            self._require_state(
-                case, "IMPLEMENTING", "issue_proposal_action_grant"
-            )
+            self._require_state(case, "IMPLEMENTING", "arm_proposal_action_grant")
             runtime = self._runtime_record(case, create=True)
             if runtime["action_grants"]:
                 raise LimitError(
@@ -4401,6 +4632,230 @@ class CaseStore:
             if authority["expected_case_revision"] != case["revision"]:
                 raise RevisionConflict(
                     "proposal authority revision differs from the canonical case"
+                )
+            repository = normalized["repository"]
+            branch = normalized["branch"]
+            if repository not in case["bindings"]["repo_url"]:
+                raise AuthorizationError(
+                    "proposal repository is not canonically bound to this case"
+                )
+            if {"repository": repository, "value": branch} not in case["bindings"][
+                "branch"
+            ]:
+                raise AuthorizationError(
+                    "proposal branch is not canonically bound to this case"
+                )
+            if normalized["worktree"] not in case["bindings"]["worktree"]:
+                raise AuthorizationError(
+                    "proposal worktree is not canonically bound to this case"
+                )
+            worktree_path = Path(normalized["worktree"])
+            try:
+                exact_root = worktree_path.resolve(strict=True)
+            except OSError as exc:
+                raise ValidationError(
+                    f"proposal worktree cannot be resolved: {exc}"
+                ) from exc
+            if not exact_root.is_dir() or _git_repository_root(exact_root) != exact_root:
+                raise AuthorizationError(
+                    "proposal worktree must be the exact Git repository root"
+                )
+            if path_contains_link_or_reparse(exact_root):
+                raise AuthorizationError(
+                    "proposal worktree must not traverse a link or reparse point"
+                )
+            if (
+                _git_origin(exact_root) != repository
+                or _git_branch(exact_root) != branch
+                or _git_head(exact_root) != normalized["base_head"]
+            ):
+                raise AuthorizationError(
+                    "proposal repository, branch, or HEAD differs from the authority"
+                )
+            _assert_git_worktree_clean(exact_root, "before proposal action arm")
+            target = exact_root.joinpath(
+                *PurePosixPath(normalized["target_path"]).parts
+            )
+            if (
+                not path_is_within(target, exact_root)
+                or not target.is_file()
+                or path_contains_link_or_reparse(target, stop=exact_root)
+                or file_sha256(target) != normalized["baseline_sha256"]
+            ):
+                raise AuthorizationError(
+                    "proposal arm target differs from the exact regular baseline file"
+                )
+            proposal = Path(normalized["proposal_artifact_path"])
+            if (
+                not proposal.is_file()
+                or proposal.is_symlink()
+                or path_contains_link_or_reparse(proposal)
+                or proposal.stat().st_size != normalized["proposal_size"]
+                or file_sha256(proposal) != normalized["proposal_artifact_sha256"]
+            ):
+                raise AuthorizationError(
+                    "proposal arm artifact identity, size, or digest differs"
+                )
+            sandbox_executable = Path(normalized["sandbox_executable_path"])
+            if (
+                not sandbox_executable.is_file()
+                or sandbox_executable.is_symlink()
+                or path_contains_link_or_reparse(sandbox_executable)
+                or file_sha256(sandbox_executable)
+                != normalized["sandbox_executable_sha256"]
+            ):
+                raise AuthorizationError(
+                    "proposal arm sandbox executable differs from its exact digest"
+                )
+            now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+            grant_expires = dt.datetime.fromisoformat(normalized["expires_at"])
+            lease_expires = dt.datetime.fromisoformat(
+                normalized_arm["lease_expires_at"]
+            )
+            grant_remaining = (grant_expires - now).total_seconds()
+            lease_remaining = (lease_expires - now).total_seconds()
+            if (
+                grant_remaining <= 0
+                or grant_remaining > MAX_ACTION_GRANT_LIFETIME_SECONDS
+                or lease_remaining <= 0
+                or lease_remaining > MAX_ACTION_GRANT_LIFETIME_SECONDS
+                or lease_expires > grant_expires
+            ):
+                raise AuthorizationError(
+                    "proposal arm and grant leases must be live, bounded, and nested"
+                )
+            armed_at = utc_now()
+            recovery_roots = {
+                "target_root": normalized["worktree"],
+                "state_root": normalize_binding("worktree", str(self.state_root)),
+                "broker_source_root": normalize_binding(
+                    "worktree", str(Path(__file__).resolve(strict=True).parents[2])
+                ),
+                "proposal_root": normalize_binding(
+                    "worktree", str(proposal.resolve(strict=True).parent)
+                ),
+            }
+            arm_record = {
+                **normalized_arm,
+                "case_id": case["case_id"],
+                "grant_id": normalized["grant_id"],
+                "authority_revision": case["revision"],
+                "grant_core_sha256": canonical_json_sha256(normalized),
+                "recovery_roots": recovery_roots,
+                "recovery_roots_sha256": canonical_json_sha256(recovery_roots),
+                "armed_at": armed_at,
+                "armed_revision": case["revision"] + 1,
+            }
+            arm_record["arm_sha256"] = canonical_json_sha256(arm_record)
+            recorded = {
+                **normalized,
+                "status": "ARMED",
+                "arm": arm_record,
+                "claim": None,
+                "result": None,
+            }
+            recorded["grant_sha256"] = canonical_json_sha256(recorded)
+            runtime["action_grants"][normalized["grant_id"]] = recorded
+            return {
+                "grant_id": normalized["grant_id"],
+                "authority_id": normalized["authority_id"],
+                "authority_sha256": normalized["authority_sha256"],
+                "status": "ARMED",
+                "armed_revision": arm_record["armed_revision"],
+                "attempt_id": arm_record["attempt_id"],
+                "lease_expires_at": arm_record["lease_expires_at"],
+                "arm_sha256": arm_record["arm_sha256"],
+                "grant_sha256": recorded["grant_sha256"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="arm_proposal_action_grant",
+            payload={"grant": normalized, "arm": normalized_arm},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    def issue_armed_proposal_action_grant(
+        self,
+        case_id: str,
+        *,
+        grant: Mapping[str, Any],
+        expected_arm_sha256: str,
+        attempt_secret: str,
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        normalized = self._normalize_proposal_action_grant_request(case_id, grant)
+        expected_arm_sha256 = require_snapshot_hash(expected_arm_sha256)
+        if (
+            not isinstance(attempt_secret, str)
+            or not HASH_PATTERN.fullmatch(attempt_secret)
+        ):
+            raise ValidationError(
+                "proposal attempt secret must be exactly 256 bits encoded as "
+                "64 lowercase hexadecimal characters"
+            )
+        execution_nonce_sha256 = hashlib.sha256(
+            attempt_secret.encode("ascii")
+        ).hexdigest()
+        normalized_core = {
+            name: normalized[name] for name in PROPOSAL_ACTION_GRANT_CORE_FIELDS
+        }
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(
+                case, "IMPLEMENTING", "issue_armed_proposal_action_grant"
+            )
+            runtime = self._runtime_record(case, create=True)
+            canonical_grant = runtime["action_grants"].get(normalized["grant_id"])
+            if (
+                not isinstance(canonical_grant, dict)
+                or set(runtime["action_grants"]) != {normalized["grant_id"]}
+            ):
+                raise AuthorizationError(
+                    "proposal action must match the one canonical armed grant"
+                )
+            if canonical_grant.get("status") != "ARMED":
+                raise LimitError(
+                    f"proposal action grant is {canonical_grant.get('status')} and cannot issue"
+                )
+            arm_record = canonical_grant.get("arm")
+            if not isinstance(arm_record, Mapping):
+                raise StoreCorruptionError("canonical proposal arm record is missing")
+            if arm_record.get("arm_sha256") != expected_arm_sha256:
+                raise AuthorizationError(
+                    "proposal issue arm digest differs from the canonical lease"
+                )
+            if execution_nonce_sha256 != arm_record.get("attempt_secret_sha256"):
+                raise AuthorizationError(
+                    "proposal issue nonce differs from the armed controller attempt"
+                )
+            if canonical_json_sha256(
+                {name: value for name, value in arm_record.items() if name != "arm_sha256"}
+            ) != expected_arm_sha256:
+                raise StoreCorruptionError("canonical proposal arm digest is invalid")
+            if case["revision"] != arm_record.get("armed_revision"):
+                raise RevisionConflict("case revision changed after proposal arm")
+            if any(
+                canonical_grant.get(name) != normalized_core[name]
+                for name in PROPOSAL_ACTION_GRANT_CORE_FIELDS
+            ):
+                raise AuthorizationError(
+                    "proposal issue differs from the exact canonical armed grant"
+                )
+            now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+            if now >= dt.datetime.fromisoformat(str(arm_record["lease_expires_at"])):
+                raise AuthorizationError("proposal action arm lease expired before issue")
+            authority = normalized["authority"]
+            if authority["case_id"] != case["case_id"]:
+                raise AuthorizationError("proposal authority belongs to another case")
+            if authority["expected_case_revision"] != arm_record.get(
+                "authority_revision"
+            ):
+                raise RevisionConflict(
+                    "proposal authority revision differs from the canonical arm"
                 )
             repository = normalized["repository"]
             branch = normalized["branch"]
@@ -4499,13 +4954,33 @@ class CaseStore:
                     "proposal grant issuance requires a regular canonical store"
                 )
             state_root_path = self.state_root.resolve(strict=True)
-            broker_source_root_path = Path(__file__).resolve().parents[2]
+            broker_source_root_path = Path(__file__).resolve(strict=True).parents[2]
             proposal_root_path = proposal.parent.resolve(strict=True)
             if not proposal_root_path.is_dir() or path_contains_link_or_reparse(
                 proposal_root_path
             ):
                 raise AuthorizationError(
                     "proposal root must be an exact regular directory"
+                )
+            live_recovery_roots = {
+                "target_root": normalize_binding("worktree", str(exact_root)),
+                "state_root": normalize_binding("worktree", str(state_root_path)),
+                "broker_source_root": normalize_binding(
+                    "worktree", str(broker_source_root_path)
+                ),
+                "proposal_root": normalize_binding(
+                    "worktree", str(proposal_root_path)
+                ),
+            }
+            armed_recovery_roots = arm_record.get("recovery_roots")
+            if (
+                not isinstance(armed_recovery_roots, Mapping)
+                or dict(armed_recovery_roots) != live_recovery_roots
+                or arm_record.get("recovery_roots_sha256")
+                != canonical_json_sha256(live_recovery_roots)
+            ):
+                raise AuthorizationError(
+                    "proposal issue recovery roots differ from the canonical arm"
                 )
             protected_control_roots = {
                 "target_root": exact_root,
@@ -4670,8 +5145,10 @@ class CaseStore:
                 "allowed_paths_sha256": canonical_json_sha256(allowed_paths),
                 "protected_acl_snapshot": protected_acl_snapshot,
                 "protected_acl_snapshot_sha256": protected_acl_snapshot_sha256,
+                "arm": copy.deepcopy(dict(arm_record)),
                 "status": "ISSUED",
                 "authorization_nonce": secrets.token_hex(32),
+                "execution_nonce_sha256": execution_nonce_sha256,
                 "issued_at": issued_at,
                 "issued_revision": case["revision"] + 1,
                 "claim": None,
@@ -4707,8 +5184,140 @@ class CaseStore:
 
         return self._mutate(
             case_id,
-            operation="issue_proposal_action_grant",
-            payload={"grant": normalized},
+            operation="issue_armed_proposal_action_grant",
+            payload={
+                "grant": normalized,
+                "expected_arm_sha256": expected_arm_sha256,
+                # Only the digest enters the persisted mutation fingerprint. The
+                # one-use plaintext secret remains process-local.
+                "execution_nonce_sha256": execution_nonce_sha256,
+            },
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    def issue_proposal_action_grant(
+        self,
+        case_id: str,
+        *,
+        grant: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        del case_id, grant, request_id, expected_revision
+        raise AuthorizationError(
+            "direct proposal action issuance is disabled; the grant must be canonically armed"
+        )
+
+    def cancel_armed_proposal_action_grant(
+        self,
+        case_id: str,
+        *,
+        grant_id: str,
+        expected_arm_sha256: str,
+        cancellation: Mapping[str, Any],
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        grant_id = require_stable_id(grant_id, "grant id")
+        expected_arm_sha256 = require_snapshot_hash(expected_arm_sha256)
+        expected_fields = {
+            "protocol_version",
+            "schema_version",
+            "reason_code",
+            "evidence_sha256",
+            "cancelled_at",
+        }
+        if not isinstance(cancellation, Mapping) or set(cancellation) != expected_fields:
+            raise ValidationError(
+                "proposal arm cancellation must use the fixed v1 schema"
+            )
+        if (
+            cancellation.get("protocol_version")
+            != PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION
+            or cancellation.get("schema_version") != 1
+        ):
+            raise ValidationError("proposal arm cancellation protocol is unsupported")
+        normalized = {
+            "protocol_version": PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "reason_code": require_stable_id(
+                cancellation.get("reason_code"), "proposal arm cancellation reason"
+            ),
+            "evidence_sha256": require_snapshot_hash(
+                str(cancellation.get("evidence_sha256", ""))
+            ),
+            "cancelled_at": require_utc_timestamp(
+                cancellation.get("cancelled_at"), "proposal arm cancelled_at"
+            ),
+        }
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            self._require_state(
+                case, "IMPLEMENTING", "cancel_armed_proposal_action_grant"
+            )
+            runtime = self._runtime_record(case, create=False)
+            grant = runtime["action_grants"].get(grant_id)
+            if not isinstance(grant, dict):
+                raise AuthorizationError("canonical proposal arm does not exist")
+            if grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+                raise AuthorizationError("canonical arm belongs to another grant protocol")
+            if grant.get("status") != "ARMED":
+                raise LimitError(
+                    f"proposal action grant is {grant.get('status')} and cannot be cancelled"
+                )
+            arm_record = grant.get("arm")
+            if (
+                not isinstance(arm_record, Mapping)
+                or arm_record.get("arm_sha256") != expected_arm_sha256
+                or canonical_json_sha256(
+                    {
+                        name: value
+                        for name, value in arm_record.items()
+                        if name != "arm_sha256"
+                    }
+                )
+                != expected_arm_sha256
+            ):
+                raise AuthorizationError(
+                    "proposal cancellation differs from the canonical arm digest"
+                )
+            if case["revision"] != arm_record.get("armed_revision"):
+                raise RevisionConflict("case revision changed after proposal arm")
+            cancellation_record = {
+                **normalized,
+                "arm_sha256": expected_arm_sha256,
+                "cancelled_revision": case["revision"] + 1,
+            }
+            cancellation_record["cancellation_sha256"] = canonical_json_sha256(
+                cancellation_record
+            )
+            grant["status"] = "CANCELLED"
+            grant["cancellation"] = cancellation_record
+            grant["grant_sha256"] = canonical_json_sha256(
+                {name: value for name, value in grant.items() if name != "grant_sha256"}
+            )
+            case["state"] = "CASE_LOCKED"
+            case["lock_reason"] = normalized["reason_code"]
+            return {
+                "grant_id": grant_id,
+                "status": "CANCELLED",
+                "arm_sha256": expected_arm_sha256,
+                "cancellation_sha256": cancellation_record[
+                    "cancellation_sha256"
+                ],
+                "grant_sha256": grant["grant_sha256"],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="cancel_armed_proposal_action_grant",
+            payload={
+                "grant_id": grant_id,
+                "expected_arm_sha256": expected_arm_sha256,
+                "cancellation": normalized,
+            },
             request_id=request_id,
             expected_revision=expected_revision,
             callback=change,
@@ -6673,6 +7282,19 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--grant-json", required=True)
     _add_mutation_identity(command)
 
+    command = sub.add_parser("arm-proposal-action-grant")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--grant-json", required=True)
+    command.add_argument("--arm-json", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("cancel-armed-proposal-action-grant")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--grant-id", required=True)
+    command.add_argument("--expected-arm-sha256", required=True)
+    command.add_argument("--cancellation-json", required=True)
+    _add_mutation_identity(command)
+
     command = sub.add_parser("claim-action-grant")
     command.add_argument("--case-id", required=True)
     command.add_argument("--claim-json", required=True)
@@ -6843,6 +7465,23 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         return store.issue_action_grant(
             args.case_id,
             grant=_json_value(args.grant_json, "grant-json"),
+            **common,
+        )
+    if args.command == "arm-proposal-action-grant":
+        return store.arm_proposal_action_grant(
+            args.case_id,
+            grant=_json_value(args.grant_json, "grant-json"),
+            arm=_json_value(args.arm_json, "arm-json"),
+            **common,
+        )
+    if args.command == "cancel-armed-proposal-action-grant":
+        return store.cancel_armed_proposal_action_grant(
+            args.case_id,
+            grant_id=args.grant_id,
+            expected_arm_sha256=args.expected_arm_sha256,
+            cancellation=_json_value(
+                args.cancellation_json, "cancellation-json"
+            ),
             **common,
         )
     if args.command == "claim-action-grant":
