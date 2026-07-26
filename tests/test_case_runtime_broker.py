@@ -569,7 +569,9 @@ class RuntimeFixture(unittest.TestCase):
         return entries
 
     def grant_request(self, **overrides) -> dict:
-        membership = self.membership_evidence()
+        membership = copy.deepcopy(
+            overrides.pop("group_membership_evidence", self.membership_evidence())
+        )
         grant = {
             "protocol_version": engine.ACTION_GRANT_PROTOCOL_VERSION,
             "schema_version": 1,
@@ -1105,39 +1107,57 @@ class RuntimeActorAndGrantTests(RuntimeFixture):
             )
 
     def test_worker_evidence_requires_anchor_overwrite_nested_create_and_unchanged_acl(self) -> None:
-        evidence = self.isolation_evidence()
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
         roots = evidence["principal_probes"][0]["probe"]["protected_roots"]
         roots[0]["overwrite_denial_error"] = "OVERWRITE_CAPABILITY_GRANTED"
         roots[0]["overwrite_denial_native_code"] = 0
         with self.assertRaisesRegex(engine.AuthorizationError, "overwrite"):
-            self.issue(self.grant_request(isolation_evidence=evidence))
-        evidence = self.isolation_evidence()
+            self.issue(self.grant_request(
+                group_membership_evidence=membership, isolation_evidence=evidence
+            ))
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
         roots = evidence["principal_probes"][0]["probe"]["protected_roots"]
         roots[0]["nested_write_denial_error"] = "WRITE_SUCCEEDED"
         roots[0]["nested_write_denial_native_code"] = 0
         with self.assertRaisesRegex(engine.AuthorizationError, "nested-create"):
-            self.issue(self.grant_request(isolation_evidence=evidence))
-        evidence = self.isolation_evidence()
+            self.issue(self.grant_request(
+                group_membership_evidence=membership, isolation_evidence=evidence
+            ))
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
         roots = evidence["principal_probes"][0]["probe"]["protected_roots"]
         roots[0]["acl_sddl_sha256_after"] = "a" * 64
         with self.assertRaisesRegex(engine.AuthorizationError, "security descriptor"):
-            self.issue(self.grant_request(isolation_evidence=evidence))
-        evidence = self.isolation_evidence()
+            self.issue(self.grant_request(
+                group_membership_evidence=membership, isolation_evidence=evidence
+            ))
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
         roots = evidence["principal_probes"][0]["probe"]["protected_roots"]
         roots[3]["rename_capability_denial_error"] = "RENAME_CAPABILITY_GRANTED"
         roots[3]["rename_capability_denial_native_code"] = 0
         with self.assertRaisesRegex(engine.AuthorizationError, "rename"):
-            self.issue(self.grant_request(isolation_evidence=evidence))
-        evidence = self.isolation_evidence()
+            self.issue(self.grant_request(
+                group_membership_evidence=membership, isolation_evidence=evidence
+            ))
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
         roots = evidence["principal_probes"][0]["probe"]["protected_roots"]
         roots[3]["hard_link_absent_after"] = False
         with self.assertRaisesRegex(engine.AuthorizationError, "write probe changed"):
-            self.issue(self.grant_request(isolation_evidence=evidence))
-        evidence = self.isolation_evidence()
+            self.issue(self.grant_request(
+                group_membership_evidence=membership, isolation_evidence=evidence
+            ))
+        membership = self.membership_evidence()
+        evidence = self.isolation_evidence(membership)
         roots = evidence["principal_probes"][0]["probe"]["protected_roots"]
         roots[3]["anchor_identity_sha256_after"] = "9" * 64
         with self.assertRaisesRegex(engine.AuthorizationError, "anchor identity"):
-            self.issue(self.grant_request(isolation_evidence=evidence))
+            self.issue(self.grant_request(
+                group_membership_evidence=membership, isolation_evidence=evidence
+            ))
 
     def test_proposal_root_must_be_dedicated_and_nonoverlapping(self) -> None:
         overlapping = self.state_root / "proposal-overlap.bin"
@@ -1758,13 +1778,14 @@ class BrokerHelperIsolationTests(RuntimeFixture):
     def test_acl_restore_applies_parents_before_children(self) -> None:
         captured = {}
 
-        def run(_script, environment):
+        def run(_script, environment, *, input_bytes=None):
             captured.update(environment)
+            captured["input_bytes"] = input_bytes
             return subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
 
         with mock.patch.object(broker, "_run_powershell", side_effect=run):
             broker._restore_protected_acls(self.protected_acl_snapshot())
-        payload = json.loads(captured["CCOS_ACL_SNAPSHOT_JSON"])
+        payload = json.loads(captured["input_bytes"])
         depths = [len(Path(item["path"]).parts) for item in payload]
         self.assertEqual(depths, sorted(depths))
 
@@ -1799,6 +1820,73 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             )
         self.assertTrue(result["restored"])
         restore.assert_called_once()
+
+    def test_native_probe_directory_inherits_windows_acl(self) -> None:
+        directory = mock.Mock()
+        with mock.patch.object(broker.os, "name", "nt"):
+            broker._create_native_operation_probe_directory(directory)
+        directory.mkdir.assert_called_once_with()
+
+    def test_native_probe_directory_remains_owner_only_on_posix(self) -> None:
+        directory = mock.Mock()
+        with mock.patch.object(broker.os, "name", "posix"):
+            broker._create_native_operation_probe_directory(directory)
+        directory.mkdir.assert_called_once_with(mode=0o700)
+
+    @unittest.skipUnless(os.name == "nt", "Windows read-only directory cleanup")
+    def test_native_probe_cleanup_clears_windows_readonly_directory(self) -> None:
+        directory = self.worker_runtime_root / "readonly-native-probe"
+        directory.mkdir()
+        directory.chmod(broker.stat.S_IREAD)
+        paths = {
+            "directory": directory,
+            "delete": directory / "delete-anchor.bin",
+            "rename_source": directory / "rename-source.bin",
+            "rename_destination": directory / "rename-destination.bin",
+            "replace_target": directory / "replace-target.bin",
+            "replace_source": directory / "replace-source.bin",
+            "replace_backup": directory / "replace-backup.bin",
+        }
+
+        broker._cleanup_native_operation_anchors(paths)
+
+        self.assertFalse(directory.exists())
+
+    def test_native_probe_cleanup_does_not_retry_other_permission_denials(self) -> None:
+        path = mock.Mock()
+        path.rmdir.side_effect = PermissionError("denied")
+        path.stat.return_value.st_file_attributes = 0
+        with mock.patch.object(broker.os, "name", "nt"):
+            with self.assertRaises(PermissionError):
+                broker._remove_native_operation_probe_path(path, directory=True)
+        path.chmod.assert_not_called()
+        self.assertEqual(path.rmdir.call_count, 1)
+
+    def test_native_probe_cleanup_rejects_reparse_directory_before_removal(self) -> None:
+        directory = self.worker_runtime_root / "reparse-native-probe"
+        paths = {
+            "directory": directory,
+            "delete": directory / "delete-anchor.bin",
+            "rename_source": directory / "rename-source.bin",
+            "rename_destination": directory / "rename-destination.bin",
+            "replace_target": directory / "replace-target.bin",
+            "replace_source": directory / "replace-source.bin",
+            "replace_backup": directory / "replace-backup.bin",
+        }
+        with mock.patch.object(
+            broker.os.path,
+            "lexists",
+            side_effect=lambda path: path == directory,
+        ), mock.patch.object(
+            broker,
+            "_acl_object_type",
+            side_effect=broker.BrokerAuthorizationError("reparse point"),
+        ), mock.patch.object(
+            broker, "_remove_native_operation_probe_path"
+        ) as remove:
+            with self.assertRaisesRegex(broker.BrokerAuthorizationError, "reparse"):
+                broker._cleanup_native_operation_anchors(paths)
+        remove.assert_not_called()
 
     @unittest.skipUnless(os.name == "nt", "Windows kernel API probe")
     def test_native_delete_rename_and_replace_calls_run_on_sacrificial_anchors(self) -> None:
@@ -1900,6 +1988,111 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         self.assertTrue(all(item["overwrite_denial_error"] == "ACCESS_DENIED" for item in evidence["protected_roots"]))
         self.assertTrue(all(item["nested_write_denial_error"] == "ACCESS_DENIED" for item in evidence["protected_roots"]))
 
+    def test_worker_probe_fails_closed_for_every_mutation_family(self) -> None:
+        request = {
+            "protocol_version": broker.WORKER_PROBE_REQUEST_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "challenge_id": "fail-closed-worker-boundary-probe",
+            "worker_principal_sid": WORKER_SID,
+            "sandbox_group_principal_sid": SANDBOX_GROUP_SID,
+            "broker_principal_sid": BROKER_SID,
+            "protected_roots": self.protected_root_requests(),
+            "base_head": self.head,
+            "target_path": TARGET_PATH,
+            "expected_status_sha256": engine.EMPTY_SHA256,
+        }
+
+        def nested_write_override():
+            calls = 0
+
+            def result(_root, _relative):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    return "WRITE_SUCCEEDED", 0, True, True
+                return "ACCESS_DENIED", 5, True, True
+
+            return {"_attempt_denied_write": result}
+
+        def capability_override(operation: str):
+            def result(_root, _nested, _challenge, _kind, observed):
+                if observed == operation:
+                    return f"{operation.upper()}_CAPABILITY_GRANTED", 0
+                return "ACCESS_DENIED", 5
+
+            return {"_attempt_denied_file_capability": result}
+
+        def acl_override(operation: str):
+            def result(_root, observed, _worker, _nonce):
+                if observed == operation:
+                    return "ACL_OPERATION_SUCCEEDED", 0
+                return "ACCESS_DENIED", 5
+
+            return {"_attempt_denied_acl_operation": result}
+
+        cases = [
+            (
+                "root write",
+                lambda: {"_attempt_denied_write": lambda *_: ("WRITE_SUCCEEDED", 0, True, True)},
+                "root write capability",
+            ),
+            ("nested write", nested_write_override, "nested write capability"),
+            (
+                "overwrite",
+                lambda: {"_attempt_denied_overwrite": lambda *_: ("OVERWRITE_SUCCEEDED", 0)},
+                "overwrite capability",
+            ),
+            ("replace", lambda: capability_override("replace"), "replace capability"),
+            ("rename", lambda: capability_override("rename"), "rename capability"),
+            ("delete", lambda: capability_override("delete"), "delete capability"),
+            (
+                "hard link",
+                lambda: {"_attempt_denied_hard_link": lambda *_: ("HARD_LINK_SUCCEEDED", 0, True, True)},
+                "hard-link capability",
+            ),
+            (
+                "permissions",
+                lambda: acl_override("change_permissions"),
+                "permission-change capability",
+            ),
+            (
+                "ownership",
+                lambda: acl_override("take_ownership"),
+                "ownership-change capability",
+            ),
+        ]
+        defaults = {
+            "_attempt_denied_write": lambda *_: ("ACCESS_DENIED", 5, True, True),
+            "_attempt_denied_overwrite": lambda *_: ("ACCESS_DENIED", 5),
+            "_attempt_denied_file_capability": lambda *_: ("ACCESS_DENIED", 5),
+            "_attempt_denied_hard_link": lambda *_: ("ACCESS_DENIED", 5, True, True),
+            "_attempt_denied_acl_operation": lambda *_: ("ACCESS_DENIED", 5),
+        }
+        for label, override_factory, message in cases:
+            with self.subTest(boundary=label), ExitStack() as stack:
+                stack.enter_context(mock.patch.object(
+                    broker, "windows_identity", return_value=("fixture\\worker", WORKER_SID)
+                ))
+                stack.enter_context(mock.patch.object(
+                    broker, "windows_group_sids", return_value=[SANDBOX_GROUP_SID]
+                ))
+                overrides = override_factory()
+                for name, default in defaults.items():
+                    stack.enter_context(mock.patch.object(
+                        broker, name, side_effect=overrides.get(name, default)
+                    ))
+                stack.enter_context(mock.patch.object(
+                    broker, "regular_file_identity",
+                    return_value={"identity_sha256": "7" * 64},
+                ))
+                stack.enter_context(mock.patch.object(
+                    broker, "_acl_sddl_sha256", return_value="b" * 64
+                ))
+                with self.assertRaisesRegex(
+                    broker.BrokerAuthorizationError, message
+                ):
+                    broker.worker_isolation_probe(request)
+
     def test_git_and_powershell_helpers_receive_only_minimal_secret_free_environments(self) -> None:
         sentinels = {
             broker.CONTROLLER_KEY_ENVIRONMENT: "controller-key-must-not-flow",
@@ -1975,7 +2168,9 @@ class BrokerHelperIsolationTests(RuntimeFixture):
         split = subprocess.CompletedProcess(
             [], 0, stdout=json.dumps(records(2, ["NONE"])).encode(), stderr=b""
         )
-        with mock.patch.object(broker, "_run_powershell", return_value=split):
+        with mock.patch.object(
+            broker, "_verify_protected_object_dacls"
+        ), mock.patch.object(broker, "_run_powershell", return_value=split):
             with self.assertRaisesRegex(broker.BrokerAuthorizationError, "full recursive"):
                 broker.inspect_protected_dacls(
                     roots,
@@ -1994,7 +2189,9 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             ).encode(),
             stderr=b"",
         )
-        with mock.patch.object(broker, "_run_powershell", return_value=escaped):
+        with mock.patch.object(
+            broker, "_verify_protected_object_dacls"
+        ), mock.patch.object(broker, "_run_powershell", return_value=escaped):
             with self.assertRaisesRegex(broker.BrokerAuthorizationError, "InheritOnly"):
                 broker.inspect_protected_dacls(
                     roots,
@@ -2029,8 +2226,14 @@ class BrokerHelperIsolationTests(RuntimeFixture):
             for kind in engine.PROTECTED_ROOT_KINDS:
                 root = base / f"{kind}-parent" / "root"
                 root.mkdir(parents=True)
+                nested = root / "existing" / "deep"
+                nested.mkdir(parents=True)
+                (nested / "existing.bin").write_bytes(kind.encode("ascii"))
                 roots[kind] = engine.normalize_binding("worktree", str(root))
             snapshot = broker._snapshot_protected_acls(roots)
+            self.assertGreater(
+                len(snapshot), len(engine.PROTECTED_ROOT_KINDS) * 2
+            )
             broker._configure_protected_dacls(roots, denied, broker_sid)
             evidence = broker.inspect_protected_dacls(
                 roots,

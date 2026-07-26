@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import secrets
+import stat
 import subprocess
 import sys
 import tempfile
@@ -368,9 +369,23 @@ def _powershell_executable() -> str:
         raise BrokerPreflightError("PowerShell is unavailable for fixed Windows ACL checks") from exc
 
 
-def _run_powershell(script: str, environment: Mapping[str, str]) -> subprocess.CompletedProcess[bytes]:
+def _run_powershell(
+    script: str,
+    environment: Mapping[str, str],
+    *,
+    input_bytes: bytes | None = None,
+) -> subprocess.CompletedProcess[bytes]:
     executable = _powershell_executable()
     merged = safe_subprocess_environment(executable, extra=environment)
+    run_kwargs: dict[str, Any] = {
+        "capture_output": True,
+        "check": False,
+        "env": merged,
+    }
+    if input_bytes is None:
+        run_kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        run_kwargs["input"] = input_bytes
     return subprocess.run(
         [
             executable,
@@ -382,10 +397,7 @@ def _run_powershell(script: str, environment: Mapping[str, str]) -> subprocess.C
             "-Command",
             script,
         ],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        check=False,
-        env=merged,
+        **run_kwargs,
     )
 
 
@@ -403,6 +415,10 @@ def inspect_protected_dacls(
     denied_principal_sids = [
         require_windows_sid(item, "denied principal SID") for item in denied_principal_sids
     ]
+    broker_sid = require_windows_sid(broker_sid, "broker SID")
+    _verify_protected_object_dacls(
+        roots, denied_principal_sids, broker_sid
+    )
     sandbox_group_sid = denied_principal_sids[2]
     membership_evidence_sha256 = require_snapshot_hash(membership_evidence_sha256)
     script = r"""
@@ -519,10 +535,14 @@ foreach ($item in $roots) {
             record.get("parent_owner_sid"), f"{kind} parent owner SID"
         )
         mask = record.get("rights_mask")
-        if (path != roots[kind] or owner != broker_sid or owner in denied_principal_sids
-                or parent_path != normalize_binding("worktree", str(Path(path).parent))
-                or parent_owner != broker_sid):
+        if path != roots[kind]:
+            raise BrokerAuthorizationError(f"{kind} DACL path differs from the protected root")
+        if owner != broker_sid or owner in denied_principal_sids:
             raise BrokerAuthorizationError(f"{kind} is not owned by the distinct broker principal")
+        if parent_path != normalize_binding("worktree", str(Path(path).parent)):
+            raise BrokerAuthorizationError(f"{kind} DACL parent path differs")
+        if parent_owner != broker_sid:
+            raise BrokerAuthorizationError(f"{kind} parent is not owned by the distinct broker principal")
         if isinstance(mask, bool) or not isinstance(mask, int):
             raise BrokerPreflightError(f"{kind} DACL mask is invalid")
         if mask & WINDOWS_REQUIRED_DENY_RIGHTS_MASK != WINDOWS_REQUIRED_DENY_RIGHTS_MASK:
@@ -621,6 +641,12 @@ def _anchor_digest(root: Path, relative: str) -> str:
     return file_sha256(anchor)
 
 
+def _permission_denial_code(exc: PermissionError) -> int:
+    if os.name == "nt":
+        return 5
+    return int(getattr(exc, "errno", 0) or 0)
+
+
 def _attempt_denied_write(root: Path, relative: str) -> tuple[str, int, bool, bool]:
     probe = root.joinpath(*PurePosixPath(normalize_action_path(relative)).parts)
     absent_before = not probe.exists()
@@ -635,7 +661,7 @@ def _attempt_denied_write(root: Path, relative: str) -> tuple[str, int, bool, bo
             os.close(descriptor)
     except PermissionError as exc:
         error = "ACCESS_DENIED"
-        code = int(getattr(exc, "winerror", None) or getattr(exc, "errno", 0) or 0)
+        code = _permission_denial_code(exc)
     except OSError as exc:
         error = type(exc).__name__.upper()
         code = int(getattr(exc, "winerror", None) or getattr(exc, "errno", 0) or 0)
@@ -664,7 +690,7 @@ def _attempt_denied_overwrite(anchor: Path) -> tuple[str, int]:
             os.close(descriptor)
     except PermissionError as exc:
         error = "ACCESS_DENIED"
-        code = int(getattr(exc, "winerror", None) or getattr(exc, "errno", 0) or 0)
+        code = _permission_denial_code(exc)
     except OSError as exc:
         error = type(exc).__name__.upper()
         code = int(getattr(exc, "winerror", None) or getattr(exc, "errno", 0) or 0)
@@ -774,6 +800,15 @@ def _native_operation_probe_bytes(
     )
 
 
+def _create_native_operation_probe_directory(directory: Path) -> None:
+    if os.name == "nt":
+        # Windows gives mode 0o700 an owner-only DACL. The protected parent
+        # already supplies the exact inherited DACL that the worker must read.
+        directory.mkdir()
+        return
+    directory.mkdir(mode=0o700)
+
+
 def _prepare_native_operation_anchors(
     root: Path, nested_parent_path: str, challenge: str, root_kind: str
 ) -> dict[str, Path]:
@@ -781,9 +816,9 @@ def _prepare_native_operation_anchors(
         root, nested_parent_path, challenge, root_kind
     )
     directory = paths["directory"]
-    if directory.exists():
+    if os.path.lexists(directory):
         raise BrokerPreflightError("native operation probe directory already exists")
-    directory.mkdir(mode=0o700)
+    _create_native_operation_probe_directory(directory)
     try:
         for label in ("delete", "rename_source", "replace_target", "replace_source"):
             path = paths[label]
@@ -796,7 +831,7 @@ def _prepare_native_operation_anchors(
             finally:
                 os.close(descriptor)
         for label in ("rename_destination", "replace_backup"):
-            if paths[label].exists():
+            if os.path.lexists(paths[label]):
                 raise BrokerPreflightError("native operation probe destination is not absent")
         return paths
     except BaseException:
@@ -817,14 +852,32 @@ def _cleanup_native_operation_anchors(paths: Mapping[str, Path]) -> None:
         "replace_source", "replace_backup",
     ):
         path = paths[label]
-        if path.exists():
-            if path.is_symlink() or not path.is_file() or path.parent != directory:
+        if os.path.lexists(path):
+            if _acl_object_type(path) != "file" or path.parent != directory:
                 raise BrokerPreflightError("native operation cleanup encountered an unsafe path")
-            path.unlink()
-    if directory.exists():
-        if directory.is_symlink() or not directory.is_dir():
+            _remove_native_operation_probe_path(path, directory=False)
+    if os.path.lexists(directory):
+        if _acl_object_type(directory) != "directory":
             raise BrokerPreflightError("native operation cleanup directory is unsafe")
-        directory.rmdir()
+        _remove_native_operation_probe_path(directory, directory=True)
+
+
+def _remove_native_operation_probe_path(path: Path, *, directory: bool) -> None:
+    remove = path.rmdir if directory else path.unlink
+    try:
+        remove()
+        return
+    except PermissionError:
+        if os.name != "nt":
+            raise
+        attributes = int(getattr(path.stat(), "st_file_attributes", 0))
+        readonly = int(getattr(stat, "FILE_ATTRIBUTE_READONLY", 1))
+        if attributes & readonly == 0:
+            raise
+    # Windows commonly marks repository directories read-only. Clear only
+    # that attribute on this already-validated sacrificial path and retry once.
+    path.chmod(stat.S_IREAD | stat.S_IWRITE)
+    remove()
 
 
 def _verify_native_operation_anchors(
@@ -833,8 +886,8 @@ def _verify_native_operation_anchors(
     for label in ("delete", "rename_source", "replace_target", "replace_source"):
         path = paths[label]
         if (
-            not path.is_file()
-            or path.is_symlink()
+            not os.path.lexists(path)
+            or _acl_object_type(path) != "file"
             or path.read_bytes()
             != _native_operation_probe_bytes(challenge, root_kind, label)
         ):
@@ -842,7 +895,7 @@ def _verify_native_operation_anchors(
                 f"{root_kind} {label} sacrificial anchor changed during denial probe"
             )
     for label in ("rename_destination", "replace_backup"):
-        if paths[label].exists():
+        if os.path.lexists(paths[label]):
             raise BrokerAuthorizationError(
                 f"{root_kind} {label} appeared during denial probe"
             )
@@ -961,7 +1014,7 @@ def _attempt_denied_hard_link(
         os.link(anchor, link)
     except PermissionError as exc:
         error = "ACCESS_DENIED"
-        code = int(getattr(exc, "winerror", None) or getattr(exc, "errno", 0) or 0)
+        code = _permission_denial_code(exc)
     except OSError as exc:
         error = type(exc).__name__.upper()
         code = int(getattr(exc, "winerror", None) or getattr(exc, "errno", 0) or 0)
@@ -1070,6 +1123,17 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
         write_error, write_code, absent_before, absent_after = _attempt_denied_write(
             root, probe_relative
         )
+        if (
+            write_error != "ACCESS_DENIED"
+            or write_code != 5
+            or not absent_before
+            or not absent_after
+        ):
+            raise BrokerAuthorizationError(
+                f"{kind} root write capability was not denied: "
+                f"error={write_error}, code={write_code}, "
+                f"absent_before={absent_before}, absent_after={absent_after}"
+            )
         nested_probe_relative = (
             root_record["nested_probe_parent_path"]
             + "/.ccos-worker-nested-probe-"
@@ -1078,9 +1142,22 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
         nested_error, nested_code, nested_absent_before, nested_absent_after = (
             _attempt_denied_write(root, nested_probe_relative)
         )
+        if (
+            nested_error != "ACCESS_DENIED"
+            or nested_code != 5
+            or not nested_absent_before
+            or not nested_absent_after
+        ):
+            raise BrokerAuthorizationError(
+                f"{kind} nested write capability was not denied"
+            )
         anchor = root.joinpath(*PurePosixPath(root_record["anchor_path"]).parts)
         anchor_identity_before = regular_file_identity(anchor, stop=root)["identity_sha256"]
         overwrite_error, overwrite_code = _attempt_denied_overwrite(anchor)
+        if overwrite_error != "ACCESS_DENIED" or overwrite_code != 5:
+            raise BrokerAuthorizationError(
+                f"{kind} overwrite capability was not denied"
+            )
         replace_error, replace_code = _attempt_denied_file_capability(
             root,
             root_record["nested_probe_parent_path"],
@@ -1088,6 +1165,10 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
             kind,
             "replace",
         )
+        if replace_error != "ACCESS_DENIED" or replace_code != 5:
+            raise BrokerAuthorizationError(
+                f"{kind} replace capability was not denied"
+            )
         rename_error, rename_code = _attempt_denied_file_capability(
             root,
             root_record["nested_probe_parent_path"],
@@ -1095,6 +1176,10 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
             kind,
             "rename",
         )
+        if rename_error != "ACCESS_DENIED" or rename_code != 5:
+            raise BrokerAuthorizationError(
+                f"{kind} rename capability was not denied"
+            )
         delete_error, delete_code = _attempt_denied_file_capability(
             root,
             root_record["nested_probe_parent_path"],
@@ -1102,6 +1187,10 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
             kind,
             "delete",
         )
+        if delete_error != "ACCESS_DENIED" or delete_code != 5:
+            raise BrokerAuthorizationError(
+                f"{kind} delete capability was not denied"
+            )
         hard_link_relative = (
             f".ccos-worker-{kind.replace('_root', '')}-hard-link-"
             + hashlib.sha256((challenge + ":" + kind + ":link").encode("utf-8")).hexdigest()[:20]
@@ -1109,6 +1198,15 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
         hard_link_error, hard_link_code, hard_link_absent_before, hard_link_absent_after = (
             _attempt_denied_hard_link(anchor, root, hard_link_relative)
         )
+        if (
+            hard_link_error != "ACCESS_DENIED"
+            or hard_link_code != 5
+            or not hard_link_absent_before
+            or not hard_link_absent_after
+        ):
+            raise BrokerAuthorizationError(
+                f"{kind} hard-link capability was not denied"
+            )
         acl_nonce = hashlib.sha256(
             (challenge + ":" + kind + ":acl").encode("utf-8")
         ).hexdigest()
@@ -1119,9 +1217,25 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
         owner_error, owner_code = _attempt_denied_acl_operation(
             root, "take_ownership", observed_worker, acl_nonce
         )
+        if dac_error != "ACCESS_DENIED" or dac_code != 5:
+            raise BrokerAuthorizationError(
+                f"{kind} permission-change capability was not denied"
+            )
+        if owner_error != "ACCESS_DENIED" or owner_code != 5:
+            raise BrokerAuthorizationError(
+                f"{kind} ownership-change capability was not denied"
+            )
         sddl_after = _acl_sddl_sha256(root)
         after = _anchor_digest(root, root_record["anchor_path"])
         anchor_identity_after = regular_file_identity(anchor, stop=root)["identity_sha256"]
+        if (
+            after != before
+            or anchor_identity_after != anchor_identity_before
+            or sddl_after != sddl_before
+        ):
+            raise BrokerAuthorizationError(
+                f"{kind} protected identity or DACL changed during denial probe"
+            )
         result_roots.append(
             {
                 "root_kind": kind,
@@ -1189,65 +1303,290 @@ def worker_isolation_probe(request: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+MAX_PROTECTED_ACL_OBJECTS = 20000
+
+
+def _acl_object_type(path: Path) -> str:
+    try:
+        details = os.lstat(path)
+    except OSError as exc:
+        raise BrokerPreflightError("protected ACL object cannot be inspected") from exc
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if stat.S_ISLNK(details.st_mode) or (
+        getattr(details, "st_file_attributes", 0) & reparse_flag
+    ):
+        raise BrokerAuthorizationError(
+            "protected ACL inventory cannot traverse a link or reparse point"
+        )
+    if stat.S_ISDIR(details.st_mode):
+        return "directory"
+    if stat.S_ISREG(details.st_mode):
+        return "file"
+    raise BrokerAuthorizationError(
+        "protected ACL inventory contains a non-file, non-directory object"
+    )
+
+
+def _protected_acl_inventory(roots: Mapping[str, str]) -> list[dict[str, str]]:
+    if set(roots) != set(PROTECTED_ROOT_KINDS):
+        raise BrokerPreflightError("protected ACL roots are incomplete")
+    priority = {"parent": 0, "descendant": 1, "root": 2}
+    inventory: dict[str, dict[str, str]] = {}
+
+    def add(path: Path, scope: str) -> None:
+        normalized = normalize_binding("worktree", str(path.resolve(strict=True)))
+        object_type = _acl_object_type(Path(normalized))
+        if scope in {"root", "parent"} and object_type != "directory":
+            raise BrokerAuthorizationError(
+                "protected ACL root and parent objects must be directories"
+            )
+        current = inventory.get(normalized)
+        if current is None or priority[scope] > priority[current["scope"]]:
+            inventory[normalized] = {
+                "path": normalized,
+                "object_type": object_type,
+                "scope": scope,
+            }
+        if len(inventory) > MAX_PROTECTED_ACL_OBJECTS:
+            raise BrokerPreflightError(
+                f"protected ACL inventory exceeds {MAX_PROTECTED_ACL_OBJECTS} objects"
+            )
+
+    for kind in PROTECTED_ROOT_KINDS:
+        root = Path(str(roots[kind])).resolve(strict=True)
+        add(root.parent, "parent")
+        pending = [root]
+        while pending:
+            current = pending.pop()
+            add(current, "root" if current == root else "descendant")
+            if _acl_object_type(current) != "directory":
+                continue
+            try:
+                with os.scandir(current) as entries:
+                    children = sorted(
+                        (Path(entry.path) for entry in entries),
+                        key=lambda item: item.name.casefold(),
+                        reverse=True,
+                    )
+            except OSError as exc:
+                raise BrokerPreflightError(
+                    "protected ACL directory cannot be enumerated"
+                ) from exc
+            for child in children:
+                child_type = _acl_object_type(child)
+                add(child, "descendant")
+                if child_type == "directory":
+                    pending.append(child)
+    return sorted(
+        inventory.values(),
+        key=lambda item: (len(Path(item["path"]).parts), item["path"].casefold()),
+    )
+
+
+def _verify_protected_object_dacls(
+    roots: Mapping[str, str], denied_principal_sids: list[str], broker_sid: str
+) -> None:
+    denied = [
+        require_windows_sid(item, "denied principal SID")
+        for item in denied_principal_sids
+    ]
+    if len(denied) != 3 or len(set(denied)) != 3:
+        raise BrokerPreflightError(
+            "protected-object DACL verification principal set is invalid"
+        )
+    items = _protected_acl_inventory(roots)
+    payload = {
+        "items": items,
+        "denied": denied,
+        "broker_sid": require_windows_sid(broker_sid, "broker SID"),
+        "deny_mask": WINDOWS_REQUIRED_DENY_RIGHTS_MASK,
+    }
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$payload = ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd())
+$items = @($payload.items | ForEach-Object { $_ })
+$denied = @($payload.denied | ForEach-Object { $_ })
+[Int64]$required = [Int64]$payload.deny_mask
+$broker = ([string]$payload.broker_sid).ToUpperInvariant()
+foreach ($item in $items) {
+  $acl = Get-Acl -LiteralPath ([string]$item.path)
+  $owner = $acl.GetOwner(
+    [System.Security.Principal.SecurityIdentifier]
+  ).Value.ToUpperInvariant()
+  if ($owner -ne $broker -or -not $acl.AreAccessRulesProtected) {
+    throw "protected object owner or inheritance boundary differs"
+  }
+  foreach ($principal in $denied) {
+    [Int64]$mask = 0
+    [Int64]$recursiveMask = 0
+    [Int64]$nonInheritableMask = 0
+    foreach ($rule in $acl.Access) {
+      $sid = $rule.IdentityReference.Translate(
+        [System.Security.Principal.SecurityIdentifier]
+      ).Value.ToUpperInvariant()
+      if ($sid -ne ([string]$principal).ToUpperInvariant() -or
+          $rule.AccessControlType -ne
+            [System.Security.AccessControl.AccessControlType]::Deny -or
+          $rule.IsInherited) {
+        continue
+      }
+      [Int64]$rights = [Int64]$rule.FileSystemRights
+      $mask = $mask -bor $rights
+      if ($rule.InheritanceFlags -eq
+            [System.Security.AccessControl.InheritanceFlags]::None) {
+        $nonInheritableMask = $nonInheritableMask -bor $rights
+      }
+      $flags = $rule.InheritanceFlags.ToString()
+      if ($flags -match 'ContainerInherit' -and
+          $flags -match 'ObjectInherit' -and
+          $rule.PropagationFlags -eq
+            [System.Security.AccessControl.PropagationFlags]::None) {
+        $recursiveMask = $recursiveMask -bor $rights
+      }
+    }
+    if (($mask -band $required) -ne $required) {
+      throw "protected object lacks the exact mutation DENY"
+    }
+    if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
+      if (($recursiveMask -band $required) -ne $required) {
+        throw "protected directory lacks an exact inheritable mutation DENY"
+      }
+    } elseif (($nonInheritableMask -band $required) -ne $required) {
+      throw "protected file or parent lacks an exact non-inheritable mutation DENY"
+    }
+  }
+}
+[PSCustomObject]@{ object_count = $items.Count } | ConvertTo-Json -Compress
+"""
+    result = _run_powershell(
+        script,
+        {},
+        input_bytes=canonical_json_bytes(payload),
+    )
+    if result.returncode != 0:
+        raise BrokerAuthorizationError(
+            "an existing protected object lacks the exact mutation denial"
+        )
+    try:
+        observed = json.loads(result.stdout.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BrokerPreflightError(
+            "protected-object DACL verification returned malformed JSON"
+        ) from exc
+    if (
+        not isinstance(observed, Mapping)
+        or observed.get("object_count") != len(items)
+    ):
+        raise BrokerAuthorizationError(
+            "protected-object DACL verification is incomplete"
+        )
+
+
 def _configure_protected_dacls(
     roots: Mapping[str, str], denied_principal_sids: list[str], broker_sid: str
 ) -> None:
-    """Install the fixed explicit recursive DENY set as the trusted broker."""
-    if set(roots) != set(PROTECTED_ROOT_KINDS):
-        raise BrokerPreflightError("DACL configuration roots are incomplete")
+    """Install explicit mutation DENYs on every existing protected object."""
     denied = [require_windows_sid(item, "denied principal SID") for item in denied_principal_sids]
     if len(denied) != 3 or len(set(denied)) != 3 or broker_sid in denied:
         raise BrokerAuthorizationError("DACL configuration principal set is invalid")
-    paths = sorted({
-        normalize_binding("worktree", str(Path(path).resolve(strict=True)))
-        for root in roots.values()
-        for path in (root, str(Path(root).parent))
-    })
+    items = _protected_acl_inventory(roots)
     script = r"""
 $ErrorActionPreference = 'Stop'
-$paths = @(ConvertFrom-Json -InputObject $env:CCOS_DACL_PATHS_JSON | ForEach-Object { $_ })
-$denied = @(ConvertFrom-Json -InputObject $env:CCOS_DENIED_PRINCIPALS_JSON | ForEach-Object { $_ })
-$broker = [System.Security.Principal.SecurityIdentifier]::new($env:CCOS_BROKER_SID)
-$rights = [System.Security.AccessControl.FileSystemRights][Int64]::Parse($env:CCOS_DENY_MASK)
-foreach ($path in $paths) {
+$payload = ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd())
+$items = @($payload.items | ForEach-Object { $_ })
+$denied = @($payload.denied | ForEach-Object { $_ })
+$broker = [System.Security.Principal.SecurityIdentifier]::new([string]$payload.broker_sid)
+$rights = [System.Security.AccessControl.FileSystemRights][Int64]$payload.deny_mask
+$sandboxGroup = [System.Security.Principal.SecurityIdentifier]::new(
+  [string]$denied[2]
+)
+$system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+foreach ($item in $items) {
+  $currentAcl = Get-Acl -LiteralPath ([string]$item.path)
+  $currentOwner = $currentAcl.GetOwner(
+    [System.Security.Principal.SecurityIdentifier]
+  ).Value.ToUpperInvariant()
+  if ($currentOwner -ne $broker.Value.ToUpperInvariant()) {
+    throw "protected ACL object is not already broker-owned: $($item.path)"
+  }
+}
+foreach ($item in $items) {
+  $path = [string]$item.path
   $acl = Get-Acl -LiteralPath $path
-  $acl.SetOwner($broker)
+  $acl.SetAccessRuleProtection($true, $true)
+  $allowInheritance = [System.Security.AccessControl.InheritanceFlags]::None
+  if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
+    $allowInheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+  }
+  foreach ($principal in @($broker, $system)) {
+    [void]$acl.PurgeAccessRules($principal)
+    $allowRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+      $principal,
+      [System.Security.AccessControl.FileSystemRights]::FullControl,
+      $allowInheritance,
+      [System.Security.AccessControl.PropagationFlags]::None,
+      [System.Security.AccessControl.AccessControlType]::Allow)
+    [void]$acl.AddAccessRule($allowRule)
+  }
   foreach ($principal in $denied) {
     $sid = [System.Security.Principal.SecurityIdentifier]::new($principal)
     [void]$acl.PurgeAccessRules($sid)
+    $inheritance = [System.Security.AccessControl.InheritanceFlags]::None
+    if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
+      $inheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    }
     $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
       $sid,
       $rights,
-      [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
+      $inheritance,
       [System.Security.AccessControl.PropagationFlags]::None,
       [System.Security.AccessControl.AccessControlType]::Deny)
     [void]$acl.AddAccessRule($rule)
   }
-  [System.IO.DirectoryInfo]::new($path).SetAccessControl($acl)
+  $readInheritance = [System.Security.AccessControl.InheritanceFlags]::None
+  if ($item.object_type -eq 'directory' -and $item.scope -ne 'parent') {
+    $readInheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+  }
+  $readRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+    $sandboxGroup,
+    [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
+    $readInheritance,
+    [System.Security.AccessControl.PropagationFlags]::None,
+    [System.Security.AccessControl.AccessControlType]::Allow)
+  [void]$acl.AddAccessRule($readRule)
+  try {
+    if ($item.object_type -eq 'directory') {
+      [System.IO.DirectoryInfo]::new($path).SetAccessControl($acl)
+    } elseif ($item.object_type -eq 'file') {
+      [System.IO.FileInfo]::new($path).SetAccessControl($acl)
+    } else {
+      throw "unsupported ACL object type"
+    }
+  } catch {
+    throw "protected ACL configuration failed at $path`: $($_.Exception.Message)"
+  }
 }
 """
+    payload = {
+        "items": items,
+        "denied": denied,
+        "broker_sid": require_windows_sid(broker_sid, "broker SID"),
+        "deny_mask": WINDOWS_REQUIRED_DENY_RIGHTS_MASK,
+    }
     result = _run_powershell(
         script,
-        {
-            "CCOS_DACL_PATHS_JSON": json.dumps(paths, separators=(",", ":")),
-            "CCOS_DENIED_PRINCIPALS_JSON": json.dumps(denied, separators=(",", ":")),
-            "CCOS_BROKER_SID": broker_sid,
-            "CCOS_DENY_MASK": str(WINDOWS_REQUIRED_DENY_RIGHTS_MASK),
-        },
+        {},
+        input_bytes=canonical_json_bytes(payload),
     )
     if result.returncode != 0:
-        raise BrokerPreflightError("fixed protected-root DACL configuration failed")
+        raise BrokerPreflightError(
+            "fixed protected-object DACL configuration failed"
+        )
 
 
 def _protected_acl_paths(roots: Mapping[str, str]) -> list[str]:
-    if set(roots) != set(PROTECTED_ROOT_KINDS):
-        raise BrokerPreflightError("protected ACL roots are incomplete")
     return sorted(
-        {
-            normalize_binding("worktree", str(Path(path).resolve(strict=True)))
-            for root in roots.values()
-            for path in (root, str(Path(root).resolve(strict=True).parent))
-        },
+        {item["path"] for item in _protected_acl_inventory(roots)},
         key=lambda item: (len(Path(item).parts), item.casefold()),
         reverse=True,
     )
@@ -1257,7 +1596,7 @@ def _snapshot_protected_acls(roots: Mapping[str, str]) -> list[dict[str, str]]:
     paths = _protected_acl_paths(roots)
     script = r"""
 $ErrorActionPreference = 'Stop'
-$paths = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_PATHS_JSON | ForEach-Object { $_ })
+$paths = @(ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()) | ForEach-Object { $_ })
 $output = @()
 foreach ($path in $paths) {
   $acl = Get-Acl -LiteralPath $path
@@ -1271,7 +1610,8 @@ foreach ($path in $paths) {
 """
     result = _run_powershell(
         script,
-        {"CCOS_ACL_PATHS_JSON": json.dumps(paths, separators=(",", ":"))},
+        {},
+        input_bytes=canonical_json_bytes(paths),
     )
     if result.returncode != 0:
         raise BrokerPreflightError("protected ACL snapshot failed")
@@ -1354,34 +1694,70 @@ public static class CcosNativeAclRestore {
     byte[] securityDescriptor);
 }
 '@
-$items = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_SNAPSHOT_JSON | ForEach-Object { $_ })
+$items = @(ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()) | ForEach-Object { $_ })
 foreach ($item in $items) {
   $acl = Get-Acl -LiteralPath $item.path
-  $sections = (
-    [System.Security.AccessControl.AccessControlSections]::Access -bor
-    [System.Security.AccessControl.AccessControlSections]::Owner -bor
-    [System.Security.AccessControl.AccessControlSections]::Group)
-  $acl.SetSecurityDescriptorSddlForm($item.sddl, $sections)
-  [System.IO.DirectoryInfo]::new([string]$item.path).SetAccessControl($acl)
-
-  # The managed ACL writer can add SE_DACL_AUTO_INHERITED when restoring an
-  # inherited descriptor that did not originally carry that control bit. A
-  # DACL-only native write reapplies the signed descriptor without requesting
-  # SACL privileges and preserves the original control flags exactly.
+  $currentSddl = $acl.GetSecurityDescriptorSddlForm(
+    [System.Security.AccessControl.AccessControlSections]::All
+  )
+  if ($currentSddl -ceq [string]$item.sddl) {
+    continue
+  }
   $raw = [System.Security.AccessControl.RawSecurityDescriptor]::new([string]$item.sddl)
-  $autoInherited = (
-    $raw.ControlFlags -band
-    [System.Security.AccessControl.ControlFlags]::DiscretionaryAclAutoInherited)
-  if (-not $autoInherited) {
-    $bytes = New-Object byte[] $raw.BinaryLength
-    $raw.GetBinaryForm($bytes, 0)
-    $daclSecurityInformation = [uint32]4
-    if (-not [CcosNativeAclRestore]::SetFileSecurity(
-        [string]$item.path,
-        $daclSecurityInformation,
-        $bytes)) {
-      $errorCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-      throw "native DACL restoration failed with Win32 error $errorCode"
+  $sections = [System.Security.AccessControl.AccessControlSections]::Access
+  $currentOwner = $acl.GetOwner(
+    [System.Security.Principal.SecurityIdentifier]
+  ).Value.ToUpperInvariant()
+  $currentGroup = $acl.GetGroup(
+    [System.Security.Principal.SecurityIdentifier]
+  ).Value.ToUpperInvariant()
+  if ($currentOwner -ne $raw.Owner.Value.ToUpperInvariant()) {
+    $sections = $sections -bor
+      [System.Security.AccessControl.AccessControlSections]::Owner
+  }
+  if ($currentGroup -ne $raw.Group.Value.ToUpperInvariant()) {
+    $sections = $sections -bor
+      [System.Security.AccessControl.AccessControlSections]::Group
+  }
+  $acl.SetSecurityDescriptorSddlForm($item.sddl, $sections)
+  try {
+    if ([System.IO.Directory]::Exists([string]$item.path)) {
+      [System.IO.DirectoryInfo]::new([string]$item.path).SetAccessControl($acl)
+    } elseif ([System.IO.File]::Exists([string]$item.path)) {
+      [System.IO.FileInfo]::new([string]$item.path).SetAccessControl($acl)
+    } else {
+      throw "protected ACL restoration path is absent"
+    }
+  } catch {
+    throw "protected ACL restoration failed at $($item.path)`: $($_.Exception.Message)"
+  }
+
+  # A DACL-only native write reapplies the signed descriptor without SACL
+  # privileges and preserves the original inheritance control flags exactly.
+  $bytes = New-Object byte[] $raw.BinaryLength
+  $raw.GetBinaryForm($bytes, 0)
+  [uint32]$daclSecurityInformation = 4
+  if (($raw.ControlFlags -band
+      [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0) {
+    $daclSecurityInformation = $daclSecurityInformation -bor [uint32]0x80000000
+  } else {
+    $daclSecurityInformation = $daclSecurityInformation -bor [uint32]0x20000000
+  }
+  if (-not [CcosNativeAclRestore]::SetFileSecurity(
+      [string]$item.path,
+      $daclSecurityInformation,
+      $bytes)) {
+    $errorCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    throw "native DACL restoration failed with Win32 error $errorCode"
+  }
+  if (($raw.ControlFlags -band
+      [System.Security.AccessControl.ControlFlags]::DiscretionaryAclAutoInherited) -ne 0) {
+    $inheritedAcl = Get-Acl -LiteralPath $item.path
+    $inheritedAcl.SetAccessRuleProtection($false, $true)
+    if ([System.IO.Directory]::Exists([string]$item.path)) {
+      [System.IO.DirectoryInfo]::new([string]$item.path).SetAccessControl($inheritedAcl)
+    } else {
+      [System.IO.FileInfo]::new([string]$item.path).SetAccessControl($inheritedAcl)
     }
   }
 }
@@ -1397,7 +1773,8 @@ foreach ($item in $items) {
     ]
     result = _run_powershell(
         script,
-        {"CCOS_ACL_SNAPSHOT_JSON": json.dumps(payload, separators=(",", ":"))},
+        {},
+        input_bytes=canonical_json_bytes(payload),
     )
     if result.returncode != 0:
         raise BrokerPreflightError("protected ACL restoration failed")
@@ -1408,7 +1785,7 @@ def _verify_protected_acl_restore(snapshot: Any) -> None:
     paths = [item["path"] for item in normalized]
     script = r"""
 $ErrorActionPreference = 'Stop'
-$paths = @(ConvertFrom-Json -InputObject $env:CCOS_ACL_PATHS_JSON | ForEach-Object { $_ })
+$paths = @(ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()) | ForEach-Object { $_ })
 $output = @()
 foreach ($path in $paths) {
   $acl = Get-Acl -LiteralPath $path
@@ -1422,7 +1799,8 @@ foreach ($path in $paths) {
 """
     result = _run_powershell(
         script,
-        {"CCOS_ACL_PATHS_JSON": json.dumps(paths, separators=(",", ":"))},
+        {},
+        input_bytes=canonical_json_bytes(paths),
     )
     if result.returncode != 0:
         raise BrokerPreflightError("protected ACL restore verification failed")
@@ -1443,15 +1821,24 @@ foreach ($path in $paths) {
         reference = expected.get(path)
         if reference is None or path in observed:
             raise BrokerAuthorizationError("protected ACL restore path differs")
+        if require_windows_sid(
+            item["owner_sid"], "restored ACL owner SID"
+        ) != reference["owner_sid"]:
+            raise BrokerAuthorizationError(
+                f"protected ACL owner was not restored at {path}"
+            )
+        observed_sddl = str(item["sddl"])
+        observed_sddl_sha256 = hashlib.sha256(
+            observed_sddl.encode("utf-8")
+        ).hexdigest()
         if (
-            require_windows_sid(item["owner_sid"], "restored ACL owner SID")
-            != reference["owner_sid"]
-            or str(item["sddl"]) != reference["sddl"]
-            or hashlib.sha256(str(item["sddl"]).encode("utf-8")).hexdigest()
-            != reference["sddl_sha256"]
+            observed_sddl != reference["sddl"]
+            or observed_sddl_sha256 != reference["sddl_sha256"]
         ):
             raise BrokerAuthorizationError(
-                "protected ACL owner or exact SDDL was not restored"
+                "protected ACL exact SDDL was not restored at "
+                f"{path}: expected={reference['sddl_sha256']}, "
+                f"observed={observed_sddl_sha256}"
             )
         observed.add(path)
 
@@ -1596,6 +1983,7 @@ def _collect_preissue_dual_probes(
     online_role: str = "app_server_host",
     offline_role: str = "model_sandbox",
 ) -> dict[str, Any]:
+    journal.ensure_file()
     snapshot = _snapshot_protected_acls(roots)
     snapshot_sha256 = canonical_json_sha256(snapshot)
     journal.append(
@@ -1994,6 +2382,7 @@ def collect_proposal_isolation_evidence(
     journal = BrokerJournal(Path(store.state_root), canonical_id, grant_id)
     run_id = f"preissue-{secrets.token_hex(16)}"
     with FileLock(journal.lock_path, timeout=30.0):
+        journal.ensure_file()
         snapshot = _snapshot_protected_acls(roots)
         snapshot_sha256 = canonical_json_sha256(snapshot)
         journal.append(
@@ -2491,6 +2880,16 @@ class BrokerJournal:
         self.lock_path = self.directory / f"{token}.lock"
         self.case_id = case_id
         self.grant_id = grant_id
+
+    def ensure_file(self) -> None:
+        if self.path.exists():
+            if self.path.is_symlink() or not self.path.is_file():
+                raise BrokerPreflightError("broker journal must be a regular file")
+            return
+        descriptor = os.open(
+            self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+        )
+        os.close(descriptor)
 
     def records(self) -> list[dict[str, Any]]:
         if not self.path.exists():

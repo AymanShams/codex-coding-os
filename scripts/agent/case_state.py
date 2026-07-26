@@ -882,6 +882,86 @@ def path_contains_link_or_reparse(path: Path, *, stop: Path | None = None) -> bo
     return False
 
 
+def _windows_regular_file_identity(path: Path) -> tuple[int, int, int, int]:
+    import ctypes
+    from ctypes import wintypes
+
+    class ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("file_attributes", wintypes.DWORD),
+            ("creation_time", wintypes.FILETIME),
+            ("last_access_time", wintypes.FILETIME),
+            ("last_write_time", wintypes.FILETIME),
+            ("volume_serial_number", wintypes.DWORD),
+            ("file_size_high", wintypes.DWORD),
+            ("file_size_low", wintypes.DWORD),
+            ("number_of_links", wintypes.DWORD),
+            ("file_index_high", wintypes.DWORD),
+            ("file_index_low", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    get_information = kernel32.GetFileInformationByHandle
+    get_information.argtypes = [
+        wintypes.HANDLE, ctypes.POINTER(ByHandleFileInformation)
+    ]
+    get_information.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    native_path = str(path.resolve(strict=True))
+    if native_path.startswith("\\\\"):
+        native_path = "\\\\?\\UNC\\" + native_path[2:]
+    elif not native_path.startswith("\\\\?\\"):
+        native_path = "\\\\?\\" + native_path
+    handle = create_file(
+        native_path,
+        0,
+        0x1 | 0x2 | 0x4,
+        None,
+        3,
+        0x80,
+        None,
+    )
+    invalid_handle = ctypes.c_void_p(-1).value
+    if handle == invalid_handle:
+        raise ValidationError(
+            f"cannot open stable Windows file identity: {ctypes.get_last_error()}"
+        )
+    try:
+        information = ByHandleFileInformation()
+        if not get_information(handle, ctypes.byref(information)):
+            raise ValidationError(
+                "cannot inspect stable Windows file identity: "
+                f"{ctypes.get_last_error()}"
+            )
+    finally:
+        close_handle(handle)
+    file_id = (
+        int(information.file_index_high) << 32
+    ) | int(information.file_index_low)
+    file_size = (
+        int(information.file_size_high) << 32
+    ) | int(information.file_size_low)
+    return (
+        int(information.volume_serial_number),
+        file_id,
+        int(information.number_of_links),
+        file_size,
+    )
+
+
 def regular_file_identity(path: Path, *, stop: Path | None = None) -> dict[str, Any]:
     try:
         metadata = path.lstat()
@@ -896,9 +976,15 @@ def regular_file_identity(path: Path, *, stop: Path | None = None) -> dict[str, 
         or path_contains_link_or_reparse(path, stop=stop)
     ):
         raise AuthorizationError("authorized file must be regular and must not traverse a reparse point")
-    link_count = int(metadata.st_nlink)
-    file_id = int(metadata.st_ino)
-    volume_id = int(metadata.st_dev)
+    if os.name == "nt":
+        volume_id, file_id, link_count, file_size = (
+            _windows_regular_file_identity(path)
+        )
+    else:
+        link_count = int(metadata.st_nlink)
+        file_id = int(metadata.st_ino)
+        volume_id = int(metadata.st_dev)
+        file_size = int(metadata.st_size)
     if link_count != 1:
         raise AuthorizationError("authorized file must have exactly one hard link")
     if file_id <= 0:
@@ -907,7 +993,7 @@ def regular_file_identity(path: Path, *, stop: Path | None = None) -> dict[str, 
         "volume_id": volume_id,
         "file_id": file_id,
         "number_of_links": link_count,
-        "size": int(metadata.st_size),
+        "size": file_size,
     }
     return {**identity, "identity_sha256": canonical_json_sha256(identity)}
 
