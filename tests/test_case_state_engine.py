@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 import uuid
+from unittest import mock
 from pathlib import Path
 
 
@@ -21,6 +22,9 @@ SCRIPT = ROOT / "scripts" / "agent" / "case_state.py"
 
 
 def load_engine():
+    script_directory = str(SCRIPT.parent)
+    if script_directory not in sys.path:
+        sys.path.insert(0, script_directory)
     spec = importlib.util.spec_from_file_location("case_state_under_test", SCRIPT)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load {SCRIPT}")
@@ -39,6 +43,132 @@ SHA_C = "c" * 40
 REPO = "https://github.com/example/project"
 OTHER_REPO = "https://github.com/example/other-project"
 SYNTHETIC_THREAD = "123e4567-e89b-42d3-a456-426614174000"
+NATIVE_PARENT = "01900000-0000-7000-8000-000000000001"
+
+
+def native_uuid7(sequence: int) -> str:
+    return f"01900000-0000-7000-8000-{sequence:012x}"
+
+
+class FakeNativeReviewVerifier:
+    """Deterministic injected verifier; native JSONL behavior has separate tests."""
+
+    def __init__(self) -> None:
+        self.findings: list[dict] = []
+        self.overrides: dict = {}
+        self.calls = 0
+
+    def configure(self, *, findings: list[dict] | None = None, **overrides) -> None:
+        self.findings = list(findings or [])
+        self.overrides = dict(overrides)
+
+    def __call__(
+        self,
+        *,
+        case_id: str,
+        cohort_id: str,
+        cohort_declared_at: str,
+        assignment: dict,
+        state_root: Path,
+        expected_findings: list[dict] | None = None,
+        expected_completion_state: str | None = None,
+        legacy_completed_turn_id: str | None = None,
+    ) -> dict:
+        del cohort_declared_at, state_root
+        self.calls += 1
+        legacy = legacy_completed_turn_id is not None
+        native_thread_id = assignment.get("native_thread_id") or native_uuid7(
+            100 + self.calls
+        )
+        native_parent_thread_id = assignment.get("native_parent_thread_id") or NATIVE_PARENT
+        agent_path = assignment.get("agent_path") or assignment["thread_id"]
+        findings = list(
+            expected_findings if expected_findings is not None else self.findings
+        )
+        completion_state = expected_completion_state or "COMPLETED"
+        payload = {
+            "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "case_id": case_id,
+            "cohort_id": cohort_id,
+            "reviewer_id": assignment["reviewer_id"],
+            "reviewer_role": "review_child",
+            "thread_id": assignment["thread_id"],
+            "native_thread_id": native_thread_id,
+            "native_parent_thread_id": native_parent_thread_id,
+            "agent_path": agent_path,
+            "repository": assignment["repository"],
+            "reviewed_head": assignment["reviewed_head"],
+            "snapshot": assignment["snapshot"],
+            "scope": assignment["scope"],
+            "scope_sha256": assignment["scope_sha256"],
+            "completion_state": completion_state,
+            "findings": findings,
+            "finding_ids": [item["id"] for item in findings],
+        }
+        payload.update(self.overrides)
+        expected_values = {
+            "case_id": case_id,
+            "cohort_id": cohort_id,
+            "reviewer_id": assignment["reviewer_id"],
+            "reviewer_role": "review_child",
+            "thread_id": assignment["thread_id"],
+            "native_thread_id": native_thread_id,
+            "native_parent_thread_id": native_parent_thread_id,
+            "agent_path": agent_path,
+            "repository": assignment["repository"],
+            "reviewed_head": assignment["reviewed_head"],
+            "snapshot": assignment["snapshot"],
+            "scope": assignment["scope"],
+            "scope_sha256": assignment["scope_sha256"],
+        }
+        for field, expected in expected_values.items():
+            if payload.get(field) != expected:
+                raise engine.NativeReviewVerificationError(
+                    f"native completion {field} differs from the frozen assignment"
+                )
+        if hashlib.sha256(payload["scope"].encode("utf-8")).hexdigest() != payload["scope_sha256"]:
+            raise engine.NativeReviewVerificationError(
+                "native completion scope digest differs from the frozen assignment"
+            )
+        state = str(payload["completion_state"]).upper()
+        if state != "COMPLETED" and payload["findings"]:
+            raise engine.NativeReviewVerificationError(
+                "failed or incomplete native completion cannot report findings"
+            )
+        turn_id = native_uuid7(1000 + self.calls)
+        started_at = "2026-01-02T00:00:00Z"
+        completed_at = "2026-01-02T00:00:01Z"
+        evidence = hashlib.sha256(turn_id.encode("ascii")).hexdigest()
+        verification = {
+            "protocol_version": engine.NATIVE_VERIFICATION_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "status": "VERIFIED",
+            "mode": "legacy_attestation" if legacy else "native_submission",
+            "native_thread_id": native_thread_id,
+            "native_parent_thread_id": native_parent_thread_id,
+            "agent_path": agent_path,
+            "rollout_relative_path": f"sessions/2026/01/02/rollout-{native_thread_id}.jsonl",
+            "attestation_turn_id": turn_id,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "log_prefix_sha256": "1" * 64,
+            "last_agent_message_sha256": "2" * 64,
+            "evidence_sha256": evidence,
+        }
+        if legacy:
+            verification["legacy_completed_turn_id"] = legacy_completed_turn_id
+        verification["verification_sha256"] = engine.canonical_json_sha256(
+            verification
+        )
+        return {
+            "payload": {**payload, "completion_state": state},
+            "completed_turn_id": turn_id,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "native_completion_evidence_sha256": evidence,
+            "native_verification": verification,
+        }
 
 
 def request() -> str:
@@ -324,10 +454,38 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "--expected-revision",
                 str(revision),
             )
+            review_scope = "exact frozen parent-child acceptance candidate"
+            review_cohort = {
+                "protocol_version": engine.REVIEW_COHORT_PROTOCOL_VERSION,
+                "schema_version": 2,
+                "cohort_id": "parent-child-review-cohort",
+                "required_receipt": {
+                    "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                    "schema_version": 2,
+                },
+                "reviewers": [
+                    {
+                        "reviewer_id": "acceptance-reviewer",
+                        "reviewer_role": "review_child",
+                        "thread_id": reentry_thread,
+                        "native_thread_id": native_uuid7(70),
+                        "native_parent_thread_id": NATIVE_PARENT,
+                        "agent_path": reentry_thread,
+                        "repository": repository,
+                        "reviewed_head": head,
+                        "snapshot": child_handoff["snapshot"],
+                        "scope": review_scope,
+                        "scope_sha256": hashlib.sha256(review_scope.encode("utf-8")).hexdigest(),
+                        "required": True,
+                    }
+                ],
+            }
             review = cli(
                 "start-review",
                 "--case-id",
                 case_id,
+                "--cohort-json",
+                json.dumps(review_cohort),
                 "--request-id",
                 request(),
                 "--expected-revision",
@@ -353,6 +511,8 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "start-review",
                 "--case-id",
                 case_id,
+                "--cohort-json",
+                json.dumps(review_cohort),
                 "--request-id",
                 request(),
                 "--expected-revision",
@@ -360,6 +520,17 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 expected=2,
             )
             self.assertEqual(repeated_review["error"], "TransitionError")
+            fake_verifier = FakeNativeReviewVerifier()
+            fake_verifier.configure(findings=[])
+            completed_review = engine.CaseStore(
+                state_root,
+                review_completion_verifier=fake_verifier,
+            ).submit_review_completion(
+                case_id,
+                reviewer_id="acceptance-reviewer",
+                request_id=request(),
+                expected_revision=review["revision"],
+            )
             frozen_findings = cli(
                 "freeze-findings",
                 "--case-id",
@@ -367,7 +538,7 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "--request-id",
                 request(),
                 "--expected-revision",
-                str(review["revision"]),
+                str(completed_review["revision"]),
             )
             closed = cli(
                 "close-without-blockers",
@@ -389,8 +560,17 @@ class StoreCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos-case-state-")
         self.root = Path(self.temp.name)
-        self.store = engine.CaseStore(self.root)
+        self.native_verifier = FakeNativeReviewVerifier()
+        self.store = engine.CaseStore(
+            self.root,
+            review_completion_verifier=self.native_verifier,
+        )
         self.case_id = str(uuid.uuid4())
+        self.reviewer_id = "reviewer"
+        self.reviewer_thread = f"review-thread-{self.case_id}"
+        self.reviewer_native_thread = native_uuid7(2)
+        self.reviewer_native_parent = NATIVE_PARENT
+        self.review_scope = "exact frozen candidate review"
         self.case = self.store.register_case(
             self.case_id,
             objective="bounded review and repair",
@@ -406,6 +586,11 @@ class StoreCase(unittest.TestCase):
         return self.store.get_case(self.case_id)["revision"]
 
     def mutate(self, method: str, *args, **kwargs):
+        if method == "freeze_findings":
+            case = self.store.get_case(self.case_id)
+            review = case.get("review") or {}
+            if case["state"] == "REVIEW_COLLECTING" and self.reviewer_id not in review.get("receipts", {}):
+                self.submit_review_completion()
         kwargs.setdefault("request_id", request())
         kwargs.setdefault("expected_revision", self.revision)
         return getattr(self.store, method)(self.case_id, *args, **kwargs)
@@ -420,7 +605,63 @@ class StoreCase(unittest.TestCase):
 
     def begin_review(self) -> None:
         self.freeze_candidate()
-        self.mutate("start_review")
+        self.declare_review()
+
+    def review_cohort(self) -> dict:
+        case = self.store.get_case(self.case_id)
+        snapshot = dict(case["candidate"]["review_snapshots"][REPO])
+        snapshot.setdefault("head", case["candidate"]["review_heads"][REPO])
+        scope_sha256 = hashlib.sha256(self.review_scope.encode("utf-8")).hexdigest()
+        return {
+            "protocol_version": engine.REVIEW_COHORT_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "cohort_id": f"cohort-{self.case_id}",
+            "required_receipt": {
+                "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                "schema_version": 2,
+            },
+            "reviewers": [
+                {
+                    "reviewer_id": self.reviewer_id,
+                    "reviewer_role": "review_child",
+                    "thread_id": self.reviewer_thread,
+                    "native_thread_id": self.reviewer_native_thread,
+                    "native_parent_thread_id": self.reviewer_native_parent,
+                    "agent_path": self.reviewer_thread,
+                    "repository": REPO,
+                    "reviewed_head": case["candidate"]["review_heads"][REPO],
+                    "snapshot": snapshot,
+                    "scope": self.review_scope,
+                    "scope_sha256": scope_sha256,
+                    "required": True,
+                }
+            ],
+        }
+
+    def declare_review(self) -> dict:
+        case = self.store.get_case(self.case_id)
+        if self.reviewer_thread not in case["bindings"]["thread"]:
+            self.mutate("bind", kind="thread", value=self.reviewer_thread)
+        return self.mutate("start_review", cohort=self.review_cohort())
+
+    def submit_review_completion(self, **overrides) -> dict:
+        case = self.store.get_case(self.case_id)
+        reviewer_fields = (
+            "id", "candidate", "repo", "reviewed_sha", "source",
+            "description", "classification",
+        )
+        findings = sorted(
+            [
+                {field: item[field] for field in reviewer_fields}
+                for item in case["findings"]["items"]
+                if item["source"] == self.reviewer_id
+            ],
+            key=lambda item: item["id"],
+        )
+        self.native_verifier.configure(findings=findings, **overrides)
+        return self.mutate(
+            "submit_review_completion", reviewer_id=self.reviewer_id
+        )
 
     def add_blocker(self, finding_id: str = "F-001", reviewed_sha: str = SHA_A) -> dict:
         return self.mutate(
@@ -430,7 +671,7 @@ class StoreCase(unittest.TestCase):
                 "candidate": "candidate-1",
                 "repo": REPO,
                 "reviewed_sha": reviewed_sha,
-                "source": "independent-reviewer-1",
+                "source": self.reviewer_id,
                 "description": "Concrete blocker",
                 "classification": "CURRENT_BLOCKER",
             },
@@ -467,6 +708,34 @@ class StoreCase(unittest.TestCase):
             authorized_ids=["F-001"],
             snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
         )
+
+
+class RuntimeGenerationAttemptTests(StoreCase):
+    def test_attempt_claim_is_one_use_and_abort_terminally_locks(self) -> None:
+        self.mutate("start_implementation")
+        attempt = {
+            "protocol_version": engine.RUNTIME_GENERATION_ATTEMPT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "attempt_id": "controller-grant-one",
+            "grant_id": "grant-one",
+            "controller_spec_sha256": "9" * 64,
+        }
+        claimed = self.mutate("claim_runtime_generation_attempt", attempt=attempt)
+        self.assertEqual(claimed["status"], "CLAIMED")
+        claimed_revision = self.revision
+        with self.assertRaises(engine.LimitError):
+            self.mutate("claim_runtime_generation_attempt", attempt=attempt)
+        self.assertEqual(self.revision, claimed_revision)
+
+        aborted = self.mutate(
+            "abort_runtime_generation_attempt", attempt_id=attempt["attempt_id"]
+        )
+        self.assertEqual(aborted["status"], "ABORTED")
+        case = self.store.get_case(self.case_id)
+        self.assertEqual(case["state"], "CASE_LOCKED")
+        self.assertEqual(case["lock_reason"], "CONTROLLER_GENERATION_ABANDONED")
+        self.assertEqual(case["runtime_generation_attempt"]["status"], "ABORTED")
+        engine.CaseStore(self.root).get_case(self.case_id)
 
 
 class IdentityAndBindingTests(StoreCase):
@@ -719,7 +988,7 @@ class FiniteLifecycleTests(StoreCase):
 
     def test_only_documented_substantive_transitions_are_allowed(self) -> None:
         with self.assertRaisesRegex(engine.TransitionError, "REGISTERED"):
-            self.mutate("start_review")
+            self.mutate("start_review", cohort={})
         self.mutate("start_implementation")
         with self.assertRaisesRegex(engine.LimitError, "implementation generation"):
             self.mutate("start_implementation")
@@ -914,7 +1183,7 @@ class ClosureAndControlFailureTests(StoreCase):
 
         legacy = self.store.get_case(self.case_id)
         self.assertNotIn("head", legacy["candidate"]["review_snapshots"][REPO])
-        self.mutate("start_review")
+        self.declare_review()
         self.add_blocker()
         self.mutate("freeze_findings")
         self.mutate(
@@ -1613,8 +1882,51 @@ class ScopeAndAuthorityTests(StoreCase):
             expected_revision=target_revision,
         )
         target_revision += 1
+        target_reviewer_thread = f"review-thread-{target_id}"
+        self.store.bind(
+            target_id,
+            kind="thread",
+            value=target_reviewer_thread,
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        target_revision += 1
+        target_scope = "unrelated exact frozen candidate"
+        target_snapshot = lifecycle_snapshot(SHA_A, "3" * 64)
         self.store.start_review(
             target_id,
+            cohort={
+                "protocol_version": engine.REVIEW_COHORT_PROTOCOL_VERSION,
+                "schema_version": 2,
+                "cohort_id": f"cohort-{target_id}",
+                "required_receipt": {
+                    "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                    "schema_version": 2,
+                },
+                "reviewers": [
+                    {
+                        "reviewer_id": "unrelated-reviewer",
+                        "reviewer_role": "review_child",
+                        "thread_id": target_reviewer_thread,
+                        "native_thread_id": native_uuid7(50),
+                        "native_parent_thread_id": NATIVE_PARENT,
+                        "agent_path": target_reviewer_thread,
+                        "repository": OTHER_REPO,
+                        "reviewed_head": SHA_A,
+                        "snapshot": target_snapshot,
+                        "scope": target_scope,
+                        "scope_sha256": hashlib.sha256(target_scope.encode("utf-8")).hexdigest(),
+                        "required": True,
+                    }
+                ],
+            },
+            request_id=request(),
+            expected_revision=target_revision,
+        )
+        target_revision += 1
+        self.store.submit_review_completion(
+            target_id,
+            reviewer_id="unrelated-reviewer",
             request_id=request(),
             expected_revision=target_revision,
         )
@@ -1641,6 +1953,554 @@ class ScopeAndAuthorityTests(StoreCase):
         )
         self.assertEqual(result["reason_codes"], ["SEPARATE_AUTHORITY_REQUIRED"])
         self.assertEqual(result["blocked_case_id"], self.case_id)
+
+
+class ReviewReceiptTests(StoreCase):
+    def install_literal_v1_receipt(self) -> tuple[dict, dict]:
+        case = self.store.get_case(self.case_id)
+        assignment = case["review"]["cohort"]["reviewers"][0]
+        legacy_assignment = {
+            key: value
+            for key, value in assignment.items()
+            if key not in {
+                "native_thread_id", "native_parent_thread_id", "agent_path"
+            }
+        }
+        cohort_body = {
+            "protocol_version": "ccos-review-cohort-v1",
+            "schema_version": 1,
+            "cohort_id": case["review"]["cohort"]["cohort_id"],
+            "required_receipt": {
+                "protocol_version": "ccos-review-completion-v1",
+                "schema_version": 1,
+            },
+            "reviewers": [legacy_assignment],
+        }
+        cohort = {
+            **cohort_body,
+            "declared_at": case["review"]["cohort"]["declared_at"],
+            "cohort_sha256": engine.canonical_json_sha256(cohort_body),
+        }
+        finding_ids = sorted(
+            item["id"]
+            for item in case["findings"]["items"]
+            if item["source"] == self.reviewer_id
+        )
+        receipt_body = {
+            "protocol_version": "ccos-review-completion-v1",
+            "schema_version": 1,
+            "case_id": self.case_id,
+            "cohort_id": cohort["cohort_id"],
+            "reviewer_id": self.reviewer_id,
+            "reviewer_role": "review_child",
+            "thread_id": self.reviewer_thread,
+            "completed_turn_id": native_uuid7(90),
+            "repository": REPO,
+            "reviewed_head": assignment["reviewed_head"],
+            "snapshot": assignment["snapshot"],
+            "scope": assignment["scope"],
+            "scope_sha256": assignment["scope_sha256"],
+            "completion_state": "COMPLETED",
+            "finding_ids": finding_ids,
+            "completed_at": "2026-01-02T03:00:00+03:00",
+            "native_completion_evidence_sha256": "8" * 64,
+            "request_id": "literal-v1-review-receipt",
+            "recorded_at": "2026-01-02T00:00:01+00:00",
+        }
+        receipt = {
+            **receipt_body,
+            "receipt_sha256": engine.canonical_json_sha256(receipt_body),
+        }
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        persisted_case = persisted["cases"][self.case_id]
+        persisted_case["review"] = {
+            "cohort": cohort,
+            "receipts": {self.reviewer_id: receipt},
+        }
+        self.store.path.write_bytes(engine.serialized_store_bytes(persisted))
+        return cohort, receipt
+
+    def test_three_lane_cohort_requires_all_three_exact_receipts(self) -> None:
+        self.freeze_candidate()
+        case = self.store.get_case(self.case_id)
+        snapshot = dict(case["candidate"]["review_snapshots"][REPO])
+        lanes = ["correctness", "security", "verification"]
+        reviewers = []
+        for lane_index, lane in enumerate(lanes, start=10):
+            thread_id = f"review-{lane}-{self.case_id}"
+            self.mutate("bind", kind="thread", value=thread_id)
+            scope = f"{lane} lane over the exact frozen candidate"
+            reviewers.append(
+                {
+                    "reviewer_id": f"reviewer-{lane}",
+                    "reviewer_role": "review_child",
+                    "thread_id": thread_id,
+                    "native_thread_id": native_uuid7(lane_index),
+                    "native_parent_thread_id": NATIVE_PARENT,
+                    "agent_path": thread_id,
+                    "repository": REPO,
+                    "reviewed_head": SHA_A,
+                    "snapshot": snapshot,
+                    "scope": scope,
+                    "scope_sha256": hashlib.sha256(scope.encode("utf-8")).hexdigest(),
+                    "required": True,
+                }
+            )
+        cohort_id = f"three-lane-{self.case_id}"
+        self.mutate(
+            "start_review",
+            cohort={
+                "protocol_version": engine.REVIEW_COHORT_PROTOCOL_VERSION,
+                "schema_version": 2,
+                "cohort_id": cohort_id,
+                "required_receipt": {
+                    "protocol_version": engine.REVIEW_COMPLETION_PROTOCOL_VERSION,
+                    "schema_version": 2,
+                },
+                "reviewers": reviewers,
+            },
+        )
+        for index, assignment in enumerate(reviewers):
+            self.native_verifier.configure(findings=[])
+            self.mutate(
+                "submit_review_completion",
+                reviewer_id=assignment["reviewer_id"],
+            )
+            if index < 2:
+                before = self.store.get_case(self.case_id)
+                with self.assertRaisesRegex(engine.AuthorizationError, "missing required review receipts"):
+                    self.store.freeze_findings(
+                        self.case_id,
+                        request_id=request(),
+                        expected_revision=before["revision"],
+                    )
+                self.assertEqual(self.store.get_case(self.case_id), before)
+        frozen = self.store.freeze_findings(
+            self.case_id,
+            request_id=request(),
+            expected_revision=self.revision,
+        )
+        self.assertEqual(frozen["state"], "FINDINGS_FROZEN")
+        self.assertEqual(set(frozen["receipt_sha256s"]), {
+            "reviewer-correctness", "reviewer-security", "reviewer-verification"
+        })
+
+    def test_findings_cannot_freeze_until_exact_completion_receipt_arrives(self) -> None:
+        self.begin_review()
+        before = self.store.get_case(self.case_id)
+        with self.assertRaisesRegex(engine.AuthorizationError, "missing required review receipts"):
+            self.store.freeze_findings(
+                self.case_id,
+                request_id=request(),
+                expected_revision=before["revision"],
+            )
+        self.assertEqual(self.store.get_case(self.case_id), before)
+        receipt = self.submit_review_completion()
+        frozen = self.store.freeze_findings(
+            self.case_id,
+            request_id=request(),
+            expected_revision=receipt["revision"],
+        )
+        self.assertEqual(frozen["state"], "FINDINGS_FROZEN")
+        persisted = self.store.get_case(self.case_id)["review"]["receipts"][self.reviewer_id]
+        self.assertTrue(persisted["request_id"])
+        self.assertEqual(
+            persisted["receipt_sha256"],
+            engine.canonical_json_sha256(
+                {key: value for key, value in persisted.items() if key != "receipt_sha256"}
+            ),
+        )
+
+    def test_receipt_rejects_wrong_scope_and_wrong_scope_digest(self) -> None:
+        self.begin_review()
+        before = self.store.get_case(self.case_id)
+        with self.assertRaisesRegex(engine.AuthorizationError, "scope differs"):
+            self.submit_review_completion(scope="different scope")
+        self.assertEqual(self.store.get_case(self.case_id), before)
+        with self.assertRaisesRegex(engine.AuthorizationError, "scope_sha256 differs"):
+            self.submit_review_completion(scope_sha256="f" * 64)
+        self.assertEqual(self.store.get_case(self.case_id), before)
+
+    def test_incomplete_receipt_is_terminal_for_the_one_review_cohort(self) -> None:
+        self.begin_review()
+        receipt = self.submit_review_completion(completion_state="INCOMPLETE")
+        self.assertEqual(receipt["completion_state"], "INCOMPLETE")
+        with self.assertRaisesRegex(engine.AuthorizationError, "incomplete or failed"):
+            self.store.freeze_findings(
+                self.case_id,
+                request_id=request(),
+                expected_revision=receipt["revision"],
+            )
+        with self.assertRaisesRegex(engine.ConflictError, "already submitted"):
+            self.submit_review_completion()
+
+    def test_schema_two_legacy_case_reads_without_backfill_or_write(self) -> None:
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        legacy_case = persisted["cases"][self.case_id]
+        legacy_case.pop("review")
+        legacy_case.pop("runtime")
+        legacy_case.pop("terminal_quarantine")
+        legacy_case.pop("runtime_generation_abort")
+        self.store.path.write_text(json.dumps(persisted, sort_keys=True), encoding="utf-8")
+        before = self.store.path.read_bytes()
+        loaded = self.store.get_case(self.case_id)
+        self.assertNotIn("review", loaded)
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_literal_v1_receipt_loads_unchanged_and_remains_unverified(self) -> None:
+        self.begin_review()
+        cohort, receipt = self.install_literal_v1_receipt()
+        before = self.store.path.read_bytes()
+        loaded = self.store.get_case(self.case_id)
+        self.assertEqual(loaded["review"]["cohort"], cohort)
+        self.assertEqual(loaded["review"]["receipts"][self.reviewer_id], receipt)
+        self.assertEqual(
+            engine._unverified_review_receipt_ids(loaded), [self.reviewer_id]
+        )
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_v1_attestation_preserves_receipt_and_cohort_hashes(self) -> None:
+        self.begin_review()
+        cohort, receipt = self.install_literal_v1_receipt()
+        result = self.mutate(
+            "attest_existing_review_completion",
+            reviewer_id=self.reviewer_id,
+        )
+        loaded = self.store.get_case(self.case_id)
+        attested = loaded["review"]["receipts"][self.reviewer_id]
+        self.assertEqual(loaded["review"]["cohort"], cohort)
+        self.assertEqual(attested["receipt_sha256"], receipt["receipt_sha256"])
+        self.assertEqual(
+            {key: value for key, value in attested.items() if key != "native_verification"},
+            receipt,
+        )
+        self.assertEqual(result["receipt_sha256"], receipt["receipt_sha256"])
+        self.assertEqual(engine._unverified_review_receipt_ids(loaded), [])
+
+    def test_verification_mode_is_bound_to_receipt_protocol(self) -> None:
+        self.begin_review()
+        assignment = self.store.get_case(self.case_id)["review"]["cohort"]["reviewers"][0]
+        self.native_verifier.configure(findings=[])
+        native = self.native_verifier(
+            case_id=self.case_id,
+            cohort_id=f"cohort-{self.case_id}",
+            cohort_declared_at="2026-01-01T00:00:00Z",
+            assignment=assignment,
+            state_root=self.root,
+        )["native_verification"]
+        legacy_assignment = {
+            key: value
+            for key, value in assignment.items()
+            if key not in {"native_thread_id", "native_parent_thread_id", "agent_path"}
+        }
+        legacy = self.native_verifier(
+            case_id=self.case_id,
+            cohort_id=f"cohort-{self.case_id}",
+            cohort_declared_at="2026-01-01T00:00:00Z",
+            assignment=legacy_assignment,
+            state_root=self.root,
+            expected_findings=[],
+            expected_completion_state="COMPLETED",
+            legacy_completed_turn_id=native_uuid7(91),
+        )["native_verification"]
+        legacy.pop("verification_sha256")
+        legacy["legacy_receipt_sha256"] = "9" * 64
+        legacy["verification_sha256"] = engine.canonical_json_sha256(legacy)
+        self.assertFalse(
+            engine._native_verification_is_valid(native, legacy_receipt_sha256="9" * 64)
+        )
+        self.assertFalse(engine._native_verification_is_valid(legacy))
+
+    def test_unverified_v1_receipt_blocks_freeze_and_closure_boundaries(self) -> None:
+        self.begin_review()
+        self.install_literal_v1_receipt()
+        with self.assertRaisesRegex(engine.AuthorizationError, "verified native"):
+            self.mutate("freeze_findings")
+        self.mutate(
+            "attest_existing_review_completion",
+            reviewer_id=self.reviewer_id,
+        )
+        self.mutate("freeze_findings")
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        persisted["cases"][self.case_id]["review"]["receipts"][self.reviewer_id].pop(
+            "native_verification"
+        )
+        self.store.path.write_bytes(engine.serialized_store_bytes(persisted))
+        with self.assertRaisesRegex(engine.AuthorizationError, "verified native"):
+            self.mutate("close_without_blockers")
+
+    def test_historical_closed_case_without_cohort_is_not_retroactively_bricked(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate(
+            "bind", kind="branch", value="codex/historical-publish", repository=REPO
+        )
+        self.begin_review()
+        self.mutate("freeze_findings")
+        self.mutate("close_without_blockers")
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        persisted["cases"][self.case_id]["review"] = {
+            "cohort": None,
+            "receipts": {},
+        }
+        self.store.path.write_bytes(engine.serialized_store_bytes(persisted))
+        case = self.store.get_case(self.case_id)
+        self.assertEqual(engine._unverified_review_receipt_ids(case), [])
+        action = self.store.check_action(
+            self.case_id,
+            "publication",
+            actor_role="publication_child",
+            repository=REPO,
+            branch="codex/historical-publish",
+            head=SHA_A,
+        )
+        self.assertTrue(action["allowed"])
+
+    def test_unverified_v1_receipt_blocks_closure_preflight_and_publication(self) -> None:
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate(
+            "bind", kind="branch", value="codex/review-publish", repository=REPO
+        )
+        self.begin_review()
+        self.add_blocker()
+        self.install_literal_v1_receipt()
+        self.mutate(
+            "attest_existing_review_completion",
+            reviewer_id=self.reviewer_id,
+        )
+        self.mutate("freeze_findings")
+        self.mutate(
+            "authorize_repair",
+            finding_ids=["F-001"],
+            authority={
+                "authority_id": "repair-v1",
+                "source": "test-owner",
+                "authorized_by": "owner",
+                "scope": "exact frozen blocker",
+            },
+        )
+        self.mutate(
+            "complete_repair",
+            heads={REPO: SHA_B},
+            snapshots={REPO: lifecycle_snapshot(SHA_B, "2" * 64)},
+            addressed_ids=["F-001"],
+        )
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        persisted["cases"][self.case_id]["review"]["receipts"][self.reviewer_id].pop(
+            "native_verification"
+        )
+        self.store.path.write_bytes(engine.serialized_store_bytes(persisted))
+        with self.assertRaisesRegex(engine.AuthorizationError, "verified native"):
+            self.mutate("start_closure_preflight")
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        persisted["cases"][self.case_id]["state"] = "CLOSED_SUCCESS"
+        self.store.path.write_bytes(engine.serialized_store_bytes(persisted))
+        action = self.store.check_action(
+            self.case_id,
+            "publication",
+            actor_role="publication_child",
+            repository=REPO,
+            branch="codex/review-publish",
+            head=SHA_B,
+        )
+        self.assertEqual(action["reason_codes"], ["REVIEW_RECEIPTS_UNVERIFIED"])
+
+
+class TerminalQuarantineTests(StoreCase):
+    def close_case(self) -> dict:
+        self.begin_review()
+        self.mutate("freeze_findings")
+        self.mutate("close_without_blockers")
+        return self.store.get_case(self.case_id)
+
+    def authority(self) -> dict:
+        return {
+            "authority_id": "owner-quarantine-authorization",
+            "source": "explicit-human-instruction",
+            "authorized_by": "human-owner",
+            "scope": f"lock erroneous closure for exact case {self.case_id}",
+            "case_id": self.case_id,
+            "operation": "quarantine-terminal",
+            "expected_state": "CLOSED_SUCCESS",
+        }
+
+    @staticmethod
+    def evidence(*, published: bool = False) -> dict:
+        return {
+            "reason_code": "ERRONEOUS_TERMINAL_CLOSURE",
+            "evidence_reference": "local acceptance evidence bundle",
+            "evidence_sha256": "6" * 64,
+            "externally_published": published,
+        }
+
+    def test_exact_terminal_quarantine_preserves_limits_and_writes_backup_and_audit(self) -> None:
+        closed = self.close_case()
+        pre_bytes = self.store.path.read_bytes()
+        req = request()
+        result = self.store.quarantine_terminal(
+            self.case_id,
+            expected_state="CLOSED_SUCCESS",
+            expected_record_sha256=engine.case_record_sha256(closed),
+            authority=self.authority(),
+            evidence=self.evidence(published=True),
+            request_id=req,
+            expected_revision=closed["revision"],
+        )
+        self.assertEqual(result["state"], "CASE_LOCKED")
+        self.assertTrue(result["external_reconciliation_required"])
+        locked = self.store.get_case(self.case_id)
+        self.assertEqual(locked["limits"], closed["limits"])
+        self.assertIsNone(locked["resumable_state"])
+        backup = self.root / result["backup_path"]
+        self.assertEqual(backup.read_bytes(), pre_bytes)
+        self.assertEqual(engine.file_sha256(backup), result["pre_store_sha256"])
+        audit = self.store._quarantine_audit_records_unlocked()
+        self.assertEqual([record["phase"] for record in audit], ["PREPARED", "COMMITTED"])
+        replay = self.store.quarantine_terminal(
+            self.case_id,
+            expected_state="CLOSED_SUCCESS",
+            expected_record_sha256=engine.case_record_sha256(closed),
+            authority=self.authority(),
+            evidence=self.evidence(published=True),
+            request_id=req,
+            expected_revision=closed["revision"],
+        )
+        self.assertTrue(replay["idempotent"])
+        self.assertEqual(len(self.store._quarantine_audit_records_unlocked()), 2)
+
+    def test_quarantine_rejects_wrong_hash_revision_authority_and_nonterminal_state(self) -> None:
+        with self.assertRaisesRegex(engine.TransitionError, "CLOSED_SUCCESS"):
+            self.store.quarantine_terminal(
+                self.case_id,
+                expected_state="CLOSED_SUCCESS",
+                expected_record_sha256=engine.case_record_sha256(
+                    self.store.get_case(self.case_id)
+                ),
+                authority=self.authority(),
+                evidence=self.evidence(),
+                request_id=request(),
+                expected_revision=self.revision,
+            )
+        closed = self.close_case()
+        before = self.store.path.read_bytes()
+        with self.assertRaisesRegex(engine.RevisionConflict, "expected revision"):
+            self.store.quarantine_terminal(
+                self.case_id,
+                expected_state="CLOSED_SUCCESS",
+                expected_record_sha256=engine.case_record_sha256(closed),
+                authority=self.authority(),
+                evidence=self.evidence(),
+                request_id=request(),
+                expected_revision=closed["revision"] - 1,
+            )
+        with self.assertRaisesRegex(engine.RevisionConflict, "record hash"):
+            self.store.quarantine_terminal(
+                self.case_id,
+                expected_state="CLOSED_SUCCESS",
+                expected_record_sha256="0" * 64,
+                authority=self.authority(),
+                evidence=self.evidence(),
+                request_id=request(),
+                expected_revision=closed["revision"],
+            )
+        wrong = self.authority()
+        wrong["case_id"] = str(uuid.uuid4())
+        with self.assertRaises(engine.AuthorizationError):
+            self.store.quarantine_terminal(
+                self.case_id,
+                expected_state="CLOSED_SUCCESS",
+                expected_record_sha256=engine.case_record_sha256(closed),
+                authority=wrong,
+                evidence=self.evidence(),
+                request_id=request(),
+                expected_revision=closed["revision"],
+            )
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_quarantine_recovers_crash_after_prepared_before_store_write(self) -> None:
+        closed = self.close_case()
+        req = request()
+        original_bytes = self.store.path.read_bytes()
+        with mock.patch.object(
+            self.store,
+            "_write_unlocked",
+            side_effect=RuntimeError("crash after PREPARED"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "after PREPARED"):
+                self.store.quarantine_terminal(
+                    self.case_id,
+                    expected_state="CLOSED_SUCCESS",
+                    expected_record_sha256=engine.case_record_sha256(closed),
+                    authority=self.authority(),
+                    evidence=self.evidence(),
+                    request_id=req,
+                    expected_revision=closed["revision"],
+                )
+        self.assertEqual(self.store.path.read_bytes(), original_bytes)
+        self.assertEqual(
+            [item["phase"] for item in self.store._quarantine_audit_records_unlocked()],
+            ["PREPARED"],
+        )
+        recovered = self.store.quarantine_terminal(
+            self.case_id,
+            expected_state="CLOSED_SUCCESS",
+            expected_record_sha256=engine.case_record_sha256(closed),
+            authority=self.authority(),
+            evidence=self.evidence(),
+            request_id=req,
+            expected_revision=closed["revision"],
+        )
+        self.assertEqual(recovered["state"], "CASE_LOCKED")
+        locked = self.store.get_case(self.case_id)
+        self.assertEqual(locked["limits"], closed["limits"])
+        self.assertEqual(
+            [item["phase"] for item in self.store._quarantine_audit_records_unlocked()],
+            ["PREPARED", "COMMITTED"],
+        )
+
+    def test_quarantine_recovers_crash_after_store_write_before_committed(self) -> None:
+        closed = self.close_case()
+        req = request()
+        original_append = self.store._append_quarantine_audit_unlocked
+
+        def crash_before_committed(body, prior_records):
+            if body.get("phase") == "COMMITTED":
+                raise RuntimeError("crash before COMMITTED")
+            return original_append(body, prior_records)
+
+        with mock.patch.object(
+            self.store,
+            "_append_quarantine_audit_unlocked",
+            side_effect=crash_before_committed,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "before COMMITTED"):
+                self.store.quarantine_terminal(
+                    self.case_id,
+                    expected_state="CLOSED_SUCCESS",
+                    expected_record_sha256=engine.case_record_sha256(closed),
+                    authority=self.authority(),
+                    evidence=self.evidence(),
+                    request_id=req,
+                    expected_revision=closed["revision"],
+                )
+        self.assertEqual(self.store.get_case(self.case_id)["state"], "CASE_LOCKED")
+        self.assertEqual(
+            [item["phase"] for item in self.store._quarantine_audit_records_unlocked()],
+            ["PREPARED"],
+        )
+        recovered = self.store.quarantine_terminal(
+            self.case_id,
+            expected_state="CLOSED_SUCCESS",
+            expected_record_sha256=engine.case_record_sha256(closed),
+            authority=self.authority(),
+            evidence=self.evidence(),
+            request_id=req,
+            expected_revision=closed["revision"],
+        )
+        self.assertTrue(recovered["idempotent"])
+        self.assertEqual(self.store.get_case(self.case_id)["limits"], closed["limits"])
+        audit = self.store._quarantine_audit_records_unlocked()
+        self.assertEqual([item["phase"] for item in audit], ["PREPARED", "COMMITTED"])
+        self.assertTrue(audit[-1]["recovered"])
 
 
 class SnapshotTests(unittest.TestCase):

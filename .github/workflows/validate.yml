@@ -48,6 +48,15 @@ jobs:
         shell: pwsh
         run: python -B .\tests\test_case_state_engine.py
 
+      - name: Test proposal-only controller and brokered action boundary
+        shell: pwsh
+        run: |
+          python -B .\tests\test_case_review_completion_verifier.py
+          python -B .\tests\test_case_app_server_controller.py
+          python -B .\tests\test_case_runtime_supervisor.py
+          python -B .\tests\test_case_runtime_broker.py
+          python -B .\tests\test_case_proposal_action_grant.py
+
       - name: Smoke test workflow gates
         shell: pwsh
         run: python .\tests\workflow-gates-smoke.py
@@ -122,3 +131,7 @@ jobs:
           python -B ./tests/test_source_repository_profile.py
           python -B ./tests/test_validation_evidence.py
           python -B ./tests/test_reentry_summary.py
+          python -B ./tests/test_case_app_server_controller.py
+          python -B ./tests/test_case_runtime_supervisor.py
+          python -B ./tests/test_case_runtime_broker.py
+          python -B ./tests/test_case_proposal_action_grant.py

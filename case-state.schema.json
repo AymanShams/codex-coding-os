@@ -122,6 +122,382 @@
         "operational_retries": { "type": "integer", "minimum": 0, "maximum": 1 }
       }
     },
+    "nativeUuid7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "reviewAssignmentV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_id", "reviewer_role", "thread_id", "repository",
+        "reviewed_head", "snapshot", "scope", "scope_sha256", "required"
+      ],
+      "properties": {
+        "reviewer_id": { "type": "string", "minLength": 1 },
+        "reviewer_role": { "const": "review_child" },
+        "thread_id": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "reviewed_head": { "$ref": "#/$defs/sha" },
+        "snapshot": {
+          "oneOf": [
+            { "$ref": "#/$defs/snapshot" },
+            { "$ref": "#/$defs/legacyReviewSnapshot" }
+          ]
+        },
+        "scope": { "type": "string", "minLength": 1 },
+        "scope_sha256": { "$ref": "#/$defs/digest" },
+        "required": { "const": true }
+      }
+    },
+    "reviewAssignmentV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_id", "reviewer_role", "thread_id", "native_thread_id",
+        "native_parent_thread_id", "agent_path", "repository", "reviewed_head",
+        "snapshot", "scope", "scope_sha256", "required"
+      ],
+      "properties": {
+        "reviewer_id": { "type": "string", "minLength": 1 },
+        "reviewer_role": { "const": "review_child" },
+        "thread_id": { "type": "string", "minLength": 1 },
+        "native_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "native_parent_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "agent_path": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "reviewed_head": { "$ref": "#/$defs/sha" },
+        "snapshot": { "$ref": "#/$defs/snapshot" },
+        "scope": { "type": "string", "minLength": 1 },
+        "scope_sha256": { "$ref": "#/$defs/digest" },
+        "required": { "const": true }
+      }
+    },
+    "reviewCohortV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version", "schema_version", "cohort_id", "required_receipt",
+        "reviewers", "declared_at", "cohort_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-review-cohort-v1" },
+        "schema_version": { "const": 1 },
+        "cohort_id": { "type": "string", "minLength": 1 },
+        "required_receipt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["protocol_version", "schema_version"],
+          "properties": {
+            "protocol_version": { "const": "ccos-review-completion-v1" },
+            "schema_version": { "const": 1 }
+          }
+        },
+        "reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/reviewAssignmentV1" }
+        },
+        "declared_at": { "type": "string", "minLength": 1 },
+        "cohort_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "reviewCohortV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version", "schema_version", "cohort_id", "required_receipt",
+        "reviewers", "declared_at", "cohort_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-review-cohort-v2" },
+        "schema_version": { "const": 2 },
+        "cohort_id": { "type": "string", "minLength": 1 },
+        "required_receipt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["protocol_version", "schema_version"],
+          "properties": {
+            "protocol_version": { "const": "ccos-review-completion-v2" },
+            "schema_version": { "const": 2 }
+          }
+        },
+        "reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/reviewAssignmentV2" }
+        },
+        "declared_at": { "type": "string", "minLength": 1 },
+        "cohort_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "nativeReviewVerificationSubmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version", "schema_version", "status", "mode", "native_thread_id",
+        "native_parent_thread_id", "agent_path", "rollout_relative_path",
+        "attestation_turn_id", "started_at", "completed_at", "log_prefix_sha256",
+        "last_agent_message_sha256", "evidence_sha256", "verification_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-review-native-verification-v1" },
+        "schema_version": { "const": 1 },
+        "status": { "const": "VERIFIED" },
+        "mode": { "const": "native_submission" },
+        "native_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "native_parent_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "agent_path": { "type": "string", "minLength": 1 },
+        "rollout_relative_path": { "type": "string", "minLength": 1 },
+        "attestation_turn_id": { "$ref": "#/$defs/nativeUuid7" },
+        "started_at": { "type": "string", "minLength": 1 },
+        "completed_at": { "type": "string", "minLength": 1 },
+        "log_prefix_sha256": { "$ref": "#/$defs/digest" },
+        "last_agent_message_sha256": { "$ref": "#/$defs/digest" },
+        "evidence_sha256": { "$ref": "#/$defs/digest" },
+        "verification_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "nativeReviewVerificationLegacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version", "schema_version", "status", "mode", "native_thread_id",
+        "native_parent_thread_id", "agent_path", "rollout_relative_path",
+        "attestation_turn_id", "legacy_completed_turn_id", "started_at", "completed_at",
+        "log_prefix_sha256", "last_agent_message_sha256", "evidence_sha256",
+        "legacy_receipt_sha256", "verification_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-review-native-verification-v1" },
+        "schema_version": { "const": 1 },
+        "status": { "const": "VERIFIED" },
+        "mode": { "const": "legacy_attestation" },
+        "native_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "native_parent_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "agent_path": { "type": "string", "minLength": 1 },
+        "rollout_relative_path": { "type": "string", "minLength": 1 },
+        "attestation_turn_id": { "$ref": "#/$defs/nativeUuid7" },
+        "legacy_completed_turn_id": { "$ref": "#/$defs/nativeUuid7" },
+        "started_at": { "type": "string", "minLength": 1 },
+        "completed_at": { "type": "string", "minLength": 1 },
+        "log_prefix_sha256": { "$ref": "#/$defs/digest" },
+        "last_agent_message_sha256": { "$ref": "#/$defs/digest" },
+        "evidence_sha256": { "$ref": "#/$defs/digest" },
+        "legacy_receipt_sha256": { "$ref": "#/$defs/digest" },
+        "verification_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "reviewCompletionV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version", "schema_version", "case_id", "cohort_id", "reviewer_id",
+        "reviewer_role", "thread_id", "completed_turn_id", "repository", "reviewed_head",
+        "snapshot", "scope", "scope_sha256", "completion_state", "finding_ids",
+        "completed_at", "native_completion_evidence_sha256", "request_id", "recorded_at",
+        "receipt_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-review-completion-v1" },
+        "schema_version": { "const": 1 },
+        "case_id": { "$ref": "#/$defs/caseId" },
+        "cohort_id": { "type": "string", "minLength": 1 },
+        "reviewer_id": { "type": "string", "minLength": 1 },
+        "reviewer_role": { "const": "review_child" },
+        "thread_id": { "type": "string", "minLength": 1 },
+        "completed_turn_id": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "reviewed_head": { "$ref": "#/$defs/sha" },
+        "snapshot": {
+          "oneOf": [
+            { "$ref": "#/$defs/snapshot" },
+            { "$ref": "#/$defs/legacyReviewSnapshot" }
+          ]
+        },
+        "scope": { "type": "string", "minLength": 1 },
+        "scope_sha256": { "$ref": "#/$defs/digest" },
+        "completion_state": { "enum": ["COMPLETED", "FAILED", "INCOMPLETE"] },
+        "finding_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "completed_at": { "type": "string", "minLength": 1 },
+        "native_completion_evidence_sha256": { "$ref": "#/$defs/digest" },
+        "request_id": { "type": "string", "minLength": 1 },
+        "recorded_at": { "type": "string", "minLength": 1 },
+        "receipt_sha256": { "$ref": "#/$defs/digest" },
+        "native_verification": { "$ref": "#/$defs/nativeReviewVerificationLegacy" }
+      }
+    },
+    "reviewCompletionV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version", "schema_version", "case_id", "cohort_id", "reviewer_id",
+        "reviewer_role", "thread_id", "native_thread_id", "native_parent_thread_id",
+        "agent_path", "completed_turn_id", "started_at", "repository", "reviewed_head",
+        "snapshot", "scope", "scope_sha256", "completion_state", "finding_ids",
+        "completed_at", "native_completion_evidence_sha256", "native_verification",
+        "request_id", "recorded_at", "receipt_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-review-completion-v2" },
+        "schema_version": { "const": 2 },
+        "case_id": { "$ref": "#/$defs/caseId" },
+        "cohort_id": { "type": "string", "minLength": 1 },
+        "reviewer_id": { "type": "string", "minLength": 1 },
+        "reviewer_role": { "const": "review_child" },
+        "thread_id": { "type": "string", "minLength": 1 },
+        "native_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "native_parent_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "agent_path": { "type": "string", "minLength": 1 },
+        "completed_turn_id": { "$ref": "#/$defs/nativeUuid7" },
+        "started_at": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "reviewed_head": { "$ref": "#/$defs/sha" },
+        "snapshot": { "$ref": "#/$defs/snapshot" },
+        "scope": { "type": "string", "minLength": 1 },
+        "scope_sha256": { "$ref": "#/$defs/digest" },
+        "completion_state": { "enum": ["COMPLETED", "FAILED", "INCOMPLETE"] },
+        "finding_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "completed_at": { "type": "string", "minLength": 1 },
+        "native_completion_evidence_sha256": { "$ref": "#/$defs/digest" },
+        "native_verification": { "$ref": "#/$defs/nativeReviewVerificationSubmission" },
+        "request_id": { "type": "string", "minLength": 1 },
+        "recorded_at": { "type": "string", "minLength": 1 },
+        "receipt_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "reviewControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cohort", "receipts"],
+      "properties": {
+        "cohort": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/reviewCohortV1" },
+            { "$ref": "#/$defs/reviewCohortV2" }
+          ]
+        },
+        "receipts": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "$ref": "#/$defs/reviewCompletionV1" },
+              { "$ref": "#/$defs/reviewCompletionV2" }
+            ]
+          }
+        }
+      }
+    },
+    "runtimeControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actors", "action_grants"],
+      "properties": {
+        "actors": { "type": "object", "additionalProperties": { "type": "object" } },
+        "action_grants": {
+          "type": "object",
+          "maxProperties": 1,
+          "additionalProperties": { "type": "object" }
+        }
+      }
+    },
+    "terminalQuarantine": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": [
+            "protocol_version",
+            "schema_version",
+            "request_id",
+            "prior_state",
+            "prior_revision",
+            "prior_record_sha256",
+            "backup_path",
+            "backup_sha256",
+            "record_sha256"
+          ],
+          "properties": {
+            "protocol_version": { "const": "ccos-terminal-quarantine-v1" },
+            "schema_version": { "const": 1 },
+            "request_id": { "type": "string", "minLength": 1 },
+            "prior_state": { "const": "CLOSED_SUCCESS" },
+            "prior_revision": { "type": "integer", "minimum": 1 },
+            "prior_record_sha256": { "$ref": "#/$defs/digest" },
+            "backup_path": { "type": "string", "minLength": 1 },
+            "backup_sha256": { "$ref": "#/$defs/digest" },
+            "record_sha256": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "runtimeGenerationAbort": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "protocol_version",
+            "schema_version",
+            "grant_id",
+            "snapshot_event_sha256",
+            "lockdown_intent_event_sha256",
+            "acl_restored_event_sha256",
+            "reason_code",
+            "aborted_at",
+            "record_sha256"
+          ],
+          "properties": {
+            "protocol_version": { "const": "ccos-preissue-generation-abort-v1" },
+            "schema_version": { "const": 1 },
+            "grant_id": { "type": "string", "minLength": 1 },
+            "snapshot_event_sha256": { "$ref": "#/$defs/digest" },
+            "lockdown_intent_event_sha256": { "$ref": "#/$defs/digest" },
+            "acl_restored_event_sha256": { "$ref": "#/$defs/digest" },
+            "reason_code": { "const": "PREISSUE_GENERATION_ABANDONED" },
+            "aborted_at": { "type": "string", "minLength": 1 },
+            "record_sha256": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "runtimeGenerationAttempt": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "protocol_version",
+            "schema_version",
+            "attempt_id",
+            "grant_id",
+            "controller_spec_sha256",
+            "status",
+            "claimed_at",
+            "finalized_at",
+            "abort_reason_code",
+            "record_sha256"
+          ],
+          "properties": {
+            "protocol_version": { "const": "ccos-runtime-generation-attempt-v1" },
+            "schema_version": { "const": 1 },
+            "attempt_id": { "type": "string", "minLength": 1 },
+            "grant_id": { "type": "string", "minLength": 1 },
+            "controller_spec_sha256": { "$ref": "#/$defs/digest" },
+            "status": { "enum": ["CLAIMED", "GRANT_ISSUED", "ABORTED"] },
+            "claimed_at": { "type": "string", "minLength": 1 },
+            "finalized_at": { "type": ["string", "null"] },
+            "abort_reason_code": {
+              "enum": [null, "CONTROLLER_GENERATION_ABANDONED"]
+            },
+            "record_sha256": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
     "case": {
       "type": "object",
       "additionalProperties": false,
@@ -171,10 +547,15 @@
         "bindings": { "$ref": "#/$defs/caseBindings" },
         "limits": { "$ref": "#/$defs/limits" },
         "candidate": { "$ref": "#/$defs/candidate" },
+        "review": { "$ref": "#/$defs/reviewControl" },
         "findings": { "type": "object" },
         "repair": { "type": "object" },
         "closure": { "type": "object" },
         "control": { "type": "object" },
+        "runtime": { "$ref": "#/$defs/runtimeControl" },
+        "runtime_generation_attempt": { "$ref": "#/$defs/runtimeGenerationAttempt" },
+        "terminal_quarantine": { "$ref": "#/$defs/terminalQuarantine" },
+        "runtime_generation_abort": { "$ref": "#/$defs/runtimeGenerationAbort" },
         "lock_reason": { "type": ["string", "null"] },
         "events": { "type": "object" }
       }
