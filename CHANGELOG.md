@@ -24,6 +24,8 @@ All notable package changes are recorded here. The authoritative package release
   initial/restart controller evidence sealed only after both process trees close.
 - Added the actorless `ccos-proposal-action-grant-v2` protocol and one-shot
   proposal broker entrypoint for one exact revision-bound replacement.
+- Added durable idea-level attribution for community feedback that informed the
+  material-decision record and scope-creep review patterns.
 
 ### Changed
 
