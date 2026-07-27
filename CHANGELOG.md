@@ -4,6 +4,8 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-27
+
 ### Added
 
 - Added immutable declared review cohorts and exact reviewer completion receipts
@@ -26,30 +28,6 @@ All notable package changes are recorded here. The authoritative package release
   proposal broker entrypoint for one exact revision-bound replacement.
 - Added durable idea-level attribution for community feedback that informed the
   material-decision record and scope-creep review patterns.
-
-### Changed
-
-- Rebuilt the public README around the current source-of-truth hierarchy,
-  operating philosophy, finite case and runtime specifications, platform
-  status, package inventory, and the complete pull request history from 2
-  through 31.
-- Blocked every unrelated canonical mutation while a runtime grant is issued or
-  claimed, without advancing the case revision.
-- Sanitized and pinned Git, PowerShell, App Server, and identity helper launches
-  so controller keys and user credentials do not flow into child environments.
-- Clarified that native App Server identity is evidence only and that the
-  initial broker is a narrow feasibility primitive, not general coding
-  authority.
-- Replaced App Server, role, thread, turn, approval, and controller-HMAC
-  production authorization with an exact canonical capability over the case,
-  repository, head, path, baseline, proposal bytes, broker SID, and expiry.
-- Disabled new v1 runtime-grant issuance while preserving bounded recovery of
-  already persisted v1 grants.
-
-## [0.9.0] - 2026-07-17
-
-### Added
-
 - Added strict product and Coding OS source repository profiles with fail-closed
   automatic detection and embedded, asset, and generated-template parity tests.
 - Added a standard-library typed JSON validation-evidence schema, inert validator,
@@ -69,6 +47,22 @@ All notable package changes are recorded here. The authoritative package release
 
 ### Changed
 
+- Rebuilt the public README around the current source-of-truth hierarchy,
+  operating philosophy, finite case and runtime specifications, platform
+  status, package inventory, and the complete pull request history from 2
+  through 31.
+- Blocked every unrelated canonical mutation while a runtime grant is issued or
+  claimed, without advancing the case revision.
+- Sanitized and pinned Git, PowerShell, App Server, and identity helper launches
+  so controller keys and user credentials do not flow into child environments.
+- Clarified that native App Server identity is evidence only and that the
+  initial broker is a narrow feasibility primitive, not general coding
+  authority.
+- Replaced App Server, role, thread, turn, approval, and controller-HMAC
+  production authorization with an exact canonical capability over the case,
+  repository, head, path, baseline, proposal bytes, broker SID, and expiry.
+- Disabled new v1 runtime-grant issuance while preserving bounded recovery of
+  already persisted v1 grants.
 - Made the canonical case-state engine the sole lifecycle authority. Continuity,
   review collectors, comments, prose, manifests, handoffs, and validation evidence
   now report facts without authorizing a repair, closure, or reopen transition.
@@ -84,6 +78,12 @@ All notable package changes are recorded here. The authoritative package release
 - Made Git-tracked snapshots the sole lifecycle snapshot authority. Ignored
   review metadata, caches, and dependency folders cannot change a frozen
   candidate, while dirty tracked or nonignored untracked files fail closed.
+
+### Fixed
+
+- Fixed proposal-action grant fixtures to use an existing synthetic Windows root
+  on every test host, eliminating POSIX path-resolution failures without changing
+  runtime checks.
 
 ### Removed
 

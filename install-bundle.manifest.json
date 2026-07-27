@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "a028add1e192ea02ebc3193aa15ce736472dfb2cc24c51ead0f4a05b468292ba",
+  "aggregate_sha256": "8a07b1495becac43336a1b1670e33174c7b124889b1478bb9a5acd845928500a",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2138,8 +2138,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "bb57bf8516b5261d446a13bfd7379b72219f55bf6c72fb77ac026d9b0aa469d8",
-      "size": 13763
+      "sha256": "b679fab3a5702b1c8db94283e7cc0fd78bec5417ef3f47cef2350e31b8bc36b5",
+      "size": 13930
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2613,8 +2613,8 @@
     },
     {
       "path": "tests/test_case_proposal_action_grant.py",
-      "sha256": "c5fc0aaae43aed34aec4e306e0e026066b3d92f827eebb96c7d60388a8c86677",
-      "size": 96997
+      "sha256": "9c7267155503a4bca70633018af93e4b7c6b9c39b5090d6058ef96d7dcf28e26",
+      "size": 97728
     },
     {
       "path": "tests/test_case_review_completion_verifier.py",
