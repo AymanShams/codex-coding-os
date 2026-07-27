@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "7ef0b46aa75c2e2b43509c69cca301b1e9e83b7f7d1ae2ac179bc8d21528c88e",
+  "aggregate_sha256": "36ae914b10b9664c4d5dc0486578622e13ce65bd74ed2dce1bd901daf0eb395d",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -88,8 +88,8 @@
     },
     {
       "path": ".agents/skills/codex-coding-os-master/SKILL.md",
-      "sha256": "0c18966fbdc4161cf4548893abe8929ee7baac35fd94c9ab14ddc8eae6a9a30c",
-      "size": 10522
+      "sha256": "2b2b19450ce3405997f78fd3c5952c1d4af702ea82625a40e90fb1703717aff4",
+      "size": 10956
     },
     {
       "path": ".agents/skills/codex-design-artifacts/SKILL.md",
@@ -2133,8 +2133,8 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "d32025dfd544290cc390922bb99fac29bdc616ed644c4225df7e42f298cf0ac8",
-      "size": 4103
+      "sha256": "9a6919b714884af42d794437148a86210a9c8b6e571f226d0cae7be50ef73dea",
+      "size": 4171
     },
     {
       "path": "CHANGELOG.md",
@@ -2188,8 +2188,8 @@
     },
     {
       "path": "case-state.schema.json",
-      "sha256": "34df1dc6d214943a6a0b97dfdfee52255c6ff0b6f46f598745890884aa5d0aab",
-      "size": 12134
+      "sha256": "9d3bf9033b13a1ed625f4d2ad439e49f4b016e46f8fbd1f7437ab85691bed481",
+      "size": 22275
     },
     {
       "path": "codex-capabilities/default-skills-reference.md",
@@ -2218,8 +2218,8 @@
     },
     {
       "path": "docs/case-state-contract.md",
-      "sha256": "752602b727fe3437b693e95cd139ea2dd48f9e43cbe29123c5248feeeded8a2b",
-      "size": 20390
+      "sha256": "1a22b63b90d6528bc0ed6f855b7ba423a2a6107ef8f5fa75d1f8bee9c437c6a6",
+      "size": 22193
     },
     {
       "path": "docs/codex-plugins-mcps-hooks.md",
@@ -2348,8 +2348,8 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "b8c823e2e962882e29d07aa7fdbd46dba5c4f67a63c3c6d89877f0c00b41f38f",
-      "size": 12564
+      "sha256": "c9514e8adc948810d98b5227762ff997d134a920af32139c2b77e186c8f11448",
+      "size": 12731
     },
     {
       "path": "pack.schema.json",
@@ -2372,19 +2372,24 @@
       "size": 13484
     },
     {
+      "path": "scripts/agent/case_review_completion_verifier.py",
+      "sha256": "e76e8461e3844f49e26d23e851c23e0facb52fb941f3480704cf287003adfc7c",
+      "size": 37419
+    },
+    {
       "path": "scripts/agent/case_runtime_broker.py",
       "sha256": "1a947cd30bcbd689face6c67f0ea716394e8f6c69548a6ce0b2ed5b4ce8e0840",
       "size": 230735
     },
     {
       "path": "scripts/agent/case_runtime_supervisor.py",
-      "sha256": "aa476ed4171c954db19f1ebd822cc986a82ec50e09708dd41d0722cb619a3176",
-      "size": 75557
+      "sha256": "274ada9b3f90ac9330c8aa5d4e8515928f64a9f5f512aa9bcfd0af2cbb30afdf",
+      "size": 77663
     },
     {
       "path": "scripts/agent/case_state.py",
-      "sha256": "0a5a7311e7270449b6e89bfdf93172df1c084b05f21a411f36c0aba60c641cfb",
-      "size": 358288
+      "sha256": "55e667bf10d369b66e4463433a78055ab1c60f90e1e54c7f7282f4fcab405310",
+      "size": 380531
     },
     {
       "path": "scripts/agent/fresh_context_review.py",
@@ -2612,19 +2617,24 @@
       "size": 96997
     },
     {
+      "path": "tests/test_case_review_completion_verifier.py",
+      "sha256": "8dd4f1bb5b5335eec9f9cdac8b5e9c22515838c88b250d0f8b921c935e69c0c6",
+      "size": 16949
+    },
+    {
       "path": "tests/test_case_runtime_broker.py",
       "sha256": "332e89c81cfc72fde88e9b31e40b0a74bd218b83c1423cce00a376f4f88366ad",
       "size": 175799
     },
     {
       "path": "tests/test_case_runtime_supervisor.py",
-      "sha256": "290c248b01db770f0f9858863da612f74babd25f347be824c37cb2d4fdfd3a07",
-      "size": 40181
+      "sha256": "c726570005b9824c8b823e9712b0b16517c4fac5a62b711a91707b4710cc7939",
+      "size": 42674
     },
     {
       "path": "tests/test_case_state_engine.py",
-      "sha256": "208dc9a4cc42c8b01c573b3183c34e21c3afb54b498fe8e68c86c9ce9172133f",
-      "size": 106183
+      "sha256": "8cd9995ded363c09dcfefc5b79cdca78f2eaaff73bfa2e426e8a7a485ca842bc",
+      "size": 118999
     },
     {
       "path": "tests/test_install_transaction.py",
@@ -2663,8 +2673,8 @@
     },
     {
       "path": "universal/AGENTS.automation-case-policy.md",
-      "sha256": "12086f0ca0a963deddb5fa75a8115b7bfd652ba688b49cb2d88ca379898cdafe",
-      "size": 4781
+      "sha256": "262d58197c6830d802d11bab044e5ad243e81881b03b2383c607fc5c49af0d1a",
+      "size": 5222
     },
     {
       "path": "universal/rules/gh-pr-merge-authority.rules",

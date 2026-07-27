@@ -1069,6 +1069,56 @@ def _startup_case_gate(
         raise SupervisorAuthorizationError("canonical case contains multiple runtime grants")
     grant = copy.deepcopy(dict(next(iter(grants.values()))))
     status = grant.get("status")
+    if status in {"ARMED", "CANCELLED"}:
+        recovery = dependencies.orphan_grant_recovery(
+            Path(spec["state_root"]), case_id, str(grant["grant_id"])
+        )
+        if recovery.get("status") not in {"CANCELLED", "cancelled_stable"}:
+            raise SupervisorAuthorizationError(
+                "armed or cancelled grant recovery did not converge on cancellation"
+            )
+        acl_recovery = recovery.get("acl_recovery")
+        if not isinstance(acl_recovery, list) or any(
+            item.get("restored") is not True
+            and item.get("already_restored") is not True
+            for item in acl_recovery
+            if isinstance(item, Mapping)
+        ) or any(not isinstance(item, Mapping) for item in acl_recovery):
+            raise SupervisorAuthorizationError(
+                "cancelled grant ACL cleanup was not verified"
+            )
+        current = store.get_case(case_id)
+        current_runtime = current.get("runtime")
+        current_grants = (
+            current_runtime.get("action_grants", {})
+            if isinstance(current_runtime, Mapping)
+            else {}
+        )
+        current_grant = (
+            current_grants.get(str(grant["grant_id"]))
+            if isinstance(current_grants, Mapping)
+            else None
+        )
+        if (
+            not isinstance(current_grant, Mapping)
+            or current_grant.get("status") != "CANCELLED"
+            or current.get("state") != "CASE_LOCKED"
+        ):
+            raise SupervisorAuthorizationError(
+                "cancelled grant recovery is not paired with canonical CASE_LOCKED"
+            )
+        result = {
+            "protocol_version": SUPERVISOR_RESULT_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "case_id": case_id,
+            "recovered_terminal_cancellation": True,
+            "final_grant_status": "CANCELLED",
+            "case_state": "CASE_LOCKED",
+            "controller_started": False,
+            "recovery_evidence": recovery,
+        }
+        result["result_sha256"] = canonical_json_sha256(result)
+        return result
     if status in {"ISSUED", "CLAIMED"}:
         orphan = dependencies.orphan_grant_recovery(
             Path(spec["state_root"]), case_id, str(grant["grant_id"])

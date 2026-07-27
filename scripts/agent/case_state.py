@@ -28,11 +28,19 @@ import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Mapping
 
+from case_review_completion_verifier import (
+    NATIVE_VERIFICATION_PROTOCOL_VERSION,
+    NativeReviewVerificationError,
+    verify_review_completion,
+)
+
 
 SCHEMA_VERSION = 2
 ACTION_PROTOCOL_VERSION = "ccos-case-action-v1"
-REVIEW_COHORT_PROTOCOL_VERSION = "ccos-review-cohort-v1"
-REVIEW_COMPLETION_PROTOCOL_VERSION = "ccos-review-completion-v1"
+LEGACY_REVIEW_COHORT_PROTOCOL_VERSION = "ccos-review-cohort-v1"
+REVIEW_COHORT_PROTOCOL_VERSION = "ccos-review-cohort-v2"
+LEGACY_REVIEW_COMPLETION_PROTOCOL_VERSION = "ccos-review-completion-v1"
+REVIEW_COMPLETION_PROTOCOL_VERSION = "ccos-review-completion-v2"
 RUNTIME_ACTOR_PROTOCOL_VERSION = "ccos-runtime-actor-v1"
 ACTION_GRANT_PROTOCOL_VERSION = "ccos-runtime-action-grant-v1"
 ACTION_GRANT_CLAIM_PROTOCOL_VERSION = "ccos-runtime-action-claim-v1"
@@ -309,6 +317,21 @@ def canonical_case_id(value: str) -> str:
     return canonical
 
 
+def require_native_uuid7(value: Any, label: str) -> str:
+    raw = _nonempty(value, label, 64).lower()
+    try:
+        parsed = uuid.UUID(raw)
+    except (ValueError, AttributeError) as exc:
+        raise ValidationError(f"{label} must be a canonical UUIDv7") from exc
+    if (
+        raw != str(parsed)
+        or parsed.version != 7
+        or parsed.variant != uuid.RFC_4122
+    ):
+        raise ValidationError(f"{label} must be a canonical UUIDv7")
+    return raw
+
+
 def require_request_id(value: str) -> str:
     raw = str(value).strip()
     if not raw or len(raw) > 200:
@@ -421,6 +444,7 @@ def controller_source_pins(managed_root: Path) -> dict[str, Any]:
     manifest_path = managed_root / "install-bundle.manifest.json"
     required_paths = (
         "scripts/agent/case_state.py",
+        "scripts/agent/case_review_completion_verifier.py",
         "scripts/agent/case_app_server_controller.py",
         "scripts/agent/case_runtime_supervisor.py",
         "scripts/agent/case_runtime_broker.py",
@@ -463,6 +487,7 @@ def proposal_broker_source_pins(managed_root: Path) -> dict[str, Any]:
     manifest_path = managed_root / "install-bundle.manifest.json"
     required_paths = (
         "scripts/agent/case_state.py",
+        "scripts/agent/case_review_completion_verifier.py",
         "scripts/agent/case_runtime_broker.py",
         "scripts/agent/case_proposal_action_broker.py",
     )
@@ -1261,6 +1286,120 @@ def _new_case(case_id: str, objective: str) -> dict[str, Any]:
     }
 
 
+def _native_verification_is_valid(
+    verification: object, *, legacy_receipt_sha256: str | None = None
+) -> bool:
+    if not isinstance(verification, Mapping):
+        return False
+    base_fields = {
+        "protocol_version", "schema_version", "status", "mode",
+        "native_thread_id", "native_parent_thread_id", "agent_path",
+        "rollout_relative_path", "attestation_turn_id", "started_at", "completed_at",
+        "log_prefix_sha256", "last_agent_message_sha256", "evidence_sha256",
+        "verification_sha256",
+    }
+    expected_fields = set(base_fields)
+    if legacy_receipt_sha256 is not None:
+        expected_fields.update(
+            {"legacy_completed_turn_id", "legacy_receipt_sha256"}
+        )
+    if (
+        set(verification) != expected_fields
+        or verification.get("protocol_version") != NATIVE_VERIFICATION_PROTOCOL_VERSION
+        or verification.get("schema_version") != 1
+        or verification.get("status") != "VERIFIED"
+        or verification.get("mode")
+        != (
+            "legacy_attestation"
+            if legacy_receipt_sha256 is not None
+            else "native_submission"
+        )
+    ):
+        return False
+    if legacy_receipt_sha256 is not None and (
+        verification.get("legacy_receipt_sha256") != legacy_receipt_sha256
+    ):
+        return False
+    string_fields = {
+        "native_thread_id", "native_parent_thread_id", "agent_path",
+        "rollout_relative_path", "attestation_turn_id", "started_at", "completed_at",
+    }
+    if legacy_receipt_sha256 is not None:
+        string_fields.add("legacy_completed_turn_id")
+    for field in string_fields:
+        if not isinstance(verification.get(field), str) or not verification[field]:
+            return False
+    try:
+        for field in ("native_thread_id", "native_parent_thread_id", "attestation_turn_id"):
+            require_native_uuid7(verification[field], field)
+        if legacy_receipt_sha256 is not None:
+            require_native_uuid7(
+                verification["legacy_completed_turn_id"],
+                "legacy_completed_turn_id",
+            )
+        require_utc_timestamp(verification["started_at"], "started_at")
+        require_utc_timestamp(verification["completed_at"], "completed_at")
+    except ValidationError:
+        return False
+    for field in (
+        "log_prefix_sha256", "last_agent_message_sha256", "evidence_sha256"
+    ):
+        try:
+            require_snapshot_hash(str(verification.get(field, "")))
+        except ValidationError:
+            return False
+    body = {
+        name: value
+        for name, value in verification.items()
+        if name != "verification_sha256"
+    }
+    return verification.get("verification_sha256") == canonical_json_sha256(body)
+
+
+def _receipt_digest_body(receipt: Mapping[str, Any]) -> dict[str, Any]:
+    excluded = {"receipt_sha256"}
+    if (
+        receipt.get("protocol_version") == LEGACY_REVIEW_COMPLETION_PROTOCOL_VERSION
+        and "native_verification" in receipt
+    ):
+        excluded.add("native_verification")
+    return {name: value for name, value in receipt.items() if name not in excluded}
+
+
+def _unverified_review_receipt_ids(case: Mapping[str, Any]) -> list[str]:
+    review = case.get("review")
+    cohort = review.get("cohort") if isinstance(review, Mapping) else None
+    receipts = review.get("receipts") if isinstance(review, Mapping) else None
+    if cohort is None:
+        return []
+    if not isinstance(cohort, Mapping) or not isinstance(receipts, Mapping):
+        return ["<review-control-missing>"]
+    reviewer_ids = [
+        str(item.get("reviewer_id", ""))
+        for item in cohort.get("reviewers", [])
+        if isinstance(item, Mapping) and item.get("required") is True
+    ]
+    unverified: list[str] = []
+    for reviewer_id in reviewer_ids:
+        receipt = receipts.get(reviewer_id)
+        legacy_digest = (
+            receipt.get("receipt_sha256")
+            if isinstance(receipt, Mapping)
+            and receipt.get("protocol_version")
+            == LEGACY_REVIEW_COMPLETION_PROTOCOL_VERSION
+            else None
+        )
+        if (
+            not isinstance(receipt, Mapping)
+            or not _native_verification_is_valid(
+                receipt.get("native_verification"),
+                legacy_receipt_sha256=legacy_digest,
+            )
+        ):
+            unverified.append(reviewer_id)
+    return sorted(unverified)
+
+
 def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> None:
     """Validate v2 extension records without requiring or backfilling legacy cases."""
     review = case.get("review")
@@ -1268,6 +1407,8 @@ def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> No
         if not isinstance(review, dict) or set(review) != {"cohort", "receipts"}:
             raise StoreCorruptionError(f"case {case_id} review record has invalid fields")
         cohort = review["cohort"]
+        assignments: dict[str, Mapping[str, Any]] = {}
+        cohort_protocol: str | None = None
         if cohort is not None:
             required = {
                 "protocol_version", "schema_version", "cohort_id", "required_receipt",
@@ -1276,26 +1417,223 @@ def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> No
             if not isinstance(cohort, dict) or set(cohort) != required:
                 raise StoreCorruptionError(f"case {case_id} review cohort has invalid fields")
             body = {name: cohort[name] for name in required - {"declared_at", "cohort_sha256"}}
-            if (cohort.get("protocol_version") != REVIEW_COHORT_PROTOCOL_VERSION
-                    or cohort.get("schema_version") != 1
+            protocol = cohort.get("protocol_version")
+            cohort_protocol = str(protocol)
+            expected_schema = 2 if protocol == REVIEW_COHORT_PROTOCOL_VERSION else 1
+            expected_receipt = {
+                "protocol_version": (
+                    REVIEW_COMPLETION_PROTOCOL_VERSION
+                    if protocol == REVIEW_COHORT_PROTOCOL_VERSION
+                    else LEGACY_REVIEW_COMPLETION_PROTOCOL_VERSION
+                ),
+                "schema_version": expected_schema,
+            }
+            if (protocol not in {
+                        LEGACY_REVIEW_COHORT_PROTOCOL_VERSION,
+                        REVIEW_COHORT_PROTOCOL_VERSION,
+                    }
+                    or cohort.get("schema_version") != expected_schema
+                    or cohort.get("required_receipt") != expected_receipt
                     or not isinstance(cohort.get("reviewers"), list)
                     or not cohort["reviewers"]
                     or cohort.get("cohort_sha256") != canonical_json_sha256(body)):
                 raise StoreCorruptionError(f"case {case_id} review cohort is invalid")
             try:
                 require_utc_timestamp(cohort["declared_at"], "declared_at")
+                legacy_assignment_fields = {
+                    "reviewer_id", "reviewer_role", "thread_id", "repository",
+                    "reviewed_head", "snapshot", "scope", "scope_sha256",
+                    "required",
+                }
+                v2_assignment_fields = legacy_assignment_fields | {
+                    "native_thread_id", "native_parent_thread_id", "agent_path",
+                }
+                native_threads: set[str] = set()
+                native_parents: set[str] = set()
+                agent_paths: set[str] = set()
+                for assignment in cohort["reviewers"]:
+                    expected_fields = (
+                        v2_assignment_fields
+                        if protocol == REVIEW_COHORT_PROTOCOL_VERSION
+                        else legacy_assignment_fields
+                    )
+                    if (
+                        not isinstance(assignment, Mapping)
+                        or set(assignment) != expected_fields
+                        or assignment.get("reviewer_role") != "review_child"
+                        or assignment.get("required") is not True
+                    ):
+                        raise ValidationError("reviewer assignment fields are invalid")
+                    reviewer_id = _nonempty(
+                        assignment.get("reviewer_id"), "reviewer id", 128
+                    )
+                    if reviewer_id in assignments:
+                        raise ValidationError("reviewer ids must be unique")
+                    assignments[reviewer_id] = assignment
+                    if protocol == REVIEW_COHORT_PROTOCOL_VERSION:
+                        native_thread = require_native_uuid7(
+                            assignment.get("native_thread_id"),
+                            "reviewer native_thread_id",
+                        )
+                        native_parent = require_native_uuid7(
+                            assignment.get("native_parent_thread_id"),
+                            "reviewer native_parent_thread_id",
+                        )
+                        agent_path = normalize_binding(
+                            "thread", str(assignment.get("agent_path", ""))
+                        )
+                        if agent_path != assignment.get("thread_id"):
+                            raise ValidationError(
+                                "reviewer agent_path differs from thread_id"
+                            )
+                        if native_thread in native_threads or agent_path in agent_paths:
+                            raise ValidationError(
+                                "native reviewer identities must be unique"
+                            )
+                        native_threads.add(native_thread)
+                        native_parents.add(native_parent)
+                        agent_paths.add(agent_path)
+                if (
+                    protocol == REVIEW_COHORT_PROTOCOL_VERSION
+                    and len(native_parents) != 1
+                ):
+                    raise ValidationError(
+                        "review cohort native parent identity is inconsistent"
+                    )
             except ValidationError as exc:
-                raise StoreCorruptionError(f"case {case_id} review cohort timestamp is invalid") from exc
+                raise StoreCorruptionError(
+                    f"case {case_id} review cohort assignment is invalid"
+                ) from exc
         receipts = review["receipts"]
         if not isinstance(receipts, dict):
             raise StoreCorruptionError(f"case {case_id} review receipts must be an object")
+        if cohort is None and receipts:
+            raise StoreCorruptionError(
+                f"case {case_id} has review receipts without a cohort"
+            )
+        native_parents_from_receipts: set[str] = set()
+        legacy_receipt_fields = {
+            "protocol_version", "schema_version", "case_id", "cohort_id",
+            "reviewer_id", "reviewer_role", "thread_id", "completed_turn_id",
+            "repository", "reviewed_head", "snapshot", "scope", "scope_sha256",
+            "completion_state", "finding_ids", "completed_at",
+            "native_completion_evidence_sha256", "request_id", "recorded_at",
+            "receipt_sha256",
+        }
+        v2_receipt_fields = legacy_receipt_fields | {
+            "native_thread_id", "native_parent_thread_id", "agent_path",
+            "started_at", "native_verification",
+        }
         for reviewer_id, receipt in receipts.items():
             if not isinstance(receipt, dict) or receipt.get("reviewer_id") != reviewer_id:
                 raise StoreCorruptionError(f"case {case_id} review receipt identity is invalid")
+            assignment = assignments.get(reviewer_id)
+            receipt_protocol = receipt.get("protocol_version")
+            if cohort_protocol == REVIEW_COHORT_PROTOCOL_VERSION:
+                expected_fields = v2_receipt_fields
+                expected_receipt_protocol = REVIEW_COMPLETION_PROTOCOL_VERSION
+                expected_receipt_schema = 2
+            else:
+                expected_fields = set(legacy_receipt_fields)
+                if "native_verification" in receipt:
+                    expected_fields.add("native_verification")
+                expected_receipt_protocol = LEGACY_REVIEW_COMPLETION_PROTOCOL_VERSION
+                expected_receipt_schema = 1
+            if (
+                set(receipt) != expected_fields
+                or receipt_protocol != expected_receipt_protocol
+                or receipt.get("schema_version") != expected_receipt_schema
+                or assignment is None
+            ):
+                raise StoreCorruptionError(
+                    f"case {case_id} review receipt fields are invalid"
+                )
+            assignment_pairs = {
+                "reviewer_role": "reviewer_role",
+                "thread_id": "thread_id",
+                "repository": "repository",
+                "reviewed_head": "reviewed_head",
+                "snapshot": "snapshot",
+                "scope": "scope",
+                "scope_sha256": "scope_sha256",
+            }
+            if (
+                receipt.get("case_id") != case_id
+                or receipt.get("cohort_id") != cohort.get("cohort_id")
+                or any(
+                    receipt.get(receipt_field) != assignment.get(assignment_field)
+                    for receipt_field, assignment_field in assignment_pairs.items()
+                )
+            ):
+                raise StoreCorruptionError(
+                    f"case {case_id} review receipt differs from its assignment"
+                )
             digest = receipt.get("receipt_sha256")
-            body = {name: value for name, value in receipt.items() if name != "receipt_sha256"}
+            body = _receipt_digest_body(receipt)
             if digest != canonical_json_sha256(body):
                 raise StoreCorruptionError(f"case {case_id} review receipt digest is invalid")
+            if "native_verification" in receipt:
+                legacy_digest = (
+                    digest
+                    if receipt.get("protocol_version")
+                    == LEGACY_REVIEW_COMPLETION_PROTOCOL_VERSION
+                    else None
+                )
+                if not _native_verification_is_valid(
+                    receipt["native_verification"],
+                    legacy_receipt_sha256=legacy_digest,
+                ):
+                    raise StoreCorruptionError(
+                        f"case {case_id} native review verification is invalid"
+                    )
+                verification = receipt["native_verification"]
+                native_parents_from_receipts.add(
+                    verification["native_parent_thread_id"]
+                )
+                if receipt_protocol == REVIEW_COMPLETION_PROTOCOL_VERSION:
+                    native_pairs = {
+                        "native_thread_id": "native_thread_id",
+                        "native_parent_thread_id": "native_parent_thread_id",
+                        "agent_path": "agent_path",
+                        "completed_turn_id": "attestation_turn_id",
+                        "started_at": "started_at",
+                        "completed_at": "completed_at",
+                        "native_completion_evidence_sha256": "evidence_sha256",
+                    }
+                    if any(
+                        receipt.get(receipt_field)
+                        != verification.get(verification_field)
+                        for receipt_field, verification_field in native_pairs.items()
+                    ):
+                        raise StoreCorruptionError(
+                            f"case {case_id} v2 receipt differs from native verification"
+                        )
+                    if any(
+                        receipt.get(field) != assignment.get(field)
+                        for field in (
+                            "native_thread_id", "native_parent_thread_id",
+                            "agent_path",
+                        )
+                    ):
+                        raise StoreCorruptionError(
+                            f"case {case_id} v2 receipt native identity differs from assignment"
+                        )
+                elif (
+                    verification.get("legacy_completed_turn_id")
+                    != receipt.get("completed_turn_id")
+                    or verification.get("agent_path") != receipt.get("thread_id")
+                ):
+                    raise StoreCorruptionError(
+                        f"case {case_id} legacy attestation does not bind its original turn"
+                    )
+            elif receipt_protocol == REVIEW_COMPLETION_PROTOCOL_VERSION:
+                raise StoreCorruptionError(
+                    f"case {case_id} v2 review receipt lacks native verification"
+                )
+        if len(native_parents_from_receipts) > 1:
+            raise StoreCorruptionError(
+                f"case {case_id} reviewer receipts have different native parents"
+            )
     runtime = case.get("runtime")
     if runtime is not None:
         if not isinstance(runtime, dict) or set(runtime) != {"actors", "action_grants"}:
@@ -1713,9 +2051,17 @@ def _validate_store(data: Any) -> None:
 
 
 class CaseStore:
-    def __init__(self, state_root: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        state_root: Path | str | None = None,
+        *,
+        review_completion_verifier: Callable[..., dict[str, Any]] | None = None,
+    ) -> None:
         self.state_root = Path(state_root) if state_root is not None else default_state_root()
         self.state_root = self.state_root.expanduser().resolve(strict=False)
+        self.review_completion_verifier = (
+            review_completion_verifier or verify_review_completion
+        )
         managed_tree = Path(__file__).resolve().parents[2]
         if path_is_within(self.state_root, managed_tree):
             raise ValidationError(
@@ -2185,8 +2531,8 @@ class CaseStore:
             "protocol_version", "schema_version", "cohort_id", "required_receipt", "reviewers",
         }
         if set(cohort) != required_fields:
-            raise ValidationError("review cohort must use the fixed ccos-review-cohort-v1 schema")
-        if cohort.get("protocol_version") != REVIEW_COHORT_PROTOCOL_VERSION or cohort.get("schema_version") != 1:
+            raise ValidationError("review cohort must use the fixed ccos-review-cohort-v2 schema")
+        if cohort.get("protocol_version") != REVIEW_COHORT_PROTOCOL_VERSION or cohort.get("schema_version") != 2:
             raise ValidationError("review cohort protocol or schema version is unsupported")
         cohort_id = _nonempty(cohort.get("cohort_id"), "review cohort id", 128)
         if not FINDING_ID_PATTERN.fullmatch(cohort_id):
@@ -2194,18 +2540,22 @@ class CaseStore:
         receipt_contract = cohort.get("required_receipt")
         if receipt_contract != {
             "protocol_version": REVIEW_COMPLETION_PROTOCOL_VERSION,
-            "schema_version": 1,
+            "schema_version": 2,
         }:
-            raise ValidationError("review cohort requires the fixed ccos-review-completion-v1 receipt")
+            raise ValidationError("review cohort requires the fixed ccos-review-completion-v2 receipt")
         reviewers = cohort.get("reviewers")
         if not isinstance(reviewers, list) or not reviewers:
             raise ValidationError("review cohort must contain at least one required reviewer")
         normalized_reviewers: list[dict[str, Any]] = []
         reviewer_ids: set[str] = set()
         thread_ids: set[str] = set()
+        native_thread_ids: set[str] = set()
+        native_parent_thread_ids: set[str] = set()
+        agent_paths: set[str] = set()
         assigned_repositories: set[str] = set()
         expected_fields = {
-            "reviewer_id", "reviewer_role", "thread_id", "repository", "reviewed_head",
+            "reviewer_id", "reviewer_role", "thread_id", "native_thread_id",
+            "native_parent_thread_id", "agent_path", "repository", "reviewed_head",
             "snapshot", "scope", "scope_sha256", "required",
         }
         for raw in reviewers:
@@ -2221,6 +2571,24 @@ class CaseStore:
                 raise ValidationError("reviewer thread ids must be unique")
             if thread_id not in case["bindings"]["thread"]:
                 raise AuthorizationError("declared reviewer thread is not canonically bound to the case")
+            native_thread_id = require_native_uuid7(
+                raw.get("native_thread_id"), "reviewer native_thread_id"
+            )
+            if native_thread_id in native_thread_ids:
+                raise ValidationError("reviewer native thread ids must be unique")
+            native_parent_thread_id = require_native_uuid7(
+                raw.get("native_parent_thread_id"),
+                "reviewer native_parent_thread_id",
+            )
+            agent_path = normalize_binding(
+                "thread", str(raw.get("agent_path", ""))
+            )
+            if agent_path != thread_id:
+                raise ValidationError(
+                    "reviewer agent_path must equal the canonical task thread path"
+                )
+            if agent_path in agent_paths:
+                raise ValidationError("reviewer agent paths must be unique")
             runtime = case.get("runtime")
             if isinstance(runtime, Mapping) and thread_id in runtime.get("actors", {}):
                 if runtime["actors"][thread_id].get("role") != "review_child":
@@ -2251,6 +2619,9 @@ class CaseStore:
                 "reviewer_id": reviewer_id,
                 "reviewer_role": "review_child",
                 "thread_id": thread_id,
+                "native_thread_id": native_thread_id,
+                "native_parent_thread_id": native_parent_thread_id,
+                "agent_path": agent_path,
                 "repository": repository,
                 "reviewed_head": head,
                 "snapshot": normalized_snapshot,
@@ -2260,17 +2631,24 @@ class CaseStore:
             })
             reviewer_ids.add(reviewer_id)
             thread_ids.add(thread_id)
+            native_thread_ids.add(native_thread_id)
+            native_parent_thread_ids.add(native_parent_thread_id)
+            agent_paths.add(agent_path)
             assigned_repositories.add(repository)
+        if len(native_parent_thread_ids) != 1:
+            raise ValidationError(
+                "every reviewer in one cohort must share one native parent thread"
+            )
         if assigned_repositories != set(case["candidate"]["review_heads"]):
             raise ValidationError("review cohort must cover every frozen candidate repository")
         normalized_reviewers.sort(key=lambda item: item["reviewer_id"])
         return {
             "protocol_version": REVIEW_COHORT_PROTOCOL_VERSION,
-            "schema_version": 1,
+            "schema_version": 2,
             "cohort_id": cohort_id,
             "required_receipt": {
                 "protocol_version": REVIEW_COMPLETION_PROTOCOL_VERSION,
-                "schema_version": 1,
+                "schema_version": 2,
             },
             "reviewers": normalized_reviewers,
         }
@@ -2387,148 +2765,123 @@ class CaseStore:
             callback=change,
         )
 
-    def _normalize_review_completion(
-        self,
-        case: Mapping[str, Any],
-        completion: Mapping[str, Any],
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        if not isinstance(completion, Mapping):
-            raise ValidationError("review completion must be an object")
-        expected_fields = {
-            "protocol_version", "schema_version", "case_id", "cohort_id", "reviewer_id",
-            "reviewer_role", "thread_id", "completed_turn_id", "repository", "reviewed_head",
-            "snapshot", "scope", "scope_sha256", "completion_state", "findings", "finding_ids",
-            "completed_at", "native_completion_evidence_sha256",
-        }
-        if set(completion) != expected_fields:
-            raise ValidationError("review completion must use the fixed ccos-review-completion-v1 schema")
-        if (completion.get("protocol_version") != REVIEW_COMPLETION_PROTOCOL_VERSION
-                or completion.get("schema_version") != 1):
-            raise ValidationError("review completion protocol or schema version is unsupported")
-        if canonical_case_id(str(completion.get("case_id", ""))) != case["case_id"]:
-            raise ValidationError("review completion case_id differs from the canonical case")
-        review = case.get("review")
-        cohort = review.get("cohort") if isinstance(review, Mapping) else None
-        if not isinstance(cohort, Mapping):
-            raise AuthorizationError("no review cohort was declared")
-        cohort_id = _nonempty(completion.get("cohort_id"), "review cohort id", 128)
-        if cohort_id != cohort["cohort_id"]:
-            raise ValidationError("review completion cohort_id differs from the frozen cohort")
-        reviewer_id = _nonempty(completion.get("reviewer_id"), "reviewer id", 128)
-        assignment = next(
-            (record for record in cohort["reviewers"] if record["reviewer_id"] == reviewer_id),
-            None,
-        )
-        if assignment is None:
-            raise AuthorizationError("review completion reviewer is not in the frozen cohort")
-        if completion.get("reviewer_role") != assignment["reviewer_role"]:
-            raise AuthorizationError("review completion role differs from the frozen assignment")
-        thread_id = normalize_binding("thread", str(completion.get("thread_id", "")))
-        if thread_id != assignment["thread_id"]:
-            raise AuthorizationError("review completion thread differs from the frozen assignment")
-        completed_turn_id = _nonempty(completion.get("completed_turn_id"), "completed turn id", 256)
-        repository = normalize_repo_url(str(completion.get("repository", "")))
-        if repository != assignment["repository"]:
-            raise ValidationError("review completion repository differs from the frozen assignment")
-        reviewed_head = require_sha(str(completion.get("reviewed_head", "")), "reviewed head")
-        if reviewed_head != assignment["reviewed_head"]:
-            raise ValidationError("review completion head differs from the frozen assignment")
-        snapshot = self._normalize_snapshots(
-            {repository: completion.get("snapshot")}, {repository: reviewed_head}
-        )[repository]
-        if snapshot != assignment["snapshot"]:
-            raise ValidationError("review completion snapshot differs from the frozen assignment")
-        scope = _nonempty(completion.get("scope"), "review scope", 4096)
-        if scope != assignment["scope"]:
-            raise ValidationError("review completion scope differs from the frozen assignment")
-        scope_sha256 = require_snapshot_hash(str(completion.get("scope_sha256", "")))
-        if scope_sha256 != assignment["scope_sha256"] or scope_sha256 != hashlib.sha256(
-            scope.encode("utf-8")
-        ).hexdigest():
-            raise ValidationError("review completion scope digest differs from the frozen assignment")
-        completion_state = _nonempty(completion.get("completion_state"), "completion state", 32).upper()
-        if completion_state not in REVIEW_COMPLETION_STATES:
-            raise ValidationError("review completion state must be COMPLETED, FAILED, or INCOMPLETE")
-        raw_findings = completion.get("findings")
-        raw_ids = completion.get("finding_ids")
-        if not isinstance(raw_findings, list) or not isinstance(raw_ids, list):
-            raise ValidationError("review completion findings and finding_ids must be arrays")
-        normalized_findings = [self._normalize_finding(item) for item in raw_findings]
-        finding_ids = sorted({_nonempty(item, "finding id", 128) for item in raw_ids})
-        if len(finding_ids) != len(raw_ids):
-            raise ValidationError("review completion finding_ids must be unique and sorted")
-        if completion_state != "COMPLETED" and (normalized_findings or finding_ids):
-            raise ValidationError("failed or incomplete review completion cannot report findings")
-        for finding in normalized_findings:
-            if (finding["source"] != reviewer_id or finding["repo"] != repository
-                    or finding["reviewed_sha"] != reviewed_head):
-                raise ValidationError("completion findings must match the exact reviewer assignment")
-        normalized = {
-            "protocol_version": REVIEW_COMPLETION_PROTOCOL_VERSION,
-            "schema_version": 1,
-            "case_id": case["case_id"],
-            "cohort_id": cohort_id,
-            "reviewer_id": reviewer_id,
-            "reviewer_role": assignment["reviewer_role"],
-            "thread_id": thread_id,
-            "completed_turn_id": completed_turn_id,
-            "repository": repository,
-            "reviewed_head": reviewed_head,
-            "snapshot": snapshot,
-            "scope": scope,
-            "scope_sha256": scope_sha256,
-            "completion_state": completion_state,
-            "finding_ids": finding_ids,
-            "completed_at": require_utc_timestamp(completion.get("completed_at"), "completed_at"),
-            "native_completion_evidence_sha256": require_snapshot_hash(
-                str(completion.get("native_completion_evidence_sha256", ""))
-            ),
-        }
-        return normalized, normalized_findings
-
     def submit_review_completion(
         self,
         case_id: str,
         *,
-        completion: Mapping[str, Any],
+        reviewer_id: str,
         request_id: str,
         expected_revision: int,
     ) -> dict[str, Any]:
+        reviewer_id = _nonempty(reviewer_id, "reviewer id", 128)
         request_id = require_request_id(request_id)
 
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
             self._require_state(case, "REVIEW_COLLECTING", "submit_review_completion")
-            normalized, new_findings = self._normalize_review_completion(case, completion)
-            reviewer_id = normalized["reviewer_id"]
             review = case["review"]
+            cohort = review.get("cohort")
+            if (
+                not isinstance(cohort, Mapping)
+                or cohort.get("protocol_version") != REVIEW_COHORT_PROTOCOL_VERSION
+                or cohort.get("schema_version") != 2
+            ):
+                raise AuthorizationError(
+                    "legacy review cohorts require attest-existing-review-completion"
+                )
+            assignment = next(
+                (
+                    item
+                    for item in cohort["reviewers"]
+                    if item["reviewer_id"] == reviewer_id
+                ),
+                None,
+            )
+            if assignment is None:
+                raise AuthorizationError(
+                    "review completion reviewer is not in the frozen cohort"
+                )
             if reviewer_id in review["receipts"]:
                 raise ConflictError("reviewer already submitted a completion receipt")
-            existing_ids = {
-                item["id"] for item in case["findings"]["items"] + case["findings"]["late"]
-            }
-            new_ids = [item["id"] for item in new_findings]
-            if len(new_ids) != len(set(new_ids)) or existing_ids.intersection(new_ids):
-                raise ConflictError("review completion contains a duplicate finding id")
-            attributed = sorted(
-                item["id"] for item in case["findings"]["items"] if item["source"] == reviewer_id
-            )
-            expected_ids = sorted([*attributed, *new_ids])
-            if normalized["finding_ids"] != expected_ids:
-                raise ValidationError(
-                    "review completion finding_ids must exactly cover every finding attributed to that reviewer"
+            try:
+                verified = self.review_completion_verifier(
+                    case_id=case["case_id"],
+                    cohort_id=cohort["cohort_id"],
+                    cohort_declared_at=cohort["declared_at"],
+                    assignment=assignment,
+                    state_root=self.state_root,
                 )
+            except NativeReviewVerificationError as exc:
+                raise AuthorizationError(
+                    f"native review completion verification failed: {exc}"
+                ) from exc
+            payload = verified["payload"]
+            new_findings = [
+                self._normalize_finding(item) for item in payload["findings"]
+            ]
+            if new_findings != payload["findings"]:
+                raise ValidationError(
+                    "native completion findings are not canonically normalized"
+                )
+            reviewer_fields = {
+                "id", "candidate", "repo", "reviewed_sha", "source",
+                "description", "classification",
+            }
+            existing_by_id = {
+                item["id"]: item
+                for item in case["findings"]["items"] + case["findings"]["late"]
+            }
             for finding in new_findings:
+                existing = existing_by_id.get(finding["id"])
+                if existing is not None:
+                    comparable = {
+                        field: existing[field] for field in reviewer_fields
+                    }
+                    if comparable != finding:
+                        raise ConflictError(
+                            "native completion conflicts with an existing finding"
+                        )
+                    continue
                 item = copy.deepcopy(finding)
-                expected_head = case["candidate"]["review_heads"].get(item["repo"])
-                if expected_head != item["reviewed_sha"]:
-                    item["reported_classification"] = item["classification"]
-                    item["classification"] = "INVALID_OR_STALE"
-                    item["stale_reason"] = (
-                        f"reviewed_sha {item['reviewed_sha']} does not match frozen head {expected_head or 'missing'}"
-                    )
                 item["authorizing"] = item["classification"] == "CURRENT_BLOCKER"
                 item["late"] = False
                 case["findings"]["items"].append(item)
+            attributed = sorted(
+                item["id"]
+                for item in case["findings"]["items"]
+                if item["source"] == reviewer_id
+            )
+            if payload["finding_ids"] != attributed:
+                raise ValidationError(
+                    "native completion finding_ids must exactly cover every finding attributed to that reviewer"
+                )
+            normalized = {
+                "protocol_version": REVIEW_COMPLETION_PROTOCOL_VERSION,
+                "schema_version": 2,
+                "case_id": case["case_id"],
+                "cohort_id": cohort["cohort_id"],
+                "reviewer_id": reviewer_id,
+                "reviewer_role": assignment["reviewer_role"],
+                "thread_id": assignment["thread_id"],
+                "native_thread_id": assignment["native_thread_id"],
+                "native_parent_thread_id": assignment["native_parent_thread_id"],
+                "agent_path": assignment["agent_path"],
+                "completed_turn_id": verified["completed_turn_id"],
+                "started_at": verified["started_at"],
+                "repository": assignment["repository"],
+                "reviewed_head": assignment["reviewed_head"],
+                "snapshot": copy.deepcopy(assignment["snapshot"]),
+                "scope": assignment["scope"],
+                "scope_sha256": assignment["scope_sha256"],
+                "completion_state": payload["completion_state"],
+                "finding_ids": list(payload["finding_ids"]),
+                "completed_at": verified["completed_at"],
+                "native_completion_evidence_sha256": verified[
+                    "native_completion_evidence_sha256"
+                ],
+                "native_verification": copy.deepcopy(
+                    verified["native_verification"]
+                ),
+            }
             recorded = {
                 **normalized,
                 "request_id": request_id,
@@ -2547,7 +2900,159 @@ class CaseStore:
         return self._mutate(
             case_id,
             operation="submit_review_completion",
-            payload={"completion": completion},
+            payload={"reviewer_id": reviewer_id},
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    def attest_existing_review_completion(
+        self,
+        case_id: str,
+        *,
+        reviewer_id: str,
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        reviewer_id = _nonempty(reviewer_id, "reviewer id", 128)
+        request_id = require_request_id(request_id)
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            if case["state"] not in {
+                "REVIEW_COLLECTING",
+                "FINDINGS_FROZEN",
+                "REPAIR_AUTHORIZED",
+                "REPAIR_COMPLETE",
+            }:
+                raise TransitionError(
+                    "attest_existing_review_completion requires a live v1 review, frozen findings, or repair state"
+                )
+            review = case.get("review")
+            cohort = review.get("cohort") if isinstance(review, Mapping) else None
+            receipts = review.get("receipts") if isinstance(review, Mapping) else None
+            if (
+                not isinstance(cohort, Mapping)
+                or cohort.get("protocol_version")
+                != LEGACY_REVIEW_COHORT_PROTOCOL_VERSION
+                or cohort.get("schema_version") != 1
+                or not isinstance(receipts, dict)
+            ):
+                raise AuthorizationError(
+                    "existing attestation applies only to a persisted v1 review cohort"
+                )
+            assignment = next(
+                (
+                    item
+                    for item in cohort["reviewers"]
+                    if item["reviewer_id"] == reviewer_id
+                ),
+                None,
+            )
+            receipt = receipts.get(reviewer_id)
+            if assignment is None or not isinstance(receipt, dict):
+                raise AuthorizationError(
+                    "reviewer has no frozen v1 assignment and receipt"
+                )
+            if (
+                receipt.get("protocol_version")
+                != LEGACY_REVIEW_COMPLETION_PROTOCOL_VERSION
+                or receipt.get("schema_version") != 1
+            ):
+                raise AuthorizationError("existing review receipt is not v1")
+            if "native_verification" in receipt:
+                raise ConflictError("reviewer receipt is already natively verified")
+            reviewer_fields = (
+                "id", "candidate", "repo", "reviewed_sha", "source",
+                "description", "classification",
+            )
+            expected_findings = sorted(
+                [
+                    {field: item[field] for field in reviewer_fields}
+                    for item in case["findings"]["items"]
+                    if item["source"] == reviewer_id
+                ],
+                key=lambda item: item["id"],
+            )
+            expected_ids = [item["id"] for item in expected_findings]
+            if receipt.get("finding_ids") != expected_ids:
+                raise StoreCorruptionError(
+                    "legacy receipt finding ids differ from its frozen findings"
+                )
+            legacy_receipt_sha256 = str(receipt.get("receipt_sha256", ""))
+            try:
+                require_snapshot_hash(legacy_receipt_sha256)
+                verified = self.review_completion_verifier(
+                    case_id=case["case_id"],
+                    cohort_id=cohort["cohort_id"],
+                    cohort_declared_at=cohort["declared_at"],
+                    assignment=assignment,
+                    state_root=self.state_root,
+                    expected_findings=expected_findings,
+                    expected_completion_state=str(receipt["completion_state"]),
+                    legacy_completed_turn_id=str(receipt["completed_turn_id"]),
+                )
+            except (ValidationError, NativeReviewVerificationError) as exc:
+                raise AuthorizationError(
+                    f"native legacy review attestation failed: {exc}"
+                ) from exc
+            payload = verified["payload"]
+            receipt_payload_fields = {
+                "case_id": "case_id",
+                "cohort_id": "cohort_id",
+                "reviewer_id": "reviewer_id",
+                "reviewer_role": "reviewer_role",
+                "thread_id": "thread_id",
+                "repository": "repository",
+                "reviewed_head": "reviewed_head",
+                "snapshot": "snapshot",
+                "scope": "scope",
+                "scope_sha256": "scope_sha256",
+                "completion_state": "completion_state",
+                "finding_ids": "finding_ids",
+            }
+            if any(
+                receipt.get(receipt_field) != payload.get(payload_field)
+                for receipt_field, payload_field in receipt_payload_fields.items()
+            ):
+                raise StoreCorruptionError(
+                    "legacy receipt substance differs from native attestation"
+                )
+            verification = copy.deepcopy(verified["native_verification"])
+            verification.pop("verification_sha256", None)
+            verification["legacy_receipt_sha256"] = legacy_receipt_sha256
+            verification["verification_sha256"] = canonical_json_sha256(
+                verification
+            )
+            existing_parents = {
+                other["native_verification"]["native_parent_thread_id"]
+                for other_id, other in receipts.items()
+                if other_id != reviewer_id
+                and isinstance(other, Mapping)
+                and isinstance(other.get("native_verification"), Mapping)
+            }
+            if existing_parents and existing_parents != {
+                verification["native_parent_thread_id"]
+            }:
+                raise AuthorizationError(
+                    "legacy reviewer attestations do not share one native parent thread"
+                )
+            receipt["native_verification"] = verification
+            return {
+                "cohort_id": cohort["cohort_id"],
+                "reviewer_id": reviewer_id,
+                "receipt_sha256": legacy_receipt_sha256,
+                "native_verification_sha256": verification[
+                    "verification_sha256"
+                ],
+                "native_parent_thread_id": verification[
+                    "native_parent_thread_id"
+                ],
+            }
+
+        return self._mutate(
+            case_id,
+            operation="attest_existing_review_completion",
+            payload={"reviewer_id": reviewer_id},
             request_id=request_id,
             expected_revision=expected_revision,
             callback=change,
@@ -2574,6 +3079,12 @@ class CaseStore:
                 raise AuthorizationError("missing required review receipts: " + ", ".join(missing))
             if unexpected:
                 raise AuthorizationError("unexpected review receipts: " + ", ".join(unexpected))
+            unverified = _unverified_review_receipt_ids(case)
+            if unverified:
+                raise AuthorizationError(
+                    "review receipts lack verified native completion: "
+                    + ", ".join(unverified)
+                )
             unsuccessful = sorted(
                 reviewer_id
                 for reviewer_id, receipt in receipts.items()
@@ -2629,6 +3140,12 @@ class CaseStore:
     ) -> dict[str, Any]:
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
             self._require_state(case, "FINDINGS_FROZEN", "close_without_blockers")
+            unverified = _unverified_review_receipt_ids(case)
+            if unverified:
+                raise AuthorizationError(
+                    "case closure requires verified native review receipts: "
+                    + ", ".join(unverified)
+                )
             if self._frozen_blockers(case):
                 raise AuthorizationError("case has frozen CURRENT_BLOCKER findings and requires authorized repair")
             redesign_ids = sorted(
@@ -2799,6 +3316,12 @@ class CaseStore:
     ) -> dict[str, Any]:
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
             self._require_state(case, "REPAIR_COMPLETE", "start_closure_preflight")
+            unverified = _unverified_review_receipt_ids(case)
+            if unverified:
+                raise AuthorizationError(
+                    "closure preflight requires verified native review receipts: "
+                    + ", ".join(unverified)
+                )
             case["state"] = "CLOSURE_PREFLIGHT"
             return {}
 
@@ -6761,6 +7284,21 @@ class CaseStore:
                 reason="this exact case is locked or in control failure",
                 blocked_case_id=normalized_blocked_id,
             )
+        if action in {"publication", *SEPARATE_AUTHORITY_ACTIONS}:
+            unverified = _unverified_review_receipt_ids(case)
+            if unverified:
+                return self._action_response(
+                    case,
+                    action,
+                    context,
+                    allowed=False,
+                    reason_code="REVIEW_RECEIPTS_UNVERIFIED",
+                    reason=(
+                        "action requires verified native review receipts: "
+                        + ", ".join(unverified)
+                    ),
+                    blocked_case_id=normalized_blocked_id,
+                )
         eligible_states = ACTION_ELIGIBLE_STATES.get(action)
         if eligible_states is not None and case["state"] not in eligible_states:
             code = "PUBLICATION_REQUIRES_CLOSED_SUCCESS" if action == "publication" else "ACTION_STATE_DENIED"
@@ -7269,7 +7807,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     command = sub.add_parser("submit-review-completion")
     command.add_argument("--case-id", required=True)
-    command.add_argument("--completion-json", required=True)
+    command.add_argument("--reviewer-id", required=True)
+    _add_mutation_identity(command)
+
+    command = sub.add_parser("attest-existing-review-completion")
+    command.add_argument("--case-id", required=True)
+    command.add_argument("--reviewer-id", required=True)
     _add_mutation_identity(command)
 
     command = sub.add_parser("bind-runtime-actor")
@@ -7452,7 +7995,13 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
     if args.command == "submit-review-completion":
         return store.submit_review_completion(
             args.case_id,
-            completion=_json_value(args.completion_json, "completion-json"),
+            reviewer_id=args.reviewer_id,
+            **common,
+        )
+    if args.command == "attest-existing-review-completion":
+        return store.attest_existing_review_completion(
+            args.case_id,
+            reviewer_id=args.reviewer_id,
             **common,
         )
     if args.command == "bind-runtime-actor":

@@ -111,6 +111,12 @@ For deep critique, source-backed audit, recurring workflow failure analysis, pre
   Late, stale, invalid, or non-blocking findings do not reopen the case. Failed
   closure locks only that case, one identical operational retry is allowed only for
   a control failure, and unrelated work remains available.
+- Review completion is native-evidence-derived. The completion mutation accepts
+  only the frozen reviewer identifier and derives the receipt from that direct
+  child's authenticated rollout, ordered native task completion, and exact raw v2
+  payload. Caller-supplied receipt claims cannot authorize freeze, closure, or
+  publication. Persisted v1 receipts require bounded same-rollout attestation and
+  retain their original digest.
 - The parent/orchestrator is admin-only: it may inspect, assign, monitor, verify,
   reconcile, and report. It must not implement product code, merge, deploy, publish,
   choose unapproved slices, bypass review, or treat child output as authority.

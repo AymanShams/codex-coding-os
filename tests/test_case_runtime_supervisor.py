@@ -47,7 +47,11 @@ class FakeStore:
         self.case = {
             "case_id": "",
             "revision": 20,
-            "state": "CASE_LOCKED" if orphan_status == "FAILED" else "IMPLEMENTING",
+            "state": (
+                "CASE_LOCKED"
+                if orphan_status in {"FAILED", "CANCELLED"}
+                else "IMPLEMENTING"
+            ),
             "bindings": {"thread": []},
             "runtime": {"actors": {}, "action_grants": grants},
             "runtime_generation_attempt": None,
@@ -534,6 +538,25 @@ class SupervisorTests(unittest.TestCase):
         def recover_orphan(_state_root, case_id, grant_id):
             active_store = startup_store or self.store
             grant = active_store.case["runtime"]["action_grants"][grant_id]
+            if grant["status"] == "ARMED":
+                grant["status"] = "CANCELLED"
+                active_store.case["state"] = "CASE_LOCKED"
+                active_store.case["revision"] += 1
+                active_store.calls.append(
+                    ("recover_orphaned_action_grant", {"grant_id": grant_id})
+                )
+                return {
+                    "status": "CANCELLED",
+                    "acl_recovery": [{"restored": True}],
+                }
+            if grant["status"] == "CANCELLED":
+                active_store.calls.append(
+                    ("recover_orphaned_action_grant", {"grant_id": grant_id})
+                )
+                return {
+                    "status": "cancelled_stable",
+                    "acl_recovery": [{"already_restored": True}],
+                }
             if grant["status"] == "FAILED":
                 return {"status": "failed_stable", "acl_restore": {"restored": True}}
             grant["status"] = "FAILED"
@@ -677,6 +700,42 @@ class SupervisorTests(unittest.TestCase):
         self.assertTrue(
             any(call[0] == "recover_orphaned_action_grant" for call in store.calls)
         )
+
+    def test_armed_and_cancelled_startup_states_recover_without_regeneration(self):
+        for initial_status, expected_recovery_status in (
+            ("ARMED", "CANCELLED"),
+            ("CANCELLED", "cancelled_stable"),
+        ):
+            with self.subTest(initial_status=initial_status):
+                store = FakeStore(self.target, orphan_status=initial_status)
+                result = supervisor.RuntimeSupervisor(
+                    self.spec,
+                    store=store,
+                    dependencies=self.dependencies(
+                        controller_should_run=False, startup_store=store
+                    ),
+                ).run()
+
+                self.assertTrue(result["recovered_terminal_cancellation"])
+                self.assertFalse(result["controller_started"])
+                self.assertEqual(result["final_grant_status"], "CANCELLED")
+                self.assertEqual(result["case_state"], "CASE_LOCKED")
+                self.assertEqual(
+                    result["recovery_evidence"]["status"],
+                    expected_recovery_status,
+                )
+                self.assertEqual(
+                    store.case["runtime"]["action_grants"]["orphan-grant"]["status"],
+                    "CANCELLED",
+                )
+                self.assertEqual(store.case["state"], "CASE_LOCKED")
+                self.assertEqual(
+                    sum(
+                        call[0] == "recover_orphaned_action_grant"
+                        for call in store.calls
+                    ),
+                    1,
+                )
 
     def test_pending_preissue_recovery_locks_generation_without_regeneration(self):
         store = FakeStore(self.target)

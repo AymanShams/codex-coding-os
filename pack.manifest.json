@@ -94,6 +94,7 @@
     "scripts/agent/worktree_lanes.py",
     "scripts/agent/fresh_context_review.py",
     "scripts/agent/case_state.py",
+    "scripts/agent/case_review_completion_verifier.py",
     "scripts/agent/case_app_server_controller.py",
     "scripts/agent/case_runtime_supervisor.py",
     "scripts/agent/case_runtime_broker.py",
@@ -120,6 +121,7 @@
     "tests/workflow-gates-smoke.py",
     "tests/worktree-lanes-smoke.py",
     "tests/test_case_state_engine.py",
+    "tests/test_case_review_completion_verifier.py",
     "tests/test_case_app_server_controller.py",
     "tests/test_case_runtime_supervisor.py",
     "tests/test_case_runtime_broker.py",
@@ -244,6 +246,7 @@
     "runtime_files": [
       "scripts/install_transaction.py",
       "scripts/agent/case_state.py",
+      "scripts/agent/case_review_completion_verifier.py",
       "scripts/agent/case_app_server_controller.py",
       "scripts/agent/case_runtime_supervisor.py",
       "scripts/agent/case_runtime_broker.py",

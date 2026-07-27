@@ -77,10 +77,12 @@ A repeated control failure after that retry locks this exact case.
 
 ## Review and repair
 
-`start-review` declares one immutable cohort before any finding is accepted.
-Each required reviewer assignment binds a reviewer identifier, the
-controller-bound native thread identifier, repository, exact reviewed head,
-snapshot, exact scope string, and the SHA-256 digest of that UTF-8 string. The cohort cannot grow, shrink,
+`start-review` declares one immutable `ccos-review-cohort-v2` cohort before any
+finding is accepted. Each required reviewer assignment binds a reviewer
+identifier, controller-observed native child and parent thread identifiers,
+canonical agent path, repository, exact reviewed head, snapshot, exact scope
+string, and the SHA-256 digest of that UTF-8 string. Every native reviewer must
+be one direct child of the same native parent. The cohort cannot grow, shrink,
 or change scope after collection begins.
 
 Reviewers submit findings only while the case is `REVIEW_COLLECTING`. Every
@@ -95,13 +97,31 @@ commit SHA, source, description, and one classification:
 
 A finding for a commit other than the frozen review head is recorded as
 `INVALID_OR_STALE`. It cannot authorize repair. The parent freezes the complete
-finding set once, but only after every declared reviewer has submitted one
-`ccos-review-completion-v1` receipt. A receipt is valid only when its reviewer,
-native thread, repository, head, snapshot, exact scope, scope digest, finding
-identifier set, native completion evidence, and request identifier match the
-declared assignment. `FAILED` or `INCOMPLETE` is a recorded terminal cohort
-result and cannot be treated as completion. Missing or non-completed receipts
-block `freeze-findings` without changing the revision. Later findings remain
+finding set once, but only after every required reviewer has one verified
+`ccos-review-completion-v2` receipt. The mutation accepts only the frozen
+reviewer identifier. It does not accept a caller-supplied receipt, thread,
+completion state, finding set, timestamp, or evidence digest. The verifier
+resolves the canonical Codex sessions root from the case-state root, proves one
+direct native child identity from `session_meta`, and derives the receipt only
+from one ordered `task_started` and `task_complete` turn whose raw final message
+is an exact v2 completion payload. It binds the log prefix, final message,
+timestamps, cohort declaration time, assignment, and evidence digests. The
+rollout and every ancestor through the canonical Codex profile are checked
+before and after the read for direct-path identity, stable bytes, consistent
+owner, and an exact read-only sandbox access entry. This verifier fails closed
+outside Windows until equivalent operating-system ownership and access-control
+proof exists.
+
+Persisted v1 cohorts and receipts are read without backfill. They remain
+unverified and cannot freeze findings, enter closure, or authorize publication.
+`attest-existing-review-completion --reviewer-id` is the only migration path.
+It anchors the original v1 completed-turn identifier in the same native rollout
+and requires a later raw v2 restatement from that reviewer. A successful
+attestation adds a separately hashed `native_verification` record while
+preserving the original v1 cohort bytes, receipt fields, and receipt digest.
+`FAILED` or `INCOMPLETE` is a recorded terminal cohort result and cannot be
+treated as completion. Missing, unverified, or non-completed receipts block the
+relevant transition without changing the revision. Later findings remain
 visible but are marked late and non-authorizing.
 
 Repair requires an authority record and the exact full set of frozen
@@ -202,7 +222,13 @@ role, thread, or content.
 
 ### Claim and execution
 
-The grant lifecycle remains `ISSUED` to `CLAIMED` to `COMPLETED` or `FAILED`.
+Before issuance, the grant is durably `ARMED` while the protected roots are
+narrowed. A supervisor restart at `ARMED` cancels that exact arm, restores or
+proves the journal-bound original access controls, and locks the case. A
+durable `CANCELLED` record is reverified the same way and cannot restart the
+controller. The executable lifecycle is `ARMED` to `ISSUED` to `CLAIMED` to
+`COMPLETED` or `FAILED`, with `ARMED` to `CANCELLED` as the only pre-issuance
+terminal path.
 Only the first successful, non-idempotent claim creates write authority. An
 idempotent response may report the prior claim but cannot authorize another
 write. An expired grant, stale revision, or failed preclaim check terminally
@@ -377,7 +403,8 @@ the exact store revision needed for safe registration. Branch `bind` and
 `--actor-role` and accepts normalized repository, branch, worktree, pull
 request, thread, universal bundle, head, and blocked-case context. Lifecycle
 commands are `register`, `bind`, `start-implementation`,
-`freeze-candidate`, `start-review`, `submit-review-completion`, `add-finding`, `freeze-findings`,
+`freeze-candidate`, `start-review`, `submit-review-completion`,
+`attest-existing-review-completion`, `add-finding`, `freeze-findings`,
 `close-without-blockers`, `authorize-repair`, `complete-repair`,
 `observe-heads`, `start-closure-preflight`, `verify-closure-preflight`,
 `complete-closure-check`, `control-failure`, `retry-control`, and
