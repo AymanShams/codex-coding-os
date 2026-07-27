@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "f53d0f6bfcca8ded780fe6ff579f96ac723997224c8f855f32336db7e23493aa",
+  "aggregate_sha256": "a028add1e192ea02ebc3193aa15ce736472dfb2cc24c51ead0f4a05b468292ba",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2138,8 +2138,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "90abf7b6ef7907c1b1be29a34fbbc885f0f602c53060c454ceb15f29e4834f01",
-      "size": 13623
+      "sha256": "bb57bf8516b5261d446a13bfd7379b72219f55bf6c72fb77ac026d9b0aa469d8",
+      "size": 13763
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2173,8 +2173,8 @@
     },
     {
       "path": "THIRD_PARTY_SKILLS.md",
-      "sha256": "7039204234abf2006905192e7053f5803038252e6ca0c6d0c80b03b7e7c436e4",
-      "size": 7702
+      "sha256": "4d678678f2283951eed4bcec1c288b83fc615ce15caccd829bb53e4dd0f3bf87",
+      "size": 8574
     },
     {
       "path": "capability-index/canonical-registry.sample.csv",

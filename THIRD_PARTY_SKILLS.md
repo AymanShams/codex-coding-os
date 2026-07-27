@@ -73,6 +73,22 @@ If a source, attribution, or license note is missing, open an issue or pull requ
 
 Do not copy additional third-party skill code into this repo until license and provenance are reviewed.
 
+## Community feedback
+
+The material-decision record and scope-creep review patterns added through
+[pull request 19](https://github.com/AymanShams/codex-coding-os/pull/19)
+were informed by a public
+[r/codex comment](https://www.reddit.com/r/codex/comments/1u6pj52/comment/ou0hcvy/)
+from [u/Calm-Dimension3422](https://www.reddit.com/user/Calm-Dimension3422/).
+
+The comment recommended recording each material decision, rejected alternatives,
+reason, owner and approver, revisit trigger, and evidence test. It also recommended
+making fresh-context review compare the final diff with the original acceptance
+criteria, identify unrequested behavior, and flag hidden dependencies. Codex Coding
+OS adapted those ideas into its own templates, validation logic, tests, and later
+workflow-control refinements. This is an idea-level attribution. No Reddit text or
+code is bundled.
+
 ## Overlay policy
 
 If an external skill is installed later, keep upstream files unchanged.
