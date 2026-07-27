@@ -46,6 +46,8 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.probe_temp = tempfile.TemporaryDirectory(prefix="ccos-proposal-probe-")
         self.root = Path(self.temp.name).resolve(strict=True)
         self.probe_runtime_root = Path(self.probe_temp.name).resolve(strict=True)
+        self.probe_system_root = self.probe_runtime_root / "system-root"
+        (self.probe_system_root / "System32").mkdir(parents=True)
         self.state_root = self.root / "state"
         self.repository_root = self.root / "repository"
         self.repository_root.mkdir()
@@ -1648,6 +1650,10 @@ class ProposalActionGrantTests(unittest.TestCase):
             stderr=b"",
         )
         with (
+            mock.patch.dict(
+                runtime_broker.os.environ,
+                {"SYSTEMROOT": str(self.probe_system_root)},
+            ),
             mock.patch.object(runtime_broker, "windows_identity", return_value=("fixture\\broker", BROKER_SID)),
             mock.patch.object(runtime_broker.subprocess, "run", return_value=version_result),
             mock.patch.object(
@@ -1707,6 +1713,10 @@ class ProposalActionGrantTests(unittest.TestCase):
         )
 
         with (
+            mock.patch.dict(
+                runtime_broker.os.environ,
+                {"SYSTEMROOT": str(self.probe_system_root)},
+            ),
             mock.patch.object(runtime_broker, "__file__", str(alternate_module)),
             mock.patch.object(
                 runtime_broker,
@@ -1778,6 +1788,10 @@ class ProposalActionGrantTests(unittest.TestCase):
             return runtime_broker.collect_proposal_isolation_evidence(**kwargs)
 
         with (
+            mock.patch.dict(
+                runtime_broker.os.environ,
+                {"SYSTEMROOT": str(self.probe_system_root)},
+            ),
             mock.patch.object(proposal_entrypoint, "require_current_broker_principal"),
             mock.patch.object(
                 proposal_entrypoint,
@@ -1846,6 +1860,10 @@ class ProposalActionGrantTests(unittest.TestCase):
         )
 
         with (
+            mock.patch.dict(
+                runtime_broker.os.environ,
+                {"SYSTEMROOT": str(self.probe_system_root)},
+            ),
             mock.patch.object(
                 runtime_broker,
                 "windows_identity",
