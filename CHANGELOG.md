@@ -27,6 +27,10 @@ All notable package changes are recorded here. The authoritative package release
 
 ### Changed
 
+- Rebuilt the public README around the current source-of-truth hierarchy,
+  operating philosophy, finite case and runtime specifications, platform
+  status, package inventory, and the complete pull request history from 2
+  through 31.
 - Blocked every unrelated canonical mutation while a runtime grant is issued or
   claimed, without advancing the case revision.
 - Sanitized and pinned Git, PowerShell, App Server, and identity helper launches
