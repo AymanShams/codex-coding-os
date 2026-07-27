@@ -604,6 +604,7 @@ installation.
 ### Windows source checkout
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 $ExpectedBundleSha256 = (Get-Content -Raw -LiteralPath .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
 $ExpectedSourceCommit = git rev-parse HEAD
 .\scripts\install.ps1 -ExpectedBundleSha256 $ExpectedBundleSha256 -ExpectedSourceCommit $ExpectedSourceCommit -DryRun
@@ -625,6 +626,7 @@ chmod +x ./scripts/install.sh ./scripts/uninstall.sh
 ### macOS or Linux source checkout
 
 ```bash
+chmod +x ./scripts/install.sh ./scripts/uninstall.sh
 python_cmd="$(command -v python3 || command -v python)"
 expected_bundle_sha256="$("$python_cmd" -c 'import json; print(json.load(open("install-bundle.manifest.json", encoding="utf-8"))["aggregate_sha256"])')"
 expected_source_commit="$(git rev-parse HEAD)"
@@ -717,8 +719,8 @@ $codex-coding-os-master
 | Verify the install bundle | `python scripts/install_transaction.py verify-bundle --repo-root .` |
 | Validate the pack | `.\scripts\validate-pack.ps1` |
 | Run Windows install lifecycle smoke | `.\tests\install-uninstall-smoke.ps1` |
-| Run workflow gate smoke | `python tests\workflow-gates-smoke.py` |
-| Run worktree lane smoke | `python tests\worktree-lanes-smoke.py` |
+| Run workflow gate smoke | `python tests/workflow-gates-smoke.py` |
+| Run worktree lane smoke | `python tests/worktree-lanes-smoke.py` |
 | Build the release archive | `.\scripts\package.ps1` |
 
 The complete case mutation and read-only command surface is documented in

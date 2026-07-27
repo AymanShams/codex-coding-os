@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "41f6ff3d719927c70d4a495e4af45eba57fbb120ead642eb8a8a47b68ec01fc8",
+  "aggregate_sha256": "f53d0f6bfcca8ded780fe6ff579f96ac723997224c8f855f32336db7e23493aa",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2163,8 +2163,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "a8126a40ef4bc9ed1c0e6e24321a82113798c87324d10fbcf0f360b4a89c5a64",
-      "size": 45816
+      "sha256": "fd4c29a425006da93f1b59fe1b52d740f13087573884dd78fe953fdfdad6c787",
+      "size": 45928
     },
     {
       "path": "SECURITY.md",
@@ -2643,8 +2643,8 @@
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "386288303182bea005c4f667046199353f8918305040c41cd59b04829d6c5f7c",
-      "size": 5550
+      "sha256": "701fc6b6e82ffd5298684e087efb3d279f2de4dd74b460926d4418ef14468b95",
+      "size": 6778
     },
     {
       "path": "tests/test_reentry_summary.py",

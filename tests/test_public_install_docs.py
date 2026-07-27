@@ -14,6 +14,12 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         cls.readme = (cls.repo_root / "README.md").read_text(encoding="utf-8")
         cls.public_docs = f"{cls.readme}\n{cls.getting_started}"
 
+    @classmethod
+    def readme_section(cls, heading: str, next_heading: str) -> str:
+        start = cls.readme.index(heading)
+        end = cls.readme.index(next_heading, start)
+        return cls.readme[start:end]
+
     def test_getting_started_uses_the_bundled_session_helper(self) -> None:
         helper = self.repo_root / ".agents" / "skills" / "project-session-continuity" / "scripts" / "session_continuity.py"
         documented = ".agents/skills/project-session-continuity/scripts/session_continuity.py"
@@ -61,6 +67,28 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         self.assertIn('[[ -n "$expected_bundle" ]] || { echo "--expected-bundle-sha256 is required"', install_sh)
         self.assertIn("if options.archive_mode:", transaction_engine)
         self.assertIn('raise AuthorityError("archive mode cannot synchronize universal policy")', transaction_engine)
+
+    def test_windows_source_checkout_sets_process_execution_policy(self) -> None:
+        section = self.readme_section("### Windows source checkout", "### macOS or Linux archive")
+
+        self.assertIn(
+            "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass",
+            section,
+        )
+
+    def test_posix_source_checkout_marks_installers_executable(self) -> None:
+        section = self.readme_section("### macOS or Linux source checkout", "### Confirm the normal install")
+
+        self.assertIn(
+            "chmod +x ./scripts/install.sh ./scripts/uninstall.sh",
+            section,
+        )
+
+    def test_smoke_commands_use_cross_platform_path_separators(self) -> None:
+        self.assertIn("python tests/workflow-gates-smoke.py", self.readme)
+        self.assertIn("python tests/worktree-lanes-smoke.py", self.readme)
+        self.assertNotIn(r"python tests\workflow-gates-smoke.py", self.readme)
+        self.assertNotIn(r"python tests\worktree-lanes-smoke.py", self.readme)
 
     def test_legacy_overlap_migration_is_explicit_in_docs_and_powershell_adapters(self) -> None:
         install_ps1 = (self.repo_root / "scripts" / "install.ps1").read_text(encoding="utf-8")
