@@ -1571,6 +1571,13 @@ def _new_case(case_id: str, objective: str) -> dict[str, Any]:
     }
 
 
+def _case_read_view(case: Mapping[str, Any]) -> dict[str, Any]:
+    view = copy.deepcopy(case)
+    if view.get("anti_loop_latch") is None:
+        view["anti_loop_latch"] = _new_anti_loop_latch(str(view["objective"]))
+    return view
+
+
 def _native_verification_is_valid(
     verification: object, *, legacy_receipt_sha256: str | None = None
 ) -> bool:
@@ -2951,14 +2958,14 @@ class CaseStore:
 
     def list_cases(self) -> list[dict[str, Any]]:
         data = self._read()
-        return [copy.deepcopy(data["cases"][key]) for key in sorted(data["cases"])]
+        return [_case_read_view(data["cases"][key]) for key in sorted(data["cases"])]
 
     def get_case(self, case_id: str) -> dict[str, Any]:
         case_id = canonical_case_id(case_id)
         data = self._read()
         if case_id not in data["cases"]:
             raise ValidationError(f"case not found: {case_id}")
-        return copy.deepcopy(data["cases"][case_id])
+        return _case_read_view(data["cases"][case_id])
 
     def register_case(
         self,

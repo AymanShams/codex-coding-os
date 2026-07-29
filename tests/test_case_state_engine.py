@@ -3457,6 +3457,44 @@ class SnapshotTests(unittest.TestCase):
 
 
 class PersistenceAndCliTests(StoreCase):
+    def test_legacy_case_reads_materialize_clear_latch_without_store_write(self) -> None:
+        path = self.root / engine.STORE_FILENAME
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        del raw["cases"][self.case_id]["anti_loop_latch"]
+        path.write_text(
+            json.dumps(raw, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        before = path.read_bytes()
+
+        shown = self.store.get_case(self.case_id)
+        listed = next(
+            item for item in self.store.list_cases() if item["case_id"] == self.case_id
+        )
+        cli_result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--state-root",
+                str(self.root),
+                "--json",
+                "show",
+                "--case-id",
+                self.case_id,
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
+        cli_case = json.loads(cli_result.stdout)
+        expected = engine._new_anti_loop_latch("bounded review and repair")
+
+        self.assertEqual(shown["anti_loop_latch"], expected)
+        self.assertEqual(listed["anti_loop_latch"], expected)
+        self.assertEqual(cli_case["anti_loop_latch"], expected)
+        self.assertEqual(path.read_bytes(), before)
+
     def test_public_cli_exposes_no_actor_json_binding_command(self) -> None:
         before = self.store.get_case(self.case_id)
         result = subprocess.run(
