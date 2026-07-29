@@ -157,7 +157,7 @@ class ActivationFixture:
 class UniversalActivationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="ccos anti-loop activation ")
-        self.fixture = ActivationFixture(Path(self.temporary.name))
+        self.fixture = ActivationFixture(Path(self.temporary.name).resolve(strict=True))
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -412,7 +412,7 @@ class UniversalActivationTests(unittest.TestCase):
 class FixedGitResolverTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="ccos fixed git ")
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve(strict=True)
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self.fixed_git = self.root / ("git.exe" if os.name == "nt" else "git")
