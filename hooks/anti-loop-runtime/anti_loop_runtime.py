@@ -673,14 +673,9 @@ def _untrusted_python_script_tokens(command: str) -> tuple[str, list[str]] | Non
         return None
     values = list(tokens)
     executable = Path(values.pop(0)).name.casefold()
-    if executable not in {
-        "python",
-        "python.exe",
-        "python3",
-        "python3.exe",
-        "py",
-        "py.exe",
-    }:
+    if re.fullmatch(
+        r"(?:python(?:3(?:\.\d+)?)?|py)(?:\.exe)?", executable
+    ) is None:
         return None
     if executable in {"py", "py.exe"} and values and values[0] == "-3":
         values.pop(0)

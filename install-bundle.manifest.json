@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "ca43bf0d7819a3e24ef2fc19115ea9e5c38c5a17718a79eca40b7d7ea8ee5cd3",
+  "aggregate_sha256": "83e765138893c0cba9379076bc67c57324aae800d6c48b107ae861d79b0d33fb",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2313,8 +2313,8 @@
     },
     {
       "path": "hooks/anti-loop-runtime/anti_loop_runtime.py",
-      "sha256": "20034b2b73b72399289a67e40056e8c2854471835897ab8d128d54b87175b6d6",
-      "size": 85627
+      "sha256": "881ff3ed2278f21126e389b128d8efdebbe056796485bd5831894eb5b0be1d4d",
+      "size": 85578
     },
     {
       "path": "hooks/capability-router/README.md",
@@ -2448,8 +2448,8 @@
     },
     {
       "path": "scripts/install.sh",
-      "sha256": "65c33f4242881eef0019688d99612e9fe78eab9b37b4165721fe45e2c41bd44b",
-      "size": 4210
+      "sha256": "6c8f4e4581c699a77e0fcf8153aff0ea15427d049080fb5c822b5d262bbccd93",
+      "size": 4213
     },
     {
       "path": "scripts/install_transaction.py",
@@ -2638,8 +2638,8 @@
     },
     {
       "path": "tests/test_anti_loop_runtime_hook.py",
-      "sha256": "2d79e76759d5e32839582a9832b96d58f3711035d2ef19c004a5fd7e009be76c",
-      "size": 56433
+      "sha256": "bd48e2c48a55042291603b3e87a05f0aa02482ad8d2cdeecbf6222f7f5c6da9b",
+      "size": 56485
     },
     {
       "path": "tests/test_case_app_server_controller.py",
@@ -2678,8 +2678,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "e56a681f695f7bd4bccfd0e0f6ae126a59fa3783683b134884e71d996e405b28",
-      "size": 72123
+      "sha256": "8e4a418bc4d0ca78f860a9fafbb9b9a6aaedd758227b9031c1e641e69b7f38e7",
+      "size": 72889
     },
     {
       "path": "tests/test_public_install_docs.py",

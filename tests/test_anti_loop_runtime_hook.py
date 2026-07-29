@@ -22,6 +22,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_SCRIPTS = ROOT / "scripts" / "agent"
 HOOK_PATH = ROOT / "hooks" / "anti-loop-runtime" / "anti_loop_runtime.py"
+PINNED_PYTHON = Path(sys.executable).resolve(strict=True)
 if str(AGENT_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(AGENT_SCRIPTS))
 
@@ -245,7 +246,7 @@ class AntiLoopRuntimeHookTests(unittest.TestCase):
         return authority
 
     def control_broker(self, arguments=None) -> dict:
-        command = f'"{sys.executable}" "{HOOK_PATH}" control-patch'
+        command = f'"{PINNED_PYTHON}" "{HOOK_PATH}" control-patch'
         if arguments is not None:
             command += (
                 f' --repository-root "{arguments.repository_root}"'
@@ -395,7 +396,7 @@ class AntiLoopRuntimeHookTests(unittest.TestCase):
 
     def test_bootstrap_and_control_broker_require_exact_pinned_complete_commands(self) -> None:
         bootstrap = (
-            f'"{sys.executable}" "{case_state.__file__}" '
+            f'"{PINNED_PYTHON}" "{case_state.__file__}" '
             f'--state-root "{self.store.state_root}" --json bind '
             f"--case-id {self.case_id} --kind thread "
             f"--value 01900000-0000-7000-8000-000000000899 "
@@ -411,18 +412,18 @@ class AntiLoopRuntimeHookTests(unittest.TestCase):
         self.assertEqual(exact["reason_code"], "CASE_BOOTSTRAP_ALLOWED")
         for command in (
             bootstrap + " --unexpected bypass",
-            bootstrap.replace(f'"{sys.executable}"', "python", 1),
-            f'"{sys.executable}" "{HOOK_PATH}" control-patch',
+            bootstrap.replace(f'"{PINNED_PYTHON}"', "python", 1),
+            f'"{PINNED_PYTHON}" "{HOOK_PATH}" control-patch',
             self.control_broker(self.control_patch_arguments("old", "x", "x"))[
                 "tool_input"
             ]["command"]
             + " --unexpected bypass",
             (
-                f'"{sys.executable}" "{self.root / "evil" / "scripts" / "agent" / "case_state.py"}" '
+                f'"{PINNED_PYTHON}" "{self.root / "evil" / "scripts" / "agent" / "case_state.py"}" '
                 "register --case-id counterfeit"
             ),
             (
-                f'"{sys.executable}" "{self.root / "evil" / "anti_loop_runtime.py"}" '
+                f'"{PINNED_PYTHON}" "{self.root / "evil" / "anti_loop_runtime.py"}" '
                 "control-patch"
             ),
         ):

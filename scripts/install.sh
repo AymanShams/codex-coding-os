@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 skills_root="${SKILLS_ROOT:-$HOME/.agents/skills}"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 expected_bundle=""

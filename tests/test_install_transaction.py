@@ -70,6 +70,7 @@ def write_text(path: Path, value: str) -> None:
 
 class SyntheticEnvironment:
     def __init__(self, root: Path, *, git_source: bool = False) -> None:
+        root = root.resolve(strict=True)
         self.root = root
         self.source = root / "source"
         self.skills = root / "skills"
@@ -725,6 +726,19 @@ class InstallTransactionTests(unittest.TestCase):
                 "direct non-link",
             ):
                 it.install(env.policy_options())
+
+    def test_policy_sync_rejects_an_indirect_authority_engine_ancestor(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            alias = env.root / "source-alias"
+            try:
+                alias.symlink_to(env.source, target_is_directory=True)
+            except OSError:
+                self.skipTest("directory symlink creation is unavailable")
+            indirect = alias / "scripts" / "agent" / "case_state.py"
+            with self.assertRaisesRegex(it.AuthorityError, "indirect path"):
+                it.install(env.policy_options(case_state_engine=indirect))
 
     def test_policy_sync_accepts_exact_installed_manifest_engine_and_rejects_tampering(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
