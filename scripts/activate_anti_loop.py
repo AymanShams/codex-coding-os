@@ -221,15 +221,19 @@ def _source_identity(
     if not root.is_dir():
         raise ActivationError("source root must be a directory")
     git_executable = _resolve_git_executable()
-    if (
-        _run_git(
-            root,
-            "rev-parse",
-            "--show-toplevel",
-            git_executable=git_executable,
-        ).casefold()
-        != str(root).casefold()
-    ):
+    git_root_text = _run_git(
+        root,
+        "rev-parse",
+        "--show-toplevel",
+        git_executable=git_executable,
+    )
+    try:
+        git_root = Path(git_root_text).resolve(strict=True)
+    except OSError as exc:
+        raise ActivationError(
+            f"source Git repository root is unavailable: {git_root_text}: {exc}"
+        ) from exc
+    if git_root != root:
         raise ActivationError("source root must be the exact Git repository root")
     actual_commit = _run_git(
         root,

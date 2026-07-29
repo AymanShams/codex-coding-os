@@ -154,6 +154,59 @@ class ActivationFixture:
             return activation.activate(**self.arguments(mode), writer=writer)
 
 
+class SourceIdentityPathTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows Git separator regression")
+    def test_source_identity_accepts_git_forward_slash_root(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos source identity ") as raw:
+            root = Path(raw).resolve(strict=True)
+            entries = []
+            for relative in activation.REQUIRED_INSTALLED_PATHS:
+                target = root.joinpath(*relative.split("/"))
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(f"{relative}\n", encoding="utf-8")
+                entries.append(
+                    {
+                        "path": relative,
+                        "sha256": sha(target),
+                        "size": target.stat().st_size,
+                    }
+                )
+            manifest = root / "install-bundle.manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {"aggregate_sha256": BUNDLE_SHA256, "entries": entries}
+                ),
+                encoding="utf-8",
+            )
+
+            def run_git(_root: Path, *arguments: str, git_executable=None) -> str:
+                if arguments == ("rev-parse", "--show-toplevel"):
+                    return str(root).replace("\\", "/")
+                if arguments == ("rev-parse", "HEAD"):
+                    return SOURCE_COMMIT
+                if arguments == ("status", "--porcelain=v1", "--untracked-files=all"):
+                    return ""
+                if arguments == ("config", "--get", "remote.origin.url"):
+                    return "https://github.com/example/codex-coding-os.git"
+                self.fail(f"unexpected Git arguments: {arguments}")
+
+            with (
+                mock.patch.object(
+                    activation,
+                    "_resolve_git_executable",
+                    return_value=root / "git.exe",
+                ),
+                mock.patch.object(activation, "_run_git", side_effect=run_git),
+            ):
+                identity = activation._source_identity(
+                    root,
+                    expected_commit=SOURCE_COMMIT,
+                    expected_bundle=BUNDLE_SHA256,
+                )
+
+            self.assertEqual(identity["root"], root)
+
+
 class UniversalActivationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="ccos anti-loop activation ")
