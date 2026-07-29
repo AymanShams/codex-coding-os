@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """One-shot Windows broker for a presealed canonical single-file action grant.
 
-The production v2 boundary consumes an actorless exact-action capability. A
-proposal generator supplies bytes but has no mutation authority. Legacy v1
-receipt verification remains only for already-issued grant recovery.
+The production v3 boundary consumes an actor-bound exact-action capability. A
+proposal generator supplies bytes but has no mutation authority. Legacy v1 and
+v2 verification remains only for already-issued grant recovery.
 """
 
 from __future__ import annotations
@@ -45,7 +45,6 @@ from case_state import (  # noqa: E402
     PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION,
     PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION,
     PROPOSAL_ACTION_GRANT_CORE_FIELDS,
-    PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
     PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION,
     STORE_FILENAME,
     TRUSTED_WRITE_PROBE_PROTOCOL_VERSION,
@@ -76,6 +75,7 @@ from case_state import (  # noqa: E402
     file_sha256,
     normalize_action_path,
     normalize_binding,
+    is_proposal_action_grant,
     normalize_repo_url,
     normalized_absolute_path,
     path_contains_link_or_reparse,
@@ -3109,9 +3109,7 @@ def _collect_post_replacement_isolation_evidence(
     run_id: str,
 ) -> dict[str, Any]:
     """Repeat both fixed worker probes while the replacement and DENYs are live."""
-    proposal_protocol = (
-        grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-    )
+    proposal_protocol = is_proposal_action_grant(grant)
     executable_field = (
         "sandbox_executable_path" if proposal_protocol else "app_server_executable_path"
     )
@@ -3394,7 +3392,7 @@ def _verify_source_pins(grant: Mapping[str, Any]) -> None:
     managed_root = Path(__file__).resolve().parents[2]
     if normalize_binding("worktree", str(managed_root)) != grant["broker_source_root"]:
         raise BrokerAuthorizationError("running broker source root differs from the canonical grant")
-    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+    if is_proposal_action_grant(grant):
         observed = proposal_broker_source_pins(managed_root)
         expected = grant.get("proposal_broker_source_pins")
         expected_sha256 = grant.get("proposal_broker_source_pins_sha256")
@@ -3450,9 +3448,7 @@ def _trusted_write_probe(
     grant: Mapping[str, Any], broker_name: str, broker_sid: str, state_store_path: Path
 ) -> dict[str, Any]:
     roots = _protected_roots(grant)
-    proposal_mode = (
-        grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-    )
+    proposal_mode = is_proposal_action_grant(grant)
     if proposal_mode:
         source_pins = grant.get("proposal_broker_source_pins")
         if not isinstance(source_pins, Mapping):
@@ -4050,7 +4046,7 @@ def _proposal_claimed_grant_binding(
     grant: Mapping[str, Any],
 ) -> tuple[str, str]:
     """Reconstruct the stable CLAIMED-stage grant and claim digests."""
-    if grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+    if not is_proposal_action_grant(grant):
         raise BrokerAuthorizationError(
             "claimed-stage binding requires a proposal action grant"
         )
@@ -4144,7 +4140,7 @@ def recover_completed_action_grant_cleanup(
             or canonical_json_sha256(post_evidence.get("dacl_evidence"))
             != post_evidence.get("dacl_evidence_sha256")
         )
-        if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        if is_proposal_action_grant(grant):
             claimed_grant_sha256, claim_sha256 = _proposal_claimed_grant_binding(
                 grant
             )
@@ -4416,7 +4412,7 @@ def _journal_action_details(
         "claim_sha256": claim_sha256,
         "result_sha256": result_sha256,
     }
-    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+    if is_proposal_action_grant(grant):
         details.update(
             {
                 "authority_id": require_stable_id(
@@ -4488,7 +4484,7 @@ def _verify_static_grant(
         raise BrokerAuthorizationError("broker state root differs from the exact grant")
     _verify_source_pins(grant)
     _verify_original_proposal(grant)
-    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+    if is_proposal_action_grant(grant):
         authority = grant.get("authority")
         authority_sha256 = require_snapshot_hash(
             str(grant.get("authority_sha256", ""))
@@ -4518,7 +4514,7 @@ def _verify_static_grant(
             receipt, grant, case["case_id"], _controller_key()
         )
     roots = _protected_roots(grant)
-    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+    if is_proposal_action_grant(grant):
         observed_dacl = inspect_proposal_dacls(
             roots,
             grant["denied_principal_sids"],
@@ -4728,7 +4724,7 @@ def _refresh_proposal_acl_lockdown(
     stage: str,
 ) -> dict[str, Any]:
     """Harden objects created after issuance, claim, or exact replacement."""
-    if grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+    if not is_proposal_action_grant(grant):
         raise BrokerPreflightError("ACL refresh applies only to proposal action grants")
     if stage not in PROPOSAL_ACL_REFRESH_STAGES:
         raise BrokerPreflightError("proposal ACL refresh stage is unsupported")
@@ -4914,10 +4910,7 @@ def _record_failure(
         if isinstance(raw_before, str) and len(raw_before) == 64
         else target_after
     )
-    proposal_protocol = (
-        canonical_grant.get("protocol_version")
-        == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-    )
+    proposal_protocol = is_proposal_action_grant(canonical_grant)
     failure_payload: dict[str, Any] = {
         "protocol_version": (
             PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION
@@ -5058,10 +5051,7 @@ def _complete(
 ) -> dict[str, Any]:
     case = store.get_case(case_id)
     canonical_grant = _get_grant(case, grant["grant_id"])
-    proposal_protocol = (
-        canonical_grant.get("protocol_version")
-        == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-    )
+    proposal_protocol = is_proposal_action_grant(canonical_grant)
     result_protocol = (
         PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION
         if proposal_protocol
@@ -5118,7 +5108,7 @@ def _post_probe_complete_and_restore(
     journal: BrokerJournal,
     run_id: str,
 ) -> dict[str, Any]:
-    if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+    if is_proposal_action_grant(grant):
         _refresh_proposal_acl_lockdown(
             grant,
             journal,
@@ -5181,8 +5171,7 @@ def _execute_grant(
     store = CaseStore(state_root)
     initial_grant = _get_grant(store.get_case(case_id), grant_id)
     if (
-        initial_grant.get("protocol_version")
-        == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
+        is_proposal_action_grant(initial_grant)
     ):
         _verify_proposal_execution_nonce(initial_grant, execution_nonce)
     journal = BrokerJournal(store.state_root, case_id, grant_id)
@@ -5190,13 +5179,10 @@ def _execute_grant(
     with FileLock(journal.lock_path, timeout=30.0):
         case = store.get_case(case_id)
         grant = _get_grant(case, grant_id)
-        proposal_protocol = (
-            grant.get("protocol_version")
-            == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-        )
+        proposal_protocol = is_proposal_action_grant(grant)
         if proposal_protocol and controller_receipt is not None:
             raise BrokerAuthorizationError(
-                "actorless proposal grants do not accept controller receipts"
+                "proposal action grants use sealed canonical authority and do not accept controller receipts"
             )
         if not proposal_protocol and controller_receipt is None:
             raise BrokerAuthorizationError(
@@ -5489,7 +5475,7 @@ def execute_proposal_grant(
     *,
     execution_nonce: str | None = None,
 ) -> dict[str, Any]:
-    """Consume one actorless v2 exact-action capability."""
+    """Consume one actor-bound v3 exact-action capability or a sealed legacy v2 grant."""
     return _execute_grant(
         state_root,
         case_id,

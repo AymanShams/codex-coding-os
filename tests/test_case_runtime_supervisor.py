@@ -71,10 +71,23 @@ class FakeStore:
         return {"case_id": case_id, "revision": self.case["revision"], "idempotent": False}
 
     def bind_runtime_actor(self, case_id: str, **kwargs):
-        self.calls.append(("bind_runtime_actor", copy.deepcopy(kwargs)))
         if kwargs["expected_revision"] != self.case["revision"]:
             raise case_state.RevisionConflict("stale")
-        actor = copy.deepcopy(kwargs["actor"])
+        actor = kwargs["assignment"].consume(
+            case_id=case_id,
+            request_id=kwargs["request_id"],
+            expected_revision=kwargs["expected_revision"],
+        )
+        self.calls.append(
+            (
+                "bind_runtime_actor",
+                {
+                    "request_id": kwargs["request_id"],
+                    "expected_revision": kwargs["expected_revision"],
+                    "actor": copy.deepcopy(actor),
+                },
+            )
+        )
         self.case["runtime"]["actors"][actor["thread_id"]] = actor
         self.case["revision"] += 1
         return {"case_id": case_id, "revision": self.case["revision"], "idempotent": False}
@@ -120,7 +133,7 @@ class FakeStore:
             raise case_state.RevisionConflict("stale")
         grant = copy.deepcopy(kwargs["grant"])
         actor = self.case["runtime"]["actors"].get(grant["actor_thread_id"])
-        if not actor or actor["controller_assigned_role"] != "implementer_child":
+        if not actor or actor["role"] != "implementer_child":
             raise case_state.AuthorizationError("actor is not implementer")
         if self.case["runtime"]["action_grants"]:
             raise case_state.LimitError("one grant already exists")
@@ -154,7 +167,7 @@ class FakeStore:
         actor = self.case["runtime"]["actors"].get(kwargs.get("actor_thread_id"))
         if not actor:
             return {"allowed": False, "reason_codes": ["RUNTIME_ACTOR_UNBOUND"]}
-        bound_role = actor["controller_assigned_role"]
+        bound_role = actor["role"]
         if bound_role != kwargs.get("actor_role"):
             return {"allowed": False, "reason_codes": ["ACTOR_ROLE_MISMATCH"]}
         return {
@@ -249,11 +262,22 @@ class SupervisorTests(unittest.TestCase):
         self.worker_temporary.cleanup()
 
     def _identity(self, name: str, parent: str | None) -> dict:
-        return {
+        stable = {
+            "protocol_version": case_state.NATIVE_THREAD_IDENTITY_PROTOCOL_VERSION,
+            "schema_version": 1,
             "thread_id": f"native-{name}",
             "parent_thread_id": parent,
             "agent_path": "/root" if parent is None else f"/root/{name}",
-            "identity_evidence_sha256": hashlib.sha256(name.encode()).hexdigest(),
+            "depth": 0 if parent is None else 1,
+            "cwd": case_state.normalize_binding("worktree", str(self.worktree)),
+            "source_sha256": case_state.canonical_json_sha256({"name": name}),
+            "created_at": "2026-07-29T00:00:00+00:00",
+            "cli_version": "test",
+            "model_provider": "test",
+        }
+        return {
+            **stable,
+            "identity_evidence_sha256": case_state.canonical_json_sha256(stable),
         }
 
     def _transport_audit(self, phase: str, run_spec: dict) -> list[dict]:
@@ -335,10 +359,13 @@ class SupervisorTests(unittest.TestCase):
             actors.append(
                 {
                     "protocol_version": case_state.RUNTIME_ACTOR_PROTOCOL_VERSION,
-                    "schema_version": 1,
-                    **identity,
+                    "schema_version": 2,
+                    "thread_id": identity["thread_id"],
                     "controller_assigned_role": role,
-                    "binding_source": "native_thread_read",
+                    "parent_thread_id": identity["parent_thread_id"],
+                    "agent_path": identity["agent_path"],
+                    "identity_evidence_sha256": identity["identity_evidence_sha256"],
+                    "binding_source": "controller_verified_native_thread_read",
                 }
             )
         implementation = children[0][0]

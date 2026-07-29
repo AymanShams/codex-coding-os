@@ -63,6 +63,7 @@ from case_state import (  # noqa: E402
     require_stable_id,
     require_windows_sid,
     utc_now,
+    _seal_runtime_actor_assignment,
 )
 
 
@@ -1206,11 +1207,32 @@ def _bind_native_identities(
         raise SupervisorAuthorizationError("controller cohort must contain one entirely unbound unknown child")
     for actor in actors:
         case = store.get_case(case_id)
+        identity = next(
+            (
+                candidate
+                for candidate in identities
+                if isinstance(candidate, Mapping)
+                and candidate.get("thread_id") == actor.get("thread_id")
+            ),
+            None,
+        )
+        if not isinstance(identity, Mapping):
+            raise SupervisorAuthorizationError(
+                "controller actor lacks its verified native identity record"
+            )
+        request_id = f"supervisor-bind-actor-{nonce_factory()}"
+        assignment = _seal_runtime_actor_assignment(
+            case_id=case_id,
+            actor=actor,
+            native_identity=identity,
+            request_id=request_id,
+            expected_revision=case["revision"],
+        )
         results.append(
             store.bind_runtime_actor(
                 case_id,
-                actor=actor,
-                request_id=f"supervisor-bind-actor-{nonce_factory()}",
+                assignment=assignment,
+                request_id=request_id,
                 expected_revision=case["revision"],
             )
         )

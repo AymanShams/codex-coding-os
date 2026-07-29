@@ -35,6 +35,10 @@ def load_engine():
 
 
 engine = load_engine()
+TEST_DIRECTORY = str(Path(__file__).resolve().parent)
+if TEST_DIRECTORY not in sys.path:
+    sys.path.insert(0, TEST_DIRECTORY)
+from runtime_actor_test_support import bind_controller_actor
 
 
 SHA_A = "a" * 40
@@ -171,6 +175,42 @@ class FakeNativeReviewVerifier:
         }
 
 
+class FakeHumanDispositionVerifier:
+    """Deterministic authority derivation; native rollout parsing has separate tests."""
+
+    def __call__(
+        self,
+        *,
+        case_id: str,
+        decision: str,
+        product_heads: dict[str, str],
+        native_thread_id: str,
+        native_turn_id: str,
+        state_root: Path,
+    ) -> dict:
+        del state_root
+        authority = {
+            "protocol_version": engine.ANTI_LOOP_HUMAN_DISPOSITION_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "authority_id": f"native-user:{native_thread_id}:{native_turn_id}",
+            "case_id": case_id,
+            "decision": decision,
+            "product_heads": dict(product_heads),
+            "native_thread_id": native_thread_id,
+            "native_turn_id": native_turn_id,
+            "rollout_relative_path": f"sessions/2026/07/29/rollout-{native_thread_id}.jsonl",
+            "decided_at": "2026-07-29T00:00:00+00:00",
+            "message_sha256": "1" * 64,
+            "log_prefix_sha256": "2" * 64,
+            "evidence_sha256": "3" * 64,
+            "native_verification_protocol": (
+                engine.NATIVE_HUMAN_VERIFICATION_PROTOCOL_VERSION
+            ),
+        }
+        authority["authority_sha256"] = engine.canonical_json_sha256(authority)
+        return authority
+
+
 def request() -> str:
     return str(uuid.uuid4())
 
@@ -231,7 +271,7 @@ def git_protocol_digest(entries: list[tuple[str, str, bytes]]) -> str:
 class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
     def test_real_cli_keeps_one_case_finite_across_an_implementation_child_handoff(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-parent-child-") as raw:
-            root = Path(raw)
+            root = Path(raw).resolve(strict=True)
             state_root = root / "case-state"
             repository_root = root / "repository"
             branch = "codex/acceptance-implementation"
@@ -280,6 +320,7 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
 
             case_id = str(uuid.uuid4())
             repository = "https://github.com/example/parent-child-acceptance"
+            parent_thread = str(uuid.uuid4())
             thread = str(uuid.uuid4())
             reentry_thread = str(uuid.uuid4())
 
@@ -316,6 +357,7 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 ("repo_url", repository, None),
                 ("branch", branch, repository),
                 ("worktree", str(repository_root), None),
+                ("thread", parent_thread, None),
                 ("thread", thread, None),
             ):
                 arguments = [
@@ -335,6 +377,22 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                     arguments.extend(["--repository", binding_repository])
                 revision = cli(*arguments)["revision"]
 
+            direct_store = engine.CaseStore(state_root)
+            for actor_role, actor_thread, actor_parent in (
+                ("parent", parent_thread, None),
+                ("implementer_child", thread, parent_thread),
+            ):
+                revision = bind_controller_actor(
+                    engine,
+                    direct_store,
+                    case_id,
+                    thread_id=actor_thread,
+                    role=actor_role,
+                    parent_thread_id=actor_parent,
+                    agent_path=f"/root/{actor_role}",
+                    cwd=repository_root,
+                )["revision"]
+
             parent_implementation = cli(
                 "action-check",
                 "--case-id",
@@ -343,6 +401,12 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "implementation",
                 "--actor-role",
                 "parent",
+                "--actor-thread-id",
+                parent_thread,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(revision),
                 "--repository",
                 repository,
                 "--branch",
@@ -358,6 +422,12 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "implementation",
                 "--actor-role",
                 "implementer_child",
+                "--actor-thread-id",
+                thread,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(revision),
                 "--repository",
                 repository,
                 "--branch",
@@ -420,6 +490,17 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                     arguments.extend(["--repository", binding_repository])
                 revision = cli(*arguments)["revision"]
 
+            revision = bind_controller_actor(
+                engine,
+                direct_store,
+                case_id,
+                thread_id=reentry_thread,
+                role="review_child",
+                parent_thread_id=parent_thread,
+                agent_path="/root/review_child",
+                cwd=reentry_worktree,
+            )["revision"]
+
             for kind, value, binding_repository in (
                 ("branch", reentry_branch, repository),
                 ("worktree", str(reentry_worktree), None),
@@ -439,6 +520,12 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "case_administration",
                 "--actor-role",
                 "parent",
+                "--actor-thread-id",
+                parent_thread,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(revision),
             )
             self.assertTrue(parent_handoff["allowed"])
             frozen = cli(
@@ -499,6 +586,12 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
                 "review_collection",
                 "--actor-role",
                 "review_child",
+                "--actor-thread-id",
+                reentry_thread,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(review["revision"]),
                 "--repository",
                 repository,
                 "--worktree",
@@ -559,11 +652,12 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
 class StoreCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos-case-state-")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.native_verifier = FakeNativeReviewVerifier()
         self.store = engine.CaseStore(
             self.root,
             review_completion_verifier=self.native_verifier,
+            human_disposition_verifier=FakeHumanDispositionVerifier(),
         )
         self.case_id = str(uuid.uuid4())
         self.reviewer_id = "reviewer"
@@ -577,6 +671,17 @@ class StoreCase(unittest.TestCase):
             request_id=request(),
             expected_store_revision=0,
         )
+        self._raw_action_check = self.store.check_action
+        for role in (
+            "parent",
+            "implementer_child",
+            "review_child",
+            "fix_child",
+            "closure_child",
+            "publication_child",
+        ):
+            self._ensure_action_actor(self.case_id, role)
+        self.store.check_action = self._bound_action_check
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -584,6 +689,52 @@ class StoreCase(unittest.TestCase):
     @property
     def revision(self) -> int:
         return self.store.get_case(self.case_id)["revision"]
+
+    def _ensure_action_actor(self, case_id: str, actor_role: str) -> str:
+        role = actor_role if actor_role in engine.RUNTIME_ACTOR_ROLES else "parent"
+        parent_thread = f"action-parent-{case_id}"
+        actor_thread = parent_thread if role == "parent" else f"action-{role}-{case_id}"
+        case = self.store.get_case(case_id)
+        for thread_id in ({parent_thread, actor_thread} - set(case["bindings"]["thread"])):
+            self.store.bind(
+                case_id,
+                kind="thread",
+                value=thread_id,
+                request_id=request(),
+                expected_revision=self.store.get_case(case_id)["revision"],
+            )
+        actors = self.store.get_case(case_id)["runtime"]["actors"]
+        if parent_thread not in actors:
+            bind_controller_actor(
+                engine,
+                self.store,
+                case_id,
+                thread_id=parent_thread,
+                role="parent",
+                parent_thread_id=None,
+                agent_path=f"/root/{parent_thread}",
+                cwd=self.store.state_root,
+            )
+        actors = self.store.get_case(case_id)["runtime"]["actors"]
+        if role != "parent" and actor_thread not in actors:
+            bind_controller_actor(
+                engine,
+                self.store,
+                case_id,
+                thread_id=actor_thread,
+                role=role,
+                parent_thread_id=parent_thread,
+                agent_path=f"/root/{actor_thread}",
+                cwd=self.store.state_root,
+            )
+        return actor_thread
+
+    def _bound_action_check(self, case_id: str, action: str, **kwargs):
+        role = kwargs.get("actor_role", "implementer_child")
+        kwargs.setdefault("actor_thread_id", self._ensure_action_actor(case_id, role))
+        kwargs.setdefault("request_id", request())
+        kwargs.setdefault("expected_revision", self.store.get_case(case_id)["revision"])
+        return self._raw_action_check(case_id, action, **kwargs)
 
     def mutate(self, method: str, *args, **kwargs):
         if method == "freeze_findings":
@@ -739,6 +890,29 @@ class RuntimeGenerationAttemptTests(StoreCase):
 
 
 class IdentityAndBindingTests(StoreCase):
+    def test_caller_declared_actor_dictionary_cannot_bind_a_fabricated_role(self) -> None:
+        before = self.store.get_case(self.case_id)["runtime"]["actors"]
+        fabricated = {
+            "protocol_version": engine.RUNTIME_ACTOR_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "thread_id": "fabricated-publication-child",
+            "controller_assigned_role": "publication_child",
+            "parent_thread_id": "fabricated-parent",
+            "agent_path": "/root/fabricated",
+            "identity_evidence_sha256": "a" * 64,
+            "binding_source": "controller_verified_native_thread_read",
+        }
+        with self.assertRaisesRegex(
+            engine.AuthorizationError, "controller-sealed assignment is required"
+        ):
+            self.store.bind_runtime_actor(
+                self.case_id,
+                assignment=fabricated,
+                request_id=request(),
+                expected_revision=self.revision,
+            )
+        self.assertEqual(self.store.get_case(self.case_id)["runtime"]["actors"], before)
+
     def test_default_state_root_is_outside_managed_install_tree(self) -> None:
         expected = Path.home() / ".codex" / "case-state"
         self.assertEqual(engine.default_state_root(), expected)
@@ -1274,6 +1448,432 @@ class ClosureAndControlFailureTests(StoreCase):
         self.assertEqual(result["resumable_state"], "REGISTERED")
 
 
+class AntiLoopLatchTests(StoreCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.repository_root = self.root / "anti-loop-repository"
+        self.repository_root.mkdir()
+        self.git("init", "-q")
+        self.git("config", "user.email", "anti-loop@example.invalid")
+        self.git("config", "user.name", "Anti Loop Test")
+        self.git("remote", "add", "origin", REPO)
+        scope_body = {
+            "protocol_version": engine.ANTI_LOOP_SUPPORT_SCOPE_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "support_only_patterns": [
+                ".codex/active-slice*.json",
+                "docs/delivery/current-state*.md",
+                "docs/delivery/handoffs/**",
+            ],
+        }
+        scope = {**scope_body, "record_sha256": engine.canonical_json_sha256(scope_body)}
+        (self.repository_root / ".codex").mkdir()
+        (self.repository_root / ".codex" / "anti-loop-support-scope.json").write_text(
+            json.dumps(scope, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        (self.repository_root / "src").mkdir()
+        (self.repository_root / "src" / "product.py").write_text("value = 1\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "product seed")
+        self.head_a = self.git("rev-parse", "HEAD").casefold()
+        (self.repository_root / "src" / "product.py").write_text("value = 2\n", encoding="utf-8")
+        self.git("add", "src/product.py")
+        self.git("commit", "-q", "-m", "product two")
+        self.head_b = self.git("rev-parse", "HEAD").casefold()
+        (self.repository_root / "src" / "product.py").write_text("value = 3\n", encoding="utf-8")
+        self.git("add", "src/product.py")
+        self.git("commit", "-q", "-m", "product three")
+        self.head_c = self.git("rev-parse", "HEAD").casefold()
+        self.known_heads = {self.head_a, self.head_b, self.head_c}
+        self.mutate("bind", kind="repo_url", value=REPO)
+        self.mutate("bind", kind="worktree", value=str(self.repository_root))
+
+    def git(self, *arguments: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(self.repository_root), *arguments],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        return result.stdout.strip()
+
+    def event(
+        self,
+        event_type: str,
+        *,
+        head: str | None = None,
+        support_action: str | None = None,
+        failure_fingerprint: str | None = None,
+        actor_role: str = "implementer_child",
+    ) -> dict:
+        selected_head = head or self.head_a
+        if event_type == "PRODUCT_HEAD_ADVANCED" and selected_head in self.known_heads:
+            self.git("checkout", "-q", "--detach", selected_head)
+        return self.mutate(
+            "record_anti_loop_event",
+            event_type=event_type,
+            actor_thread_id=self._ensure_action_actor(self.case_id, actor_role),
+            actor_role=actor_role,
+            repository=REPO,
+            worktree=str(self.repository_root),
+            product_head=selected_head,
+            support_action=support_action,
+            failure_fingerprint=failure_fingerprint,
+        )
+
+    def test_product_head_advance_resets_both_support_counters(self) -> None:
+        self.event("PRODUCT_HEAD_ADVANCED", head=self.head_a)
+        self.event("SUPPORT_MUTATION", head=self.head_a, support_action="refresh handoff")
+        before_advance = self.event(
+            "SUPPORT_FAILURE", head=self.head_a, failure_fingerprint="same-timeout"
+        )["anti_loop_latch"]
+        self.assertEqual(before_advance["consecutive_support_mutations"], 1)
+        self.assertEqual(before_advance["failure_fingerprint_repetitions"], 1)
+
+        advanced = self.event("PRODUCT_HEAD_ADVANCED", head=self.head_b)["anti_loop_latch"]
+        self.assertEqual(advanced["product_heads"], {REPO: self.head_b})
+        self.assertEqual(advanced["consecutive_support_mutations"], 0)
+        self.assertIsNone(advanced["last_support_action"])
+        self.assertEqual(advanced["failure_fingerprint_repetitions"], 0)
+        self.assertIsNone(advanced["last_failure_fingerprint"])
+
+        revision = self.revision
+        with self.assertRaisesRegex(
+            engine.ValidationError, "requires a different verified product head"
+        ):
+            self.event("PRODUCT_HEAD_ADVANCED", head=self.head_b)
+        self.assertEqual(self.revision, revision)
+
+        self.event("SUPPORT_MUTATION", head=self.head_b, support_action="refresh handoff")
+        after_failure = self.event(
+            "SUPPORT_FAILURE", head=self.head_b, failure_fingerprint="same-timeout"
+        )["anti_loop_latch"]
+        self.assertEqual(after_failure["consecutive_support_mutations"], 1)
+        self.assertEqual(after_failure["failure_fingerprint_repetitions"], 1)
+        reset_again = self.event("PRODUCT_HEAD_ADVANCED", head=self.head_c)["anti_loop_latch"]
+        self.assertEqual(reset_again["consecutive_support_mutations"], 0)
+        self.assertEqual(reset_again["failure_fingerprint_repetitions"], 0)
+
+    def test_first_support_event_atomically_seeds_live_head_and_counts_support(self) -> None:
+        recorded = self.event(
+            "SUPPORT_MUTATION",
+            head=self.head_c,
+            support_action="write first bounded handoff",
+        )
+        latch = recorded["anti_loop_latch"]
+        self.assertFalse(recorded["triggered"])
+        self.assertEqual(latch["status"], "CLEAR")
+        self.assertEqual(latch["product_heads"], {REPO: self.head_c})
+        self.assertEqual(latch["consecutive_support_mutations"], 1)
+        self.assertTrue(recorded["head_evidence"]["seeded"])
+
+    def test_product_reset_rejects_random_rollback_unrelated_and_support_only_heads(self) -> None:
+        with self.subTest("random sha"):
+            revision = self.revision
+            with self.assertRaises(engine.AuthorizationError):
+                self.event("PRODUCT_HEAD_ADVANCED", head="f" * 40)
+            self.assertEqual(self.revision, revision)
+
+        self.event("PRODUCT_HEAD_ADVANCED", head=self.head_b)
+        with self.subTest("rollback sha"):
+            revision = self.revision
+            with self.assertRaises(engine.AuthorizationError):
+                self.event("PRODUCT_HEAD_ADVANCED", head=self.head_a)
+            self.assertEqual(self.revision, revision)
+
+        with self.subTest("unrelated sha"):
+            self.git("checkout", "-q", "--detach", self.head_b)
+            tree = self.git("rev-parse", f"{self.head_c}^{{tree}}")
+            unrelated = self.git("commit-tree", tree, "-m", "unrelated product commit").casefold()
+            self.known_heads.add(unrelated)
+            revision = self.revision
+            with self.assertRaises(engine.AuthorizationError):
+                self.event("PRODUCT_HEAD_ADVANCED", head=unrelated)
+            self.assertEqual(self.revision, revision)
+
+        with self.subTest("support-only sha"):
+            self.git("checkout", "-q", "--detach", self.head_b)
+            delivery = self.repository_root / "docs" / "delivery"
+            delivery.mkdir(parents=True)
+            (delivery / "current-state.md").write_text("support only", encoding="utf-8")
+            self.git("add", "docs/delivery/current-state.md")
+            self.git("commit", "-q", "-m", "support only")
+            support_only = self.git("rev-parse", "HEAD").casefold()
+            self.known_heads.add(support_only)
+            revision = self.revision
+            with self.assertRaises(engine.AuthorizationError):
+                self.event("PRODUCT_HEAD_ADVANCED", head=support_only)
+            self.assertEqual(self.revision, revision)
+
+    def test_exact_event_replay_is_stable_and_revision_drift_is_not_a_replay(self) -> None:
+        actor = self._ensure_action_actor(self.case_id, "implementer_child")
+        event_id = request()
+        expected = self.revision
+        arguments = {
+            "event_type": "SUPPORT_FAILURE",
+            "actor_thread_id": actor,
+            "actor_role": "implementer_child",
+            "repository": REPO,
+            "worktree": str(self.repository_root),
+            "product_head": self.head_c,
+            "support_action": None,
+            "failure_fingerprint": "stable-timeout",
+            "request_id": event_id,
+            "expected_revision": expected,
+        }
+        first = self.store.record_anti_loop_event(self.case_id, **arguments)
+        replay = self.store.record_anti_loop_event(self.case_id, **arguments)
+        self.assertTrue(replay["idempotent"])
+        self.assertEqual(replay["revision"], first["revision"])
+        self.assertEqual(replay["store_revision"], first["store_revision"])
+        before = self.store.path.read_bytes()
+        with self.assertRaises(engine.ConflictError):
+            self.store.record_anti_loop_event(
+                self.case_id,
+                **{**arguments, "expected_revision": first["revision"]},
+            )
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_action_check_orders_latch_replay_and_revision_through_canonical_event_mutation(self) -> None:
+        actor = self._ensure_action_actor(self.case_id, "parent")
+        request_id = request()
+        expected = self.revision
+        arguments = {
+            "actor_role": "parent",
+            "actor_thread_id": actor,
+            "request_id": request_id,
+            "expected_revision": expected,
+            "support_action": "first bounded control write",
+            "repository": REPO,
+            "worktree": str(self.repository_root),
+            "head": self.head_c,
+        }
+        first = self._raw_action_check(
+            self.case_id, "case_administration", **arguments
+        )
+        self.assertTrue(first["allowed"])
+        revision_after_first = self.revision
+        replay = self._raw_action_check(
+            self.case_id, "case_administration", **arguments
+        )
+        self.assertTrue(replay["allowed"])
+        self.assertEqual(self.revision, revision_after_first)
+        with self.assertRaises(engine.RevisionConflict):
+            self._raw_action_check(
+                self.case_id,
+                "case_administration",
+                actor_role="parent",
+                actor_thread_id=actor,
+                request_id=request(),
+                expected_revision=expected,
+            )
+        second = self._raw_action_check(
+            self.case_id,
+            "case_administration",
+            actor_role="parent",
+            actor_thread_id=actor,
+            request_id=request(),
+            expected_revision=self.revision,
+            support_action="second bounded control write",
+            repository=REPO,
+            worktree=str(self.repository_root),
+            head=self.head_c,
+        )
+        self.assertFalse(second["allowed"])
+        self.assertEqual(second["reason_codes"], ["ANTI_LOOP_LATCH_ACTIVE"])
+        latched_revision = self.revision
+        stale = self._raw_action_check(
+            self.case_id,
+            "case_administration",
+            actor_role="parent",
+            actor_thread_id=actor,
+            request_id=request(),
+            expected_revision=expected,
+        )
+        self.assertFalse(stale["allowed"])
+        self.assertEqual(stale["reason_codes"], ["ANTI_LOOP_LATCH_ACTIVE"])
+        self.assertEqual(self.revision, latched_revision)
+
+    def test_runtime_and_schema_align_for_legacy_and_current_actor_and_request_ids(self) -> None:
+        schema = json.loads((ROOT / "case-state.schema.json").read_text(encoding="utf-8"))
+        definitions = schema["$defs"]
+        self.assertEqual(
+            definitions["runtimeActor"]["oneOf"],
+            [
+                {"$ref": "#/$defs/runtimeActorV1"},
+                {"$ref": "#/$defs/runtimeActorV2"},
+            ],
+        )
+        trigger = definitions["antiLoopLatch"]["properties"]["trigger_event_id"]
+        self.assertEqual(
+            trigger["oneOf"][1], {"$ref": "#/$defs/requestId"}
+        )
+        self.assertEqual(definitions["requestId"]["maxLength"], 200)
+
+        persisted = json.loads(self.store.path.read_text(encoding="utf-8"))
+        actor_key = next(iter(persisted["cases"][self.case_id]["runtime"]["actors"]))
+        actor = persisted["cases"][self.case_id]["runtime"]["actors"][actor_key]
+        actor["protocol_version"] = engine.LEGACY_RUNTIME_ACTOR_PROTOCOL_VERSION
+        actor["schema_version"] = 1
+        actor["binding_source"] = "native_thread_read"
+        actor["actor_sha256"] = engine.canonical_json_sha256(
+            {key: value for key, value in actor.items() if key != "actor_sha256"}
+        )
+        self.store.path.write_text(json.dumps(persisted, sort_keys=True), encoding="utf-8")
+        self.assertEqual(
+            self.store.get_case(self.case_id)["runtime"]["actors"][actor_key][
+                "protocol_version"
+            ],
+            engine.LEGACY_RUNTIME_ACTOR_PROTOCOL_VERSION,
+        )
+
+        native_request = "native-hook:turn-42:tool-9"
+        parent = self._ensure_action_actor(self.case_id, "parent")
+        response = self._raw_action_check(
+            self.case_id,
+            "case_administration",
+            actor_role="unknown_child",
+            actor_thread_id=parent,
+            request_id=native_request,
+            expected_revision=self.revision,
+        )
+        self.assertEqual(response["reason_codes"], ["ANTI_LOOP_LATCH_ACTIVE"])
+        self.assertEqual(
+            self.store.get_case(self.case_id)["anti_loop_latch"]["trigger_event_id"],
+            native_request,
+        )
+
+    def test_latched_case_denies_every_non_disposition_mutator_without_state_change(self) -> None:
+        actor = self._ensure_action_actor(self.case_id, "implementer_child")
+        self.event(
+            "SUPPORT_MUTATION",
+            head=self.head_c,
+            support_action="first support mutation",
+        )
+        latched = self.event(
+            "SUPPORT_MUTATION",
+            head=self.head_c,
+            support_action="second support mutation",
+        )
+        self.assertEqual(latched["anti_loop_latch"]["status"], "LATCHED")
+        expected = self.revision
+        before = self.store.path.read_bytes()
+        attempts = [
+            lambda: self.store.bind(
+                self.case_id,
+                kind="pr",
+                value=f"{REPO}#999",
+                request_id=request(),
+                expected_revision=expected,
+            ),
+            lambda: self.store.start_implementation(
+                self.case_id,
+                request_id=request(),
+                expected_revision=expected,
+            ),
+            lambda: self.store.record_control_failure(
+                self.case_id,
+                category="post-latch",
+                fingerprint="post-latch",
+                description="must never mutate",
+                request_id=request(),
+                expected_revision=expected,
+            ),
+            lambda: self.store.record_anti_loop_event(
+                self.case_id,
+                event_type="PRODUCT_HEAD_ADVANCED",
+                actor_thread_id=actor,
+                actor_role="implementer_child",
+                repository=REPO,
+                worktree=str(self.repository_root),
+                product_head=self.head_c,
+                support_action=None,
+                failure_fingerprint=None,
+                request_id=request(),
+                expected_revision=expected,
+            ),
+        ]
+        for attempt in attempts:
+            with self.subTest(attempt=attempt):
+                with self.assertRaisesRegex(
+                    engine.AuthorizationError, "ANTI_LOOP_LATCH_ACTIVE"
+                ):
+                    attempt()
+                self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_different_support_head_cannot_reset_or_evade_second_mutation_latch(self) -> None:
+        self.event("PRODUCT_HEAD_ADVANCED", head=self.head_a)
+        first = self.event(
+            "SUPPORT_MUTATION", head=self.head_a, support_action="rewrite current state"
+        )["anti_loop_latch"]
+        self.assertEqual(first["consecutive_support_mutations"], 1)
+        self.git("checkout", "-q", "--detach", self.head_b)
+        triggered = self.event(
+            "SUPPORT_MUTATION", head=self.head_b, support_action="rewrite handoff"
+        )
+        self.assertTrue(triggered["triggered"])
+        self.assertEqual(
+            triggered["trigger_reason"], "UNVERIFIED_PRODUCT_HEAD_SUBSTITUTION"
+        )
+        self.assertEqual(triggered["state"], "ANTI_LOOP_LOCKED")
+        self.assertEqual(triggered["anti_loop_latch"]["status"], "LATCHED")
+        self.assertEqual(triggered["anti_loop_latch"]["product_heads"], {REPO: self.head_a})
+        self.assertEqual(
+            triggered["anti_loop_latch"]["consecutive_support_mutations"], 1
+        )
+
+    def test_ship_disposition_allows_only_exact_product_publication_boundaries(self) -> None:
+        self.event("PRODUCT_HEAD_ADVANCED", head=self.head_a)
+        self.event("SUPPORT_MUTATION", head=self.head_a, support_action="refresh handoff")
+        self.event("SUPPORT_MUTATION", head=self.head_a, support_action="refresh manifest")
+        disposed = self.mutate(
+            "anti_loop_ship_product_with_control_quarantined",
+            native_thread_id=native_uuid7(9100),
+            native_turn_id=native_uuid7(9101),
+        )
+        self.assertEqual(disposed["state"], "CLOSED_SUCCESS")
+        self.assertEqual(disposed["anti_loop_latch"]["status"], "DISPOSED")
+
+        publication = self.store.check_action(
+            self.case_id,
+            "publication",
+            actor_role="publication_child",
+            repository=REPO,
+            head=self.head_a,
+        )
+        self.assertTrue(publication["allowed"])
+        merge = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="publication_child",
+            repository=REPO,
+            head=self.head_a,
+        )
+        self.assertEqual(merge["reason_codes"], ["SEPARATE_AUTHORITY_REQUIRED"])
+        for action in (
+            "implementation",
+            "credential_change",
+            "universal_sync",
+            "deployment",
+            "release",
+        ):
+            with self.subTest(action=action):
+                denied = self.store.check_action(
+                    self.case_id,
+                    action,
+                    actor_role=(
+                        "implementer_child"
+                        if action == "implementation"
+                        else "publication_child"
+                    ),
+                    repository=REPO,
+                    head=SHA_A,
+                )
+                self.assertEqual(
+                    denied["reason_codes"], ["ANTI_LOOP_CONTROL_QUARANTINED"]
+                )
+
+
 class ScopeAndAuthorityTests(StoreCase):
     def bind_execution_scope(
         self,
@@ -1318,16 +1918,17 @@ class ScopeAndAuthorityTests(StoreCase):
         return context
 
     def bind_publication_scope(self) -> dict[str, str]:
+        publication_thread = self._ensure_action_actor(self.case_id, "publication_child")
         scope = {
             "branch": "codex/publish",
             "worktree": str(self.root / "publish-worktree"),
             "pr": f"{REPO}#17",
-            "thread": SYNTHETIC_THREAD,
+            "thread": publication_thread,
             "universal_bundle": "synthetic-bundle-v1",
         }
         self.mutate("bind", kind="repo_url", value=REPO)
         self.mutate("bind", kind="branch", value=scope["branch"], repository=REPO)
-        for kind in ("worktree", "pr", "thread", "universal_bundle"):
+        for kind in ("worktree", "pr", "universal_bundle"):
             self.mutate("bind", kind=kind, value=scope[kind])
         return scope
 
@@ -1398,6 +1999,7 @@ class ScopeAndAuthorityTests(StoreCase):
             request_id=request(),
             expected_revision=1,
         )
+        self._ensure_action_actor(other, "implementer_child")
         before = (self.root / engine.STORE_FILENAME).read_bytes()
         contexts = (
             {"branch": "codex/locked"},
@@ -1673,7 +2275,14 @@ class ScopeAndAuthorityTests(StoreCase):
                 self.assertEqual(result["reason_codes"], ["SEPARATE_AUTHORITY_REQUIRED"])
                 self.assertTrue(result["separate_authority_required"])
                 self.assertIsNone(result["blocked_case_id"])
-                self.assertEqual(result["context"], normalized_context)
+                for key, value in normalized_context.items():
+                    self.assertEqual(result["context"][key], value)
+                self.assertEqual(result["context"]["request_id"], result["request_id"])
+                self.assertEqual(
+                    result["context"]["expected_revision"], result["expected_revision"]
+                )
+                self.assertTrue(result["actor_identity_bound"])
+                self.assertEqual(result["controller_bound_actor_role"], "publication_child")
                 self.assertEqual(result["repository"], REPO)
                 self.assertEqual(result["head"], SHA_A)
 
@@ -1691,15 +2300,6 @@ class ScopeAndAuthorityTests(StoreCase):
                 )
                 self.assertEqual(result["reason_codes"], ["ROLE_ACTION_DENIED"])
                 self.assertFalse(result["separate_authority_required"])
-        unknown_role = self.store.check_action(
-            self.case_id,
-            "merge",
-            actor_role="unknown_child",
-            repository=REPO,
-            branch=scope["branch"],
-            head=SHA_A,
-        )
-        self.assertEqual(unknown_role["reason_codes"], ["UNKNOWN_ACTOR_ROLE"])
         unknown_action = self.store.check_action(
             self.case_id,
             "invented_external_action",
@@ -1726,6 +2326,19 @@ class ScopeAndAuthorityTests(StoreCase):
             head=SHA_A,
         )
         self.assertEqual(wrong_repository["reason_codes"], ["REPOSITORY_MISMATCH"])
+        unknown_role = self.store.check_action(
+            self.case_id,
+            "merge",
+            actor_role="unknown_child",
+            repository=REPO,
+            branch=scope["branch"],
+            head=SHA_A,
+        )
+        self.assertEqual(
+            unknown_role["reason_codes"], ["ANTI_LOOP_LATCH_ACTIVE"]
+        )
+        self.assertEqual(unknown_role["revision"], unknown_role["expected_revision"] + 1)
+        self.assertEqual(unknown_role["anti_loop_latch"]["status"], "LATCHED")
 
     def test_external_actions_reject_missing_and_wrong_exclusive_bindings(self) -> None:
         scope = self.close_publication_case()
@@ -1736,12 +2349,11 @@ class ScopeAndAuthorityTests(StoreCase):
             repository=REPO,
             head=SHA_A,
         )
-        self.assertEqual(missing["reason_codes"], ["EXECUTION_CONTEXT_REQUIRED"])
+        self.assertEqual(missing["reason_codes"], ["SEPARATE_AUTHORITY_REQUIRED"])
         wrong_contexts = (
             {"branch": "codex/not-owned"},
             {"worktree": str(self.root / "wrong-worktree")},
             {"pr": f"{REPO}#18"},
-            {"thread": "123e4567-e89b-42d3-a456-426614174001"},
             {"universal_bundle": "wrong-bundle-v1"},
         )
         for wrong in wrong_contexts:
@@ -1756,6 +2368,22 @@ class ScopeAndAuthorityTests(StoreCase):
                 )
                 self.assertEqual(result["reason_codes"], ["CASE_BINDING_MISMATCH"])
                 self.assertFalse(result["separate_authority_required"])
+        thread_contradiction = self.store.check_action(
+            self.case_id,
+            "release",
+            actor_role="publication_child",
+            repository=REPO,
+            head=SHA_A,
+            thread="123e4567-e89b-42d3-a456-426614174001",
+        )
+        self.assertEqual(
+            thread_contradiction["reason_codes"],
+            ["ANTI_LOOP_LATCH_ACTIVE"],
+        )
+        self.assertEqual(
+            thread_contradiction["revision"],
+            thread_contradiction["expected_revision"] + 1,
+        )
 
     def test_universal_sync_requires_the_exact_bound_bundle(self) -> None:
         scope = self.close_publication_case()
@@ -2503,6 +3131,112 @@ class TerminalQuarantineTests(StoreCase):
         self.assertTrue(audit[-1]["recovered"])
 
 
+class EnvironmentAndStoreHardeningTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="ccos-environment-hardening-")
+        self.root = Path(self.temp.name).resolve(strict=True)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_default_state_root_and_cli_default_ignore_forged_profile_environment(self) -> None:
+        expected = engine.default_state_root()
+        forged = {
+            "HOME": str(self.root / "fake-home"),
+            "USERPROFILE": str(self.root / "fake-profile"),
+            "CCOS_CASE_STATE_ROOT": str(self.root / "fake-state"),
+        }
+        with mock.patch.dict(os.environ, forged, clear=False):
+            self.assertEqual(engine.default_state_root(), expected)
+            arguments = engine.build_parser().parse_args(["store-status"])
+        self.assertEqual(arguments.state_root, expected)
+
+    def test_git_resolution_ignores_forged_and_missing_path(self) -> None:
+        expected = Path(engine.resolved_executable("git.exe", "git"))
+        fake = self.root / ("git.exe" if os.name == "nt" else "git")
+        fake.write_text("not git", encoding="utf-8")
+        with mock.patch.dict(
+            os.environ,
+            {
+                "PATH": str(self.root),
+                "HOME": str(self.root / "fake-home"),
+                "USERPROFILE": str(self.root / "fake-profile"),
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                Path(engine.resolved_executable("git.exe", "git")), expected
+            )
+        environment = dict(os.environ)
+        environment.pop("PATH", None)
+        with mock.patch.dict(os.environ, environment, clear=True):
+            self.assertEqual(
+                Path(engine.resolved_executable("git.exe", "git")), expected
+            )
+
+    def test_linked_state_root_is_rejected_when_supported(self) -> None:
+        target = self.root / "real-state"
+        target.mkdir()
+        linked = self.root / "linked-state"
+        try:
+            linked.symlink_to(target, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"directory symlinks are unavailable: {exc}")
+        with self.assertRaisesRegex(
+            engine.ValidationError, "must not traverse a link or reparse point"
+        ):
+            engine.CaseStore(linked)
+
+    def test_hardlinked_store_and_lock_are_rejected(self) -> None:
+        state_root = self.root / "state"
+        store = engine.CaseStore(state_root)
+        case_id = str(uuid.uuid4())
+        store.register_case(
+            case_id,
+            objective="linked store rejection",
+            request_id=request(),
+            expected_store_revision=0,
+        )
+        store_link = self.root / "case-state-hardlink.json"
+        try:
+            os.link(store.path, store_link)
+        except OSError as exc:
+            self.skipTest(f"hard links are unavailable: {exc}")
+        with self.assertRaisesRegex(
+            engine.StoreCorruptionError, "single-link file"
+        ):
+            store.get_case(case_id)
+        store_link.unlink()
+
+        lock_link = self.root / "case-state-lock-hardlink"
+        os.link(store.lock_path, lock_link)
+        with self.assertRaisesRegex(
+            engine.StoreCorruptionError, "lock must be one regular direct single-link file"
+        ):
+            store.bind(
+                case_id,
+                kind="repo_url",
+                value=REPO,
+                request_id=request(),
+                expected_revision=store.get_case(case_id)["revision"],
+            )
+
+    def test_symlinked_store_file_is_rejected_when_supported(self) -> None:
+        state_root = self.root / "symlink-state"
+        state_root.mkdir()
+        target = self.root / "target-case-state.json"
+        target.write_bytes(engine.serialized_store_bytes(engine._initial_store()))
+        store = engine.CaseStore(state_root)
+        try:
+            store.path.symlink_to(target)
+        except OSError as exc:
+            self.skipTest(f"file symlinks are unavailable: {exc}")
+        with self.assertRaisesRegex(
+            engine.StoreCorruptionError, "single-link file"
+        ):
+            store.list_cases()
+
+
 class SnapshotTests(unittest.TestCase):
     def git(self, root: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
         result = subprocess.run(
@@ -2723,6 +3457,35 @@ class SnapshotTests(unittest.TestCase):
 
 
 class PersistenceAndCliTests(StoreCase):
+    def test_public_cli_exposes_no_actor_json_binding_command(self) -> None:
+        before = self.store.get_case(self.case_id)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--state-root",
+                str(self.root),
+                "--json",
+                "bind-runtime-actor",
+                "--case-id",
+                self.case_id,
+                "--actor-json",
+                json.dumps({"controller_assigned_role": "publication_child"}),
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(self.revision),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("invalid choice", result.stderr)
+        after = self.store.get_case(self.case_id)
+        self.assertEqual(after["runtime"]["actors"], before["runtime"]["actors"])
+        self.assertEqual(after["revision"], before["revision"])
+
     def test_persisted_store_has_schema_version_and_no_partial_temp_file(self) -> None:
         self.mutate("bind", kind="thread", value="thread-atomic")
         path = self.root / engine.STORE_FILENAME
@@ -2787,6 +3550,9 @@ class PersistenceAndCliTests(StoreCase):
     def test_cli_action_check_emits_the_canonical_context_contract(self) -> None:
         self.mutate("bind", kind="repo_url", value=REPO)
         self.mutate("bind", kind="branch", value="refs/heads/codex/cli", repository=REPO)
+        actor_thread = self._ensure_action_actor(self.case_id, "implementer_child")
+        revision = self.revision
+        request_id = request()
         result = subprocess.run(
             [
                 sys.executable,
@@ -2801,6 +3567,12 @@ class PersistenceAndCliTests(StoreCase):
                 "implementation",
                 "--actor-role",
                 "implementer_child",
+                "--actor-thread-id",
+                actor_thread,
+                "--request-id",
+                request_id,
+                "--expected-revision",
+                str(revision),
                 "--repository",
                 "git@GitHub.com:Example/Project.git",
                 "--branch",
@@ -2816,9 +3588,15 @@ class PersistenceAndCliTests(StoreCase):
         self.assertEqual(payload["protocol_version"], engine.ACTION_PROTOCOL_VERSION)
         self.assertEqual(payload["repository"], REPO)
         self.assertEqual(payload["context"]["branch"], "codex/cli")
+        self.assertEqual(payload["request_id"], request_id)
+        self.assertEqual(payload["expected_revision"], revision)
+        self.assertEqual(payload["revision"], revision)
+        self.assertTrue(payload["actor_identity_bound"])
         self.assertEqual(payload["reason_codes"], ["ACTION_ALLOWED"])
 
     def test_cli_action_check_returns_protocol_denial_for_unknown_actor(self) -> None:
+        actor_thread = self._ensure_action_actor(self.case_id, "parent")
+        revision = self.revision
         result = subprocess.run(
             [
                 sys.executable,
@@ -2833,6 +3611,12 @@ class PersistenceAndCliTests(StoreCase):
                 "merge",
                 "--actor-role",
                 "unknown_child",
+                "--actor-thread-id",
+                actor_thread,
+                "--request-id",
+                request(),
+                "--expected-revision",
+                str(revision),
             ],
             text=True,
             capture_output=True,
@@ -2841,7 +3625,8 @@ class PersistenceAndCliTests(StoreCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertFalse(payload["allowed"])
-        self.assertEqual(payload["reason_codes"], ["UNKNOWN_ACTOR_ROLE"])
+        self.assertEqual(payload["reason_codes"], ["ANTI_LOOP_LATCH_ACTIVE"])
+        self.assertEqual(payload["revision"], revision + 1)
         self.assertFalse(payload["separate_authority_required"])
 
     @unittest.skipUnless(os.name in {"nt", "posix"}, "locking is implemented for Windows and POSIX")

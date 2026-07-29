@@ -83,6 +83,18 @@ foreach ($Path in $Manifest.support_items) {
   }
 }
 
+$RequiredAntiLoopRuntime = @(
+  ".codex/anti-loop-support-scope.json",
+  "hooks/anti-loop-runtime/anti_loop_runtime.py",
+  "scripts/activate_anti_loop.py",
+  "scripts/agent/case_human_disposition_verifier.py"
+)
+foreach ($Path in $RequiredAntiLoopRuntime) {
+  if (@($Manifest.installation.runtime_files) -notcontains $Path) {
+    $Errors += "Missing mandatory anti-loop runtime declaration: $Path"
+  }
+}
+
 $SkillRoot = Join-Path $RepoRoot ".agents\skills"
 if (-not (Test-Path $SkillRoot)) {
   $Errors += "Missing bundled skill root: .agents/skills"
@@ -182,6 +194,52 @@ if ($Errors.Count -eq 0) {
   if (($AgentsPolicy | Select-String -Pattern '<!-- BEGIN CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->' -AllMatches).Matches.Count -ne 1 -or
       ($AgentsPolicy | Select-String -Pattern '<!-- END CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->' -AllMatches).Matches.Count -ne 1) {
     $Errors += "Universal AGENTS policy must contain one exact managed marker pair."
+  }
+  foreach ($RequiredClause in @(
+    "ANTI_LOOP_LATCH",
+    "higher precedence than every ordinary workflow,",
+    "second consecutive support mutation is attempted",
+    "Permit only read-only status and evidence inspection plus",
+    "protected external case store is authoritative",
+    "must never expand into a second support generation"
+  )) {
+    if ($AgentsPolicy -notlike "*$RequiredClause*") {
+      $Errors += "Universal AGENTS policy is missing mandatory anti-loop clause: $RequiredClause"
+    }
+  }
+  $AntiLoopHookPath = Join-Path $RepoRoot "hooks\anti-loop-runtime\anti_loop_runtime.py"
+  $AntiLoopScopePath = Join-Path $RepoRoot ".codex\anti-loop-support-scope.json"
+  if (-not (Test-Path $AntiLoopHookPath -PathType Leaf)) {
+    $Errors += "Mandatory anti-loop runtime hook is absent."
+  } else {
+    $AntiLoopHook = Get-Content -Raw -LiteralPath $AntiLoopHookPath
+    foreach ($RequiredHookMarker in @(
+      "ccos-anti-loop-hook-v1",
+      "record_anti_loop_event",
+      "support-chain-proposed",
+      "control-patch",
+      "repository_review_worktree_create",
+      "repository_pr_body_write"
+    )) {
+      if ($AntiLoopHook -notlike "*$RequiredHookMarker*") {
+        $Errors += "Mandatory anti-loop runtime hook is missing marker: $RequiredHookMarker"
+      }
+    }
+  }
+  if (-not (Test-Path $AntiLoopScopePath -PathType Leaf)) {
+    $Errors += "Mandatory anti-loop support-scope manifest is absent."
+  } else {
+    try {
+      $AntiLoopScope = Get-Content -Raw -LiteralPath $AntiLoopScopePath | ConvertFrom-Json
+      if ($AntiLoopScope.protocol_version -ne "ccos-anti-loop-support-scope-v1" -or
+          $AntiLoopScope.schema_version -ne 1 -or
+          -not $AntiLoopScope.record_sha256 -or
+          @($AntiLoopScope.support_only_patterns).Count -eq 0) {
+        $Errors += "Mandatory anti-loop support-scope manifest is invalid."
+      }
+    } catch {
+      $Errors += "Mandatory anti-loop support-scope manifest is not valid JSON: $($_.Exception.Message)"
+    }
   }
   if (($MergeRules | Select-String -Pattern '# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY' -AllMatches).Matches.Count -ne 1 -or
       ($MergeRules | Select-String -Pattern '# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY' -AllMatches).Matches.Count -ne 1 -or

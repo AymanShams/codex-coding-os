@@ -11,12 +11,12 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as dt
+import fnmatch
 import hashlib
 import json
 import os
 import re
 import secrets
-import shutil
 import stat
 import subprocess
 import sys
@@ -33,22 +33,39 @@ from case_review_completion_verifier import (
     NativeReviewVerificationError,
     verify_review_completion,
 )
+from case_human_disposition_verifier import (
+    NATIVE_HUMAN_VERIFICATION_PROTOCOL_VERSION,
+    NativeHumanDispositionVerificationError,
+    verify_human_disposition,
+)
 
 
 SCHEMA_VERSION = 2
-ACTION_PROTOCOL_VERSION = "ccos-case-action-v1"
+ACTION_PROTOCOL_VERSION = "ccos-case-action-v2"
+ANTI_LOOP_LATCH_PROTOCOL_VERSION = "ccos-anti-loop-latch-v1"
+ANTI_LOOP_EVENT_PROTOCOL_VERSION = "ccos-anti-loop-event-v2"
+ANTI_LOOP_HUMAN_DISPOSITION_PROTOCOL_VERSION = (
+    "ccos-anti-loop-human-disposition-v1"
+)
 LEGACY_REVIEW_COHORT_PROTOCOL_VERSION = "ccos-review-cohort-v1"
 REVIEW_COHORT_PROTOCOL_VERSION = "ccos-review-cohort-v2"
 LEGACY_REVIEW_COMPLETION_PROTOCOL_VERSION = "ccos-review-completion-v1"
 REVIEW_COMPLETION_PROTOCOL_VERSION = "ccos-review-completion-v2"
-RUNTIME_ACTOR_PROTOCOL_VERSION = "ccos-runtime-actor-v1"
+LEGACY_RUNTIME_ACTOR_PROTOCOL_VERSION = "ccos-runtime-actor-v1"
+RUNTIME_ACTOR_PROTOCOL_VERSION = "ccos-runtime-actor-v2"
+RUNTIME_ACTOR_ASSIGNMENT_PROTOCOL_VERSION = "ccos-runtime-actor-assignment-v1"
+NATIVE_THREAD_IDENTITY_PROTOCOL_VERSION = "ccos-native-thread-identity-evidence-v1"
 ACTION_GRANT_PROTOCOL_VERSION = "ccos-runtime-action-grant-v1"
 ACTION_GRANT_CLAIM_PROTOCOL_VERSION = "ccos-runtime-action-claim-v1"
 ACTION_GRANT_RESULT_PROTOCOL_VERSION = "ccos-runtime-action-result-v1"
-PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION = "ccos-proposal-action-grant-v2"
+LEGACY_PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION = "ccos-proposal-action-grant-v2"
+PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION = "ccos-proposal-action-grant-v3"
 PROPOSAL_ACTION_CLAIM_PROTOCOL_VERSION = "ccos-proposal-action-claim-v2"
 PROPOSAL_ACTION_RESULT_PROTOCOL_VERSION = "ccos-proposal-action-result-v2"
-PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION = "ccos-proposal-action-authority-v1"
+LEGACY_PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION = (
+    "ccos-proposal-action-authority-v1"
+)
+PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION = "ccos-proposal-action-authority-v2"
 PROPOSAL_ACTION_ARM_PROTOCOL_VERSION = "ccos-proposal-action-arm-v1"
 PROPOSAL_ACTION_CANCELLATION_PROTOCOL_VERSION = (
     "ccos-proposal-action-cancellation-v1"
@@ -71,6 +88,9 @@ LOCK_FILENAME = ".case-state.lock"
 QUARANTINE_AUDIT_FILENAME = "quarantine-audit.jsonl"
 QUARANTINE_BACKUP_DIRECTORY = "quarantine-backups"
 ACTION_ARTIFACT_DIRECTORY = "action-artifacts"
+ANTI_LOOP_SUPPORT_SCOPE_PATH = ".codex/anti-loop-support-scope.json"
+ANTI_LOOP_SUPPORT_SCOPE_PROTOCOL_VERSION = "ccos-anti-loop-support-scope-v1"
+MAX_ANTI_LOOP_SCOPE_BYTES = 64 * 1024
 SNAPSHOT_CONTRACT = "ccos-git-snapshot-v1"
 GIT_SNAPSHOT_MAGIC = b"CCOS-GIT-SNAPSHOT\0"
 LEGACY_FILESYSTEM_SNAPSHOT_CONTRACT = "ccos-snapshot-v1"
@@ -113,6 +133,7 @@ CASE_STATES = {
     "CLOSURE_CHECK",
     "CLOSED_SUCCESS",
     "CASE_LOCKED",
+    "ANTI_LOOP_LOCKED",
     "CONTROL_FAILURE",
 }
 FINDING_CLASSES = {
@@ -135,8 +156,6 @@ ROLE_ACTIONS = {
     "parent": {"case_administration"},
     "implementer_child": {"implementation", "product_work"},
     "review_child": {"review_collection", "closure_check"},
-    "closure_child": {"closure_check"},
-    "incomplete_child": set(),
     "closure_child": {"closure_check"},
     "incomplete_child": set(),
     "fix_child": {"repair"},
@@ -169,7 +188,30 @@ HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 FINDING_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 WINDOWS_SID_PATTERN = re.compile(r"^S-\d(?:-\d+)+$", re.IGNORECASE)
 RUNTIME_ACTOR_ROLES = frozenset(
-    {"parent", "implementer_child", "review_child", "closure_child", "incomplete_child"}
+    {
+        "parent",
+        "implementer_child",
+        "review_child",
+        "closure_child",
+        "incomplete_child",
+        "fix_child",
+        "publication_child",
+    }
+)
+ANTI_LOOP_EVENT_TYPES = frozenset(
+    {
+        "PRODUCT_HEAD_ADVANCED",
+        "SUPPORT_MUTATION",
+        "SUPPORT_FAILURE",
+        "SUPPORT_CHAIN_PROPOSED",
+    }
+)
+ANTI_LOOP_LATCH_STATUSES = frozenset({"CLEAR", "LATCHED", "DISPOSED"})
+ANTI_LOOP_DISPOSITIONS = frozenset(
+    {"STOP_CASE", "SHIP_PRODUCT_WITH_CONTROL_QUARANTINED"}
+)
+ANTI_LOOP_DISPOSITION_OPERATIONS = frozenset(
+    {"anti_loop_stop_case", "anti_loop_ship_product_with_control_quarantined"}
 )
 REVIEW_COMPLETION_STATES = frozenset({"COMPLETED", "FAILED", "INCOMPLETE"})
 ACTION_GRANT_STATUSES = frozenset(
@@ -194,6 +236,9 @@ PROPOSAL_ACTION_GRANT_CORE_FIELDS = frozenset(
         "evidence_mode",
         "grant_id",
         "authority_id",
+        "actor_thread_id",
+        "controller_actor_role",
+        "actor_sha256",
         "operation_id",
         "action",
         "operation",
@@ -221,6 +266,12 @@ PROPOSAL_ACTION_GRANT_CORE_FIELDS = frozenset(
         "authority_sha256",
     }
 )
+PROPOSAL_ACTION_GRANT_ACTOR_FIELDS = frozenset(
+    {"actor_thread_id", "controller_actor_role", "actor_sha256"}
+)
+LEGACY_PROPOSAL_ACTION_GRANT_CORE_FIELDS = (
+    PROPOSAL_ACTION_GRANT_CORE_FIELDS - PROPOSAL_ACTION_GRANT_ACTOR_FIELDS
+)
 PROPOSAL_ACTION_GRANT_ISSUANCE_EVIDENCE_FIELDS = frozenset(
     {
         "protected_acl_snapshot",
@@ -229,6 +280,21 @@ PROPOSAL_ACTION_GRANT_ISSUANCE_EVIDENCE_FIELDS = frozenset(
         "preissue_dacl_evidence_sha256",
     }
 )
+
+
+def proposal_action_grant_core_fields(
+    grant: Mapping[str, Any],
+) -> frozenset[str]:
+    if grant.get("protocol_version") == LEGACY_PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+        return LEGACY_PROPOSAL_ACTION_GRANT_CORE_FIELDS
+    return PROPOSAL_ACTION_GRANT_CORE_FIELDS
+
+
+def is_proposal_action_grant(grant: Mapping[str, Any]) -> bool:
+    return grant.get("protocol_version") in {
+        LEGACY_PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
+        PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
+    }
 
 
 class CaseStateError(RuntimeError):
@@ -263,6 +329,56 @@ class AuthorizationError(CaseStateError):
     pass
 
 
+_CONTROLLER_ACTOR_ASSIGNMENT_ISSUER = object()
+
+
+class _ControllerSealedRuntimeActorAssignment:
+    """Process-local, one-use authority emitted only by the trusted supervisor path."""
+
+    __slots__ = ("_body", "_nonce", "_seal_sha256", "_consumed")
+
+    def __init__(self, body: Mapping[str, Any], *, issuer: object) -> None:
+        if issuer is not _CONTROLLER_ACTOR_ASSIGNMENT_ISSUER:
+            raise AuthorizationError("runtime actor assignments may be sealed only by the controller")
+        self._body = copy.deepcopy(dict(body))
+        self._nonce = secrets.token_hex(32)
+        self._seal_sha256 = canonical_json_sha256(
+            {"body": self._body, "nonce": self._nonce}
+        )
+        self._consumed = False
+
+    def consume(
+        self,
+        *,
+        case_id: str,
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        if type(self) is not _ControllerSealedRuntimeActorAssignment:
+            raise AuthorizationError("runtime actor assignment type is not controller sealed")
+        if self._consumed:
+            raise AuthorizationError("runtime actor assignment was already consumed")
+        observed = canonical_json_sha256({"body": self._body, "nonce": self._nonce})
+        if not secrets.compare_digest(observed, self._seal_sha256):
+            raise AuthorizationError("runtime actor assignment seal is invalid")
+        if (
+            self._body.get("protocol_version")
+            != RUNTIME_ACTOR_ASSIGNMENT_PROTOCOL_VERSION
+            or self._body.get("schema_version") != 1
+            or self._body.get("case_id") != canonical_case_id(case_id)
+            or self._body.get("request_id") != require_request_id(request_id)
+            or self._body.get("expected_revision") != expected_revision
+        ):
+            raise AuthorizationError(
+                "runtime actor assignment differs from the exact case mutation"
+            )
+        self._consumed = True
+        actor = self._body.get("actor")
+        if not isinstance(actor, Mapping):
+            raise AuthorizationError("runtime actor assignment lacks a sealed actor")
+        return copy.deepcopy(dict(actor))
+
+
 class PreflightError(CaseStateError):
     pass
 
@@ -279,8 +395,59 @@ def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
+def os_account_profile() -> Path:
+    """Resolve the real OS account profile without HOME or USERPROFILE."""
+
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        class Guid(ctypes.Structure):
+            _fields_ = [
+                ("data1", wintypes.DWORD),
+                ("data2", wintypes.WORD),
+                ("data3", wintypes.WORD),
+                ("data4", ctypes.c_ubyte * 8),
+            ]
+
+        value = uuid.UUID("5e6c858f-0e22-4760-9afe-ea3317b67173")
+        fields = value.fields
+        data4 = (ctypes.c_ubyte * 8)(
+            fields[3],
+            fields[4],
+            *fields[5].to_bytes(6, "big"),
+        )
+        folder_id = Guid(fields[0], fields[1], fields[2], data4)
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        get_path = shell32.SHGetKnownFolderPath
+        get_path.argtypes = [
+            ctypes.POINTER(Guid),
+            wintypes.DWORD,
+            wintypes.HANDLE,
+            ctypes.POINTER(ctypes.c_wchar_p),
+        ]
+        get_path.restype = ctypes.c_long
+        pointer = ctypes.c_wchar_p()
+        result = get_path(ctypes.byref(folder_id), 0, None, ctypes.byref(pointer))
+        if result != 0 or not pointer.value:
+            raise SnapshotError(
+                f"cannot resolve the OS account profile: HRESULT 0x{result & 0xFFFFFFFF:08x}"
+            )
+        try:
+            profile = Path(pointer.value).resolve(strict=True)
+        finally:
+            ctypes.WinDLL("ole32").CoTaskMemFree(ctypes.cast(pointer, ctypes.c_void_p))
+    else:
+        import pwd
+
+        profile = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(strict=True)
+    if not profile.is_dir():
+        raise SnapshotError("the OS account profile is not a real directory")
+    return profile
+
+
 def default_state_root() -> Path:
-    return Path.home() / ".codex" / "case-state"
+    return os_account_profile() / ".codex" / "case-state"
 
 
 def path_is_within(path: Path, parent: Path) -> bool:
@@ -409,14 +576,78 @@ _SECRET_ENVIRONMENT_MARKERS = (
 )
 
 
+def _windows_directory() -> Path:
+    import ctypes
+
+    buffer = ctypes.create_unicode_buffer(32768)
+    length = ctypes.WinDLL("kernel32", use_last_error=True).GetWindowsDirectoryW(
+        buffer, len(buffer)
+    )
+    if length <= 0 or length >= len(buffer):
+        raise SnapshotError("cannot resolve the fixed Windows directory")
+    return Path(buffer.value).resolve(strict=True)
+
+
+def _fixed_executable_candidates(name: str) -> list[Path]:
+    basename = Path(name).name.casefold()
+    bare = basename.removesuffix(".exe")
+    if os.name == "nt":
+        windows = _windows_directory()
+        drive = Path(windows.anchor)
+        program_files = drive / "Program Files"
+        program_files_x86 = drive / "Program Files (x86)"
+        profile = os_account_profile()
+        system32 = windows / "System32"
+        if bare == "git":
+            return [
+                program_files / "Git" / "cmd" / "git.exe",
+                program_files / "Git" / "bin" / "git.exe",
+                program_files_x86 / "Git" / "cmd" / "git.exe",
+                profile / "AppData" / "Local" / "Programs" / "Git" / "cmd" / "git.exe",
+            ]
+        if bare == "powershell":
+            return [
+                system32 / "WindowsPowerShell" / "v1.0" / "powershell.exe",
+            ]
+        if bare == "pwsh":
+            return [
+                program_files / "PowerShell" / "7" / "pwsh.exe",
+            ]
+        if bare in {"whoami", "fsutil"}:
+            return [system32 / f"{bare}.exe"]
+        return []
+    return [
+        Path("/usr/bin") / bare,
+        Path("/bin") / bare,
+        Path("/usr/local/bin") / bare,
+    ]
+
+
 def resolved_executable(*names: str) -> str:
-    """Resolve a helper once to an absolute file path before execution."""
+    """Resolve a helper only from fixed OS-controlled install locations."""
+
+    checked: set[str] = set()
     for name in names:
-        located = shutil.which(name)
-        if located:
-            path = Path(located).resolve(strict=True)
-            if path.is_file():
-                return str(path)
+        for candidate in _fixed_executable_candidates(name):
+            key = os.path.normcase(str(candidate))
+            if key in checked:
+                continue
+            checked.add(key)
+            try:
+                if (
+                    not candidate.is_absolute()
+                    or not candidate.is_file()
+                    or candidate.is_symlink()
+                    or path_contains_link_or_reparse(
+                        candidate, stop=Path(candidate.anchor)
+                    )
+                ):
+                    continue
+                resolved = candidate.resolve(strict=True)
+            except OSError:
+                continue
+            if resolved.is_file():
+                return str(resolved)
     raise SnapshotError(f"required executable is unavailable: {', '.join(names)}")
 
 
@@ -483,7 +714,7 @@ def controller_source_pins(managed_root: Path) -> dict[str, Any]:
 
 
 def proposal_broker_source_pins(managed_root: Path) -> dict[str, Any]:
-    """Pin only the actorless proposal boundary and its canonical engine."""
+    """Pin the actor-bound proposal boundary and its canonical engine."""
     manifest_path = managed_root / "install-bundle.manifest.json"
     required_paths = (
         "scripts/agent/case_state.py",
@@ -1188,7 +1419,26 @@ class FileLock:
 
     def __enter__(self) -> "FileLock":
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if path_contains_link_or_reparse(self.path.parent):
+            raise StoreCorruptionError(
+                "case-state lock parent must not traverse a link or reparse point"
+            )
+        if self.path.exists():
+            try:
+                regular_file_identity(self.path, stop=self.path.parent)
+            except CaseStateError as exc:
+                raise StoreCorruptionError(
+                    "case-state lock must be one regular direct single-link file"
+                ) from exc
         self.handle = self.path.open("a+b")
+        try:
+            regular_file_identity(self.path, stop=self.path.parent)
+        except CaseStateError as exc:
+            self.handle.close()
+            self.handle = None
+            raise StoreCorruptionError(
+                "case-state lock changed or is not one regular direct single-link file"
+            ) from exc
         self.handle.seek(0, os.SEEK_END)
         if self.handle.tell() == 0:
             self.handle.write(b"0")
@@ -1245,15 +1495,49 @@ def _initial_store() -> dict[str, Any]:
     }
 
 
+def _seal_anti_loop_latch(record: Mapping[str, Any]) -> dict[str, Any]:
+    sealed = {
+        name: copy.deepcopy(value)
+        for name, value in record.items()
+        if name != "record_sha256"
+    }
+    sealed["record_sha256"] = canonical_json_sha256(sealed)
+    return sealed
+
+
+def _new_anti_loop_latch(objective: str) -> dict[str, Any]:
+    return _seal_anti_loop_latch(
+        {
+            "protocol_version": ANTI_LOOP_LATCH_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "status": "CLEAR",
+            "objective_sha256": hashlib.sha256(objective.encode("utf-8")).hexdigest(),
+            "product_heads": {},
+            "consecutive_support_mutations": 0,
+            "last_support_action": None,
+            "last_failure_fingerprint": None,
+            "failure_fingerprint_repetitions": 0,
+            "event_count": 0,
+            "trigger_reason": None,
+            "trigger_event_id": None,
+            "latched_at": None,
+            "latched_from_state": None,
+            "disposition": None,
+            "disposition_authority": None,
+        }
+    )
+
+
 def _new_case(case_id: str, objective: str) -> dict[str, Any]:
     now = utc_now()
+    normalized_objective = _nonempty(objective, "objective")
     return {
         "schema_version": SCHEMA_VERSION,
         "case_id": case_id,
         "revision": 1,
         "state": "REGISTERED",
         "resumable_state": None,
-        "objective": _nonempty(objective, "objective"),
+        "objective": normalized_objective,
         "created_at": now,
         "updated_at": now,
         "bindings": {kind: [] for kind in sorted(BINDING_KINDS)},
@@ -1277,6 +1561,7 @@ def _new_case(case_id: str, objective: str) -> dict[str, Any]:
         "repair": {"authorized_ids": [], "authority": None, "addressed_ids": []},
         "closure": {"preflight": None, "resolutions": None},
         "control": {"active_failure": None, "history": []},
+        "anti_loop_latch": _new_anti_loop_latch(normalized_objective),
         "runtime": {"actors": {}, "action_grants": {}},
         "runtime_generation_attempt": None,
         "runtime_generation_abort": None,
@@ -1400,8 +1685,166 @@ def _unverified_review_receipt_ids(case: Mapping[str, Any]) -> list[str]:
     return sorted(unverified)
 
 
+def _validate_anti_loop_latch(case_id: str, case: Mapping[str, Any]) -> None:
+    latch = case.get("anti_loop_latch")
+    if latch is None:
+        return
+    expected_fields = {
+        "protocol_version",
+        "schema_version",
+        "status",
+        "objective_sha256",
+        "product_heads",
+        "consecutive_support_mutations",
+        "last_support_action",
+        "last_failure_fingerprint",
+        "failure_fingerprint_repetitions",
+        "event_count",
+        "trigger_reason",
+        "trigger_event_id",
+        "latched_at",
+        "latched_from_state",
+        "disposition",
+        "disposition_authority",
+        "record_sha256",
+    }
+    if not isinstance(latch, dict) or set(latch) != expected_fields:
+        raise StoreCorruptionError(f"case {case_id} anti-loop latch has invalid fields")
+    if (
+        latch.get("protocol_version") != ANTI_LOOP_LATCH_PROTOCOL_VERSION
+        or latch.get("schema_version") != 1
+        or latch.get("status") not in ANTI_LOOP_LATCH_STATUSES
+        or latch.get("objective_sha256")
+        != hashlib.sha256(str(case.get("objective", "")).encode("utf-8")).hexdigest()
+    ):
+        raise StoreCorruptionError(f"case {case_id} anti-loop latch identity is invalid")
+    if latch.get("record_sha256") != canonical_json_sha256(
+        {name: value for name, value in latch.items() if name != "record_sha256"}
+    ):
+        raise StoreCorruptionError(f"case {case_id} anti-loop latch digest is invalid")
+    heads = latch.get("product_heads")
+    if not isinstance(heads, dict):
+        raise StoreCorruptionError(f"case {case_id} anti-loop product heads must be an object")
+    try:
+        normalized_heads = {
+            normalize_repo_url(repository): require_sha(head, "anti-loop product head")
+            for repository, head in heads.items()
+        }
+    except (ValidationError, TypeError) as exc:
+        raise StoreCorruptionError(f"case {case_id} anti-loop product heads are invalid") from exc
+    if heads != dict(sorted(normalized_heads.items())):
+        raise StoreCorruptionError(f"case {case_id} anti-loop product heads are noncanonical")
+    for field in (
+        "consecutive_support_mutations",
+        "failure_fingerprint_repetitions",
+        "event_count",
+    ):
+        value = latch.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise StoreCorruptionError(f"case {case_id} anti-loop {field} is invalid")
+    status = latch["status"]
+    trigger_fields = (
+        "trigger_reason",
+        "trigger_event_id",
+        "latched_at",
+        "latched_from_state",
+    )
+    if status == "CLEAR":
+        if any(latch.get(field) is not None for field in trigger_fields):
+            raise StoreCorruptionError(f"case {case_id} clear anti-loop latch has trigger data")
+        if latch.get("disposition") is not None or latch.get("disposition_authority") is not None:
+            raise StoreCorruptionError(f"case {case_id} clear anti-loop latch has a disposition")
+        if case.get("state") == "ANTI_LOOP_LOCKED":
+            raise StoreCorruptionError(f"case {case_id} anti-loop state lacks an active latch")
+        return
+    try:
+        _nonempty(latch.get("trigger_reason"), "anti-loop trigger reason", 256)
+        require_request_id(str(latch.get("trigger_event_id", "")))
+        require_utc_timestamp(latch.get("latched_at"), "anti-loop latched_at")
+    except (ValidationError, TypeError) as exc:
+        raise StoreCorruptionError(f"case {case_id} anti-loop trigger is invalid") from exc
+    if (
+        latch.get("latched_from_state") not in CASE_STATES
+        or latch.get("latched_from_state") == "ANTI_LOOP_LOCKED"
+    ):
+        raise StoreCorruptionError(f"case {case_id} anti-loop source state is invalid")
+    if status == "LATCHED":
+        if case.get("state") != "ANTI_LOOP_LOCKED":
+            raise StoreCorruptionError(f"case {case_id} active anti-loop latch must own case state")
+        if latch.get("disposition") is not None or latch.get("disposition_authority") is not None:
+            raise StoreCorruptionError(f"case {case_id} active anti-loop latch is already disposed")
+        return
+    disposition = latch.get("disposition")
+    authority = latch.get("disposition_authority")
+    authority_fields = {
+        "protocol_version",
+        "schema_version",
+        "authority_id",
+        "case_id",
+        "decision",
+        "product_heads",
+        "native_thread_id",
+        "native_turn_id",
+        "rollout_relative_path",
+        "decided_at",
+        "message_sha256",
+        "log_prefix_sha256",
+        "evidence_sha256",
+        "native_verification_protocol",
+        "authority_sha256",
+    }
+    if (
+        disposition not in ANTI_LOOP_DISPOSITIONS
+        or not isinstance(authority, dict)
+        or set(authority) != authority_fields
+        or authority.get("protocol_version")
+        != ANTI_LOOP_HUMAN_DISPOSITION_PROTOCOL_VERSION
+        or authority.get("schema_version") != 2
+        or authority.get("case_id") != case_id
+        or authority.get("decision") != disposition
+        or authority.get("product_heads") != heads
+        or authority.get("native_verification_protocol")
+        != NATIVE_HUMAN_VERIFICATION_PROTOCOL_VERSION
+        or authority.get("authority_sha256")
+        != canonical_json_sha256(
+            {name: value for name, value in authority.items() if name != "authority_sha256"}
+        )
+    ):
+        raise StoreCorruptionError(f"case {case_id} anti-loop disposition is invalid")
+    try:
+        require_stable_id(authority.get("authority_id"), "anti-loop authority id")
+        require_native_uuid7(
+            authority.get("native_thread_id"), "anti-loop native human thread id"
+        )
+        require_native_uuid7(
+            authority.get("native_turn_id"), "anti-loop native human turn id"
+        )
+        _nonempty(
+            authority.get("rollout_relative_path"),
+            "anti-loop native rollout path",
+            1024,
+        )
+        for field in (
+            "message_sha256",
+            "log_prefix_sha256",
+            "evidence_sha256",
+        ):
+            require_snapshot_hash(str(authority.get(field, "")))
+        require_utc_timestamp(authority.get("decided_at"), "anti-loop decided_at")
+    except (ValidationError, TypeError) as exc:
+        raise StoreCorruptionError(f"case {case_id} anti-loop disposition authority is invalid") from exc
+    expected_state = (
+        "CASE_LOCKED"
+        if disposition == "STOP_CASE"
+        else "CLOSED_SUCCESS"
+    )
+    if case.get("state") != expected_state:
+        raise StoreCorruptionError(f"case {case_id} anti-loop disposition state is invalid")
+
+
 def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> None:
     """Validate v2 extension records without requiring or backfilling legacy cases."""
+    _validate_anti_loop_latch(case_id, case)
     review = case.get("review")
     if review is not None:
         if not isinstance(review, dict) or set(review) != {"cohort", "receipts"}:
@@ -1643,9 +2086,59 @@ def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> No
         if len(runtime["action_grants"]) > 1:
             raise StoreCorruptionError(f"case {case_id} exceeds its one runtime action grant limit")
         for thread_id, actor in runtime["actors"].items():
-            if (not isinstance(actor, dict) or actor.get("thread_id") != thread_id
-                    or actor.get("role") not in RUNTIME_ACTOR_ROLES):
+            actor_fields = {
+                "protocol_version",
+                "schema_version",
+                "thread_id",
+                "role",
+                "parent_thread_id",
+                "agent_path",
+                "identity_evidence_sha256",
+                "binding_source",
+                "bound_at",
+                "actor_sha256",
+            }
+            if not isinstance(actor, dict) or set(actor) != actor_fields:
                 raise StoreCorruptionError(f"case {case_id} runtime actor is invalid")
+            protocol = actor.get("protocol_version")
+            version = actor.get("schema_version")
+            binding_source = actor.get("binding_source")
+            if (protocol, version, binding_source) not in {
+                (
+                    LEGACY_RUNTIME_ACTOR_PROTOCOL_VERSION,
+                    1,
+                    "native_thread_read",
+                ),
+                (
+                    RUNTIME_ACTOR_PROTOCOL_VERSION,
+                    2,
+                    "controller_verified_native_thread_read",
+                ),
+            }:
+                raise StoreCorruptionError(
+                    f"case {case_id} runtime actor protocol is invalid"
+                )
+            try:
+                normalized_thread = normalize_binding("thread", thread_id)
+                if normalized_thread != actor.get("thread_id"):
+                    raise ValidationError("runtime actor thread identity differs")
+                role = str(actor.get("role", ""))
+                parent = actor.get("parent_thread_id")
+                if role not in RUNTIME_ACTOR_ROLES:
+                    raise ValidationError("runtime actor role is invalid")
+                if role == "parent" and parent is not None:
+                    raise ValidationError("runtime parent names a parent thread")
+                if role != "parent" and parent is None:
+                    raise ValidationError("runtime child lacks its parent thread")
+                if parent is not None:
+                    normalize_binding("thread", parent)
+                _nonempty(actor.get("agent_path"), "runtime actor agent path", 1024)
+                require_snapshot_hash(str(actor.get("identity_evidence_sha256", "")))
+                require_utc_timestamp(actor.get("bound_at"), "runtime actor bound_at")
+            except (ValidationError, TypeError) as exc:
+                raise StoreCorruptionError(
+                    f"case {case_id} runtime actor is invalid"
+                ) from exc
             digest = actor.get("actor_sha256")
             body = {name: value for name, value in actor.items() if name != "actor_sha256"}
             if digest != canonical_json_sha256(body):
@@ -1658,6 +2151,17 @@ def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> No
             body = {name: value for name, value in grant.items() if name != "grant_sha256"}
             if digest != canonical_json_sha256(body):
                 raise StoreCorruptionError(f"case {case_id} action grant digest is invalid")
+            grant_core_fields = proposal_action_grant_core_fields(grant)
+            if grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+                actor = runtime["actors"].get(grant.get("actor_thread_id"))
+                if (
+                    not isinstance(actor, Mapping)
+                    or actor.get("role") != grant.get("controller_actor_role")
+                    or actor.get("actor_sha256") != grant.get("actor_sha256")
+                ):
+                    raise StoreCorruptionError(
+                        f"case {case_id} proposal grant actor binding is invalid"
+                    )
             arm = grant.get("arm")
             if grant.get("status") in {"ARMED", "CANCELLED"} or arm is not None:
                 arm_fields = {
@@ -1686,12 +2190,12 @@ def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> No
                             if name != "arm_sha256"
                         }
                     )
-                    or any(name not in grant for name in PROPOSAL_ACTION_GRANT_CORE_FIELDS)
+                    or any(name not in grant for name in grant_core_fields)
                     or arm.get("grant_core_sha256")
                     != canonical_json_sha256(
                         {
                             name: grant[name]
-                            for name in PROPOSAL_ACTION_GRANT_CORE_FIELDS
+                            for name in grant_core_fields
                         }
                     )
                     or not isinstance(recovery_roots, dict)
@@ -1709,7 +2213,7 @@ def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> No
                         f"case {case_id} proposal action arm is invalid"
                     )
                 if grant.get("status") == "ARMED":
-                    expected_grant_fields = set(PROPOSAL_ACTION_GRANT_CORE_FIELDS) | {
+                    expected_grant_fields = set(grant_core_fields) | {
                         "status", "arm", "claim", "result", "grant_sha256"
                     }
                     if (
@@ -1768,7 +2272,7 @@ def _validate_additive_case_records(case_id: str, case: Mapping[str, Any]) -> No
                     or cancellation.get("cancelled_revision")
                     != case.get("revision")
                     or set(grant)
-                    != set(PROPOSAL_ACTION_GRANT_CORE_FIELDS)
+                    != set(grant_core_fields)
                     | {
                         "status", "arm", "claim", "result", "cancellation",
                         "grant_sha256",
@@ -2050,17 +2554,215 @@ def _validate_store(data: Any) -> None:
                 raise StoreCorruptionError("binding registry entry does not match its owning case")
 
 
+def _seal_runtime_actor_assignment(
+    *,
+    case_id: str,
+    actor: Mapping[str, Any],
+    native_identity: Mapping[str, Any],
+    request_id: str,
+    expected_revision: int,
+) -> _ControllerSealedRuntimeActorAssignment:
+    """Seal one verified controller actor assignment for one exact mutation."""
+
+    normalized_actor = CaseStore._normalize_runtime_actor(actor)
+    normalized_identity = CaseStore._normalize_native_runtime_identity(native_identity)
+    for field in ("thread_id", "parent_thread_id", "agent_path", "identity_evidence_sha256"):
+        if normalized_actor[field] != normalized_identity[field]:
+            raise AuthorizationError(
+                f"runtime actor differs from controller native identity field {field}"
+            )
+    body = {
+        "protocol_version": RUNTIME_ACTOR_ASSIGNMENT_PROTOCOL_VERSION,
+        "schema_version": 1,
+        "case_id": canonical_case_id(case_id),
+        "request_id": require_request_id(request_id),
+        "expected_revision": expected_revision,
+        "actor": normalized_actor,
+        "native_identity_sha256": normalized_identity["identity_evidence_sha256"],
+    }
+    return _ControllerSealedRuntimeActorAssignment(
+        body, issuer=_CONTROLLER_ACTOR_ASSIGNMENT_ISSUER
+    )
+
+
+def _anti_loop_support_scope(root: Path, head: str) -> dict[str, Any]:
+    try:
+        raw = _run_git(root, "show", f"{head}:{ANTI_LOOP_SUPPORT_SCOPE_PATH}")
+    except SnapshotError as exc:
+        raise AuthorizationError(
+            "verified product advance requires the committed anti-loop support-only scope"
+        ) from exc
+    if len(raw) > MAX_ANTI_LOOP_SCOPE_BYTES:
+        raise AuthorizationError("anti-loop support-only scope exceeds the size limit")
+    try:
+        parsed = json.loads(raw.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AuthorizationError("anti-loop support-only scope is not canonical JSON") from exc
+    required = {
+        "protocol_version",
+        "schema_version",
+        "support_only_patterns",
+        "record_sha256",
+    }
+    if not isinstance(parsed, Mapping) or set(parsed) != required:
+        raise AuthorizationError("anti-loop support-only scope has unexpected fields")
+    if (
+        parsed.get("protocol_version") != ANTI_LOOP_SUPPORT_SCOPE_PROTOCOL_VERSION
+        or parsed.get("schema_version") != 1
+    ):
+        raise AuthorizationError("anti-loop support-only scope protocol is unsupported")
+    raw_patterns = parsed.get("support_only_patterns")
+    if (
+        not isinstance(raw_patterns, list)
+        or not raw_patterns
+        or len(raw_patterns) > 128
+        or len(set(raw_patterns)) != len(raw_patterns)
+    ):
+        raise AuthorizationError(
+            "anti-loop support-only patterns must be one nonempty unique bounded array"
+        )
+    patterns: list[str] = []
+    for value in raw_patterns:
+        if not isinstance(value, str) or not value or len(value) > 256:
+            raise AuthorizationError("anti-loop support-only pattern is invalid")
+        normalized = value.replace("\\", "/")
+        if (
+            normalized != value
+            or normalized.startswith("/")
+            or "//" in normalized
+            or any(part in {"", ".", ".."} for part in normalized.split("/"))
+        ):
+            raise AuthorizationError("anti-loop support-only pattern is not repo relative")
+        patterns.append(normalized)
+    body = {
+        "protocol_version": ANTI_LOOP_SUPPORT_SCOPE_PROTOCOL_VERSION,
+        "schema_version": 1,
+        "support_only_patterns": patterns,
+    }
+    digest = require_snapshot_hash(str(parsed.get("record_sha256", "")))
+    if digest != canonical_json_sha256(body):
+        raise AuthorizationError("anti-loop support-only scope digest is invalid")
+    return {**body, "record_sha256": digest}
+
+
+def _anti_loop_path_is_support_only(path: str, patterns: Iterable[str]) -> bool:
+    normalized = _normalize_git_snapshot_path(path)
+    if normalized == ANTI_LOOP_SUPPORT_SCOPE_PATH:
+        return True
+    return any(fnmatch.fnmatchcase(normalized, pattern) for pattern in patterns)
+
+
+def verify_anti_loop_product_head(
+    *,
+    worktree: str,
+    repository: str,
+    submitted_head: str,
+    previous_head: str | None,
+) -> dict[str, Any]:
+    """Prove an exact live Git advance against the prior committed support-only scope."""
+
+    root = Path(worktree).expanduser().resolve(strict=True)
+    if not root.is_dir() or _git_repository_root(root) != root:
+        raise AuthorizationError("anti-loop worktree must be the exact Git repository root")
+    actual_origin = _git_origin(root)
+    if actual_origin != repository:
+        raise AuthorizationError("anti-loop worktree origin differs from the bound repository")
+    actual_head = _git_head(root)
+    if actual_head != submitted_head:
+        raise AuthorizationError("submitted product head differs from exact live Git HEAD")
+    scope_head = previous_head or actual_head
+    scope = _anti_loop_support_scope(root, scope_head)
+    evidence: dict[str, Any] = {
+        "protocol_version": "ccos-anti-loop-product-advance-evidence-v1",
+        "schema_version": 1,
+        "worktree": normalize_binding("worktree", str(root)),
+        "repository": actual_origin,
+        "prior_head": previous_head,
+        "product_head": actual_head,
+        "seeded": previous_head is None,
+        "scope_path": ANTI_LOOP_SUPPORT_SCOPE_PATH,
+        "scope_head": scope_head,
+        "scope_sha256": scope["record_sha256"],
+        "changed_path_count": 0,
+        "changed_paths_sha256": canonical_json_sha256([]),
+        "product_path_count": 0,
+    }
+    if previous_head is not None:
+        if previous_head == actual_head:
+            raise ValidationError(
+                "PRODUCT_HEAD_ADVANCED requires a different verified product head"
+            )
+        try:
+            merge_base = require_sha(
+                _single_git_line(
+                    _run_git(root, "merge-base", previous_head, actual_head),
+                    "merge base",
+                ),
+                "Git merge base",
+            )
+        except (SnapshotError, ValidationError) as exc:
+            raise AuthorizationError(
+                "prior recorded product head is unavailable or unrelated to live HEAD"
+            ) from exc
+        if merge_base != previous_head:
+            raise AuthorizationError(
+                "prior recorded product head is not an ancestor of live HEAD"
+            )
+        raw_paths = _run_git(
+            root, "diff", "--name-only", "-z", previous_head, actual_head, "--"
+        )
+        try:
+            decoded = raw_paths.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise AuthorizationError("Git product delta paths are not UTF-8") from exc
+        if decoded and not decoded.endswith("\0"):
+            raise AuthorizationError("Git product delta path stream is malformed")
+        changed = sorted(
+            {_normalize_git_snapshot_path(value) for value in decoded.split("\0") if value}
+        )
+        product = [
+            path
+            for path in changed
+            if not _anti_loop_path_is_support_only(
+                path, scope["support_only_patterns"]
+            )
+        ]
+        if not changed or not product:
+            raise AuthorizationError(
+                "PRODUCT_HEAD_ADVANCED requires a committed path outside the prior support-only scope"
+            )
+        evidence.update(
+            {
+                "changed_path_count": len(changed),
+                "changed_paths_sha256": canonical_json_sha256(changed),
+                "product_path_count": len(product),
+            }
+        )
+    evidence["evidence_sha256"] = canonical_json_sha256(evidence)
+    return evidence
+
+
 class CaseStore:
     def __init__(
         self,
         state_root: Path | str | None = None,
         *,
         review_completion_verifier: Callable[..., dict[str, Any]] | None = None,
+        human_disposition_verifier: Callable[..., dict[str, Any]] | None = None,
     ) -> None:
-        self.state_root = Path(state_root) if state_root is not None else default_state_root()
-        self.state_root = self.state_root.expanduser().resolve(strict=False)
+        raw_state_root = (
+            Path(state_root) if state_root is not None else default_state_root()
+        ).expanduser()
+        if path_contains_link_or_reparse(raw_state_root):
+            raise ValidationError(
+                "case-state data root must not traverse a link or reparse point"
+            )
+        self.state_root = raw_state_root.resolve(strict=False)
         self.review_completion_verifier = (
             review_completion_verifier or verify_review_completion
+        )
+        self.human_disposition_verifier = (
+            human_disposition_verifier or verify_human_disposition
         )
         managed_tree = Path(__file__).resolve().parents[2]
         if path_is_within(self.state_root, managed_tree):
@@ -2077,6 +2779,12 @@ class CaseStore:
         if not self.path.exists():
             return _initial_store()
         try:
+            regular_file_identity(self.path, stop=self.state_root)
+        except CaseStateError as exc:
+            raise StoreCorruptionError(
+                "case-state store must be one regular direct single-link file"
+            ) from exc
+        try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise StoreCorruptionError(f"cannot read valid case-state store {self.path}: {exc}") from exc
@@ -2085,7 +2793,22 @@ class CaseStore:
 
     def _write_unlocked(self, data: dict[str, Any]) -> None:
         _validate_store(data)
+        if path_contains_link_or_reparse(self.state_root):
+            raise StoreCorruptionError(
+                "case-state data root must not traverse a link or reparse point"
+            )
         self.state_root.mkdir(parents=True, exist_ok=True)
+        if path_contains_link_or_reparse(self.state_root):
+            raise StoreCorruptionError(
+                "case-state data root changed to a link or reparse point"
+            )
+        if self.path.exists():
+            try:
+                regular_file_identity(self.path, stop=self.state_root)
+            except CaseStateError as exc:
+                raise StoreCorruptionError(
+                    "existing case-state store must be one regular direct single-link file"
+                ) from exc
         handle, raw_path = tempfile.mkstemp(prefix=f"{STORE_FILENAME}.", suffix=".tmp", dir=self.state_root)
         temp_path = Path(raw_path)
         try:
@@ -2093,7 +2816,9 @@ class CaseStore:
                 stream.write(serialized_store_bytes(data))
                 stream.flush()
                 os.fsync(stream.fileno())
+            regular_file_identity(temp_path, stop=self.state_root)
             os.replace(temp_path, self.path)
+            regular_file_identity(self.path, stop=self.state_root)
             if os.name == "posix":
                 directory_fd = os.open(self.state_root, os.O_RDONLY)
                 try:
@@ -2290,6 +3015,9 @@ class CaseStore:
         request_id: str,
         expected_revision: int,
         callback: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
+        post_write_callback: (
+            Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None
+        ) = None,
     ) -> dict[str, Any]:
         case_id = canonical_case_id(case_id)
         request_id = require_request_id(request_id)
@@ -2306,6 +3034,18 @@ class CaseStore:
                 result = copy.deepcopy(prior["result"])
                 result["idempotent"] = True
                 return result
+            latch = original.get("anti_loop_latch")
+            latch_status = (
+                latch.get("status") if isinstance(latch, Mapping) else "CLEAR"
+            )
+            if latch_status == "LATCHED" and operation not in ANTI_LOOP_DISPOSITION_OPERATIONS:
+                raise AuthorizationError(
+                    "ANTI_LOOP_LATCH_ACTIVE: every case mutation is denied until an exact human disposition"
+                )
+            if latch_status == "DISPOSED":
+                raise AuthorizationError(
+                    "ANTI_LOOP_LATCH_DISPOSED: the case cannot resume or accept another mutation"
+                )
             runtime = original.get("runtime")
             action_grants = runtime.get("action_grants", {}) if isinstance(runtime, dict) else {}
             active_grants = [
@@ -2357,6 +3097,26 @@ class CaseStore:
             result["store_revision"] = data["revision"]
             case["events"][request_id]["result"]["store_revision"] = data["revision"]
             self._write_unlocked(data)
+            if post_write_callback is not None:
+                try:
+                    post_result = post_write_callback(copy.deepcopy(result))
+                except Exception:
+                    result["atomic_post_record_status"] = "FAILED"
+                    case["events"][request_id]["result"][
+                        "atomic_post_record_status"
+                    ] = "FAILED"
+                    self._write_unlocked(data)
+                    raise
+                if post_result is not None:
+                    if not isinstance(post_result, Mapping):
+                        raise StoreCorruptionError(
+                            "atomic post-record callback result must be an object"
+                        )
+                    result.update(copy.deepcopy(dict(post_result)))
+                    case["events"][request_id]["result"].update(
+                        copy.deepcopy(dict(post_result))
+                    )
+                    self._write_unlocked(data)
             return copy.deepcopy(result)
 
     @staticmethod
@@ -3480,6 +4240,463 @@ class CaseStore:
         )
 
     @staticmethod
+    def _anti_loop_record(case: dict[str, Any], *, create: bool) -> dict[str, Any]:
+        latch = case.get("anti_loop_latch")
+        if latch is None and create:
+            latch = _new_anti_loop_latch(str(case["objective"]))
+            case["anti_loop_latch"] = latch
+        if not isinstance(latch, dict):
+            raise StoreCorruptionError("case anti-loop latch record is unavailable or invalid")
+        return latch
+
+    @classmethod
+    def _activate_anti_loop_latch(
+        cls,
+        case: dict[str, Any],
+        *,
+        reason: str,
+        event_id: str,
+    ) -> dict[str, Any]:
+        latch = cls._anti_loop_record(case, create=True)
+        if latch["status"] != "CLEAR":
+            raise LimitError("anti-loop latch is already active or disposed")
+        source_state = str(case["state"])
+        latch.update(
+            {
+                "status": "LATCHED",
+                "trigger_reason": _nonempty(reason, "anti-loop trigger reason", 256),
+                "trigger_event_id": require_request_id(event_id),
+                "latched_at": utc_now(),
+                "latched_from_state": source_state,
+                "disposition": None,
+                "disposition_authority": None,
+            }
+        )
+        case["anti_loop_latch"] = _seal_anti_loop_latch(latch)
+        case["state"] = "ANTI_LOOP_LOCKED"
+        case["resumable_state"] = None
+        case["lock_reason"] = f"ANTI_LOOP_LATCH_ACTIVE:{reason}"
+        return case["anti_loop_latch"]
+
+    @staticmethod
+    def _runtime_actor(
+        case: Mapping[str, Any], actor_thread_id: str
+    ) -> Mapping[str, Any] | None:
+        runtime = case.get("runtime")
+        actors = runtime.get("actors") if isinstance(runtime, Mapping) else None
+        actor = actors.get(actor_thread_id) if isinstance(actors, Mapping) else None
+        return actor if isinstance(actor, Mapping) else None
+
+    def record_anti_loop_event(
+        self,
+        case_id: str,
+        *,
+        event_type: str,
+        actor_thread_id: str,
+        actor_role: str,
+        repository: str,
+        worktree: str,
+        product_head: str,
+        support_action: str | None,
+        failure_fingerprint: str | None,
+        request_id: str,
+        expected_revision: int,
+        atomic_post_record: (
+            Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None
+        ) = None,
+    ) -> dict[str, Any]:
+        try:
+            normalized_request_id = str(uuid.UUID(str(request_id).strip().lower()))
+        except (ValueError, AttributeError) as exc:
+            raise ValidationError(
+                "anti-loop event request_id must be one canonical UUID"
+            ) from exc
+        if normalized_request_id != str(request_id).strip().lower():
+            raise ValidationError(
+                "anti-loop event request_id must be one canonical UUID"
+            )
+        normalized_type = _nonempty(event_type, "anti-loop event type", 64).upper()
+        if normalized_type not in ANTI_LOOP_EVENT_TYPES:
+            raise ValidationError("anti-loop event type is unsupported")
+        normalized_thread = normalize_binding("thread", actor_thread_id)
+        normalized_role = _nonempty(actor_role, "actor role", 64).casefold()
+        normalized_repository = normalize_repo_url(repository)
+        normalized_worktree = normalize_binding("worktree", worktree)
+        normalized_head = require_sha(product_head, "anti-loop product head")
+        normalized_support_action = (
+            None
+            if support_action is None
+            else _nonempty(support_action, "support action", 256)
+        )
+        normalized_failure = (
+            None
+            if failure_fingerprint is None
+            else _nonempty(failure_fingerprint, "support failure fingerprint", 256)
+        )
+        if normalized_type in {"SUPPORT_MUTATION", "SUPPORT_CHAIN_PROPOSED"}:
+            if normalized_support_action is None:
+                raise ValidationError(f"{normalized_type} requires support_action")
+        elif normalized_support_action is not None:
+            raise ValidationError(f"{normalized_type} does not accept support_action")
+        if normalized_type == "SUPPORT_FAILURE":
+            if normalized_failure is None:
+                raise ValidationError("SUPPORT_FAILURE requires failure_fingerprint")
+        elif normalized_failure is not None:
+            raise ValidationError(f"{normalized_type} does not accept failure_fingerprint")
+        payload = {
+            "protocol_version": ANTI_LOOP_EVENT_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "event_type": normalized_type,
+            "actor_thread_id": normalized_thread,
+            "actor_role": normalized_role,
+            "repository": normalized_repository,
+            "worktree": normalized_worktree,
+            "product_head": normalized_head,
+            "support_action": normalized_support_action,
+            "failure_fingerprint": normalized_failure,
+            "expected_revision": expected_revision,
+        }
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            if normalized_repository not in case["bindings"]["repo_url"]:
+                raise AuthorizationError("anti-loop event repository is not bound to this case")
+            if normalized_worktree not in case["bindings"]["worktree"]:
+                raise AuthorizationError("anti-loop event worktree is not bound to this case")
+            if normalized_thread not in case["bindings"]["thread"]:
+                raise AuthorizationError("anti-loop event thread is not bound to this case")
+            actor = self._runtime_actor(case, normalized_thread)
+            if actor is None:
+                raise AuthorizationError(
+                    "anti-loop event actor is not bound by native controller evidence"
+                )
+            latch = self._anti_loop_record(case, create=True)
+            latch["event_count"] += 1
+            triggered = False
+            trigger_reason: str | None = None
+            head_evidence: dict[str, Any] | None = None
+            controller_role = str(actor.get("role", ""))
+            if controller_role != normalized_role:
+                triggered = True
+                trigger_reason = "ACTOR_ROLE_CONTRADICTION"
+            else:
+                previous_head = latch["product_heads"].get(normalized_repository)
+                if normalized_type == "PRODUCT_HEAD_ADVANCED":
+                    head_evidence = verify_anti_loop_product_head(
+                        worktree=normalized_worktree,
+                        repository=normalized_repository,
+                        submitted_head=normalized_head,
+                        previous_head=previous_head,
+                    )
+                    latch["product_heads"][normalized_repository] = normalized_head
+                    latch["product_heads"] = dict(
+                        sorted(latch["product_heads"].items())
+                    )
+                    if previous_head is not None:
+                        latch["consecutive_support_mutations"] = 0
+                        latch["last_support_action"] = None
+                        latch["last_failure_fingerprint"] = None
+                        latch["failure_fingerprint_repetitions"] = 0
+                else:
+                    head_evidence = verify_anti_loop_product_head(
+                        worktree=normalized_worktree,
+                        repository=normalized_repository,
+                        submitted_head=normalized_head,
+                        previous_head=None,
+                    )
+                    if previous_head is None:
+                        latch["product_heads"][normalized_repository] = normalized_head
+                        latch["product_heads"] = dict(
+                            sorted(latch["product_heads"].items())
+                        )
+                    elif previous_head != normalized_head:
+                        triggered = True
+                        trigger_reason = "UNVERIFIED_PRODUCT_HEAD_SUBSTITUTION"
+                if normalized_type == "PRODUCT_HEAD_ADVANCED":
+                    pass
+                elif not triggered and normalized_type == "SUPPORT_MUTATION":
+                    latch["consecutive_support_mutations"] += 1
+                    latch["last_support_action"] = normalized_support_action
+                    if latch["consecutive_support_mutations"] >= 2:
+                        triggered = True
+                        trigger_reason = "SECOND_SUPPORT_MUTATION_WITHOUT_PRODUCT_HEAD_ADVANCE"
+                elif not triggered and normalized_type == "SUPPORT_FAILURE":
+                    if latch["last_failure_fingerprint"] == normalized_failure:
+                        latch["failure_fingerprint_repetitions"] += 1
+                    else:
+                        latch["last_failure_fingerprint"] = normalized_failure
+                        latch["failure_fingerprint_repetitions"] = 1
+                    if latch["failure_fingerprint_repetitions"] >= 2:
+                        triggered = True
+                        trigger_reason = "REPEATED_SUPPORT_FAILURE_FINGERPRINT"
+                elif not triggered:
+                    latch["last_support_action"] = normalized_support_action
+                    triggered = True
+                    trigger_reason = "SUPPORT_ACTION_PROPOSED_ANOTHER_SUPPORT_ACTION"
+            if triggered:
+                latch = self._activate_anti_loop_latch(
+                    case,
+                    reason=str(trigger_reason),
+                    event_id=normalized_request_id,
+                )
+            else:
+                case["anti_loop_latch"] = _seal_anti_loop_latch(latch)
+                latch = case["anti_loop_latch"]
+            return {
+                "protocol_version": ANTI_LOOP_EVENT_PROTOCOL_VERSION,
+                "schema_version": 2,
+                "event_type": normalized_type,
+                "event_id": normalized_request_id,
+                "actor_thread_id": normalized_thread,
+                "actor_role": normalized_role,
+                "repository": normalized_repository,
+                "worktree": normalized_worktree,
+                "product_head": normalized_head,
+                "support_action": normalized_support_action,
+                "failure_fingerprint": normalized_failure,
+                "expected_revision": expected_revision,
+                "triggered": triggered,
+                "trigger_reason": trigger_reason,
+                "controller_bound_actor_role": controller_role,
+                "head_evidence": copy.deepcopy(head_evidence),
+                "anti_loop_latch": copy.deepcopy(latch),
+            }
+
+        return self._mutate(
+            case_id,
+            operation="record_anti_loop_event",
+            payload=payload,
+            request_id=normalized_request_id,
+            expected_revision=expected_revision,
+            callback=change,
+            post_write_callback=atomic_post_record,
+        )
+
+    @staticmethod
+    def _normalize_anti_loop_disposition_authority(
+        case_id: str,
+        decision: str,
+        authority: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        fields = {
+            "protocol_version",
+            "schema_version",
+            "authority_id",
+            "case_id",
+            "decision",
+            "product_heads",
+            "native_thread_id",
+            "native_turn_id",
+            "rollout_relative_path",
+            "decided_at",
+            "message_sha256",
+            "log_prefix_sha256",
+            "evidence_sha256",
+            "native_verification_protocol",
+            "authority_sha256",
+        }
+        if not isinstance(authority, Mapping) or set(authority) != fields:
+            raise ValidationError("anti-loop disposition authority must use the fixed schema")
+        raw_heads = authority.get("product_heads")
+        if not isinstance(raw_heads, Mapping):
+            raise ValidationError("anti-loop disposition product_heads must be an object")
+        normalized = {
+            "protocol_version": ANTI_LOOP_HUMAN_DISPOSITION_PROTOCOL_VERSION,
+            "schema_version": 2,
+            "authority_id": require_stable_id(
+                authority.get("authority_id"), "anti-loop authority id"
+            ),
+            "case_id": canonical_case_id(case_id),
+            "decision": decision,
+            "product_heads": dict(
+                sorted(
+                    (
+                        normalize_repo_url(str(repository)),
+                        require_sha(str(head), "anti-loop disposition product head"),
+                    )
+                    for repository, head in raw_heads.items()
+                )
+            ),
+            "native_thread_id": require_native_uuid7(
+                authority.get("native_thread_id"),
+                "anti-loop native human thread id",
+            ),
+            "native_turn_id": require_native_uuid7(
+                authority.get("native_turn_id"),
+                "anti-loop native human turn id",
+            ),
+            "rollout_relative_path": _nonempty(
+                authority.get("rollout_relative_path"),
+                "anti-loop native rollout path",
+                1024,
+            ),
+            "decided_at": require_utc_timestamp(
+                authority.get("decided_at"), "anti-loop disposition decided_at"
+            ),
+            "message_sha256": require_snapshot_hash(
+                str(authority.get("message_sha256", ""))
+            ),
+            "log_prefix_sha256": require_snapshot_hash(
+                str(authority.get("log_prefix_sha256", ""))
+            ),
+            "evidence_sha256": require_snapshot_hash(
+                str(authority.get("evidence_sha256", ""))
+            ),
+            "native_verification_protocol": NATIVE_HUMAN_VERIFICATION_PROTOCOL_VERSION,
+        }
+        if (
+            authority.get("protocol_version")
+            != ANTI_LOOP_HUMAN_DISPOSITION_PROTOCOL_VERSION
+            or authority.get("schema_version") != 2
+            or authority.get("case_id") != normalized["case_id"]
+            or authority.get("decision") != decision
+            or authority.get("native_verification_protocol")
+            != NATIVE_HUMAN_VERIFICATION_PROTOCOL_VERSION
+            or dict(authority) != {
+                **normalized,
+                "authority_sha256": authority.get("authority_sha256"),
+            }
+        ):
+            raise AuthorizationError("anti-loop disposition differs from exact human authority")
+        digest = require_snapshot_hash(str(authority.get("authority_sha256", "")))
+        if digest != canonical_json_sha256(normalized):
+            raise AuthorizationError("anti-loop disposition authority digest is invalid")
+        return {**normalized, "authority_sha256": digest}
+
+    def _dispose_anti_loop_latch(
+        self,
+        case_id: str,
+        *,
+        decision: str,
+        native_thread_id: str,
+        native_turn_id: str,
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        canonical_id = canonical_case_id(case_id)
+        native_thread_id = require_native_uuid7(
+            native_thread_id, "anti-loop native human thread id"
+        )
+        native_turn_id = require_native_uuid7(
+            native_turn_id, "anti-loop native human turn id"
+        )
+        before = self.get_case(canonical_id)
+        if before["revision"] != expected_revision:
+            raise RevisionConflict(
+                f"case {canonical_id} expected revision {expected_revision}, found {before['revision']}"
+            )
+        latch_before = self._anti_loop_record(before, create=False)
+        if (
+            latch_before["status"] != "LATCHED"
+            or before["state"] != "ANTI_LOOP_LOCKED"
+        ):
+            raise TransitionError("human anti-loop disposition requires ANTI_LOOP_LOCKED")
+        try:
+            verified = self.human_disposition_verifier(
+                case_id=canonical_id,
+                decision=decision,
+                product_heads=copy.deepcopy(latch_before["product_heads"]),
+                native_thread_id=native_thread_id,
+                native_turn_id=native_turn_id,
+                state_root=self.state_root,
+            )
+        except NativeHumanDispositionVerificationError as exc:
+            raise AuthorizationError(
+                f"native human disposition verification failed: {exc}"
+            ) from exc
+        normalized = self._normalize_anti_loop_disposition_authority(
+            canonical_id, decision, verified
+        )
+
+        def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
+            latch = self._anti_loop_record(case, create=False)
+            if latch["status"] != "LATCHED" or case["state"] != "ANTI_LOOP_LOCKED":
+                raise TransitionError("human anti-loop disposition requires ANTI_LOOP_LOCKED")
+            if normalized["product_heads"] != latch["product_heads"]:
+                raise AuthorizationError(
+                    "human anti-loop disposition must bind the exact latched product heads"
+                )
+            latch["status"] = "DISPOSED"
+            latch["disposition"] = decision
+            latch["disposition_authority"] = copy.deepcopy(normalized)
+            case["anti_loop_latch"] = _seal_anti_loop_latch(latch)
+            case["resumable_state"] = None
+            if decision == "STOP_CASE":
+                case["state"] = "CASE_LOCKED"
+                case["lock_reason"] = "ANTI_LOOP_DISPOSITION_STOP_CASE"
+                publication_eligible = False
+            else:
+                if not latch["product_heads"]:
+                    raise AuthorizationError(
+                        "ship disposition requires at least one exact product head"
+                    )
+                case["candidate"]["current_heads"] = copy.deepcopy(
+                    latch["product_heads"]
+                )
+                case["state"] = "CLOSED_SUCCESS"
+                case["lock_reason"] = "CONTROL_QUARANTINED_BY_HUMAN_DISPOSITION"
+                publication_eligible = True
+            return {
+                "decision": decision,
+                "authority_id": normalized["authority_id"],
+                "publication_eligible": publication_eligible,
+                "anti_loop_latch": copy.deepcopy(case["anti_loop_latch"]),
+            }
+
+        operation = (
+            "anti_loop_stop_case"
+            if decision == "STOP_CASE"
+            else "anti_loop_ship_product_with_control_quarantined"
+        )
+        return self._mutate(
+            case_id,
+            operation=operation,
+            payload={
+                "native_thread_id": native_thread_id,
+                "native_turn_id": native_turn_id,
+                "authority": normalized,
+            },
+            request_id=request_id,
+            expected_revision=expected_revision,
+            callback=change,
+        )
+
+    def anti_loop_stop_case(
+        self,
+        case_id: str,
+        *,
+        native_thread_id: str,
+        native_turn_id: str,
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        return self._dispose_anti_loop_latch(
+            case_id,
+            decision="STOP_CASE",
+            native_thread_id=native_thread_id,
+            native_turn_id=native_turn_id,
+            request_id=request_id,
+            expected_revision=expected_revision,
+        )
+
+    def anti_loop_ship_product_with_control_quarantined(
+        self,
+        case_id: str,
+        *,
+        native_thread_id: str,
+        native_turn_id: str,
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        return self._dispose_anti_loop_latch(
+            case_id,
+            decision="SHIP_PRODUCT_WITH_CONTROL_QUARANTINED",
+            native_thread_id=native_thread_id,
+            native_turn_id=native_turn_id,
+            request_id=request_id,
+            expected_revision=expected_revision,
+        )
+
+    @staticmethod
     def _runtime_record(case: dict[str, Any], *, create: bool) -> dict[str, Any]:
         runtime = case.get("runtime")
         if runtime is None and create:
@@ -3687,7 +4904,7 @@ class CaseStore:
             "binding_source",
         }:
             raise ValidationError("runtime actor must use the fixed ccos-runtime-actor-v1 schema")
-        if actor.get("protocol_version") != RUNTIME_ACTOR_PROTOCOL_VERSION or actor.get("schema_version") != 1:
+        if actor.get("protocol_version") != RUNTIME_ACTOR_PROTOCOL_VERSION or actor.get("schema_version") != 2:
             raise ValidationError("runtime actor protocol or schema version is unsupported")
         thread_id = normalize_binding("thread", str(actor.get("thread_id", "")))
         role = _nonempty(actor.get("controller_assigned_role"), "controller assigned role", 64)
@@ -3701,11 +4918,13 @@ class CaseStore:
             raise ValidationError("runtime parent must not name a parent thread")
         if role != "parent" and parent_thread_id is None:
             raise ValidationError("runtime child must name its canonical parent thread")
-        if actor.get("binding_source") != "native_thread_read":
-            raise ValidationError("runtime actor binding source must be native_thread_read")
+        if actor.get("binding_source") != "controller_verified_native_thread_read":
+            raise ValidationError(
+                "runtime actor binding source must be controller_verified_native_thread_read"
+            )
         return {
             "protocol_version": RUNTIME_ACTOR_PROTOCOL_VERSION,
-            "schema_version": 1,
+            "schema_version": 2,
             "thread_id": thread_id,
             "role": role,
             "parent_thread_id": parent_thread_id,
@@ -3713,21 +4932,84 @@ class CaseStore:
             "identity_evidence_sha256": require_snapshot_hash(
                 str(actor.get("identity_evidence_sha256", ""))
             ),
-            "binding_source": "native_thread_read",
+            "binding_source": "controller_verified_native_thread_read",
         }
+
+    @staticmethod
+    def _normalize_native_runtime_identity(identity: Mapping[str, Any]) -> dict[str, Any]:
+        required = {
+            "protocol_version",
+            "schema_version",
+            "thread_id",
+            "parent_thread_id",
+            "agent_path",
+            "depth",
+            "cwd",
+            "source_sha256",
+            "created_at",
+            "cli_version",
+            "model_provider",
+            "identity_evidence_sha256",
+        }
+        if not isinstance(identity, Mapping) or set(identity) != required:
+            raise ValidationError(
+                "native runtime identity must use the fixed controller evidence schema"
+            )
+        if (
+            identity.get("protocol_version") != NATIVE_THREAD_IDENTITY_PROTOCOL_VERSION
+            or identity.get("schema_version") != 1
+        ):
+            raise ValidationError("native runtime identity protocol is unsupported")
+        stable = {
+            "protocol_version": NATIVE_THREAD_IDENTITY_PROTOCOL_VERSION,
+            "schema_version": 1,
+            "thread_id": normalize_binding("thread", str(identity.get("thread_id", ""))),
+            "parent_thread_id": (
+                None
+                if identity.get("parent_thread_id") is None
+                else normalize_binding("thread", str(identity.get("parent_thread_id")))
+            ),
+            "agent_path": _nonempty(identity.get("agent_path"), "native agent path", 1024),
+            "depth": identity.get("depth"),
+            "cwd": normalize_binding("worktree", str(identity.get("cwd", ""))),
+            "source_sha256": require_snapshot_hash(str(identity.get("source_sha256", ""))),
+            "created_at": identity.get("created_at"),
+            "cli_version": identity.get("cli_version"),
+            "model_provider": identity.get("model_provider"),
+        }
+        if stable["depth"] not in {0, 1}:
+            raise ValidationError("native runtime identity depth must be zero or one")
+        if (stable["depth"] == 0) != (stable["parent_thread_id"] is None):
+            raise ValidationError("native runtime identity parent/depth relationship is invalid")
+        digest = require_snapshot_hash(str(identity.get("identity_evidence_sha256", "")))
+        if digest != canonical_json_sha256(stable):
+            raise AuthorizationError("native runtime identity digest is invalid")
+        return {**stable, "identity_evidence_sha256": digest}
 
     def bind_runtime_actor(
         self,
         case_id: str,
         *,
-        actor: Mapping[str, Any],
+        assignment: _ControllerSealedRuntimeActorAssignment,
         request_id: str,
         expected_revision: int,
     ) -> dict[str, Any]:
-        normalized = self._normalize_runtime_actor(actor)
+        if type(assignment) is not _ControllerSealedRuntimeActorAssignment:
+            raise AuthorizationError(
+                "caller-supplied runtime actor data is forbidden; a one-use controller-sealed assignment is required"
+            )
+        normalized = assignment.consume(
+            case_id=case_id,
+            request_id=request_id,
+            expected_revision=expected_revision,
+        )
 
         def change(case: dict[str, Any], _data: dict[str, Any]) -> dict[str, Any]:
-            if case["state"] in {"CLOSED_SUCCESS", "CASE_LOCKED", "CONTROL_FAILURE"}:
+            if case["state"] in {
+                "CASE_LOCKED",
+                "ANTI_LOOP_LOCKED",
+                "CONTROL_FAILURE",
+            }:
                 raise TransitionError(f"runtime actors cannot be bound while case is {case['state']}")
             if normalized["thread_id"] not in case["bindings"]["thread"]:
                 raise AuthorizationError("runtime actor thread is not canonically bound to this case")
@@ -3745,7 +5027,13 @@ class CaseStore:
                 parent = actors.get(normalized["parent_thread_id"])
                 if not isinstance(parent, Mapping) or parent.get("role") != "parent":
                     raise AuthorizationError("runtime child parent is not the canonical bound parent")
-                if role in {"implementer_child", "closure_child", "incomplete_child"} and any(
+                if role in {
+                    "implementer_child",
+                    "closure_child",
+                    "incomplete_child",
+                    "fix_child",
+                    "publication_child",
+                } and any(
                     record.get("role") == role for record in actors.values()
                 ):
                     raise LimitError(f"case already has its canonical {role}")
@@ -3766,6 +5054,7 @@ class CaseStore:
             expected_revision=expected_revision,
             callback=change,
         )
+
 
     @staticmethod
     def _normalize_windows_principal_probe(
@@ -4525,7 +5814,7 @@ class CaseStore:
     ) -> dict[str, Any]:
         if allow_legacy_v1 is not True:
             raise AuthorizationError(
-                "new ccos-runtime-action-grant-v1 issuance is disabled; use the actorless proposal action grant"
+                "new ccos-runtime-action-grant-v1 issuance is disabled; use the actor-bound proposal action grant"
             )
         normalized = self._normalize_action_grant_request(grant)
 
@@ -4845,11 +6134,11 @@ class CaseStore:
             expected_fields.update(PROPOSAL_ACTION_GRANT_ISSUANCE_EVIDENCE_FIELDS)
         if not isinstance(grant, Mapping) or set(grant) != expected_fields:
             raise ValidationError(
-                "proposal action grant must use the fixed ccos-proposal-action-grant-v2 request schema"
+                "proposal action grant must use the fixed actor-bound ccos-proposal-action-grant-v3 request schema"
             )
         if (
             grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-            or grant.get("schema_version") != 2
+            or grant.get("schema_version") != 3
         ):
             raise ValidationError(
                 "proposal action grant protocol or schema version is unsupported"
@@ -4950,11 +6239,20 @@ class CaseStore:
             )
         normalized = {
             "protocol_version": PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
-            "schema_version": 2,
+            "schema_version": 3,
             "evidence_mode": PROPOSAL_DACL_EVIDENCE_MODE,
             "grant_id": require_stable_id(grant.get("grant_id"), "grant id"),
             "authority_id": require_stable_id(
                 grant.get("authority_id"), "authority id"
+            ),
+            "actor_thread_id": normalize_binding(
+                "thread", str(grant.get("actor_thread_id", ""))
+            ),
+            "controller_actor_role": _nonempty(
+                grant.get("controller_actor_role"), "controller actor role", 64
+            ).casefold(),
+            "actor_sha256": require_snapshot_hash(
+                str(grant.get("actor_sha256", ""))
             ),
             "operation_id": require_stable_id(
                 grant.get("operation_id"), "operation id"
@@ -4991,6 +6289,8 @@ class CaseStore:
                 grant.get("expires_at"), "grant expires_at"
             ),
         }
+        if normalized["controller_actor_role"] not in RUNTIME_ACTOR_ROLES:
+            raise AuthorizationError("proposal grant controller actor role is unsupported")
         if include_issuance_evidence:
             normalized.update(
                 {
@@ -5015,6 +6315,7 @@ class CaseStore:
         authority = grant.get("authority")
         authority_fields = {
             "protocol_version", "schema_version", "evidence_mode", "authority_id", "case_id",
+            "actor_thread_id", "controller_actor_role", "actor_sha256",
             "expected_case_revision", "grant_id", "operation_id", "action",
             "operation", "repository", "branch", "worktree", "base_head",
             "target_path", "baseline_sha256", "proposal_artifact_path",
@@ -5024,7 +6325,7 @@ class CaseStore:
         }
         if not isinstance(authority, Mapping) or set(authority) != authority_fields:
             raise ValidationError(
-                "proposal action authority must use the fixed actorless authority schema"
+                "proposal action authority must use the fixed actor-bound authority schema"
             )
         revision = authority.get("expected_case_revision")
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
@@ -5033,10 +6334,13 @@ class CaseStore:
             )
         expected_authority = {
             "protocol_version": PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION,
-            "schema_version": 1,
+            "schema_version": 2,
             "evidence_mode": PROPOSAL_DACL_EVIDENCE_MODE,
             "authority_id": normalized["authority_id"],
             "case_id": canonical_id,
+            "actor_thread_id": normalized["actor_thread_id"],
+            "controller_actor_role": normalized["controller_actor_role"],
+            "actor_sha256": normalized["actor_sha256"],
             "expected_case_revision": revision,
             "grant_id": normalized["grant_id"],
             "operation_id": normalized["operation_id"],
@@ -5148,6 +6452,20 @@ class CaseStore:
             if runtime["action_grants"]:
                 raise LimitError(
                     "case already contains its one exact runtime action grant"
+                )
+            actor = runtime["actors"].get(normalized["actor_thread_id"])
+            if (
+                not isinstance(actor, Mapping)
+                or actor.get("role") != normalized["controller_actor_role"]
+                or actor.get("actor_sha256") != normalized["actor_sha256"]
+                or actor.get("role") != "implementer_child"
+            ):
+                raise AuthorizationError(
+                    "proposal grant is not bound to the exact canonical implementer actor"
+                )
+            if normalized["actor_thread_id"] not in case["bindings"]["thread"]:
+                raise AuthorizationError(
+                    "proposal grant actor thread is not canonically bound to this case"
                 )
             authority = normalized["authority"]
             if authority["case_id"] != case["case_id"]:
@@ -5784,7 +7102,7 @@ class CaseStore:
             grant = runtime["action_grants"].get(grant_id)
             if not isinstance(grant, dict):
                 raise AuthorizationError("canonical proposal arm does not exist")
-            if grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION:
+            if not is_proposal_action_grant(grant):
                 raise AuthorizationError("canonical arm belongs to another grant protocol")
             if grant.get("status") != "ARMED":
                 raise LimitError(
@@ -5850,9 +7168,7 @@ class CaseStore:
     def _normalize_dacl_evidence(
         evidence: Mapping[str, Any], grant: Mapping[str, Any]
     ) -> dict[str, Any]:
-        proposal_mode = (
-            grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-        )
+        proposal_mode = is_proposal_action_grant(grant)
         expected_fields = {
             "protocol_version", "schema_version", "denied_principal_sids",
             "broker_principal_sid", "rules", "observed_at",
@@ -6049,9 +7365,7 @@ class CaseStore:
             "broker_source_root": grant["broker_source_root"],
             "proposal_root": grant["proposal_root"],
         }
-        proposal_mode = (
-            grant.get("protocol_version") == PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-        )
+        proposal_mode = is_proposal_action_grant(grant)
         if proposal_mode:
             source_pins = grant.get("proposal_broker_source_pins")
             if not isinstance(source_pins, Mapping):
@@ -6202,12 +7516,11 @@ class CaseStore:
                 raise LimitError(f"action grant is already {grant['status']} and cannot be claimed")
             if case["revision"] != grant["issued_revision"]:
                 raise RevisionConflict("case revision changed after action grant issuance")
-            expected_grant_protocol = (
-                ACTION_GRANT_PROTOCOL_VERSION
-                if protocol == ACTION_GRANT_CLAIM_PROTOCOL_VERSION
-                else PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-            )
-            if grant.get("protocol_version") != expected_grant_protocol:
+            legacy_runtime = protocol == ACTION_GRANT_CLAIM_PROTOCOL_VERSION
+            if (
+                (legacy_runtime and grant.get("protocol_version") != ACTION_GRANT_PROTOCOL_VERSION)
+                or (not legacy_runtime and not is_proposal_action_grant(grant))
+            ):
                 raise AuthorizationError(
                     "claim protocol differs from the canonical action grant"
                 )
@@ -6304,12 +7617,11 @@ class CaseStore:
                 raise AuthorizationError("action grant does not exist in this canonical case")
             if grant["status"] != "CLAIMED":
                 raise LimitError(f"action grant is {grant['status']} and cannot be completed")
-            expected_grant_protocol = (
-                ACTION_GRANT_PROTOCOL_VERSION
-                if protocol == ACTION_GRANT_RESULT_PROTOCOL_VERSION
-                else PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-            )
-            if grant.get("protocol_version") != expected_grant_protocol:
+            legacy_runtime = protocol == ACTION_GRANT_RESULT_PROTOCOL_VERSION
+            if (
+                (legacy_runtime and grant.get("protocol_version") != ACTION_GRANT_PROTOCOL_VERSION)
+                or (not legacy_runtime and not is_proposal_action_grant(grant))
+            ):
                 raise AuthorizationError(
                     "completion protocol differs from the canonical action grant"
                 )
@@ -6451,12 +7763,11 @@ class CaseStore:
             grant = runtime["action_grants"].get(normalized["grant_id"])
             if not isinstance(grant, dict):
                 raise AuthorizationError("action grant does not exist in this canonical case")
-            expected_grant_protocol = (
-                ACTION_GRANT_PROTOCOL_VERSION
-                if protocol == ACTION_GRANT_RESULT_PROTOCOL_VERSION
-                else PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-            )
-            if grant.get("protocol_version") != expected_grant_protocol:
+            legacy_runtime = protocol == ACTION_GRANT_RESULT_PROTOCOL_VERSION
+            if (
+                (legacy_runtime and grant.get("protocol_version") != ACTION_GRANT_PROTOCOL_VERSION)
+                or (not legacy_runtime and not is_proposal_action_grant(grant))
+            ):
                 raise AuthorizationError(
                     "failure protocol differs from the canonical action grant"
                 )
@@ -6946,7 +8257,10 @@ class CaseStore:
     def _action_context(
         *,
         actor_role: str,
-        actor_thread_id: str | None,
+        actor_thread_id: str,
+        request_id: str,
+        expected_revision: int,
+        support_action: str | None,
         repository: str | None,
         branch: str | None,
         worktree: str | None,
@@ -6956,11 +8270,20 @@ class CaseStore:
         head: str | None,
     ) -> dict[str, str | None]:
         role = _nonempty(actor_role, "actor_role", 128).casefold()
+        normalized_actor_thread = normalize_binding("thread", actor_thread_id)
+        normalized_request_id = require_request_id(request_id)
+        if (
+            isinstance(expected_revision, bool)
+            or not isinstance(expected_revision, int)
+            or expected_revision < 1
+        ):
+            raise ValidationError("action expected_revision must be a positive integer")
         normalized_repo = normalize_repo_url(repository) if repository is not None else None
         if branch is not None and normalized_repo is None:
             raise ValidationError("action context branch requires repository")
         context: dict[str, str | None] = {
             "actor_role": role,
+            "actor_thread_id": normalized_actor_thread,
             "repository": normalized_repo,
             "branch": normalize_binding("branch", branch) if branch is not None else None,
             "worktree": normalize_binding("worktree", worktree) if worktree is not None else None,
@@ -6972,12 +8295,14 @@ class CaseStore:
                 else None
             ),
             "head": require_sha(head, "action head") if head is not None else None,
+            "support_action": (
+                None
+                if support_action is None
+                else _nonempty(support_action, "support action", 256)
+            ),
+            "request_id": normalized_request_id,
+            "expected_revision": expected_revision,
         }
-        # Preserve the schema-2 response shape for legacy callers.  Native
-        # runtime identity is an additive boundary check and is emitted only
-        # when the caller supplies it.
-        if actor_thread_id is not None:
-            context["actor_thread_id"] = normalize_binding("thread", actor_thread_id)
         if context["pr"] is not None and normalized_repo is not None:
             pr_repository = str(context["pr"]).rsplit("#", 1)[0]
             if pr_repository != normalized_repo:
@@ -7076,16 +8401,25 @@ class CaseStore:
         separate_authority_required: bool = False,
         blocked_case_id: str | None = None,
     ) -> dict[str, Any]:
+        latch = case.get("anti_loop_latch")
+        if not isinstance(latch, Mapping):
+            latch = _new_anti_loop_latch(str(case["objective"]))
         return {
             "protocol_version": ACTION_PROTOCOL_VERSION,
             "schema_version": SCHEMA_VERSION,
             "case_id": case["case_id"],
             "state": case["state"],
+            "revision": case["revision"],
             "action": action,
             "actor_role": context["actor_role"],
+            "request_id": context["request_id"],
+            "expected_revision": context["expected_revision"],
             "repository": context["repository"],
             "head": context["head"],
             "context": dict(context),
+            "actor_identity_bound": bool(context.get("actor_identity_bound", False)),
+            "controller_bound_actor_role": context.get("controller_bound_actor_role"),
+            "anti_loop_latch": copy.deepcopy(latch),
             "limits": copy.deepcopy(case["limits"]),
             "allowed": allowed,
             "reason_codes": [reason_code],
@@ -7100,7 +8434,10 @@ class CaseStore:
         action: str,
         *,
         actor_role: str,
-        actor_thread_id: str | None = None,
+        actor_thread_id: str,
+        request_id: str,
+        expected_revision: int,
+        support_action: str | None = None,
         repository: str | None = None,
         branch: str | None = None,
         worktree: str | None = None,
@@ -7115,6 +8452,9 @@ class CaseStore:
         context = self._action_context(
             actor_role=actor_role,
             actor_thread_id=actor_thread_id,
+            request_id=request_id,
+            expected_revision=expected_revision,
+            support_action=support_action,
             repository=repository,
             branch=branch,
             worktree=worktree,
@@ -7127,6 +8467,60 @@ class CaseStore:
         if case_id not in data["cases"]:
             raise ValidationError(f"case not found: {case_id}")
         case = data["cases"][case_id]
+        actor = self._runtime_actor(case, str(context["actor_thread_id"]))
+        if actor is not None:
+            context["actor_identity_bound"] = True
+            context["controller_bound_actor_role"] = str(actor.get("role", ""))
+        else:
+            context["actor_identity_bound"] = False
+            context["controller_bound_actor_role"] = None
+        latch = case.get("anti_loop_latch")
+        if isinstance(latch, Mapping) and latch.get("status") == "LATCHED":
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="ANTI_LOOP_LATCH_ACTIVE",
+                reason=(
+                    "the mandatory anti-loop latch denies every action until an exact human disposition"
+                ),
+            )
+        stopped_by_disposition = (
+            isinstance(latch, Mapping)
+            and latch.get("status") == "DISPOSED"
+            and latch.get("disposition") == "STOP_CASE"
+        )
+        if stopped_by_disposition:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="ANTI_LOOP_STOP_CASE",
+                reason="the exact human STOP_CASE disposition is terminal",
+            )
+        shipped_with_control_quarantined = (
+            isinstance(latch, Mapping)
+            and latch.get("status") == "DISPOSED"
+            and latch.get("disposition")
+            == "SHIP_PRODUCT_WITH_CONTROL_QUARANTINED"
+        )
+        if shipped_with_control_quarantined and action not in {"publication", "merge"}:
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="ANTI_LOOP_CONTROL_QUARANTINED",
+                reason=(
+                    "the human ship disposition permits only exact-head publication boundaries; control and worktree mutation remain quarantined"
+                ),
+            )
+        if context.get("support_action") is None and expected_revision != case["revision"]:
+            raise RevisionConflict(
+                f"case {case_id} expected revision {expected_revision}, found {case['revision']}"
+            )
         unrelated_locked_case = False
         normalized_blocked_id: str | None = None
         if blocked_case_id is not None:
@@ -7148,6 +8542,57 @@ class CaseStore:
                 unrelated_locked_case = True
 
         role = str(context["actor_role"])
+        actor_thread_id = str(context["actor_thread_id"])
+        if not isinstance(actor, Mapping):
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="RUNTIME_ACTOR_UNBOUND",
+                reason="actor thread is not bound by native controller evidence",
+                blocked_case_id=normalized_blocked_id,
+            )
+        controller_role = str(actor.get("role", ""))
+        if controller_role != role:
+            def latch_contradiction(
+                mutable_case: dict[str, Any], _data: dict[str, Any]
+            ) -> dict[str, Any]:
+                anti_loop = self._anti_loop_record(mutable_case, create=True)
+                anti_loop["event_count"] += 1
+                mutable_case["anti_loop_latch"] = _seal_anti_loop_latch(anti_loop)
+                activated = self._activate_anti_loop_latch(
+                    mutable_case,
+                    reason="ACTOR_ROLE_CONTRADICTION",
+                    event_id=request_id,
+                )
+                return {"anti_loop_latch": copy.deepcopy(activated)}
+
+            self._mutate(
+                case_id,
+                operation="record_anti_loop_actor_contradiction",
+                payload={
+                    "actor_thread_id": actor_thread_id,
+                    "declared_actor_role": role,
+                    "controller_bound_actor_role": controller_role,
+                    "action": action,
+                },
+                request_id=request_id,
+                expected_revision=expected_revision,
+                callback=latch_contradiction,
+            )
+            case = self.get_case(case_id)
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="ANTI_LOOP_LATCH_ACTIVE",
+                reason=(
+                    "caller role differs from the controller-bound native actor role; the mandatory anti-loop latch is now active"
+                ),
+                blocked_case_id=normalized_blocked_id,
+            )
         if role not in ROLE_ACTIONS:
             return self._action_response(
                 case,
@@ -7158,47 +8603,48 @@ class CaseStore:
                 reason="actor_role is not part of the case action protocol",
                 blocked_case_id=normalized_blocked_id,
             )
-        actor_thread_id = context.get("actor_thread_id")
-        if actor_thread_id is not None:
-            runtime = case.get("runtime")
-            actors = runtime.get("actors") if isinstance(runtime, Mapping) else None
-            actor = actors.get(actor_thread_id) if isinstance(actors, Mapping) else None
-            if not isinstance(actor, Mapping):
-                return self._action_response(
-                    case,
-                    action,
-                    context,
-                    allowed=False,
-                    reason_code="RUNTIME_ACTOR_UNBOUND",
-                    reason="actor thread is not bound by native controller evidence",
-                    blocked_case_id=normalized_blocked_id,
+        context_thread = context.get("thread")
+        if context_thread is not None and context_thread != actor_thread_id:
+            def latch_thread_contradiction(
+                mutable_case: dict[str, Any], _data: dict[str, Any]
+            ) -> dict[str, Any]:
+                anti_loop = self._anti_loop_record(mutable_case, create=True)
+                anti_loop["event_count"] += 1
+                mutable_case["anti_loop_latch"] = _seal_anti_loop_latch(anti_loop)
+                activated = self._activate_anti_loop_latch(
+                    mutable_case,
+                    reason="ACTOR_THREAD_CONTEXT_CONTRADICTION",
+                    event_id=request_id,
                 )
-            controller_role = str(actor.get("role", ""))
-            if controller_role != role:
-                response = self._action_response(
-                    case,
-                    action,
-                    context,
-                    allowed=False,
-                    reason_code="ACTOR_ROLE_MISMATCH",
-                    reason="caller role differs from the controller-bound native actor role",
-                    blocked_case_id=normalized_blocked_id,
-                )
-                response["controller_bound_actor_role"] = controller_role
-                return response
-            context_thread = context.get("thread")
-            if context_thread is not None and context_thread != actor_thread_id:
-                return self._action_response(
-                    case,
-                    action,
-                    context,
-                    allowed=False,
-                    reason_code="ACTOR_THREAD_CONTEXT_MISMATCH",
-                    reason="thread context differs from the controller-bound native actor thread",
-                    blocked_case_id=normalized_blocked_id,
-                )
-            if context_thread is None:
-                context["thread"] = actor_thread_id
+                return {"anti_loop_latch": copy.deepcopy(activated)}
+
+            self._mutate(
+                case_id,
+                operation="record_anti_loop_actor_thread_contradiction",
+                payload={
+                    "actor_thread_id": actor_thread_id,
+                    "context_thread_id": context_thread,
+                    "controller_bound_actor_role": controller_role,
+                    "action": action,
+                },
+                request_id=request_id,
+                expected_revision=expected_revision,
+                callback=latch_thread_contradiction,
+            )
+            case = self.get_case(case_id)
+            return self._action_response(
+                case,
+                action,
+                context,
+                allowed=False,
+                reason_code="ANTI_LOOP_LATCH_ACTIVE",
+                reason=(
+                    "thread context differs from the controller-bound native actor thread; the mandatory anti-loop latch is now active"
+                ),
+                blocked_case_id=normalized_blocked_id,
+            )
+        if context_thread is None:
+            context["thread"] = actor_thread_id
         known_actions = set().union(*ROLE_ACTIONS.values())
         if action not in known_actions:
             return self._action_response(
@@ -7274,6 +8720,57 @@ class CaseStore:
                 reason="an exclusive action context binding does not belong to this case",
                 blocked_case_id=normalized_blocked_id,
             )
+        if context.get("support_action") is not None:
+            if action != "case_administration":
+                return self._action_response(
+                    case,
+                    action,
+                    context,
+                    allowed=False,
+                    reason_code="SUPPORT_ACTION_REQUIRES_CASE_ADMINISTRATION",
+                    reason="support_action classification is valid only for case_administration",
+                    blocked_case_id=normalized_blocked_id,
+                )
+            if (
+                context.get("repository") is None
+                or context.get("worktree") is None
+                or context.get("head") is None
+            ):
+                return self._action_response(
+                    case,
+                    action,
+                    context,
+                    allowed=False,
+                    reason_code="SUPPORT_ACTION_CONTEXT_REQUIRED",
+                    reason="support action attempts require an exact repository, worktree, and product head",
+                    blocked_case_id=normalized_blocked_id,
+                )
+            event = self.record_anti_loop_event(
+                case_id,
+                event_type="SUPPORT_MUTATION",
+                actor_thread_id=actor_thread_id,
+                actor_role=role,
+                repository=str(context["repository"]),
+                worktree=str(context["worktree"]),
+                product_head=str(context["head"]),
+                support_action=str(context["support_action"]),
+                failure_fingerprint=None,
+                request_id=request_id,
+                expected_revision=expected_revision,
+            )
+            case = self.get_case(case_id)
+            if event["triggered"]:
+                return self._action_response(
+                    case,
+                    action,
+                    context,
+                    allowed=False,
+                    reason_code="ANTI_LOOP_LATCH_ACTIVE",
+                    reason=(
+                        "the support action attempt activated the mandatory anti-loop latch"
+                    ),
+                    blocked_case_id=normalized_blocked_id,
+                )
         if case["state"] in {"CASE_LOCKED", "CONTROL_FAILURE"}:
             return self._action_response(
                 case,
@@ -7284,7 +8781,10 @@ class CaseStore:
                 reason="this exact case is locked or in control failure",
                 blocked_case_id=normalized_blocked_id,
             )
-        if action in {"publication", *SEPARATE_AUTHORITY_ACTIONS}:
+        if (
+            action in {"publication", *SEPARATE_AUTHORITY_ACTIONS}
+            and not shipped_with_control_quarantined
+        ):
             unverified = _unverified_review_receipt_ids(case)
             if unverified:
                 return self._action_response(
@@ -7815,11 +9315,6 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--reviewer-id", required=True)
     _add_mutation_identity(command)
 
-    command = sub.add_parser("bind-runtime-actor")
-    command.add_argument("--case-id", required=True)
-    command.add_argument("--actor-json", required=True)
-    _add_mutation_identity(command)
-
     command = sub.add_parser("issue-action-grant")
     command.add_argument("--case-id", required=True)
     command.add_argument("--grant-json", required=True)
@@ -7899,6 +9394,30 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--description", required=True)
     _add_mutation_identity(command)
 
+    command = sub.add_parser("record-anti-loop-event")
+    command.add_argument("--case-id", required=True)
+    command.add_argument(
+        "--event-type", required=True, choices=sorted(ANTI_LOOP_EVENT_TYPES)
+    )
+    command.add_argument("--actor-thread-id", required=True)
+    command.add_argument("--actor-role", required=True)
+    command.add_argument("--repository", required=True)
+    command.add_argument("--worktree", required=True)
+    command.add_argument("--product-head", required=True)
+    command.add_argument("--support-action")
+    command.add_argument("--failure-fingerprint")
+    _add_mutation_identity(command)
+
+    for name in (
+        "anti-loop-stop-case",
+        "anti-loop-ship-product-with-control-quarantined",
+    ):
+        command = sub.add_parser(name)
+        command.add_argument("--case-id", required=True)
+        command.add_argument("--native-thread-id", required=True)
+        command.add_argument("--native-turn-id", required=True)
+        _add_mutation_identity(command)
+
     command = sub.add_parser("retry-control")
     command.add_argument("--case-id", required=True)
     command.add_argument("--fingerprint", required=True)
@@ -7913,7 +9432,8 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--case-id", required=True)
     command.add_argument("--action", required=True)
     command.add_argument("--actor-role", required=True)
-    command.add_argument("--actor-thread-id")
+    command.add_argument("--actor-thread-id", required=True)
+    command.add_argument("--support-action")
     command.add_argument("--repository")
     command.add_argument("--branch")
     command.add_argument("--worktree")
@@ -7922,6 +9442,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--universal-bundle")
     command.add_argument("--head")
     command.add_argument("--blocked-case-id")
+    _add_mutation_identity(command)
 
     command = sub.add_parser("snapshot")
     command.add_argument("--root", required=True, type=Path)
@@ -8002,12 +9523,6 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         return store.attest_existing_review_completion(
             args.case_id,
             reviewer_id=args.reviewer_id,
-            **common,
-        )
-    if args.command == "bind-runtime-actor":
-        return store.bind_runtime_actor(
-            args.case_id,
-            actor=_json_value(args.actor_json, "actor-json"),
             **common,
         )
     if args.command == "issue-action-grant":
@@ -8108,6 +9623,33 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             description=args.description,
             **common,
         )
+    if args.command == "record-anti-loop-event":
+        return store.record_anti_loop_event(
+            args.case_id,
+            event_type=args.event_type,
+            actor_thread_id=args.actor_thread_id,
+            actor_role=args.actor_role,
+            repository=args.repository,
+            worktree=args.worktree,
+            product_head=args.product_head,
+            support_action=args.support_action,
+            failure_fingerprint=args.failure_fingerprint,
+            **common,
+        )
+    if args.command == "anti-loop-stop-case":
+        return store.anti_loop_stop_case(
+            args.case_id,
+            native_thread_id=args.native_thread_id,
+            native_turn_id=args.native_turn_id,
+            **common,
+        )
+    if args.command == "anti-loop-ship-product-with-control-quarantined":
+        return store.anti_loop_ship_product_with_control_quarantined(
+            args.case_id,
+            native_thread_id=args.native_thread_id,
+            native_turn_id=args.native_turn_id,
+            **common,
+        )
     if args.command == "retry-control":
         return store.retry_control_failure(args.case_id, fingerprint=args.fingerprint, **common)
     if args.command == "start-helper-check":
@@ -8118,6 +9660,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             args.action,
             actor_role=args.actor_role,
             actor_thread_id=args.actor_thread_id,
+            request_id=args.request_id,
+            expected_revision=args.expected_revision,
+            support_action=args.support_action,
             repository=args.repository,
             branch=args.branch,
             worktree=args.worktree,

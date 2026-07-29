@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused tests for actorless, exact-proposal action grants."""
+"""Focused tests for actor-bound, exact-proposal action grants."""
 
 from __future__ import annotations
 
@@ -20,6 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_DIRECTORY = ROOT / "scripts" / "agent"
 if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
+TEST_DIRECTORY = str(Path(__file__).resolve().parent)
+if TEST_DIRECTORY not in sys.path:
+    sys.path.insert(0, TEST_DIRECTORY)
+
+from runtime_actor_test_support import bind_controller_actor
 
 engine = importlib.import_module("case_state")
 proposal_entrypoint = importlib.import_module("case_proposal_action_broker")
@@ -126,6 +131,8 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.store = engine.CaseStore(self.state_root)
         (self.state_root / "probe-descendant").mkdir(parents=True)
         self.case_id = str(uuid.uuid4())
+        self.parent_thread_id = f"parent-{self.case_id}"
+        self.actor_thread_id = f"implementer-{self.case_id}"
         self.grant_id = "proposal-grant-one"
         self.authority_id = "proposal-authority-one"
         self.attempt_secret = hashlib.sha256(
@@ -133,7 +140,7 @@ class ProposalActionGrantTests(unittest.TestCase):
         ).hexdigest()
         self.store.register_case(
             self.case_id,
-            objective="prove one actorless exact-proposal action",
+            objective="prove one actor-bound exact-proposal action",
             request_id=request_id(),
             expected_store_revision=0,
         )
@@ -141,6 +148,8 @@ class ProposalActionGrantTests(unittest.TestCase):
             ("repo_url", REPOSITORY, None),
             ("branch", BRANCH, REPOSITORY),
             ("worktree", str(self.repository_root), None),
+            ("thread", self.parent_thread_id, None),
+            ("thread", self.actor_thread_id, None),
         ):
             self.store.bind(
                 self.case_id,
@@ -150,12 +159,29 @@ class ProposalActionGrantTests(unittest.TestCase):
                 request_id=request_id(),
                 expected_revision=self.revision,
             )
+        for thread_id, role, parent_thread_id in (
+            (self.parent_thread_id, "parent", None),
+            (self.actor_thread_id, "implementer_child", self.parent_thread_id),
+        ):
+            bind_controller_actor(
+                engine,
+                self.store,
+                self.case_id,
+                thread_id=thread_id,
+                role=role,
+                parent_thread_id=parent_thread_id,
+                agent_path=f"/root/{thread_id}",
+                cwd=self.repository_root,
+            )
         self.store.start_implementation(
             self.case_id,
             request_id=request_id(),
             expected_revision=self.revision,
         )
-        self.assertEqual(self.case["runtime"]["actors"], {})
+        self.assertEqual(
+            set(self.case["runtime"]["actors"]),
+            {self.parent_thread_id, self.actor_thread_id},
+        )
         self.source_pins = {
             "manifest_path": "install-bundle.manifest.json",
             "manifest_sha256": engine.file_sha256(ROOT / "install-bundle.manifest.json"),
@@ -544,12 +570,16 @@ class ProposalActionGrantTests(unittest.TestCase):
             OFFLINE_WORKER_SID,
             SANDBOX_GROUP_SID,
         ]
+        actor_record = self.case["runtime"]["actors"][self.actor_thread_id]
         authority = {
-            "protocol_version": "ccos-proposal-action-authority-v1",
-            "schema_version": 1,
+            "protocol_version": engine.PROPOSAL_ACTION_AUTHORITY_PROTOCOL_VERSION,
+            "schema_version": 2,
             "evidence_mode": engine.PROPOSAL_DACL_EVIDENCE_MODE,
             "authority_id": self.authority_id,
             "case_id": self.case_id,
+            "actor_thread_id": self.actor_thread_id,
+            "controller_actor_role": "implementer_child",
+            "actor_sha256": actor_record["actor_sha256"],
             "expected_case_revision": self.revision,
             "grant_id": self.grant_id,
             "operation_id": "replace-candidate-once",
@@ -574,10 +604,13 @@ class ProposalActionGrantTests(unittest.TestCase):
         snapshot = self.protected_acl_snapshot()
         grant = {
             "protocol_version": engine.PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION,
-            "schema_version": 2,
+            "schema_version": 3,
             "evidence_mode": engine.PROPOSAL_DACL_EVIDENCE_MODE,
             "grant_id": self.grant_id,
             "authority_id": self.authority_id,
+            "actor_thread_id": self.actor_thread_id,
+            "controller_actor_role": "implementer_child",
+            "actor_sha256": actor_record["actor_sha256"],
             "operation_id": "replace-candidate-once",
             "action": "implementation",
             "operation": "replace_existing_file_v1",
@@ -1439,17 +1472,21 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.assertEqual(self.grant()["status"], "ISSUED")
         self.assertEqual(self.target.read_bytes(), BASELINE_BYTES)
 
-    def test_issue_succeeds_with_empty_runtime_actors(self) -> None:
+    def test_issue_succeeds_only_with_exact_runtime_actor(self) -> None:
         result = self.issue()
         self.assertEqual(result["status"], "ISSUED")
-        self.assertEqual(self.case["runtime"]["actors"], {})
         self.assertEqual(self.grant()["protocol_version"], engine.PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION)
         self.assertEqual(
             self.grant()["evidence_mode"], engine.PROPOSAL_DACL_EVIDENCE_MODE
         )
         self.assertNotIn("group_membership_evidence", self.grant())
         self.assertNotIn("isolation_evidence", self.grant())
-        self.assertNotIn("actor_thread_id", result)
+        self.assertEqual(self.grant()["actor_thread_id"], self.actor_thread_id)
+        self.assertEqual(self.grant()["controller_actor_role"], "implementer_child")
+        self.assertEqual(
+            self.grant()["actor_sha256"],
+            self.case["runtime"]["actors"][self.actor_thread_id]["actor_sha256"],
+        )
 
     def test_issued_grant_rejects_recovery_root_binding_corruption(self) -> None:
         self.issue()
@@ -2175,29 +2212,37 @@ class ProposalActionGrantTests(unittest.TestCase):
         ):
             self.recover_completed_cleanup()
 
-    def test_actor_thread_and_app_server_fields_are_rejected(self) -> None:
+    def test_actor_binding_is_required_and_exact(self) -> None:
         initial_case = self.case
-        forbidden_fields = (
-            ("actor_thread_id", "implementation-child"),
+        for field in ("actor_thread_id", "controller_actor_role", "actor_sha256"):
+            with self.subTest(missing=field):
+                grant = self.grant_request()
+                del grant[field]
+                with self.assertRaises(engine.ValidationError):
+                    self.store._normalize_proposal_action_grant_request(
+                        self.case_id, grant
+                    )
+                self.assertEqual(self.case, initial_case)
+
+        grant = self.grant_request()
+        grant["actor_thread_id"] = "unknown-implementer"
+        grant["authority"]["actor_thread_id"] = "unknown-implementer"
+        grant["authority_sha256"] = engine.canonical_json_sha256(grant["authority"])
+        with self.assertRaisesRegex(engine.AuthorizationError, "canonical implementer actor"):
+            self.issue(grant)
+        self.assertEqual(self.case, initial_case)
+
+        for field, value in (
             ("actor_turn_id", "implementation-turn"),
             ("app_server_sha256", "a" * 64),
-        )
-        for location in ("grant", "authority"):
-            for field, value in forbidden_fields:
-                with self.subTest(location=location, field=field):
-                    grant = self.grant_request()
-                    if location == "grant":
-                        grant[field] = value
-                    else:
-                        grant["authority"][field] = value
-                        grant["authority_sha256"] = engine.canonical_json_sha256(
-                            grant["authority"]
-                        )
-                    with self.assertRaises(engine.ValidationError):
-                        self.store._normalize_proposal_action_grant_request(
-                            self.case_id, grant
-                        )
-                    self.assertEqual(self.case, initial_case)
+        ):
+            grant = self.grant_request()
+            grant[field] = value
+            with self.assertRaises(engine.ValidationError):
+                self.store._normalize_proposal_action_grant_request(
+                    self.case_id, grant
+                )
+            self.assertEqual(self.case, initial_case)
 
     def test_stale_issue_revision_is_rejected_without_mutation(self) -> None:
         initial_case = self.case
@@ -2239,7 +2284,7 @@ class ProposalActionGrantTests(unittest.TestCase):
         self.assertEqual(self.case, issued_case)
         self.assertEqual(self.grant()["status"], "ISSUED")
 
-    def test_completion_records_no_actor_thread_turn_or_app_server_identity(self) -> None:
+    def test_completion_preserves_grant_actor_binding_without_ephemeral_turn_identity(self) -> None:
         self.issue()
         self.claim()
         self.target.write_bytes(REPLACEMENT_BYTES)
@@ -2262,7 +2307,6 @@ class ProposalActionGrantTests(unittest.TestCase):
         result = self.grant()["result"]
         self.assertEqual(result["authority_sha256"], grant["authority_sha256"])
         for field in (
-            "actor_thread_id",
             "actor_turn_id",
             "thread_id",
             "turn_id",
@@ -2271,7 +2315,7 @@ class ProposalActionGrantTests(unittest.TestCase):
             "app_server_version",
         ):
             self.assertNotIn(field, result)
-        self.assertEqual(self.case["runtime"]["actors"], {})
+        self.assertEqual(self.grant()["actor_thread_id"], self.actor_thread_id)
 
     def test_legacy_v1_issuance_is_disabled_by_default(self) -> None:
         initial_case = self.case

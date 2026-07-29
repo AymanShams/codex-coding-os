@@ -2037,13 +2037,13 @@ class ProposalController:
             actor_bindings.append(
                 {
                     "protocol_version": RUNTIME_ACTOR_PROTOCOL_VERSION,
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "thread_id": identity["thread_id"],
                     "controller_assigned_role": role,
                     "parent_thread_id": identity["parent_thread_id"],
                     "agent_path": identity["agent_path"],
                     "identity_evidence_sha256": identity["identity_evidence_sha256"],
-                    "binding_source": "native_thread_read",
+                    "binding_source": "controller_verified_native_thread_read",
                 }
             )
         identities = [dict(parent_identity)] + [dict(item["identity"]) for item in child_records]

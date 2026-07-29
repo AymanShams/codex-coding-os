@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 skills_root="${SKILLS_ROOT:-$HOME/.agents/skills}"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 expected_bundle=""
@@ -9,6 +9,9 @@ expected_commit=""
 authority_case_id=""
 authority_source=""
 authority_reference=""
+authority_actor_thread_id=""
+authority_request_id=""
+authority_expected_revision=""
 case_engine="$repo_root/scripts/agent/case_state.py"
 case_state_root=""
 install_policy=0
@@ -32,6 +35,9 @@ Options:
   --authority-case-id UUID
   --authority-source preauthorized-run-envelope|explicit-user-approval
   --authority-reference TEXT
+  --authority-actor-thread-id THREAD
+  --authority-request-id UUID
+  --authority-expected-revision INTEGER
   --case-state-engine PATH
   --case-state-root PATH
   --legacy-overlap-migration
@@ -53,6 +59,9 @@ while [[ $# -gt 0 ]]; do
     --authority-case-id) authority_case_id="$2"; shift 2 ;;
     --authority-source) authority_source="$2"; shift 2 ;;
     --authority-reference) authority_reference="$2"; shift 2 ;;
+    --authority-actor-thread-id) authority_actor_thread_id="$2"; shift 2 ;;
+    --authority-request-id) authority_request_id="$2"; shift 2 ;;
+    --authority-expected-revision) authority_expected_revision="$2"; shift 2 ;;
     --case-state-engine) case_engine="$2"; shift 2 ;;
     --case-state-root) case_state_root="$2"; shift 2 ;;
     --legacy-overlap-migration) legacy_overlap_migration=1; shift ;;
@@ -81,6 +90,9 @@ args=(
 [[ -z "$authority_case_id" ]] || args+=(--authority-case-id "$authority_case_id")
 [[ -z "$authority_source" ]] || args+=(--authority-source "$authority_source")
 [[ -z "$authority_reference" ]] || args+=(--authority-reference "$authority_reference")
+[[ -z "$authority_actor_thread_id" ]] || args+=(--authority-actor-thread-id "$authority_actor_thread_id")
+[[ -z "$authority_request_id" ]] || args+=(--authority-request-id "$authority_request_id")
+[[ -z "$authority_expected_revision" ]] || args+=(--authority-expected-revision "$authority_expected_revision")
 if [[ "$install_policy" -eq 1 ]]; then
   [[ -n "$case_state_root" ]] || case_state_root="$codex_home/case-state"
   args+=(--case-state-engine "$case_engine" --case-state-root "$case_state_root")

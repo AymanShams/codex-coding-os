@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Issue and consume one actorless, exact-byte proposal capability.
+"""Issue and consume one actor-bound, exact-byte proposal capability.
 
 The command accepts no target, replacement, role, thread, command, or approval
-argument. Every action field must already exist in one broker-protected envelope.
+argument. Every action and controller-bound actor field must already exist in
+one broker-protected envelope.
 """
 
 from __future__ import annotations
@@ -105,7 +106,7 @@ def _load_envelope(state_root: Path, envelope_path: Path) -> dict[str, Any]:
         raise ValidationError("proposal envelope grant core uses an unexpected schema")
     if (
         grant.get("protocol_version") != PROPOSAL_ACTION_GRANT_PROTOCOL_VERSION
-        or grant.get("schema_version") != 2
+        or grant.get("schema_version") != 3
     ):
         raise ValidationError("proposal envelope grant protocol is unsupported")
     result = dict(payload)

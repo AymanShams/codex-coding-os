@@ -31,6 +31,12 @@ AGENTS_LEGACY = (
 )
 AGENTS_POLICY = """<!-- BEGIN CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->
   - Automation-Preserving Case Orchestration Policy: Parent orchestration and child agents are enabled only inside an explicitly approved run envelope bound to one canonical case ID. The parent is administrative only. A case permits one implementation generation, one frozen-head review cohort, at most one explicitly authorized combined repair, and one closure check. A new chat, branch, worktree, pull request, commit counter, or child session cannot reset the case. The case-state engine is the lifecycle authority and prose files are mirrors. A stop or red lock is case-scoped and unrelated work remains available.
+  - `ANTI_LOOP_LATCH` is a canonical engine state, not advisory prose. It has higher precedence than every ordinary workflow gate.
+  - Repeated support failures, a second consecutive support mutation, a support-only chain, or a controller-bound actor contradiction latch the exact case.
+  - Once latched, deny every mutation before ordinary workflow eligibility and permit only read-only evidence plus `STOP_CASE` or `SHIP_PRODUCT_WITH_CONTROL_QUARANTINED`.
+  - Repository files cannot clear the protected external latch.
+  - Every support mutation binds one-use request, actor, case revision, repository, worktree, and product-head evidence. Ordinary product editing in `CLEAR` remains allowed.
+  - A support step must never expand into a second support generation.
 <!-- END CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->"""
 RULES_LEGACY = 'prefix_rule(pattern=["gh", "pr", "merge"], decision="allow")'
 RULES_POLICY = """# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY
@@ -64,18 +70,33 @@ def write_text(path: Path, value: str) -> None:
 
 class SyntheticEnvironment:
     def __init__(self, root: Path, *, git_source: bool = False) -> None:
+        root = root.resolve(strict=True)
         self.root = root
         self.source = root / "source"
         self.skills = root / "skills"
         self.codex = root / "codex-home"
         self.state = root / "case-state"
-        self.case_engine = root / "fake_case_engine.py"
+        self.case_engine = self.source / "scripts" / "agent" / "case_state.py"
         self.case_id = str(uuid.uuid4())
+        self.publication_thread_id = "01900000-0000-7000-8000-000000000701"
+        self.action_request_id = str(uuid.uuid4())
+        self.case_revision = 7
         self.repository = "https://example.invalid/synthetic/coding-os"
         self.source.mkdir(parents=True)
         write_text(self.source / ".agents/skills/alpha/SKILL.md", "---\nname: alpha\ndescription: synthetic\n---\n")
         write_text(self.source / "payload/doc.txt", "payload-v1\n")
         write_text(self.source / "scripts/install_transaction.py", "# synthetic runtime\n")
+        write_text(
+            self.case_engine,
+            """import json, pathlib, sys
+args = sys.argv[1:]
+root = pathlib.Path(args[args.index('--state-root') + 1])
+if 'action-check' in args:
+    (root / 'last-action-check.json').write_text(json.dumps(args), encoding='utf-8')
+name = 'show.json' if 'show' in args else 'authority.json'
+print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
+""",
+        )
         write_text(
             self.source / "scripts/fake_refresh.py",
             "import os, sys\nsys.exit(int(os.environ.get('CCOS_SYNTHETIC_REFRESH_EXIT', '0')))\n",
@@ -88,6 +109,7 @@ class SyntheticEnvironment:
             "support_items": [
                 "payload",
                 "scripts/install_transaction.py",
+                "scripts/agent/case_state.py",
                 "scripts/fake_refresh.py",
                 "universal",
                 "pack.manifest.json",
@@ -101,7 +123,11 @@ class SyntheticEnvironment:
                 "bundle_protocol": "CCOS-INSTALL-BUNDLE-v1",
                 "bundle_manifest": "install-bundle.manifest.json",
                 "managed_skill_root": ".agents/skills",
-                "runtime_files": ["scripts/install_transaction.py", "scripts/fake_refresh.py"],
+                "runtime_files": [
+                    "scripts/install_transaction.py",
+                    "scripts/agent/case_state.py",
+                    "scripts/fake_refresh.py",
+                ],
                 "universal_policy_sources": {
                     "global_agents": "universal/AGENTS.automation-case-policy.md",
                     "default_rules": "universal/rules/gh-pr-merge-authority.rules",
@@ -134,24 +160,33 @@ class SyntheticEnvironment:
     ) -> None:
         self.state.mkdir(parents=True, exist_ok=True)
         action = {
-            "protocol_version": "ccos-case-action-v1",
+            "protocol_version": "ccos-case-action-v2",
             "schema_version": 2,
             "case_id": self.case_id,
             "state": state,
             "action": "universal_sync",
             "actor_role": "publication_child",
+            "request_id": self.action_request_id,
+            "expected_revision": self.case_revision,
+            "revision": self.case_revision,
             "repository": self.repository,
             "head": approved_head or self.commit,
             "context": {
                 "actor_role": "publication_child",
+                "actor_thread_id": self.publication_thread_id,
                 "repository": self.repository,
                 "branch": None,
                 "worktree": None,
                 "pr": None,
-                "thread": None,
+                "thread": self.publication_thread_id,
                 "universal_bundle": universal_bundle,
                 "head": approved_head or self.commit,
+                "support_action": None,
+                "request_id": self.action_request_id,
+                "expected_revision": self.case_revision,
             },
+            "actor_identity_bound": True,
+            "controller_bound_actor_role": "publication_child",
             "limits": {},
             "allowed": allowed,
             "reason_codes": ["SEPARATE_AUTHORITY_REQUIRED"] if not allowed else [],
@@ -159,20 +194,31 @@ class SyntheticEnvironment:
             "separate_authority_required": not allowed,
             "blocked_case_id": None,
         }
-        show = {"case_id": self.case_id, "state": state}
+        latch = {
+            "protocol_version": "ccos-anti-loop-latch-v1",
+            "schema_version": 1,
+            "status": "CLEAR",
+            "objective_sha256": "4" * 64,
+            "product_heads": {},
+            "consecutive_support_mutations": 0,
+            "last_support_action": None,
+            "last_failure_fingerprint": None,
+            "failure_fingerprint_repetitions": 0,
+            "event_count": 0,
+            "trigger_reason": None,
+            "trigger_event_id": None,
+            "latched_at": None,
+            "latched_from_state": None,
+            "disposition": None,
+            "disposition_authority": None,
+        }
+        latch["record_sha256"] = hashlib.sha256(
+            json.dumps(latch, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        action["anti_loop_latch"] = latch
+        show = {"case_id": self.case_id, "state": state, "revision": self.case_revision}
         write_text(self.state / "authority.json", json.dumps(action))
         write_text(self.state / "show.json", json.dumps(show))
-        write_text(
-            self.case_engine,
-            """import json, pathlib, sys
-args = sys.argv[1:]
-root = pathlib.Path(args[args.index('--state-root') + 1])
-if 'action-check' in args:
-    (root / 'last-action-check.json').write_text(json.dumps(args), encoding='utf-8')
-name = 'show.json' if 'show' in args else 'authority.json'
-print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
-""",
-        )
 
     def archive_options(self, **overrides: object) -> object:
         values = dict(
@@ -187,6 +233,7 @@ print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
 
     def policy_options(self, **overrides: object) -> object:
         assert self.commit is not None
+        os.environ["CODEX_THREAD_ID"] = self.publication_thread_id
         values = dict(
             source_root=self.source,
             skills_root=self.skills,
@@ -197,6 +244,9 @@ print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
             authority_case_id=self.case_id,
             authority_source="preauthorized-run-envelope",
             authority_reference="synthetic-approved-run",
+            authority_actor_thread_id=self.publication_thread_id,
+            authority_request_id=self.action_request_id,
+            authority_expected_revision=self.case_revision,
             case_state_engine=self.case_engine,
             case_state_root=self.state,
         )
@@ -647,6 +697,87 @@ class InstallTransactionTests(unittest.TestCase):
             with self.assertRaises(it.AuthorityError):
                 it.install(env.policy_options())
 
+    def test_policy_sync_rejects_missing_and_substituted_authority_engines(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            substituted = env.root / "substituted_case_state.py"
+            substituted.write_bytes(env.case_engine.read_bytes())
+            missing = env.root / "missing_case_state.py"
+
+            for candidate in (substituted, missing):
+                with self.subTest(candidate=candidate):
+                    with self.assertRaisesRegex(
+                        it.AuthorityError,
+                        "CaseStateEngine",
+                    ):
+                        it.install(
+                            env.policy_options(case_state_engine=candidate)
+                        )
+            self.assertFalse((env.state / "last-action-check.json").exists())
+
+            backing = env.root / "hardlinked_case_state.py"
+            backing.write_bytes(env.case_engine.read_bytes())
+            env.case_engine.unlink()
+            os.link(backing, env.case_engine)
+            self.assertEqual(env.case_engine.stat().st_nlink, 2)
+            with self.assertRaisesRegex(
+                it.AuthorityError,
+                "direct non-link",
+            ):
+                it.install(env.policy_options())
+
+    def test_policy_sync_rejects_an_indirect_authority_engine_ancestor(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            alias = env.root / "source-alias"
+            try:
+                alias.symlink_to(env.source, target_is_directory=True)
+            except OSError:
+                self.skipTest("directory symlink creation is unavailable")
+            indirect = alias / "scripts" / "agent" / "case_state.py"
+            with self.assertRaisesRegex(it.AuthorityError, "indirect path"):
+                it.install(env.policy_options(case_state_engine=indirect))
+
+    def test_policy_sync_accepts_exact_installed_manifest_engine_and_rejects_tampering(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            it.install(env.archive_options())
+            env.prepare_legacy_policy()
+            installed_engine = (
+                env.codex / "coding-os" / "scripts" / "agent" / "case_state.py"
+            )
+            result = it.install(
+                env.policy_options(case_state_engine=installed_engine)
+            )
+            self.assertEqual(result["status"], "committed")
+            manifest = json.loads(
+                (env.codex / "coding-os/install-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            engine = manifest["authority"]["engine"]
+            self.assertEqual(engine["kind"], "installed-manifest")
+            self.assertEqual(engine["path"], str(installed_engine.resolve()))
+            self.assertEqual(engine["sha256"], sha(installed_engine))
+
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            it.install(env.archive_options())
+            env.prepare_legacy_policy()
+            installed_engine = (
+                env.codex / "coding-os" / "scripts" / "agent" / "case_state.py"
+            )
+            installed_engine.write_text("# substituted after install\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                it.AuthorityError,
+                "differs from its manifest digest",
+            ):
+                it.install(
+                    env.policy_options(case_state_engine=installed_engine)
+                )
+
     def test_policy_sync_migrates_only_agents_and_rules_and_records_authority(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw), git_source=True)
@@ -667,6 +798,10 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(manifest["authority"]["source"], "preauthorized-run-envelope")
             self.assertEqual(manifest["authority"]["reference"], "synthetic-approved-run")
             self.assertEqual(manifest["authority"]["boundary_reason"], "SEPARATE_AUTHORITY_REQUIRED")
+            engine = manifest["authority"]["engine"]
+            self.assertEqual(engine["kind"], "source-bundle")
+            self.assertEqual(engine["path"], str(env.case_engine.resolve()))
+            self.assertEqual(engine["sha256"], sha(env.case_engine))
             self.assertEqual(manifest["source"]["git_commit"], env.commit)
             self.assertTrue(manifest["source"]["working_tree_clean"])
 
