@@ -62,7 +62,7 @@ def run_git(root: Path, *arguments: str) -> str:
 class AntiLoopRuntimeHookTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos anti loop hook ")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.repo = self.root / "repo"
         self.repo.mkdir()
         run_git(self.repo, "init", "-q")

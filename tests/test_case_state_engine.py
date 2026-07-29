@@ -271,7 +271,7 @@ def git_protocol_digest(entries: list[tuple[str, str, bytes]]) -> str:
 class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
     def test_real_cli_keeps_one_case_finite_across_an_implementation_child_handoff(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-parent-child-") as raw:
-            root = Path(raw)
+            root = Path(raw).resolve(strict=True)
             state_root = root / "case-state"
             repository_root = root / "repository"
             branch = "codex/acceptance-implementation"
@@ -652,7 +652,7 @@ class ParentChildOrchestrationAcceptanceTests(unittest.TestCase):
 class StoreCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos-case-state-")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.native_verifier = FakeNativeReviewVerifier()
         self.store = engine.CaseStore(
             self.root,
@@ -3134,7 +3134,7 @@ class TerminalQuarantineTests(StoreCase):
 class EnvironmentAndStoreHardeningTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos-environment-hardening-")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
