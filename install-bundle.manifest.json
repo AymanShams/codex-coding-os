@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "8a07b1495becac43336a1b1670e33174c7b124889b1478bb9a5acd845928500a",
+  "aggregate_sha256": "ca43bf0d7819a3e24ef2fc19115ea9e5c38c5a17718a79eca40b7d7ea8ee5cd3",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2097,6 +2097,11 @@
       "size": 211
     },
     {
+      "path": ".codex/anti-loop-support-scope.json",
+      "sha256": "b03e55cef8139b50c14cc9f94edd45a90278b28838a51e1cd144b5d1f47c7682",
+      "size": 497
+    },
+    {
       "path": ".codex/rules/README.md",
       "sha256": "efb71d2957e6902e1ac2db3f726f8902a046145801ab82b09d5ac94e93d302dd",
       "size": 881
@@ -2133,13 +2138,13 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "9a6919b714884af42d794437148a86210a9c8b6e571f226d0cae7be50ef73dea",
-      "size": 4171
+      "sha256": "ab6725d5c51f1ccfe7b6153fb18b83f7fa02cb0dbbff3fd54e7616551e88ebc6",
+      "size": 4633
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "b679fab3a5702b1c8db94283e7cc0fd78bec5417ef3f47cef2350e31b8bc36b5",
-      "size": 13930
+      "sha256": "2bb04b5a0737412886fb8fabfee4d33d5109787a683765af525fe651a600069d",
+      "size": 15651
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2163,8 +2168,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "fd4c29a425006da93f1b59fe1b52d740f13087573884dd78fe953fdfdad6c787",
-      "size": 45928
+      "sha256": "95ec89bc1921efc9a34d97fbebc52085e12660624b304218c0fadabb5e7dc2b9",
+      "size": 47572
     },
     {
       "path": "SECURITY.md",
@@ -2188,8 +2193,8 @@
     },
     {
       "path": "case-state.schema.json",
-      "sha256": "9d3bf9033b13a1ed625f4d2ad439e49f4b016e46f8fbd1f7437ab85691bed481",
-      "size": 22275
+      "sha256": "58eefd23c04ce0abb7fb9bfe39316ccebd16b05eb51a7c6952daa180c406caeb",
+      "size": 28936
     },
     {
       "path": "codex-capabilities/default-skills-reference.md",
@@ -2213,13 +2218,13 @@
     },
     {
       "path": "docs/architecture/adr/0002-artifact-authorized-one-shot-action.md",
-      "sha256": "d8bd897d2de75ee456b84cf6f5eb05302b3df0be3f4c6e665b237c48caa3cdea",
-      "size": 7961
+      "sha256": "4b218d4a1a5ea4dcf518731793515d7246475994d8f81af5606c4d2e8032714b",
+      "size": 8060
     },
     {
       "path": "docs/case-state-contract.md",
-      "sha256": "1a22b63b90d6528bc0ed6f855b7ba423a2a6107ef8f5fa75d1f8bee9c437c6a6",
-      "size": 22193
+      "sha256": "3a82f4d29c4fb5a9743d1c824f5ea59378e99840826cf711aa432243e4e6e18f",
+      "size": 24014
     },
     {
       "path": "docs/codex-plugins-mcps-hooks.md",
@@ -2307,6 +2312,11 @@
       "size": 1695
     },
     {
+      "path": "hooks/anti-loop-runtime/anti_loop_runtime.py",
+      "sha256": "20034b2b73b72399289a67e40056e8c2854471835897ab8d128d54b87175b6d6",
+      "size": 85627
+    },
+    {
       "path": "hooks/capability-router/README.md",
       "sha256": "68bc8ae1057ccadd858a9133ddf43eb9c425715c58b3301030fde05d0b380fa5",
       "size": 3937
@@ -2348,8 +2358,8 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "c9514e8adc948810d98b5227762ff997d134a920af32139c2b77e186c8f11448",
-      "size": 12731
+      "sha256": "1b21587032e1cba9a4a3eed34dd8df8fcabc14621cc0ca99a91969358af19ce9",
+      "size": 13601
     },
     {
       "path": "pack.schema.json",
@@ -2362,14 +2372,24 @@
       "size": 1113
     },
     {
+      "path": "scripts/activate_anti_loop.py",
+      "sha256": "c42745d6dd202622b745faa7a3df6d9546758de35715dc372f1e7e81a8c04dac",
+      "size": 34523
+    },
+    {
       "path": "scripts/agent/case_app_server_controller.py",
-      "sha256": "0f0227344bc3a7a20b2615a0997032df4d72295637fc23d202b0a34e529afe72",
-      "size": 103894
+      "sha256": "cb9c25c986dea3591a093f1b6ac62a4cd455074ceeeb550291ce6492a7548372",
+      "size": 103914
+    },
+    {
+      "path": "scripts/agent/case_human_disposition_verifier.py",
+      "sha256": "9c904a02bc6f0954173f5e04274ca8e0551471077dea160fb37275894b802245",
+      "size": 7888
     },
     {
       "path": "scripts/agent/case_proposal_action_broker.py",
-      "sha256": "1e352d69a79626f91a45b9bff445ddf95d3948803a74eef8d93304ab8540e23f",
-      "size": 13484
+      "sha256": "4b7bf4e197803507a6cb80d101cf3735d140bbc91d11f41ba7aba32b279080ff",
+      "size": 13513
     },
     {
       "path": "scripts/agent/case_review_completion_verifier.py",
@@ -2378,18 +2398,18 @@
     },
     {
       "path": "scripts/agent/case_runtime_broker.py",
-      "sha256": "1a947cd30bcbd689face6c67f0ea716394e8f6c69548a6ce0b2ed5b4ce8e0840",
-      "size": 230735
+      "sha256": "32007f1f7347cb9cac3c7f6de53e7c6e77470763c247bbd11714a8dabc681ab5",
+      "size": 230108
     },
     {
       "path": "scripts/agent/case_runtime_supervisor.py",
-      "sha256": "274ada9b3f90ac9330c8aa5d4e8515928f64a9f5f512aa9bcfd0af2cbb30afdf",
-      "size": 77663
+      "sha256": "52d53fc407d8ebfb2725134a83fe4b65e7de8d0e6e25493e35d07739f1a25912",
+      "size": 78439
     },
     {
       "path": "scripts/agent/case_state.py",
-      "sha256": "55e667bf10d369b66e4463433a78055ab1c60f90e1e54c7f7282f4fcab405310",
-      "size": 380531
+      "sha256": "47f23c895c2e7d8788234a847cba8b562680b6c2a7e2066444ec12e8b292c0d0",
+      "size": 446297
     },
     {
       "path": "scripts/agent/fresh_context_review.py",
@@ -2423,18 +2443,18 @@
     },
     {
       "path": "scripts/install.ps1",
-      "sha256": "58b3403faf77cf6632c7402915fce0a54c268ef476c51b8663ce4cc2ffe9bb42",
-      "size": 3242
+      "sha256": "99acb645f562a1a14404943fe9740b3a6a45b0c3f86c200aec2d8dce3821ee28",
+      "size": 3667
     },
     {
       "path": "scripts/install.sh",
-      "sha256": "149cc57e37b84a170f2804a972d7bd80bf344b32b43fc5701f03cd6945aa0686",
-      "size": 3488
+      "sha256": "65c33f4242881eef0019688d99612e9fe78eab9b37b4165721fe45e2c41bd44b",
+      "size": 4210
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "5c5cfc854077a5ff1798e913ac013dbdca75e6c5ab2b7483f8be96ec7aa3dfca",
-      "size": 123629
+      "sha256": "c40fd433debc03e87fcf0ee5d03ef7b6b5f4e69e076f3262597ed61197c21efe",
+      "size": 136613
     },
     {
       "path": "scripts/package.ps1",
@@ -2463,8 +2483,8 @@
     },
     {
       "path": "scripts/validate-pack.ps1",
-      "sha256": "504097ce2f2c717fdbfc30cf9e9f15b5534546fd75befbc08a585988dd7009bc",
-      "size": 9992
+      "sha256": "68f7601a4dfbda8c1590034fd40b7fa452060608d574b61d9957b7e1cf4a9451",
+      "size": 12394
     },
     {
       "path": "templates/CLAUDE.md",
@@ -2607,14 +2627,34 @@
       "size": 2793
     },
     {
+      "path": "tests/runtime_actor_test_support.py",
+      "sha256": "21d1e7a45505fc09111bd87ecf5df684c0faa8ce7db4d822a35ce441140cd694",
+      "size": 2152
+    },
+    {
+      "path": "tests/test_activate_anti_loop.py",
+      "sha256": "240805563411d49a04ba8aa7c420073b52f5b979f6f4967061da7c99284cf93d",
+      "size": 20307
+    },
+    {
+      "path": "tests/test_anti_loop_runtime_hook.py",
+      "sha256": "2d79e76759d5e32839582a9832b96d58f3711035d2ef19c004a5fd7e009be76c",
+      "size": 56433
+    },
+    {
       "path": "tests/test_case_app_server_controller.py",
       "sha256": "32ca3e0ca66db64037567baba029c10b8919fb4807ac1e2edc7dc3ffd651159e",
       "size": 31028
     },
     {
+      "path": "tests/test_case_human_disposition_verifier.py",
+      "sha256": "536ddead780fb07f80dc2549590e76bafff1d97c1e86b07e68b414fd1bae8e67",
+      "size": 4727
+    },
+    {
       "path": "tests/test_case_proposal_action_grant.py",
-      "sha256": "9c7267155503a4bca70633018af93e4b7c6b9c39b5090d6058ef96d7dcf28e26",
-      "size": 97728
+      "sha256": "94a08fd2fbee4580fdb03268bb950f8d474faeb23bef9e3665b2fbea1c308428",
+      "size": 99721
     },
     {
       "path": "tests/test_case_review_completion_verifier.py",
@@ -2623,23 +2663,23 @@
     },
     {
       "path": "tests/test_case_runtime_broker.py",
-      "sha256": "332e89c81cfc72fde88e9b31e40b0a74bd218b83c1423cce00a376f4f88366ad",
-      "size": 175799
+      "sha256": "b79d3a938a32bcb8acca5db2c81677193e27a9eb59f818cb23bcb6cdb2c5b255",
+      "size": 175632
     },
     {
       "path": "tests/test_case_runtime_supervisor.py",
-      "sha256": "c726570005b9824c8b823e9712b0b16517c4fac5a62b711a91707b4710cc7939",
-      "size": 42674
+      "sha256": "1cc8bf650284482d1245ada8ddf13aa376fc89071517419af273622730bdfcdf",
+      "size": 43782
     },
     {
       "path": "tests/test_case_state_engine.py",
-      "sha256": "8cd9995ded363c09dcfefc5b79cdca78f2eaaff73bfa2e426e8a7a485ca842bc",
-      "size": 118999
+      "sha256": "3f7056270af7cd08ee8f422b3e1a509e3a6af4da91d9b60bc6a0f02b19b767fa",
+      "size": 152372
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "fd740473164a05ecc7b4ee584192664024720dd9e176bc347a10e1f7162d6d8a",
-      "size": 65946
+      "sha256": "e56a681f695f7bd4bccfd0e0f6ae126a59fa3783683b134884e71d996e405b28",
+      "size": 72123
     },
     {
       "path": "tests/test_public_install_docs.py",
@@ -2673,8 +2713,8 @@
     },
     {
       "path": "universal/AGENTS.automation-case-policy.md",
-      "sha256": "262d58197c6830d802d11bab044e5ad243e81881b03b2383c607fc5c49af0d1a",
-      "size": 5222
+      "sha256": "4add43acba1bfaa53adc7c6bc639c0760fa4967c98e2bfbeee7c2265ff0e7cf9",
+      "size": 7587
     },
     {
       "path": "universal/rules/gh-pr-merge-authority.rules",
@@ -2689,7 +2729,7 @@
   ],
   "package": {
     "name": "codex-coding-os",
-    "version": "0.9.0"
+    "version": "0.10.0"
   },
   "protocol": "CCOS-INSTALL-BUNDLE-v1"
 }

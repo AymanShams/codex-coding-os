@@ -48,6 +48,13 @@ jobs:
         shell: pwsh
         run: python -B .\tests\test_case_state_engine.py
 
+      - name: Test mandatory anti-loop runtime and activation
+        shell: pwsh
+        run: |
+          python -B .\tests\test_case_human_disposition_verifier.py
+          python -B .\tests\test_anti_loop_runtime_hook.py
+          python -B .\tests\test_activate_anti_loop.py
+
       - name: Test proposal-only controller and brokered action boundary
         shell: pwsh
         run: |
@@ -128,6 +135,9 @@ jobs:
         shell: bash
         run: |
           python -B ./tests/test_case_state_engine.py
+          python -B ./tests/test_case_human_disposition_verifier.py
+          python -B ./tests/test_anti_loop_runtime_hook.py
+          python -B ./tests/test_activate_anti_loop.py
           python -B ./tests/test_source_repository_profile.py
           python -B ./tests/test_validation_evidence.py
           python -B ./tests/test_reentry_summary.py

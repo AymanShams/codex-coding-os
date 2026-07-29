@@ -10,6 +10,9 @@ param(
   [string]$AuthorityCaseId,
   [ValidateSet("preauthorized-run-envelope", "explicit-user-approval")][string]$AuthoritySource,
   [string]$AuthorityReference,
+  [string]$AuthorityActorThreadId,
+  [string]$AuthorityRequestId,
+  [int]$AuthorityExpectedRevision,
   [string]$CaseStateEnginePath,
   [string]$CaseStateRoot,
   [switch]$LegacyOverlapMigration,
@@ -51,6 +54,9 @@ if ($RefreshCapabilityIndex) { $Arguments += "--refresh-capability-index" }
 if ($AuthorityCaseId) { $Arguments += @("--authority-case-id", $AuthorityCaseId) }
 if ($AuthoritySource) { $Arguments += @("--authority-source", $AuthoritySource) }
 if ($AuthorityReference) { $Arguments += @("--authority-reference", $AuthorityReference) }
+if ($AuthorityActorThreadId) { $Arguments += @("--authority-actor-thread-id", $AuthorityActorThreadId) }
+if ($AuthorityRequestId) { $Arguments += @("--authority-request-id", $AuthorityRequestId) }
+if ($AuthorityExpectedRevision -gt 0) { $Arguments += @("--authority-expected-revision", [string]$AuthorityExpectedRevision) }
 if (-not $CaseStateEnginePath) { $CaseStateEnginePath = Join-Path $RepoRoot "scripts\agent\case_state.py" }
 if (-not $CaseStateRoot) { $CaseStateRoot = Join-Path $CodexHome "case-state" }
 if ($InstallUniversalPolicy) {

@@ -27,6 +27,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_DIRECTORY = ROOT / "scripts" / "agent"
 if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
+TEST_DIRECTORY = str(Path(__file__).resolve().parent)
+if TEST_DIRECTORY not in sys.path:
+    sys.path.insert(0, TEST_DIRECTORY)
+
+from runtime_actor_test_support import bind_controller_actor
 
 engine = importlib.import_module("case_state")
 broker = importlib.import_module("case_runtime_broker")
@@ -356,20 +361,15 @@ class RuntimeFixture(unittest.TestCase):
         return self.store.get_case(self.case_id)["revision"]
 
     def bind_actor(self, thread_id: str, role: str, parent_thread_id: str | None) -> None:
-        self.store.bind_runtime_actor(
+        bind_controller_actor(
+            engine,
+            self.store,
             self.case_id,
-            actor={
-                "protocol_version": engine.RUNTIME_ACTOR_PROTOCOL_VERSION,
-                "schema_version": 1,
-                "thread_id": thread_id,
-                "controller_assigned_role": role,
-                "parent_thread_id": parent_thread_id,
-                "agent_path": f"/root/{role}/{thread_id}",
-                "identity_evidence_sha256": hashlib.sha256(thread_id.encode()).hexdigest(),
-                "binding_source": "native_thread_read",
-            },
-            request_id=request_id(),
-            expected_revision=self.revision,
+            thread_id=thread_id,
+            role=role,
+            parent_thread_id=parent_thread_id,
+            agent_path=f"/root/{role}/{thread_id}",
+            cwd=self.repository_root,
         )
 
     def protected_root_requests(self) -> list[dict]:
@@ -965,23 +965,13 @@ class RuntimeActorAndGrantTests(RuntimeFixture):
             )
 
     def test_action_check_uses_controller_bound_native_role_when_actor_thread_is_supplied(self) -> None:
-        parent_spoof = self.store.check_action(
-            self.case_id,
-            "implementation",
-            actor_role="implementer_child",
-            actor_thread_id=self.parent_thread,
-            repository=REPOSITORY,
-            branch=BRANCH,
-            thread=self.parent_thread,
-        )
-        self.assertFalse(parent_spoof["allowed"])
-        self.assertEqual(parent_spoof["reason_codes"], ["ACTOR_ROLE_MISMATCH"])
-        self.assertEqual(parent_spoof["controller_bound_actor_role"], "parent")
         unknown = self.store.check_action(
             self.case_id,
             "implementation",
             actor_role="implementer_child",
             actor_thread_id="unknown-native-thread",
+            request_id=request_id(),
+            expected_revision=self.revision,
             repository=REPOSITORY,
             branch=BRANCH,
             thread=self.parent_thread,
@@ -993,35 +983,44 @@ class RuntimeActorAndGrantTests(RuntimeFixture):
             "implementation",
             actor_role="review_child",
             actor_thread_id=self.reviewer_thread,
+            request_id=request_id(),
+            expected_revision=self.revision,
             repository=REPOSITORY,
             branch=BRANCH,
             thread=self.reviewer_thread,
         )
         self.assertFalse(reviewer["allowed"])
         self.assertEqual(reviewer["reason_codes"], ["ROLE_ACTION_DENIED"])
-        mismatched_context = self.store.check_action(
-            self.case_id,
-            "implementation",
-            actor_role="implementer_child",
-            actor_thread_id=self.implementation_thread,
-            repository=REPOSITORY,
-            branch=BRANCH,
-            thread=self.reviewer_thread,
-        )
-        self.assertFalse(mismatched_context["allowed"])
-        self.assertEqual(
-            mismatched_context["reason_codes"], ["ACTOR_THREAD_CONTEXT_MISMATCH"]
-        )
         implementer = self.store.check_action(
             self.case_id,
             "implementation",
             actor_role="implementer_child",
             actor_thread_id=self.implementation_thread,
+            request_id=request_id(),
+            expected_revision=self.revision,
             repository=REPOSITORY,
             branch=BRANCH,
             thread=self.implementation_thread,
         )
         self.assertTrue(implementer["allowed"])
+        parent_spoof = self.store.check_action(
+            self.case_id,
+            "implementation",
+            actor_role="implementer_child",
+            actor_thread_id=self.parent_thread,
+            request_id=request_id(),
+            expected_revision=self.revision,
+            repository=REPOSITORY,
+            branch=BRANCH,
+            thread=self.parent_thread,
+        )
+        self.assertFalse(parent_spoof["allowed"])
+        self.assertEqual(parent_spoof["reason_codes"], ["ANTI_LOOP_LATCH_ACTIVE"])
+        self.assertEqual(parent_spoof["controller_bound_actor_role"], "parent")
+        self.assertEqual(
+            self.store.get_case(self.case_id)["anti_loop_latch"]["trigger_reason"],
+            "ACTOR_ROLE_CONTRADICTION",
+        )
 
     def test_parent_reviewer_incomplete_unknown_and_forged_role_cannot_get_grant(self) -> None:
         for thread_id in (

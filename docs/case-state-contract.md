@@ -138,12 +138,42 @@ general review. A remaining blocker or repair regression locks the case.
 Tool, network, reviewer, hash, or protocol failure becomes `CONTROL_FAILURE`.
 It is not evidence that the product is defective.
 
+## Mandatory anti-loop latch
+
+Every new case carries a sealed `ccos-anti-loop-latch-v1` record. The latch is
+external to repository prose and has three terminally ordered states:
+`CLEAR`, `LATCHED`, and `DISPOSED`. Repository files, new sessions, branches,
+worktrees, commits, pull requests, or coordination mirrors cannot clear it.
+
+The engine records exact `ccos-anti-loop-event-v2` events bound to one request,
+controller-sealed runtime actor, case revision, repository, worktree, and live
+product head. It latches the exact case on any of these conditions:
+
+- a second consecutive support mutation without a verified product-head advance
+- the same stable support-failure fingerprint twice
+- a stored support event proposing another support-only action
+- a caller role or thread contradiction against the controller-bound actor
+
+A verified product-head advance resets support and failure counters only when
+the prior head is an ancestor and the committed diff contains at least one path
+outside the prior committed support-only scope manifest. A random head,
+rollback, unchanged head, unrelated repository, or support-only commit does not
+reset the latch budget.
+
+`LATCHED` has precedence over ordinary action eligibility and denies every
+mutation. Only read-only evidence and one exact native-human disposition remain:
+`STOP_CASE` or `SHIP_PRODUCT_WITH_CONTROL_QUARANTINED`. The disposition is
+verified against one protected native user turn and exact latched product-head
+map. It moves the latch to `DISPOSED`; the case cannot resume or accept another
+mutation.
+
 ## Case-scoped action guard
 
-`action-check` uses protocol `ccos-case-action-v1`. Every response includes the
-store schema version, case identifier and state, action, actor role, current
-limits, normalized execution context, decision, stable reason code, and the
-separate-authority flag.
+`action-check` uses protocol `ccos-case-action-v2`. Every response includes the
+store schema version, case identifier and state, exact request and revision,
+controller-bound actor identity result, sealed anti-loop latch, action, actor
+role, current limits, normalized execution context, decision, stable reason
+code, and the separate-authority flag.
 
 The role and action separation is:
 
@@ -176,11 +206,11 @@ credential compromise or uncontrolled concurrent mutation.
 ## Artifact-authorized runtime action boundary
 
 New production action authorization uses
-`ccos-proposal-action-grant-v2`. V2 is an actorless, one-use capability stored
-in the existing `runtime.action_grants` map. App Server identities, parent or
-child roles, thread identifiers, turn identifiers, task paths, approval
-results, and proposal-producing process identity are not fields in its
-authorization decision.
+`ccos-proposal-action-grant-v3`. V3 is an actor-bound, one-use capability stored
+in the existing `runtime.action_grants` map. Its authority record binds the
+exact controller-recorded actor thread, controller-assigned role, and sealed
+actor digest. Caller-supplied role claims, turn identifiers, task paths,
+approval results, and proposal-producing process identity are not authority.
 
 The only supported operation is `replace_existing_file_v1`: replacement of one
 already existing tracked file with the exact bytes of one bound proposal
@@ -189,11 +219,12 @@ selection, content supplied at execution time, create, delete, rename,
 multi-file change, commit, push, pull request, publication, deployment,
 credential change, or universal synchronization.
 
-### V2 grant contract
+### V3 grant contract
 
 Before `ISSUED`, the engine binds all of the following in one canonical record:
 
-- protocol `ccos-proposal-action-grant-v2`
+- protocol `ccos-proposal-action-grant-v3`
+- exact actor thread, controller-assigned role, and actor record SHA-256 digest
 - stable grant identifier and exact case identifier
 - exact expected case revision
 - exact normalized repository, branch, and worktree
@@ -284,10 +315,10 @@ grant may reach `COMPLETED` or `FAILED` only under its original receipt, actor,
 HMAC, journal, rollback, and lock rules. It cannot be released, reset,
 converted, cloned, or reissued.
 
-New v1 issuance is disabled. All new production action grants use
-`ccos-proposal-action-grant-v2`. V1 fields must not be inferred for v2, and v2
-must not acquire role, App Server, thread, turn, approval, controller-receipt,
-or supervisor-HMAC dependencies.
+New v1 and v2 issuance is disabled. All new production action grants use
+`ccos-proposal-action-grant-v3`. Persisted v1 and v2 records remain readable
+only for bounded terminal recovery. Recovery records must never be silently
+upgraded or used to infer missing v3 actor fields.
 
 ADR 0002 is the production authorization decision. ADR 0001 remains the
 historical v1 design and still controls recovery interpretation for records

@@ -34,10 +34,10 @@ This README describes repository `main` through pull request 31.
 
 | Item | Current state |
 |---|---|
-| Package metadata | `pack.manifest.json#version` is `0.9.0` with `public-release` metadata |
+| Package metadata | `pack.manifest.json#version` is `0.10.0` with `public-release` metadata |
 | Functional baseline | [`8a82a23`](https://github.com/AymanShams/codex-coding-os/commit/8a82a23cbf8d105a4142b5a2157d0dfc84cb90b7), the merge of pull request 31 |
 | Latest published GitHub release | `v0.8.4` |
-| Source status | `main` contains merged 0.9 work and the post-0.9 runtime closeout recorded under `Unreleased` |
+| Source status | The 0.10 source adds mandatory runtime anti-loop enforcement and transactional universal activation |
 | Pull requests covered | 30 pull requests, numbered 2 through 31 |
 | Pull request states | 26 merged, 2 closed without merge, 2 still open |
 | Bundled skills | 45 |
@@ -150,9 +150,10 @@ reset by a new chat, branch, worktree, pull request, or child session.
 
 ### Put exact action authority outside model processes
 
-In the controlled runtime path, models remain proposal-only. One actorless,
-single-use capability binds the exact repository state, file, proposal bytes,
-broker identity, and expiry before a separate process can replace anything.
+In the controlled runtime path, models remain proposal-only. One actor-bound,
+single-use capability binds the controller-verified runtime actor, exact
+repository state, file, proposal bytes, broker identity, and expiry before a
+separate process can replace anything.
 
 ### Keep failures case-scoped
 
@@ -387,7 +388,8 @@ Dirty tracked files and nonignored untracked files fail closed.
 
 ### One-shot runtime action
 
-The current production protocol is `ccos-proposal-action-grant-v2`.
+The current production protocol is `ccos-proposal-action-grant-v3`. Persisted
+v2 grants are accepted only for bounded terminal recovery.
 
 | Field | Specification |
 |---|---|
@@ -402,8 +404,9 @@ The current production protocol is `ccos-proposal-action-grant-v2`.
 | Replay | Denied |
 | Runtime platform | Windows |
 
-The grant is actorless. It does not trust App Server identity, model role, thread,
-turn, task path, proposal-producing process, or approval text.
+The grant binds the exact controller-recorded actor thread, controller-assigned
+role, and sealed actor digest. It does not trust a caller-supplied role, turn,
+task path, proposal-producing process, or approval text.
 
 Before issuance, the record binds the exact case and revision, repository, branch,
 worktree, base head, existing target path, baseline digest, proposal path, proposal
@@ -489,6 +492,25 @@ Universal policy synchronization is a separate source-checkout operation that
 requires an exact bundle, exact commit, closed canonical case, bound universal
 bundle, and separate authority record.
 
+Universal anti-loop activation is also a separate, explicit transaction. After
+the exact source commit is installed, run `scripts/activate_anti_loop.py` in
+`plan`, `apply`, then `verify` mode with the same source commit, bundle
+digest, pre-write hashes for `AGENTS.md`, `hooks.json`, `config.toml`,
+and the canonical case store, plus the current native authority thread and one
+request ID. The command:
+
+- accepts only a clean exact Git root and matching installed bundle
+- installs both PreToolUse and PostToolUse handlers
+- enables and pins exact hook trust records
+- preserves the external case store
+- rolls back both universal files if any write or post-write check fails
+- writes a source-bound activation record and reconciles a missing or stale
+  record when the installed bytes are already exact
+
+Run `python scripts/activate_anti_loop.py --help` for the full required argument
+surface. Activation is not inferred from installation and is not complete until
+`verify` returns the exact active source and bundle record.
+
 ### Typed validation evidence
 
 `scripts/agent/validation_evidence.py` validates inert JSON evidence against the
@@ -521,6 +543,8 @@ the recorded commands and it does not grant a lifecycle transition.
 | Worktree execution | `scripts/agent/worktree_lanes.py`, lane hooks | Plan and validate bounded parallel lanes |
 | Fresh review | `scripts/agent/fresh_context_review.py` | Detached review worktree and prompt generation |
 | Canonical lifecycle | `scripts/agent/case_state.py`, `case-state.schema.json` | Finite case transitions, bindings, grants, and decisions |
+| Mandatory anti-loop runtime | `hooks/anti-loop-runtime/anti_loop_runtime.py`, `.codex/anti-loop-support-scope.json` | Classify and enforce exact support events before another support-only generation |
+| Universal anti-loop activation | `scripts/activate_anti_loop.py` | Transactionally install, trust, reconcile, and verify both runtime hooks |
 | Native review evidence | `scripts/agent/case_review_completion_verifier.py` | Derive completion receipts from native rollout evidence |
 | App Server proposal path | `case_app_server_controller.py`, `case_runtime_supervisor.py` | Collect proposals and coordinate trusted lifecycle actions |
 | Exact action broker | `case_proposal_action_broker.py`, `case_runtime_broker.py` | Consume one predeclared file-replacement capability |
@@ -758,6 +782,8 @@ See the [pull request 31 validation run](https://github.com/AymanShams/codex-cod
 | Workflow smoke tests | Active-slice, run-envelope, parent boundary, handoff, and closeout gates |
 | Worktree lane smoke tests | Lane planning, overlap rejection, approval, validation, and cleanup |
 | Case-state tests | Revisions, bindings, finite lifecycle, review cohorts, repair, closure, quarantine, and grants |
+| Anti-loop runtime tests | Latch precedence, exact helper ownership, repeated support, product-head proof, replay, injection, and disposition |
+| Activation tests | Plan, apply, verify, rollback, stale-record reconciliation, and store preservation |
 | Native receipt tests | Rollout identity, ordered completion, scope, digest, and migration evidence |
 | Controller and supervisor tests | Proposal-only App Server behavior, restart continuity, and denial paths |
 | Broker tests | Exact grant verification, one replacement, rollback, journal recovery, and replay denial |
@@ -839,11 +865,9 @@ The current philosophy is simple:
 | 0.8.3 | Added active-slice enforcement, registry-backed routing, five-layer routing, and routing-noise fixes. |
 | 0.8.4 | Promoted the package to its latest published public release. |
 | 0.9.0 | Added the finite case engine, exact Git snapshots, typed evidence, and transactional installation. |
-| Unreleased on current `main` | Added the actorless one-shot runtime boundary, native reviewer receipts, terminal quarantine, and final real acceptance evidence. |
+| 0.10.0 | Added the one-shot runtime boundary, native receipts, actor-bound v3 grants, and mandatory external anti-loop runtime enforcement. |
 
-`pack.manifest.json#version` remains the sole machine-readable version. A future
-release should reconcile the 0.9 manifest, changelog, Git tag, release archive,
-and current validation status in one publication step.
+`pack.manifest.json#version` remains the sole machine-readable version.
 
 ## Boundaries and non-goals
 

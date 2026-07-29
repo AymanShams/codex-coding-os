@@ -1,6 +1,6 @@
 # ADR 0002: Artifact-Authorized One-Shot Action
 
-- Status: Accepted
+- Status: Accepted, amended by actor-bound v3
 - Decision owners: Human run-envelope authority and Codex Coding OS maintainers
 - Scope: One exact existing-file replacement enforced outside every model process
 - Supersedes: ADR 0001 for production action authorization
@@ -22,15 +22,16 @@ decision.
 
 ## Decision
 
-Add protocol `ccos-proposal-action-grant-v2` to the existing canonical
-`runtime.action_grants` map. V2 is actorless. The canonical record itself is a
-one-use capability for one exact replacement. It does not name or trust an
-implementer role, App Server thread, turn, collaboration path, approval result,
-or controller-supplied role claim.
+Add protocol `ccos-proposal-action-grant-v3` to the existing canonical
+`runtime.action_grants` map. V3 is an actor-bound one-use capability for one
+exact replacement. It binds the controller-recorded actor thread,
+controller-assigned role, and sealed actor digest, while rejecting caller role
+claims, turns, collaboration paths, and approval text as authority.
 
 The grant binds all of the following before it becomes `ISSUED`:
 
 - exact case identifier and expected case revision
+- exact controller-recorded actor thread, assigned role, and actor SHA-256 digest
 - exact normalized repository, branch, and worktree
 - exact full base-head commit SHA
 - exact normalized existing target path
@@ -51,7 +52,7 @@ No caller may supply a command, target, content, patch, role, thread, or alterna
 path at execution time.
 
 Issuance requires the case to be at the exact expected revision and to have no
-existing action grant. The case engine stores V2 in the same one-grant map and
+existing action grant. The case engine stores V3 in the same one-grant map and
 uses the existing `ISSUED` to `CLAIMED` to `COMPLETED` or `FAILED` terminal
 lifecycle. Claim is non-idempotent write authority only on the first successful
 transition. A retry may read the existing claim result but cannot authorize a
@@ -68,7 +69,7 @@ atomically replaces the one existing file, verifies the exact post-action
 digest and changed-path set, records completion, and denies replay. Failure
 uses the existing protected journal, rollback, and case-lock behavior.
 
-V2 verifies the operating-system boundary from broker-owned access-control
+V3 verifies the operating-system boundary from broker-owned access-control
 descriptors before claim and after replacement. It does not launch Codex,
 App Server, or another nested sandbox to authorize the action. Real proposal
 generation and mutation-denial acceptance run outside the broker under the
@@ -86,16 +87,15 @@ Trusted for this action:
 
 Not authority:
 
-- App Server identity or approval behavior
-- parent, child, reviewer, closure, unknown, or claimed agent roles
-- thread, turn, task, session, or collaboration identifiers
+- App Server approval behavior
+- caller-supplied parent, child, reviewer, closure, unknown, or claimed roles
+- caller-supplied thread, turn, task, session, or collaboration identifiers
 - proposal-producing process identity
 - model text, prose receipts, handoffs, prompts, or environment claims
 
-Because no model role receives mutation authority, parent, reviewer, closure,
-unknown, and incomplete processes do not need role-specific write exceptions.
-They may produce or inspect proposal evidence, but only the broker can exercise
-the exact capability recorded by the canonical engine.
+Because no model role receives direct mutation authority, bound actors may
+produce or inspect proposal evidence, but only the broker can exercise the
+exact actor-bound capability recorded by the canonical engine.
 
 ## Compatibility
 
@@ -105,10 +105,11 @@ bounded terminal recovery result. Recovery must preserve the original v1
 verification, journal, rollback, and lock rules. It cannot release, reset,
 convert, clone, or reissue a v1 grant.
 
-New v1 issuance is disabled. All new production action grants use
-`ccos-proposal-action-grant-v2`. V1 and v2 records share the existing
-`runtime.action_grants` map and the one-grant-per-case limit. They do not share
-authorization semantics, and v1 actor fields must never be inferred for v2.
+New v1 and v2 issuance is disabled. All new production action grants use
+`ccos-proposal-action-grant-v3`. V1, v2, and v3 records share the existing
+`runtime.action_grants` map and the one-grant-per-case limit. Persisted v1 and
+v2 records are recovery-only and must never be upgraded by inferring v3 actor
+fields.
 
 ## Failure semantics
 
@@ -127,10 +128,10 @@ authorization semantics, and v1 actor fields must never be inferred for v2.
 
 ## Consequences and limits
 
-Production action authorization no longer depends on App Server parent-child
-identity, role claims, approval routing, dynamic tools, or authentication
-staging. The authorization boundary is deterministic and located at the exact
-file replacement.
+Production action authorization depends on the sealed controller-bound actor
+record, not on caller role claims, approval routing, dynamic tools, or
+authentication staging. The mutation boundary remains deterministic and
+located at the exact file replacement.
 
 The primitive remains intentionally narrow. It does not authorize commands,
 new files, deletions, renames, multi-file patches, commits, pushes, pull
@@ -139,7 +140,7 @@ Those actions require their own explicit authority.
 
 ## Acceptance requirement
 
-Acceptance must use an isolated temporary repository and prove that an exact V2
+Acceptance must use an isolated temporary repository and prove that an exact V3
 grant applies the declared proposal bytes once, changes only the bound path,
 and survives restart as consumed. It must also prove denial without mutation
 for missing or incomplete proposals, stale revision, wrong repository, branch,

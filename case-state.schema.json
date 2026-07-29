@@ -24,6 +24,12 @@
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": ".*\\S.*"
+    },
     "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "headMap": {
@@ -389,17 +395,225 @@
         }
       }
     },
+    "runtimeActorV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "schema_version",
+        "thread_id",
+        "role",
+        "parent_thread_id",
+        "agent_path",
+        "identity_evidence_sha256",
+        "binding_source",
+        "bound_at",
+        "actor_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-runtime-actor-v2" },
+        "schema_version": { "const": 2 },
+        "thread_id": { "type": "string", "minLength": 1 },
+        "role": {
+          "enum": [
+            "parent",
+            "implementer_child",
+            "review_child",
+            "closure_child",
+            "incomplete_child",
+            "fix_child",
+            "publication_child"
+          ]
+        },
+        "parent_thread_id": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1 }
+          ]
+        },
+        "agent_path": { "type": "string", "minLength": 1 },
+        "identity_evidence_sha256": { "$ref": "#/$defs/digest" },
+        "binding_source": {
+          "const": "controller_verified_native_thread_read"
+        },
+        "bound_at": { "type": "string", "minLength": 1 },
+        "actor_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "runtimeActorV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "schema_version",
+        "thread_id",
+        "role",
+        "parent_thread_id",
+        "agent_path",
+        "identity_evidence_sha256",
+        "binding_source",
+        "bound_at",
+        "actor_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-runtime-actor-v1" },
+        "schema_version": { "const": 1 },
+        "thread_id": { "type": "string", "minLength": 1 },
+        "role": {
+          "enum": [
+            "parent",
+            "implementer_child",
+            "review_child",
+            "closure_child",
+            "incomplete_child",
+            "fix_child",
+            "publication_child"
+          ]
+        },
+        "parent_thread_id": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1 }
+          ]
+        },
+        "agent_path": { "type": "string", "minLength": 1 },
+        "identity_evidence_sha256": { "$ref": "#/$defs/digest" },
+        "binding_source": { "const": "native_thread_read" },
+        "bound_at": { "type": "string", "minLength": 1 },
+        "actor_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "runtimeActor": {
+      "oneOf": [
+        { "$ref": "#/$defs/runtimeActorV1" },
+        { "$ref": "#/$defs/runtimeActorV2" }
+      ]
+    },
     "runtimeControl": {
       "type": "object",
       "additionalProperties": false,
       "required": ["actors", "action_grants"],
       "properties": {
-        "actors": { "type": "object", "additionalProperties": { "type": "object" } },
+        "actors": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/runtimeActor" }
+        },
         "action_grants": {
           "type": "object",
           "maxProperties": 1,
           "additionalProperties": { "type": "object" }
         }
+      }
+    },
+    "antiLoopDispositionAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "schema_version",
+        "authority_id",
+        "case_id",
+        "decision",
+        "product_heads",
+        "native_thread_id",
+        "native_turn_id",
+        "rollout_relative_path",
+        "decided_at",
+        "message_sha256",
+        "log_prefix_sha256",
+        "evidence_sha256",
+        "native_verification_protocol",
+        "authority_sha256"
+      ],
+      "properties": {
+        "protocol_version": {
+          "const": "ccos-anti-loop-human-disposition-v1"
+        },
+        "schema_version": { "const": 2 },
+        "authority_id": { "type": "string", "minLength": 1 },
+        "case_id": { "$ref": "#/$defs/caseId" },
+        "decision": {
+          "enum": [
+            "STOP_CASE",
+            "SHIP_PRODUCT_WITH_CONTROL_QUARANTINED"
+          ]
+        },
+        "product_heads": { "$ref": "#/$defs/headMap" },
+        "native_thread_id": { "$ref": "#/$defs/nativeUuid7" },
+        "native_turn_id": { "$ref": "#/$defs/nativeUuid7" },
+        "rollout_relative_path": { "type": "string", "minLength": 1 },
+        "decided_at": { "type": "string", "minLength": 1 },
+        "message_sha256": { "$ref": "#/$defs/digest" },
+        "log_prefix_sha256": { "$ref": "#/$defs/digest" },
+        "evidence_sha256": { "$ref": "#/$defs/digest" },
+        "native_verification_protocol": {
+          "const": "ccos-anti-loop-native-human-verification-v1"
+        },
+        "authority_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "antiLoopLatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "schema_version",
+        "status",
+        "objective_sha256",
+        "product_heads",
+        "consecutive_support_mutations",
+        "last_support_action",
+        "last_failure_fingerprint",
+        "failure_fingerprint_repetitions",
+        "event_count",
+        "trigger_reason",
+        "trigger_event_id",
+        "latched_at",
+        "latched_from_state",
+        "disposition",
+        "disposition_authority",
+        "record_sha256"
+      ],
+      "properties": {
+        "protocol_version": { "const": "ccos-anti-loop-latch-v1" },
+        "schema_version": { "const": 1 },
+        "status": { "enum": ["CLEAR", "LATCHED", "DISPOSED"] },
+        "objective_sha256": { "$ref": "#/$defs/digest" },
+        "product_heads": { "$ref": "#/$defs/headMap" },
+        "consecutive_support_mutations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_support_action": { "type": ["string", "null"] },
+        "last_failure_fingerprint": { "type": ["string", "null"] },
+        "failure_fingerprint_repetitions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "event_count": { "type": "integer", "minimum": 0 },
+        "trigger_reason": { "type": ["string", "null"] },
+        "trigger_event_id": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/requestId" }
+          ]
+        },
+        "latched_at": { "type": ["string", "null"] },
+        "latched_from_state": { "type": ["string", "null"] },
+        "disposition": {
+          "enum": [
+            null,
+            "STOP_CASE",
+            "SHIP_PRODUCT_WITH_CONTROL_QUARANTINED"
+          ]
+        },
+        "disposition_authority": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/antiLoopDispositionAuthority" }
+          ]
+        },
+        "record_sha256": { "$ref": "#/$defs/digest" }
       }
     },
     "terminalQuarantine": {
@@ -537,6 +751,7 @@
             "CLOSURE_CHECK",
             "CLOSED_SUCCESS",
             "CASE_LOCKED",
+            "ANTI_LOOP_LOCKED",
             "CONTROL_FAILURE"
           ]
         },
@@ -552,6 +767,7 @@
         "repair": { "type": "object" },
         "closure": { "type": "object" },
         "control": { "type": "object" },
+        "anti_loop_latch": { "$ref": "#/$defs/antiLoopLatch" },
         "runtime": { "$ref": "#/$defs/runtimeControl" },
         "runtime_generation_attempt": { "$ref": "#/$defs/runtimeGenerationAttempt" },
         "terminal_quarantine": { "$ref": "#/$defs/terminalQuarantine" },

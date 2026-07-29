@@ -4,6 +4,39 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-29
+
+### Added
+
+- Added the sealed, external `ccos-anti-loop-latch-v1` with mandatory
+  precedence, exact support-event counters, product-head reset proof, and two
+  native-human terminal dispositions.
+- Added universal PreToolUse and PostToolUse enforcement that binds events to
+  the controller actor, case revision, repository, worktree, live head, native
+  turn, and exact tool invocation.
+- Added transactional universal hook activation with source, bundle, preflight
+  hash, trust-record, rollback, idempotency, and stale-record reconciliation
+  checks.
+- Added a guarded control-patch broker, an exact-parent-event support-chain
+  reporter, a committed support-scope manifest, and a native human-disposition
+  verifier.
+- Added adversarial regression coverage for repeated support writes and
+  failures, support-chain evidence, hook replay, shell injection, forged state
+  roots, path traversal, helper ownership, product-head resets, activation, and
+  store hardening.
+
+### Changed
+
+- Upgraded case action decisions to `ccos-case-action-v2` with request,
+  revision, controller-actor, and sealed latch fields.
+- Upgraded runtime actors to controller-sealed `ccos-runtime-actor-v2` and
+  proposal action grants to actor-bound v3 issuance.
+- Made review-worktree creation and persistent PR-body output hook-owned
+  support mutations. Read-only status, list, print-only, validate-only, and
+  non-fetching dry-run forms do not consume the support budget.
+- Restricted self-reporting handoff pass-through to one exact committed helper
+  invocation with a bounded topic slug.
+
 ## [0.9.0] - 2026-07-27
 
 ### Added
@@ -26,6 +59,8 @@ All notable package changes are recorded here. The authoritative package release
   initial/restart controller evidence sealed only after both process trees close.
 - Added the actorless `ccos-proposal-action-grant-v2` protocol and one-shot
   proposal broker entrypoint for one exact revision-bound replacement.
+- Replaced new v2 issuance with actor-bound `ccos-proposal-action-grant-v3`;
+  persisted v2 grants remain recovery-only.
 - Added durable idea-level attribution for community feedback that informed the
   material-decision record and scope-creep review patterns.
 - Added strict product and Coding OS source repository profiles with fail-closed

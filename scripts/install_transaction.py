@@ -60,6 +60,7 @@ RULES_END = "# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
 RULES_LEGACY_LINE = 'prefix_rule(pattern=["gh", "pr", "merge"], decision="allow")'
 UNIVERSAL_BUNDLE_ID = "automation-preserving-case-state-recovery-v1"
 UNIVERSAL_BUNDLE_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$")
+AUTHORITY_ENGINE_RELATIVE_PATH = "scripts/agent/case_state.py"
 LEGACY_OVERLAP_LAYOUT = "codex-home-skills-v2-to-v3"
 LEGACY_V2_PACKAGES = frozenset({"codex-coding-os", "codex-coding-os-starter"})
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -128,6 +129,9 @@ class InstallOptions:
     authority_case_id: str | None = None
     authority_source: str | None = None
     authority_reference: str | None = None
+    authority_actor_thread_id: str | None = None
+    authority_request_id: str | None = None
+    authority_expected_revision: int | None = None
     case_state_engine: Path | str | None = None
     case_state_root: Path | str | None = None
     legacy_overlap_migration: bool = False
@@ -1326,7 +1330,217 @@ def _validated_universal_bundle_id(value: str | None) -> str:
     return bundle_id
 
 
-def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) -> dict[str, Any]:
+def _authority_engine_entry(
+    entries: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    matches = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and entry.get("path") == AUTHORITY_ENGINE_RELATIVE_PATH
+    ]
+    if len(matches) != 1:
+        raise AuthorityError(
+            "verified bundle must contain exactly one canonical case-state authority engine"
+        )
+    entry = matches[0]
+    digest = str(entry.get("sha256", ""))
+    size = entry.get("size")
+    if (
+        not HASH_RE.fullmatch(digest)
+        or isinstance(size, bool)
+        or not isinstance(size, int)
+        or size < 0
+    ):
+        raise AuthorityError("authority engine bundle identity is malformed")
+    return {"path": AUTHORITY_ENGINE_RELATIVE_PATH, "sha256": digest, "size": size}
+
+
+def _authority_no_links(path: Path, boundary: Path) -> None:
+    try:
+        _assert_no_link_components(path, boundary)
+    except TransactionError as exc:
+        raise AuthorityError(f"authority engine identity uses an indirect path: {exc}") from exc
+
+
+def _installed_authority_engine_identity(
+    options: InstallOptions,
+    provided: Path,
+) -> dict[str, Any]:
+    try:
+        codex_home = Path(options.codex_home).expanduser().resolve(strict=True)
+        support_root = (codex_home / "coding-os").resolve(strict=True)
+    except OSError as exc:
+        raise AuthorityError(
+            "CaseStateEngine is not the exact verified source-bundle engine and "
+            "no installed authority manifest is available"
+        ) from exc
+    installed_engine = support_root.joinpath(
+        *PurePosixPath(AUTHORITY_ENGINE_RELATIVE_PATH).parts
+    )
+    try:
+        installed_engine = installed_engine.resolve(strict=True)
+    except OSError as exc:
+        raise AuthorityError("installed case-state authority engine is unavailable") from exc
+    if provided != installed_engine:
+        raise AuthorityError(
+            "CaseStateEngine must be the exact verified source-bundle or installed-manifest engine"
+        )
+    _authority_no_links(installed_engine, support_root)
+
+    pointer_path = codex_home / ".coding-os-install" / "current.json"
+    manifest_path = support_root / "install-manifest.json"
+    bundle_manifest_path = support_root / "install-bundle.manifest.json"
+    for required in (pointer_path, manifest_path, bundle_manifest_path):
+        _authority_no_links(required, codex_home)
+        if not required.is_file():
+            raise AuthorityError(
+                f"installed authority identity file is unavailable: {required}"
+            )
+    try:
+        pointer = _load_json(pointer_path, "current install pointer")
+        install_manifest = _load_json(manifest_path, "installed authority manifest")
+        installed_bundle = _load_json(
+            bundle_manifest_path, "installed authority bundle manifest"
+        )
+    except TransactionError as exc:
+        raise AuthorityError(str(exc)) from exc
+
+    recorded_manifest_path = Path(
+        str(pointer.get("install_manifest_path", ""))
+    )
+    if (
+        not recorded_manifest_path.is_absolute()
+        or recorded_manifest_path.resolve(strict=False) != manifest_path
+        or pointer.get("protocol") != TRANSACTION_PROTOCOL
+        or pointer.get("status") != "committed"
+        or pointer.get("install_manifest_sha256") != _sha_file(manifest_path)
+    ):
+        raise AuthorityError(
+            "current install pointer does not bind the exact installed authority manifest"
+        )
+    package = install_manifest.get("package")
+    source_record = install_manifest.get("source")
+    targets = install_manifest.get("targets")
+    bundle_package = installed_bundle.get("package")
+    raw_entries = installed_bundle.get("entries")
+    if (
+        install_manifest.get("manifest_version") != MANIFEST_VERSION
+        or install_manifest.get("transaction_protocol") != TRANSACTION_PROTOCOL
+        or not isinstance(package, dict)
+        or package.get("name") != "codex-coding-os"
+        or not isinstance(source_record, dict)
+        or not isinstance(targets, dict)
+        or Path(str(targets.get("support_root", ""))).resolve(strict=False)
+        != support_root
+        or installed_bundle.get("protocol") != BUNDLE_PROTOCOL
+        or not isinstance(bundle_package, dict)
+        or bundle_package.get("name") != "codex-coding-os"
+        or bundle_package.get("version") != package.get("version")
+        or not isinstance(raw_entries, list)
+        or any(not isinstance(entry, dict) for entry in raw_entries)
+    ):
+        raise AuthorityError("installed authority manifest identity is malformed")
+    try:
+        paths = [_normalize_relative(str(entry.get("path", ""))) for entry in raw_entries]
+        _validate_casefold_collisions(paths, "installed authority bundle path")
+        aggregate = _aggregate_entries(raw_entries)
+    except (BundleError, TransactionError) as exc:
+        raise AuthorityError(f"installed authority bundle identity is invalid: {exc}") from exc
+    bundle_manifest_sha256 = _sha_file(bundle_manifest_path)
+    if (
+        installed_bundle.get("aggregate_sha256") != aggregate
+        or package.get("bundle_sha256") != aggregate
+        or pointer.get("bundle_sha256") != aggregate
+        or source_record.get("bundle_manifest_sha256")
+        != bundle_manifest_sha256
+    ):
+        raise AuthorityError(
+            "installed authority bundle digest does not match its pointer and manifest"
+        )
+    entry = _authority_engine_entry(raw_entries)
+    if (
+        installed_engine.stat().st_size != entry["size"]
+        or _sha_file(installed_engine) != entry["sha256"]
+    ):
+        raise AuthorityError(
+            "installed case-state authority engine differs from its manifest digest"
+        )
+    return {
+        "kind": "installed-manifest",
+        "path": str(installed_engine),
+        "sha256": entry["sha256"],
+        "size": entry["size"],
+        "bundle_sha256": aggregate,
+        "bundle_manifest_sha256": bundle_manifest_sha256,
+        "install_manifest_sha256": _sha_file(manifest_path),
+    }
+
+
+def _verified_authority_engine(
+    options: InstallOptions,
+    source: dict[str, Any],
+    bundle: BundleInfo,
+) -> dict[str, Any]:
+    raw = Path(str(options.case_state_engine or ""))
+    if (
+        not raw.is_absolute()
+        or any(part in {".", ".."} for part in raw.parts)
+    ):
+        raise AuthorityError("CaseStateEngine must be one canonical absolute path")
+    _authority_no_links(raw, Path(raw.anchor))
+    try:
+        provided = raw.resolve(strict=True)
+    except OSError as exc:
+        raise AuthorityError("CaseStateEngine is unavailable") from exc
+    if not provided.is_file() or provided.stat().st_nlink != 1:
+        raise AuthorityError(
+            "CaseStateEngine must be a direct non-link regular-file identity"
+        )
+
+    source_root = Path(str(source.get("repo_root", ""))).resolve(strict=True)
+    source_engine = _safe_repo_path(
+        source_root, AUTHORITY_ENGINE_RELATIVE_PATH
+    ).resolve(strict=True)
+    if provided == source_engine:
+        _authority_no_links(source_engine, source_root)
+        entry = _authority_engine_entry(bundle.entries)
+        if (
+            source_engine.stat().st_size != entry["size"]
+            or _sha_file(source_engine) != entry["sha256"]
+        ):
+            raise AuthorityError(
+                "source case-state authority engine differs from the verified bundle"
+            )
+        return {
+            "kind": "source-bundle",
+            "path": str(source_engine),
+            "sha256": entry["sha256"],
+            "size": entry["size"],
+            "bundle_sha256": bundle.aggregate_sha256,
+            "bundle_manifest_sha256": bundle.manifest_sha256,
+            "install_manifest_sha256": None,
+        }
+    return _installed_authority_engine_identity(options, provided)
+
+
+def _assert_authority_engine_unchanged(identity: dict[str, Any]) -> None:
+    path = Path(str(identity.get("path", "")))
+    if (
+        not path.is_file()
+        or path.stat().st_size != identity.get("size")
+        or _sha_file(path) != identity.get("sha256")
+    ):
+        raise AuthorityError(
+            "case-state authority engine changed after digest verification"
+        )
+
+
+def _check_universal_authority(
+    options: InstallOptions,
+    source: dict[str, Any],
+    bundle: BundleInfo,
+) -> dict[str, Any]:
     bundle_id = _validated_universal_bundle_id(options.universal_bundle_id)
     if not options.install_universal_policy:
         return {
@@ -1337,6 +1551,7 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
             "source": None,
             "reference": None,
             "boundary_reason": None,
+            "engine": None,
         }
     case_id = str(options.authority_case_id or "").lower()
     if not CASE_ID_RE.fullmatch(case_id):
@@ -1349,11 +1564,39 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
     authority_reference = str(options.authority_reference or "").strip()
     if not authority_reference or len(authority_reference) > 512:
         raise AuthorityError("AuthorityReference must be a nonempty bounded reference to the external authority")
-    engine = Path(options.case_state_engine or "").expanduser().resolve(strict=False)
+    actor_thread_id = str(options.authority_actor_thread_id or "").strip().lower()
+    try:
+        parsed_actor_thread = uuid.UUID(actor_thread_id)
+    except (ValueError, AttributeError) as exc:
+        raise AuthorityError("AuthorityActorThreadId must be a canonical UUIDv7") from exc
+    if (
+        str(parsed_actor_thread) != actor_thread_id
+        or parsed_actor_thread.version != 7
+        or parsed_actor_thread.variant != uuid.RFC_4122
+    ):
+        raise AuthorityError("AuthorityActorThreadId must be a canonical UUIDv7")
+    process_thread_id = str(os.environ.get("CODEX_THREAD_ID") or "").strip().lower()
+    if process_thread_id != actor_thread_id:
+        raise AuthorityError(
+            "AuthorityActorThreadId must equal this process CODEX_THREAD_ID"
+        )
+    action_request_id = str(options.authority_request_id or "").strip().lower()
+    if not CASE_ID_RE.fullmatch(action_request_id):
+        raise AuthorityError("AuthorityRequestId must be one canonical UUID")
+    expected_revision = options.authority_expected_revision
+    if (
+        isinstance(expected_revision, bool)
+        or not isinstance(expected_revision, int)
+        or expected_revision < 1
+    ):
+        raise AuthorityError("AuthorityExpectedRevision must be a positive integer")
+    engine_identity = _verified_authority_engine(options, source, bundle)
+    engine = Path(engine_identity["path"])
     state_root = Path(options.case_state_root or "").expanduser().resolve(strict=False)
-    if not engine.is_file() or not state_root.is_dir():
-        raise AuthorityError("case-state engine and state root are required for universal policy synchronization")
+    if not state_root.is_dir():
+        raise AuthorityError("case-state state root is required for universal policy synchronization")
     base = [sys.executable, "-B", str(engine), "--state-root", str(state_root), "--json"]
+    _assert_authority_engine_unchanged(engine_identity)
     shown = subprocess.run(
         [*base, "show", "--case-id", case_id],
         stdout=subprocess.PIPE,
@@ -1361,6 +1604,7 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         text=True,
         check=False,
     )
+    _assert_authority_engine_unchanged(engine_identity)
     if shown.returncode != 0:
         raise AuthorityError(f"case-state show failed: {(shown.stderr or shown.stdout).strip()}")
     try:
@@ -1369,6 +1613,10 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         raise AuthorityError("case-state show did not return JSON") from exc
     if not isinstance(shown_case, dict) or shown_case.get("case_id") != case_id or shown_case.get("state") != "CLOSED_SUCCESS":
         raise AuthorityError("universal policy sync requires the exact case to be CLOSED_SUCCESS")
+    if shown_case.get("revision") != expected_revision:
+        raise AuthorityError(
+            "AuthorityExpectedRevision differs from the exact closed case revision"
+        )
     repository = str(source.get("repository") or "")
     head = str(source.get("git_commit") or "")
     command = [
@@ -1380,6 +1628,14 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         "universal_sync",
         "--actor-role",
         "publication_child",
+        "--actor-thread-id",
+        actor_thread_id,
+        "--thread",
+        actor_thread_id,
+        "--request-id",
+        action_request_id,
+        "--expected-revision",
+        str(expected_revision),
         "--repository",
         repository,
         "--universal-bundle",
@@ -1387,7 +1643,9 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         "--head",
         head,
     ]
+    _assert_authority_engine_unchanged(engine_identity)
     completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+    _assert_authority_engine_unchanged(engine_identity)
     if completed.returncode != 0:
         raise AuthorityError(f"case-state action-check failed: {(completed.stderr or completed.stdout).strip()}")
     try:
@@ -1397,8 +1655,41 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
     if not isinstance(response, dict):
         raise AuthorityError("case-state action-check response must be an object")
     context = response.get("context") if isinstance(response.get("context"), dict) else {}
+    latch = response.get("anti_loop_latch")
+    latch_fields = {
+        "protocol_version",
+        "schema_version",
+        "status",
+        "objective_sha256",
+        "product_heads",
+        "consecutive_support_mutations",
+        "last_support_action",
+        "last_failure_fingerprint",
+        "failure_fingerprint_repetitions",
+        "event_count",
+        "trigger_reason",
+        "trigger_event_id",
+        "latched_at",
+        "latched_from_state",
+        "disposition",
+        "disposition_authority",
+        "record_sha256",
+    }
+    latch_sealed = False
+    if isinstance(latch, dict) and set(latch) == latch_fields:
+        latch_body = {name: value for name, value in latch.items() if name != "record_sha256"}
+        latch_digest = hashlib.sha256(
+            json.dumps(
+                latch_body,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        latch_sealed = latch.get("record_sha256") == latch_digest
     required_context_keys = {
         "actor_role",
+        "actor_thread_id",
         "repository",
         "branch",
         "worktree",
@@ -1406,17 +1697,27 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         "thread",
         "universal_bundle",
         "head",
+        "support_action",
+        "request_id",
+        "expected_revision",
     }
     if (
-        response.get("protocol_version") != "ccos-case-action-v1"
+        response.get("protocol_version") != "ccos-case-action-v2"
         or response.get("case_id") != case_id
         or response.get("state") != "CLOSED_SUCCESS"
         or response.get("action") != "universal_sync"
         or response.get("actor_role") != "publication_child"
+        or response.get("request_id") != action_request_id
+        or response.get("expected_revision") != expected_revision
+        or response.get("revision") != expected_revision
         or response.get("repository") != repository
         or response.get("head") != head
         or set(context) != required_context_keys
         or context.get("actor_role") != "publication_child"
+        or context.get("actor_thread_id") != actor_thread_id
+        or context.get("thread") != actor_thread_id
+        or context.get("request_id") != action_request_id
+        or context.get("expected_revision") != expected_revision
         or context.get("repository") != repository
         or context.get("universal_bundle") != bundle_id
         or context.get("head") != head
@@ -1424,6 +1725,13 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
         or response.get("reason_codes") != ["SEPARATE_AUTHORITY_REQUIRED"]
         or response.get("separate_authority_required") is not True
         or response.get("blocked_case_id") is not None
+        or response.get("actor_identity_bound") is not True
+        or response.get("controller_bound_actor_role") != "publication_child"
+        or not latch_sealed
+        or latch.get("protocol_version") != "ccos-anti-loop-latch-v1"
+        or latch.get("schema_version") != 1
+        or latch.get("status") != "CLEAR"
+        or latch.get("disposition") is not None
     ):
         raise AuthorityError(
             "case-state engine did not validate the exact closed case, publication role, repository, head, and bundle boundary"
@@ -1431,13 +1739,17 @@ def _check_universal_authority(options: InstallOptions, source: dict[str, Any]) 
     return {
         "case_id": case_id,
         "action": "universal_sync",
-        "action_protocol": "ccos-case-action-v1",
+        "action_protocol": "ccos-case-action-v2",
+        "actor_thread_id": actor_thread_id,
+        "action_request_id": action_request_id,
+        "action_revision": expected_revision,
         "approved_head": head,
         "repository": repository,
         "universal_bundle": bundle_id,
         "source": authority_source,
         "reference": authority_reference,
         "boundary_reason": "SEPARATE_AUTHORITY_REQUIRED",
+        "engine": engine_identity,
     }
 
 
@@ -2143,7 +2455,7 @@ def _dry_run_install(options: InstallOptions, source_root: Path, skills_root: Pa
     _install_preflight(options, source_root, skills_root, codex_home)
     bundle = verify_bundle(source_root, options.expected_bundle_sha256)
     source = _verify_source(options, source_root, bundle)
-    authority = _check_universal_authority(options, source)
+    authority = _check_universal_authority(options, source, bundle)
     return {
         "status": "dry_run",
         "operation": "install",
@@ -2217,7 +2529,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
             journal.phase("PREFLIGHT_VERIFIED", skills_root, codex_home)
             bundle = verify_bundle(source_root, options.expected_bundle_sha256)
             source = _verify_source(options, source_root, bundle)
-            authority = _check_universal_authority(options, source)
+            authority = _check_universal_authority(options, source, bundle)
             journal.data["bundle_sha256"] = bundle.aggregate_sha256
             journal.data["source_commit"] = source.get("git_commit")
             journal.save()
@@ -2594,6 +2906,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("preauthorized-run-envelope", "explicit-user-approval"),
     )
     install_parser.add_argument("--authority-reference")
+    install_parser.add_argument("--authority-actor-thread-id")
+    install_parser.add_argument("--authority-request-id")
+    install_parser.add_argument("--authority-expected-revision", type=int)
     install_parser.add_argument("--case-state-engine")
     install_parser.add_argument("--case-state-root")
     install_parser.add_argument("--legacy-overlap-migration", action="store_true")
@@ -2639,6 +2954,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 authority_case_id=args.authority_case_id,
                 authority_source=args.authority_source,
                 authority_reference=args.authority_reference,
+                authority_actor_thread_id=args.authority_actor_thread_id,
+                authority_request_id=args.authority_request_id,
+                authority_expected_revision=args.authority_expected_revision,
                 case_state_engine=args.case_state_engine,
                 case_state_root=args.case_state_root,
                 legacy_overlap_migration=args.legacy_overlap_migration,
