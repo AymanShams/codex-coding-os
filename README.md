@@ -30,24 +30,22 @@ endorsed by, or sponsored by OpenAI.
 
 ## Current source status
 
-This README describes repository `main` through pull request 31.
+This README describes the operating model of the current source tree. Mutable
+repository facts are deliberately linked to their live authorities instead of
+being copied into a numeric snapshot here.
 
 | Item | Current state |
 |---|---|
-| Package metadata | `pack.manifest.json#version` is `0.10.0` with `public-release` metadata |
-| Functional baseline | [`8a82a23`](https://github.com/AymanShams/codex-coding-os/commit/8a82a23cbf8d105a4142b5a2157d0dfc84cb90b7), the merge of pull request 31 |
-| Latest published GitHub release | `v0.8.4` |
-| Source status | The 0.10 source adds mandatory runtime anti-loop enforcement and transactional universal activation |
-| Pull requests covered | 30 pull requests, numbered 2 through 31 |
-| Pull request states | 26 merged, 2 closed without merge, 2 still open |
-| Bundled skills | 45 |
-| Tracked files | 541 |
-| Install bundle entries | 537 |
+| Package metadata | Read `pack.manifest.json#version` and `pack.manifest.json#release_status` |
+| Functional baseline | Read the current Git commit and pin that exact commit before source installation |
+| Published releases | Read [GitHub Releases](https://github.com/AymanShams/codex-coding-os/releases) |
+| Pull request state | Read [GitHub pull requests](https://github.com/AymanShams/codex-coding-os/pulls) |
+| Package inventory | Read `pack.manifest.json` and `install-bundle.manifest.json` |
 | Advanced runtime platform | Windows |
 
-The published `v0.8.4` archive does not contain every feature documented for
-current `main`. Until a newer release is published, install `main` only from a
-clean source checkout at an exact commit and verify the bundle manifest first.
+Repository `main` can be newer than the latest published release. Before
+installation, choose either an exact release artifact or a clean source checkout
+at an exact commit, then verify the matching bundle manifest.
 
 ## Contents
 
@@ -168,6 +166,7 @@ to the following files in this order.
 | Question | Authoritative source |
 |---|---|
 | Package version, required files, support inventory, and bundled skills | `pack.manifest.json` |
+| Artifact identity, template ownership, mirrors, and intentional variants | `pack.manifest.json#artifact_definitions` |
 | Exact installable files and aggregate digest | `install-bundle.manifest.json` |
 | Case record structure | `case-state.schema.json` |
 | Case transitions and action decisions | `scripts/agent/case_state.py` |
@@ -556,22 +555,14 @@ the recorded commands and it does not grant a lifecycle transition.
 
 ## Package inventory
 
-At this README revision, the repository contains:
+The README does not store a numeric inventory snapshot. Read current values from
+their machine authorities:
 
-| Inventory | Count |
-|---|---:|
-| Tracked files | 541 |
-| Bundled skills | 45 |
-| Required manifest paths | 114 |
-| Support items | 25 |
-| Templates | 25 |
-| Documentation files under `docs/` | 18 |
-| Files under `scripts/` | 21 |
-| Test files under `tests/` | 16 |
-| Install bundle entries | 537 |
+- Tracked source paths: `git ls-files`
+- Required paths, support items, bundled skills, and artifact definitions: `pack.manifest.json`
+- Exact installable paths and aggregate digest: `install-bundle.manifest.json`
 
-The bundle entry count and aggregate digest are regenerated when tracked package
-content changes. Read the current values from `install-bundle.manifest.json`.
+The bundle manifest is regenerated whenever tracked package content changes.
 
 ### Skill families
 
@@ -584,12 +575,12 @@ content changes. Read the current values from `install-bundle.manifest.json`.
 | Coding and architecture | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator`, `quality-improvement-problem-solving`, `quant-review` |
 | Design and writing | `codex-design-artifacts`, `humanizer`, `storyscope-structural-audit` |
 | Browser and interface checks | `playwright` |
-| Specialist assurance and incident response | Five bundled capabilities |
+| Specialist assurance and incident response | Read `pack.manifest.json#bundled_skills` |
 | Platform and repository tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli`, `chat-export-capability-miner` |
 | Document intake | `doc`, `pdf` |
 | External overlays | `external-skill-overlay-pack` |
 
-The exact 45-skill list and treatment of each item live in
+The exact bundled-skill list and treatment of each item live in
 `docs/full-skill-inventory.md` and `pack.manifest.json`.
 
 ### Template families
@@ -755,9 +746,9 @@ The complete case mutation and read-only command surface is documented in
 ### Windows
 
 Windows is the primary supported path and the only platform for the advanced
-native receipt and brokered runtime boundary. Pull request 31 passed the complete
-Windows validation job, including case-state, controller, supervisor, broker,
-proposal-action, installation, and packaging checks.
+native receipt and brokered runtime boundary. Read
+[GitHub Actions](https://github.com/AymanShams/codex-coding-os/actions) for the
+current Windows validation state.
 
 ### macOS and Linux
 
@@ -765,13 +756,9 @@ The normal Bash installer and the general skills and templates remain implemente
 for macOS and Linux. The advanced native receipt verifier fails closed outside
 Windows until equivalent operating-system evidence exists.
 
-Current `main` is not fully green on macOS or Linux. The pull request 31 workflow
-has four proposal-action fixture failures because a Windows path is interpreted as
-a local POSIX path. The Windows job passed. The merge preserved those failed jobs
-under explicit owner authority rather than changing source or required checks in
-the closeout task.
-
-See the [pull request 31 validation run](https://github.com/AymanShams/codex-coding-os/actions/runs/30255043933).
+Read [GitHub Actions](https://github.com/AymanShams/codex-coding-os/actions) for
+the current macOS and Linux validation state. A historical workflow run does not
+establish the status of the current source head.
 
 ### Test surfaces
 
@@ -787,60 +774,28 @@ See the [pull request 31 validation run](https://github.com/AymanShams/codex-cod
 | Native receipt tests | Rollout identity, ordered completion, scope, digest, and migration evidence |
 | Controller and supervisor tests | Proposal-only App Server behavior, restart continuity, and denial paths |
 | Broker tests | Exact grant verification, one replacement, rollback, journal recovery, and replay denial |
+| Documentation-contract tests | Artifact identity, mirror equality, variant lineage, and mutable README facts |
 | Public install tests | Commands and public documentation remain consistent with the installer |
 
 For a README-only change, the minimum relevant checks are bundle regeneration,
-bundle verification, public install documentation tests, link validation, pack
-validation, and `git diff --check`.
+bundle verification, documentation-contract tests, public install documentation
+tests, link validation, pack validation, and `git diff --check`.
 
 ## Pull request evolution
 
-The repository has no pull request 1. The public pull request history begins at 2.
-Merged pull requests affect `main`. Closed and open pull requests are historical or
-candidate evidence only.
-
-| PR | State | Contribution and current effect |
-|---:|---|---|
-| [2](https://github.com/AymanShams/codex-coding-os/pull/2) | Merged | Removed unstable API-backed README badges. |
-| [3](https://github.com/AymanShams/codex-coding-os/pull/3) | Merged | Restored stable badge links without the failing standard stars endpoint. |
-| [4](https://github.com/AymanShams/codex-coding-os/pull/4) | Merged | Added the current dynamic star-count badge approach. |
-| [5](https://github.com/AymanShams/codex-coding-os/pull/5) | Merged | Added the optional capability-router hook candidate, generic-noise guards, and advisory-only routing language. |
-| [6](https://github.com/AymanShams/codex-coding-os/pull/6) | Merged | Added active-slice session gates, controlled project templates, and optional capability-index refresh. |
-| [7](https://github.com/AymanShams/codex-coding-os/pull/7) | Merged | Enforced active-slice file scope, review applicability, reviewed-head matching, and older-state repair. |
-| [8](https://github.com/AymanShams/codex-coding-os/pull/8) | Merged | Added registry-backed routing, primary and supporting families, source-tool separation, and fresh-context review. |
-| [9](https://github.com/AymanShams/codex-coding-os/pull/9) | Merged | Restricted automatic routing ownership to active installed capabilities. |
-| [10](https://github.com/AymanShams/codex-coding-os/pull/10) | Merged | Routed software project starts and unclear repositories through the Coding OS master. |
-| [11](https://github.com/AymanShams/codex-coding-os/pull/11) | Merged | Added five-layer task routing and post-diff rerouting for material support needs. |
-| [12](https://github.com/AymanShams/codex-coding-os/pull/12) | Merged | Fixed generic `next` routing noise, retained explicit Next.js detection, restored Python 3.10 compatibility, and prepared 0.8.3. |
-| [13](https://github.com/AymanShams/codex-coding-os/pull/13) | Merged | Added deterministic route-tree and algorithm-step metadata. |
-| [14](https://github.com/AymanShams/codex-coding-os/pull/14) | Merged | Published the 0.8.4 public-release metadata and matching README and changelog updates. |
-| [15](https://github.com/AymanShams/codex-coding-os/pull/15) | Merged | Separated coordination drift from real review triggers and made same-slice status a boundary signal rather than a review waiver. |
-| [16](https://github.com/AymanShams/codex-coding-os/pull/16) | Merged | Added no-silent-closeout behavior, complete next-action reporting, and regression coverage. |
-| [17](https://github.com/AymanShams/codex-coding-os/pull/17) | Merged | Added the full 12-step deep-critic workflow and cross-skill routing. |
-| [18](https://github.com/AymanShams/codex-coding-os/pull/18) | Merged | Added opt-in automation mode with manual sequential sessions as the default and parent orchestration as an explicit mode. |
-| [19](https://github.com/AymanShams/codex-coding-os/pull/19) | Merged | Expanded workflow controls, decision records, stop-latch behavior, pull request templates, and smoke coverage. |
-| [20](https://github.com/AymanShams/codex-coding-os/pull/20) | Merged | Tightened run-envelope validation and blocked parent implementation-file drift. |
-| [21](https://github.com/AymanShams/codex-coding-os/pull/21) | Merged | Added separate automation prompt families, parent closeout reconciliation, and ambiguous review-state handling. |
-| [22](https://github.com/AymanShams/codex-coding-os/pull/22) | Merged | Added publication stabilization evidence, exact reviewed-head fields, and metadata-retrigger handling. |
-| [23](https://github.com/AymanShams/codex-coding-os/pull/23) | Merged | Hardened review-state and pull request body parsing against stale, malformed, dismissed, or unresolved evidence. |
-| [24](https://github.com/AymanShams/codex-coding-os/pull/24) | Closed without merge | Proposed deterministic template authority, typed validation evidence, and fail-closed reentry. Related capabilities later entered `main` through pull request 26. This pull request itself is not authority. |
-| [25](https://github.com/AymanShams/codex-coding-os/pull/25) | Closed without merge | Proposed a permanent red-lock policy. It was explicitly abandoned because one case failure must not block unrelated work. The finite case-scoped replacement arrived in pull request 26. |
-| [26](https://github.com/AymanShams/codex-coding-os/pull/26) | Merged | Added the 0.9 finite case-state engine, typed evidence, exact Git snapshots, transactional install and uninstall, universal policy transaction, and case-scoped escape for unrelated work. |
-| [27](https://github.com/AymanShams/codex-coding-os/pull/27) | Open, not in `main` | Proposed a bounded legacy nested-skills migration. Its useful behavior was repaired and published through pull request 29. |
-| [28](https://github.com/AymanShams/codex-coding-os/pull/28) | Open, not in `main` | Proposed repository URL normalization for credentialed and mixed-form remotes. Its useful behavior was repaired and published through pull request 29. |
-| [29](https://github.com/AymanShams/codex-coding-os/pull/29) | Merged | Published the repaired successor to 27 and 28, including descendant ownership checks, repository normalization, and target-filesystem staging. |
-| [30](https://github.com/AymanShams/codex-coding-os/pull/30) | Merged | Finalized automation-preserving reconciliation, Windows cleanup behavior, installer protections, and real CLI and temporary-worktree parent-child acceptance. |
-| [31](https://github.com/AymanShams/codex-coding-os/pull/31) | Merged | Added native review receipts, terminal quarantine, proposal-only App Server control, the actorless one-shot grant, separate broker enforcement, restart recovery, and the successful real isolated Codex acceptance scenario. |
+Read current pull request state from
+[GitHub pull requests](https://github.com/AymanShams/codex-coding-os/pulls).
+Merged package history belongs in `CHANGELOG.md`. Pull request pages remain
+supporting implementation history and do not override the current source tree.
 
 ### What the pull request history changed philosophically
 
 The early pull requests built a public workflow pack and improved task routing.
 The middle sequence addressed process loops, session drift, review ambiguity, and
-automation boundaries. Pull requests 24 and 25 proved that prose-only controls and
-portfolio-wide red locks were the wrong direction. Pull request 26 replaced them
-with a finite canonical case. Pull requests 29 and 30 repaired installation and
-reconciliation edge cases without reopening abandoned candidates. Pull request 31
-moved the final file mutation boundary outside all model processes.
+automation boundaries. Later work replaced prose-only controls with a finite
+canonical case, repaired installation and reconciliation edge cases without
+reopening abandoned candidates, and moved the final file mutation boundary
+outside model processes.
 
 The current philosophy is simple:
 
@@ -848,7 +803,11 @@ The current philosophy is simple:
 > from native evidence, authorize only exact actions at the action boundary, and
 > keep every failure scoped to the work that actually failed.
 
-## Release evolution
+## Package evolution
+
+Package versions describe source milestones. Read
+[GitHub Releases](https://github.com/AymanShams/codex-coding-os/releases) for the
+currently published artifacts.
 
 | Version | Main contribution |
 |---|---|
@@ -863,7 +822,7 @@ The current philosophy is simple:
 | 0.8.1 | Improved README trust signals, contribution expectations, and release checks. |
 | 0.8.2 | Added the optional capability-router hook candidate and public pack refinements. |
 | 0.8.3 | Added active-slice enforcement, registry-backed routing, five-layer routing, and routing-noise fixes. |
-| 0.8.4 | Promoted the package to its latest published public release. |
+| 0.8.4 | Promoted the package to public-release metadata. |
 | 0.9.0 | Added the finite case engine, exact Git snapshots, typed evidence, and transactional installation. |
 | 0.10.0 | Added the one-shot runtime boundary, native receipts, actor-bound v3 grants, and mandatory external anti-loop runtime enforcement. |
 

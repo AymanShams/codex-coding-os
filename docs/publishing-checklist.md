@@ -3,6 +3,7 @@
 ## Before private sharing
 
 - Run `.\scripts\validate-pack.ps1`.
+- Run `python -B .\tests\test_documentation_contracts.py`.
 - Run `.\tests\install-uninstall-smoke.ps1`.
 - Open `templates/first-codex-prompt.md` and confirm it is clear for a non-technical user.
 - Rebuild the ZIP with `.\scripts\package.ps1`.
@@ -12,9 +13,14 @@
 
 - Confirm `pack.manifest.json` is the current source of truth.
 - Confirm `pack.schema.json` still describes the manifest shape.
+- Confirm every registered artifact family has one canonical member and valid mirror or variant relationships.
+- Confirm exact mirrors are byte-identical to their canonical artifacts.
+- Confirm README links to GitHub Releases, GitHub pull requests, `pack.manifest.json`, and `install-bundle.manifest.json` instead of hardcoding a latest release tag, current pull-request state, or inventory counts.
+- Open GitHub Releases directly and verify the release selected for publication.
 - Confirm `pack.manifest.json#version` is valid semantic versioning and has a matching `CHANGELOG.md` entry.
 - Commit the reviewed release state and confirm tracked Git files match `HEAD` before packaging.
 - Run `.\scripts\validate-pack.ps1 -RequireExternalScanners` after installing `gitleaks` and `trufflehog`.
+- Run `python -B .\tests\test_documentation_contracts.py`.
 - Run `.\scripts\release-safety-scan.ps1 -RequireExternalScanners -ScanGitHistory` before public release.
 - Run `.\tests\install-uninstall-smoke.ps1`.
 - Confirm the GitHub Actions Ubuntu and macOS bash smoke tests pass.

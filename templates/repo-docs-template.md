@@ -138,7 +138,7 @@ Add this checklist to the PR template:
 
 ### Ownership
 
-- Add explicit documentation ownership where needed.
+- Add explicit documentation ownership where needed, including CODEOWNERS where appropriate.
 - Assign owners for product, architecture, data, API, security, reliability, delivery, and testing docs.
 - Each owner is accountable for review cadence and stale-doc fixes.
 

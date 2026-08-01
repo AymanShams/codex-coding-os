@@ -4,6 +4,22 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+### Added
+
+- Added typed artifact-family definitions for canonical templates, exact
+  mirrors, intentional variants, owners, consumers, triggers, and generation
+  routes.
+- Added cross-platform documentation-contract validation with negative fixtures
+  for mirror drift, broken lineage, missing ownership fields, and mutable README
+  snapshots.
+
+### Fixed
+
+- Synchronized the distributed repository-documentation and project-brief
+  templates with their canonical skill assets.
+- Replaced stale README release, pull-request, and inventory snapshots with links
+  to their live authorities.
+
 ## [0.10.0] - 2026-07-29
 
 ### Added

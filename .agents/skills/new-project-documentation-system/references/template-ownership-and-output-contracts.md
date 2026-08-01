@@ -21,6 +21,44 @@ Keep one authoritative owner for each detailed template. The orchestrator enforc
 | Validation report | `artifact-validation-workflow` | Require pass/fail verdict and exact blockers |
 | Current state, active-slice manifest, and session handoff | `project-session-continuity` | Keep coordination subordinate to the workflow manifest, active-slice manifest, and controlling docs |
 
+## Artifact Identity Rule
+
+`pack.manifest.json#artifact_definitions` is the machine-readable authority for
+template identity. A filename, similar purpose, or bundled location does not by
+itself establish whether two files are mirrors or variants.
+
+| Relationship | Required behavior |
+|---|---|
+| Canonical | One authoritative artifact owns the family contract. |
+| Exact mirror | The mirror has the same owner and must remain byte-identical to the canonical artifact. |
+| Intentional variant | The variant has a distinct consumer or trigger and records why it differs. |
+| Derived | The artifact is a projection and records its canonical source and generation route. |
+
+The audited template families are classified as follows:
+
+| Family | Canonical artifact | Distributed relationship |
+|---|---|---|
+| Full repository documentation | `technical-docs-pack/references/repo-docs-template.md` | `templates/repo-docs-template.md` is an exact mirror. |
+| Project brief | `assets/project-brief-template.md` in this skill | `templates/project-brief.md` is an exact mirror. |
+| Root agent instructions | `assets/AGENTS.md` in this skill | `templates/repo-AGENTS.md` is a standalone intentional variant. |
+| Scoped agent instructions | `assets/scoped-AGENTS.md` in this skill | `templates/scoped-AGENTS.md` is a standalone intentional variant. |
+| Claude entrypoint | `assets/CLAUDE.md` in this skill | `templates/CLAUDE.md` is a standalone intentional variant. |
+| Handoff | `assets/history-handoff-template.md` in this skill | `templates/handoff-note.md` is a session-boundary intentional variant owned by `project-session-continuity`. |
+
+Maintenance rules:
+
+1. Update an exact mirror in the same change as its canonical artifact.
+2. Do not force intentional variants to byte equality.
+3. Register a new family member before a workflow or public template consumes it.
+4. Keep each registered path in `pack.manifest.json#required_files`.
+5. Run `python tests/test_documentation_contracts.py` after changing a registered artifact.
+
+## Artifact Contract Decision
+
+| Decision | Alternatives rejected | Reason | Owner | Approver | Revisit trigger | Evidence test | Status | Authority source |
+|---|---|---|---|---|---|---|---|---|
+| Extend the pack manifest with typed artifact definitions and deterministic validation. | Filename convention alone. A separate registry file. Universal byte equality for all similar templates. | Existing manifests already own pack identity. Typed relationships prevent mirror drift without erasing valid variants. | Codex Coding OS maintainers | Ayman Shams | A new generator, consumer, or artifact relationship cannot be represented by the current schema. | Documentation-contract negative fixtures and full pack validation pass. | Approved | Explicit implementation and merge authorization in the current task. |
+
 ## Seven-Doc Completeness Contract
 
 Before requesting approval, verify:

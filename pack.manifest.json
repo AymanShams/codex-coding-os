@@ -28,8 +28,190 @@
     "anti_loop_support_scope": ".codex/anti-loop-support-scope.json",
     "anti_loop_human_disposition_verifier": "scripts/agent/case_human_disposition_verifier.py",
     "universal_policy": "universal/AGENTS.automation-case-policy.md",
-    "merge_authority_rule": "universal/rules/gh-pr-merge-authority.rules"
+    "merge_authority_rule": "universal/rules/gh-pr-merge-authority.rules",
+    "artifact_definitions": "pack.manifest.json#artifact_definitions"
   },
+  "artifact_definitions": [
+    {
+      "artifact_id": "template.repo-docs.full",
+      "family_id": "template.repo-docs",
+      "artifact_type": "template",
+      "path": ".agents/skills/technical-docs-pack/references/repo-docs-template.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "technical-docs-pack",
+      "consumers": [
+        "technical-docs-pack:full-pack",
+        "new-project-documentation-system:phase-5"
+      ],
+      "trigger": "full_repo_documentation",
+      "generation_route": "technical-docs-pack"
+    },
+    {
+      "artifact_id": "template.repo-docs.distribution",
+      "family_id": "template.repo-docs",
+      "artifact_type": "template",
+      "path": "templates/repo-docs-template.md",
+      "source_status": "projection",
+      "relationship": "exact_mirror",
+      "owner": "technical-docs-pack",
+      "consumers": [
+        "installed-pack:manual-template"
+      ],
+      "trigger": "manual_repo_documentation",
+      "generation_route": "copy_from_canonical",
+      "canonical_artifact_id": "template.repo-docs.full"
+    },
+    {
+      "artifact_id": "template.project-brief.full-run",
+      "family_id": "template.project-brief",
+      "artifact_type": "template",
+      "path": ".agents/skills/new-project-documentation-system/assets/project-brief-template.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "new-project-documentation-system",
+      "consumers": [
+        "new-project-documentation-system:phase-3"
+      ],
+      "trigger": "project_brief_required",
+      "generation_route": "new-project-documentation-system"
+    },
+    {
+      "artifact_id": "template.project-brief.distribution",
+      "family_id": "template.project-brief",
+      "artifact_type": "template",
+      "path": "templates/project-brief.md",
+      "source_status": "projection",
+      "relationship": "exact_mirror",
+      "owner": "new-project-documentation-system",
+      "consumers": [
+        "installed-pack:manual-template"
+      ],
+      "trigger": "manual_project_brief",
+      "generation_route": "copy_from_canonical",
+      "canonical_artifact_id": "template.project-brief.full-run"
+    },
+    {
+      "artifact_id": "template.root-agents.full-run",
+      "family_id": "template.root-agents",
+      "artifact_type": "template",
+      "path": ".agents/skills/new-project-documentation-system/assets/AGENTS.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "new-project-documentation-system",
+      "consumers": [
+        "new-project-documentation-system:phase-6"
+      ],
+      "trigger": "full_run_agent_instruction_layer",
+      "generation_route": "new-project-documentation-system"
+    },
+    {
+      "artifact_id": "template.root-agents.standalone",
+      "family_id": "template.root-agents",
+      "artifact_type": "template",
+      "path": "templates/repo-AGENTS.md",
+      "source_status": "authoritative",
+      "relationship": "intentional_variant",
+      "owner": "codex-coding-os-pack",
+      "consumers": [
+        "installed-pack:standalone-project-setup"
+      ],
+      "trigger": "standalone_agent_setup",
+      "generation_route": "manual_template_selection",
+      "canonical_artifact_id": "template.root-agents.full-run",
+      "variant_reason": "The standalone template includes the complete repository operating layer, while the full-run asset is generated inside an already controlled project."
+    },
+    {
+      "artifact_id": "template.scoped-agents.full-run",
+      "family_id": "template.scoped-agents",
+      "artifact_type": "template",
+      "path": ".agents/skills/new-project-documentation-system/assets/scoped-AGENTS.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "new-project-documentation-system",
+      "consumers": [
+        "new-project-documentation-system:phase-6"
+      ],
+      "trigger": "full_run_scoped_instruction_layer",
+      "generation_route": "new-project-documentation-system"
+    },
+    {
+      "artifact_id": "template.scoped-agents.standalone",
+      "family_id": "template.scoped-agents",
+      "artifact_type": "template",
+      "path": "templates/scoped-AGENTS.md",
+      "source_status": "authoritative",
+      "relationship": "intentional_variant",
+      "owner": "codex-coding-os-pack",
+      "consumers": [
+        "installed-pack:standalone-folder-setup"
+      ],
+      "trigger": "standalone_scoped_agent_setup",
+      "generation_route": "manual_template_selection",
+      "canonical_artifact_id": "template.scoped-agents.full-run",
+      "variant_reason": "The standalone template captures detailed folder setup fields, while the full-run asset supplies a minimal generated instruction layer."
+    },
+    {
+      "artifact_id": "template.claude-entry.full-run",
+      "family_id": "template.claude-entry",
+      "artifact_type": "template",
+      "path": ".agents/skills/new-project-documentation-system/assets/CLAUDE.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "new-project-documentation-system",
+      "consumers": [
+        "new-project-documentation-system:phase-6"
+      ],
+      "trigger": "full_run_claude_entrypoint",
+      "generation_route": "new-project-documentation-system"
+    },
+    {
+      "artifact_id": "template.claude-entry.standalone",
+      "family_id": "template.claude-entry",
+      "artifact_type": "template",
+      "path": "templates/CLAUDE.md",
+      "source_status": "authoritative",
+      "relationship": "intentional_variant",
+      "owner": "codex-coding-os-pack",
+      "consumers": [
+        "installed-pack:standalone-project-setup"
+      ],
+      "trigger": "standalone_claude_entrypoint",
+      "generation_route": "manual_template_selection",
+      "canonical_artifact_id": "template.claude-entry.full-run",
+      "variant_reason": "The standalone entrypoint includes editable handoff fields, while the full-run asset routes directly through generated project controls."
+    },
+    {
+      "artifact_id": "template.handoff.project-setup",
+      "family_id": "template.handoff",
+      "artifact_type": "template",
+      "path": ".agents/skills/new-project-documentation-system/assets/history-handoff-template.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "new-project-documentation-system",
+      "consumers": [
+        "new-project-documentation-system:phase-7"
+      ],
+      "trigger": "project_setup_handoff",
+      "generation_route": "new-project-documentation-system"
+    },
+    {
+      "artifact_id": "template.handoff.session-boundary",
+      "family_id": "template.handoff",
+      "artifact_type": "template",
+      "path": "templates/handoff-note.md",
+      "source_status": "authoritative",
+      "relationship": "intentional_variant",
+      "owner": "project-session-continuity",
+      "consumers": [
+        "installed-pack:manual-session-handoff"
+      ],
+      "trigger": "session_boundary_handoff",
+      "generation_route": "manual_template_selection",
+      "canonical_artifact_id": "template.handoff.project-setup",
+      "variant_reason": "The project-setup handoff closes documentation setup, while the session-boundary template records an implementation or review transition."
+    }
+  ],
   "required_files": [
     "README.md",
     "CHANGELOG.md",
@@ -71,6 +253,12 @@
     "docs/pack-design.md",
     "docs/component-classification.md",
     "docs/publishing-checklist.md",
+    ".agents/skills/technical-docs-pack/references/repo-docs-template.md",
+    ".agents/skills/new-project-documentation-system/assets/project-brief-template.md",
+    ".agents/skills/new-project-documentation-system/assets/AGENTS.md",
+    ".agents/skills/new-project-documentation-system/assets/scoped-AGENTS.md",
+    ".agents/skills/new-project-documentation-system/assets/CLAUDE.md",
+    ".agents/skills/new-project-documentation-system/assets/history-handoff-template.md",
     "templates/first-codex-prompt.md",
     "templates/project-brief.md",
     "templates/prd.md",
@@ -85,6 +273,7 @@
     "templates/repo-docs-template.md",
     "templates/repo-AGENTS.md",
     "templates/scoped-AGENTS.md",
+    "templates/CLAUDE.md",
     "templates/handoff-note.md",
     "templates/sequential-manual-prompt.md",
     "templates/parent-orchestrator-prompt.md",
@@ -115,6 +304,7 @@
     "scripts/apply-external-skill-overlays.ps1",
     "scripts/package.ps1",
     "scripts/release-safety-scan.ps1",
+    "scripts/validate_documentation_contracts.py",
     "scripts/validate-pack.ps1",
     "scripts/validate-links.ps1",
     "hooks/README.md",
@@ -137,6 +327,8 @@
     "tests/test_case_human_disposition_verifier.py",
     "tests/test_anti_loop_runtime_hook.py",
     "tests/test_activate_anti_loop.py",
+    "tests/test_documentation_contracts.py",
+    "tests/test_public_install_docs.py",
     "tests/runtime_actor_test_support.py",
     "tests/test_source_repository_profile.py",
     "tests/test_validation_evidence.py",

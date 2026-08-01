@@ -1,55 +1,59 @@
 # Project Brief
 
-## Direct Answer
-{{one_paragraph_summary_of_the_product}}
+## Decision
+
+[What should be created and why.]
 
 ## Problem
-{{what_pain_or_workflow_problem_this_solves}}
+
+[What workflow, user, or business problem this solves.]
 
 ## Users
+
 | User type | Need | Priority |
 |---|---|---|
-| {{user_type}} | {{need}} | High |
+|  |  |  |
 
 ## Goals
-- {{goal_1}}
-- {{goal_2}}
-- {{goal_3}}
+
+- [Goal]
 
 ## Non-Goals
-- {{explicitly_out_of_scope_1}}
-- {{explicitly_out_of_scope_2}}
+
+- [Non-goal]
 
 ## First Release Scope
-- {{must_have_1}}
-- {{must_have_2}}
-- {{must_have_3}}
+
+- [First-release item]
 
 ## Later Scope
-- {{later_1}}
-- {{later_2}}
+
+- [Later-scope item]
 
 ## Data Involved
-| Data type | Example | Sensitivity | Owner |
-|---|---|---|---|
-| {{data_type}} | {{example}} | Low, Medium, High | {{owner}} |
+
+| Data type | Example | Sensitivity | Source of truth | Owner |
+|---|---|---|---|---|
+|  |  |  |  |  |
 
 ## Integrations
-| Integration | Purpose | Required for first release |
-|---|---|---|
-| {{integration}} | {{purpose}} | Yes or No |
+
+| Integration | Purpose | Required for first release | Source authority |
+|---|---|---|---|
+|  |  |  |  |
 
 ## Constraints
-- Budget: {{budget_constraint}}
-- Deadline: {{deadline}}
-- Deployment: {{deployment_constraint}}
-- Compliance or privacy: {{compliance_constraint}}
 
-## Open Decisions
-- {{decision_1}}
-- {{decision_2}}
+- Budget:
+- Deadline:
+- Deployment:
+- Privacy/compliance:
+- Migration:
 
-## Assumptions
-- {{assumption_1}}
-- {{assumption_2}}
+## Open Material Decisions
 
+- [Decision]
+
+## Safe Assumptions
+
+- [Safe assumption]
