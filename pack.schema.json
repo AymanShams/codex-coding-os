@@ -2,6 +2,93 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/AymanShams/codex-coding-os/blob/main/pack.schema.json",
   "title": "Codex Coding OS Pack Manifest",
+  "$defs": {
+    "artifactTrigger": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trigger_id", "kind", "phase"],
+          "properties": {
+            "trigger_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "const": "workflow_phase"
+            },
+            "phase": {
+              "type": "string",
+              "enum": [
+                "0_route_scope",
+                "1_source_inventory",
+                "2_material_decisions",
+                "3_controlled_docs",
+                "4_tdd_alignment",
+                "5_repo_documentation",
+                "6_agent_instructions",
+                "7_handoff",
+                "8_final_validation"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trigger_id", "kind"],
+          "properties": {
+            "trigger_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "const": "manual"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trigger_id", "kind", "match", "predicates"],
+          "properties": {
+            "trigger_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "const": "conditional"
+            },
+            "match": {
+              "type": "string",
+              "enum": ["any", "all"]
+            },
+            "predicates": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fact", "operator", "value"],
+                "properties": {
+                  "fact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "operator": {
+                    "const": "equals"
+                  },
+                  "value": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -10,6 +97,7 @@
     "display_name",
     "release_status",
     "source_of_truth",
+    "artifact_contract_version",
     "artifact_definitions",
     "required_files",
     "support_items",
@@ -37,6 +125,10 @@
       "additionalProperties": {
         "type": "string"
       }
+    },
+    "artifact_contract_version": {
+      "type": "string",
+      "const": "1.1"
     },
     "artifact_definitions": {
       "type": "array",
@@ -104,8 +196,7 @@
             }
           },
           "trigger": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/artifactTrigger"
           },
           "generation_route": {
             "type": "string",

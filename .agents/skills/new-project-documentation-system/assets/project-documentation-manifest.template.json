@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "project_name": "",
   "mode": "full_run",
   "output_root": "",
@@ -11,6 +11,50 @@
   "session_continuity_command": "python scripts/agent/session_continuity.py start --start-new",
   "open_material_decisions": [],
   "unresolved_source_conflicts": [],
+  "artifact_instances": [
+    {
+      "instance_id": "docs.content-guidelines",
+      "artifact_id": "template.content-guidelines.full-run",
+      "output_path": "docs/product/content-guidelines.md",
+      "lifecycle_status": "not_evaluated",
+      "trigger_evidence": [],
+      "lineage": {
+        "generation_route": "technical-docs-pack",
+        "controlling_sources": [],
+        "decision_evidence": [],
+        "generation_evidence": [],
+        "validation_evidence": []
+      }
+    },
+    {
+      "instance_id": "docs.public-search-surfaces",
+      "artifact_id": "template.search-documentation.full-run",
+      "output_path": "docs/product/search-surfaces.md",
+      "lifecycle_status": "not_evaluated",
+      "trigger_evidence": [],
+      "lineage": {
+        "generation_route": "technical-docs-pack",
+        "controlling_sources": [],
+        "decision_evidence": [],
+        "generation_evidence": [],
+        "validation_evidence": []
+      }
+    },
+    {
+      "instance_id": "docs.module-contracts",
+      "artifact_id": "template.module-contract.full-run",
+      "output_path": "docs/architecture/module-contracts.md",
+      "lifecycle_status": "not_evaluated",
+      "trigger_evidence": [],
+      "lineage": {
+        "generation_route": "technical-docs-pack",
+        "controlling_sources": [],
+        "decision_evidence": [],
+        "generation_evidence": [],
+        "validation_evidence": []
+      }
+    }
+  ],
   "approvals": {
     "source_authority": false,
     "material_decisions": false,

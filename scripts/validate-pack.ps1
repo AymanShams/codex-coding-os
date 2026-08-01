@@ -47,6 +47,19 @@ if (-not (Test-Path $SchemaPath)) {
   }
 }
 
+$SchemaValidationHelper = Join-Path $RepoRoot "scripts\json-schema-validation.ps1"
+if (-not (Test-Path -LiteralPath $SchemaValidationHelper -PathType Leaf)) {
+  $Errors += "Missing JSON Schema validation helper."
+} else {
+  . $SchemaValidationHelper
+  $SchemaValidationErrors = @(
+    Get-JsonSchemaValidationErrors -JsonPath $ManifestPath -SchemaPath $SchemaPath
+  )
+  foreach ($SchemaValidationError in $SchemaValidationErrors) {
+    $Errors += "pack.manifest.json schema validation failed: $SchemaValidationError"
+  }
+}
+
 $VersionFile = Join-Path $RepoRoot "VERSION"
 if (Test-Path $VersionFile) {
   $Errors += "VERSION file is not allowed. pack.manifest.json#version is the sole package release version."

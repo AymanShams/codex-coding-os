@@ -35,7 +35,10 @@ def artifact(
         "relationship": relationship,
         "owner": "fixture-owner",
         "consumers": [f"fixture:{artifact_id}"],
-        "trigger": f"trigger_{artifact_id}",
+        "trigger": {
+            "trigger_id": f"trigger_{artifact_id}",
+            "kind": "manual",
+        },
         "generation_route": "fixture",
     }
     result.update(extra)
@@ -110,6 +113,34 @@ class DocumentationContractTests(unittest.TestCase):
         manifest["artifact_definitions"][2]["artifact_id"] = "mirror"
         self.assertTrue(any("duplicate artifact_id" in error for error in self.errors(manifest)))
 
+    def test_trigger_must_be_a_typed_object(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["artifact_definitions"][0]["trigger"] = "legacy_string_trigger"
+        self.assertTrue(any("typed trigger object" in error for error in self.errors(manifest)))
+
+    def test_conditional_trigger_rejects_duplicate_facts(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["artifact_definitions"][0]["trigger"] = {
+            "trigger_id": "conditional_fixture",
+            "kind": "conditional",
+            "match": "any",
+            "predicates": [
+                {"fact": "project.has_surface", "operator": "equals", "value": True},
+                {"fact": "project.has_surface", "operator": "equals", "value": False},
+            ],
+        }
+        self.assertTrue(any("duplicate predicate fact" in error for error in self.errors(manifest)))
+
+    def test_reused_trigger_id_must_keep_one_definition(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        trigger_id = manifest["artifact_definitions"][0]["trigger"]["trigger_id"]
+        manifest["artifact_definitions"][1]["trigger"] = {
+            "trigger_id": trigger_id,
+            "kind": "workflow_phase",
+            "phase": "5_repo_documentation",
+        }
+        self.assertTrue(any("conflicting definition" in error for error in self.errors(manifest)))
+
     def test_missing_source_status_fails(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         manifest["artifact_definitions"][1].pop("source_status")
@@ -167,6 +198,9 @@ class DocumentationContractTests(unittest.TestCase):
             "templates/CLAUDE.md": "intentional_variant",
             ".agents/skills/new-project-documentation-system/assets/history-handoff-template.md": "canonical",
             "templates/handoff-note.md": "intentional_variant",
+            ".agents/skills/technical-docs-pack/references/content-guidelines-template.md": "canonical",
+            ".agents/skills/technical-docs-pack/references/search-documentation-template.md": "canonical",
+            ".agents/skills/technical-docs-pack/references/module-contract-template.md": "canonical",
         }
         for path, relationship in expected.items():
             self.assertEqual(relationship, registered.get(path), path)

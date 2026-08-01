@@ -62,6 +62,10 @@ If enough context exists, produce Version 1 with assumptions instead of blocking
    - Product truth: PRD, requirements, user journeys, and release notes.
    - Decision truth: ADRs.
 3. Design or tailor the docs structure. Do not create unused folders by default.
+   - Add content guidelines only for substantial user-facing copy, localization, or generated user-facing content.
+   - Add public search documentation only when a public indexable surface exists.
+   - Add module contracts only for stable interfaces, independent module lifecycles, meaningful module dependencies, or material module failure behavior.
+   - When a version 1.1 project documentation manifest exists, record the typed trigger evidence and artifact-instance lineage there before drafting these conditional files.
 4. Draft the requested files or templates.
 5. Add governance:
    - Definition of Done for PRs.
@@ -95,6 +99,7 @@ Use these layers unless the repo needs a smaller subset:
 - Make ownership explicit. Docs without owners rot.
 - Make source-of-truth status explicit. Decks, summaries, and diagrams are not truth unless the user decides they are.
 - Use the file-by-file template in `references/repo-docs-template.md` when a full pack is requested.
+- Use `references/content-guidelines-template.md`, `references/search-documentation-template.md`, and `references/module-contract-template.md` only when their registered conditional triggers evaluate true.
 
 ## Required Output Sequence
 

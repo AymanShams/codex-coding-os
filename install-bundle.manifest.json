@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "218f4b76f43ead90520ac2b0df9fb292a8bef77d28cf2feb4714119a4056d532",
+  "aggregate_sha256": "2eab1915c7ed29284b2ea94cb588c60684ba713c2dc6c73bfdf94c0300b98e6b",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -323,8 +323,8 @@
     },
     {
       "path": ".agents/skills/new-project-documentation-system/SKILL.md",
-      "sha256": "1f3e03d704d599a22bdeb96f38397f28e34b01e6551ec333db49610c01b5113c",
-      "size": 9957
+      "sha256": "51a675acae3e71719008cfff62ac8f50d184a8ad2763335b25c6571d8c9df200",
+      "size": 10663
     },
     {
       "path": ".agents/skills/new-project-documentation-system/agents/openai.yaml",
@@ -363,8 +363,8 @@
     },
     {
       "path": ".agents/skills/new-project-documentation-system/assets/project-documentation-manifest.template.json",
-      "sha256": "dccc844889d0fd75d08c0499558d43eace44cb2292886a055c50c8422b474378",
-      "size": 1432
+      "sha256": "147b132d54feab3cacb6bf4d9434d1eada61589e918d70cd8e43ee491e2d92ac",
+      "size": 2870
     },
     {
       "path": ".agents/skills/new-project-documentation-system/assets/scoped-AGENTS.md",
@@ -373,8 +373,8 @@
     },
     {
       "path": ".agents/skills/new-project-documentation-system/references/documentation-stage-map.md",
-      "sha256": "bb375b888fbb5621b0893585f4d2c7bbd183723d113320639883b5d576b27c2d",
-      "size": 3103
+      "sha256": "3c22ba0c66d1db596fca20a94ceb968f770d0540cab737d864c86abd60fc57f8",
+      "size": 3982
     },
     {
       "path": ".agents/skills/new-project-documentation-system/references/repo-agent-instructions.md",
@@ -393,13 +393,13 @@
     },
     {
       "path": ".agents/skills/new-project-documentation-system/references/template-ownership-and-output-contracts.md",
-      "sha256": "94a0af72dcecc64e4158388b169431365b42374f8bd858ae388e399171af8ef9",
-      "size": 6121
+      "sha256": "e964db170d5007b0bc8facb42d99fa4b5863d7592a989add8f1eacb708fe2dff",
+      "size": 9235
     },
     {
       "path": ".agents/skills/new-project-documentation-system/references/validation-gates.md",
-      "sha256": "52311c8b6694562d794f3de93a6f9c195a0e536405c28bafb900219b76b42a98",
-      "size": 2637
+      "sha256": "a137b493dac8d84092b827d502234785731fa057fe06ffc47ed121e8cd26e799",
+      "size": 2788
     },
     {
       "path": ".agents/skills/new-project-documentation-system/references/workflow-modes-and-gates.md",
@@ -413,8 +413,8 @@
     },
     {
       "path": ".agents/skills/new-project-documentation-system/scripts/validate_workflow_manifest.py",
-      "sha256": "9513eba7000f4a88ce388e550c0ddd960a90cdcc3e8cce56687837916de2b2df",
-      "size": 6261
+      "sha256": "64440f1392ad9a33a31bace2ea9b5238349f5c392f9330ed03501bfa14b1954e",
+      "size": 21955
     },
     {
       "path": ".agents/skills/pdf/LICENSE.txt",
@@ -1278,8 +1278,8 @@
     },
     {
       "path": ".agents/skills/technical-docs-pack/SKILL.md",
-      "sha256": "1e53f8c6878a9f6a43b63e37514f2f5bcaa9656f5c6afff5f5fd01d66ddb38ac",
-      "size": 7365
+      "sha256": "d47bb1317cc7974c46aa71030458abd601bcaded1404853a219fe6b11cb415d1",
+      "size": 8096
     },
     {
       "path": ".agents/skills/technical-docs-pack/agents/openai.yaml",
@@ -1287,9 +1287,24 @@
       "size": 266
     },
     {
+      "path": ".agents/skills/technical-docs-pack/references/content-guidelines-template.md",
+      "sha256": "7fd304014e18b0ebe5986d5aee389f516705562cd644e59b274b7accc2d398ee",
+      "size": 2085
+    },
+    {
+      "path": ".agents/skills/technical-docs-pack/references/module-contract-template.md",
+      "sha256": "33e9b64c39972024637484ea1b2081404b937d6fccd57016b9010b94b3341ada",
+      "size": 2069
+    },
+    {
       "path": ".agents/skills/technical-docs-pack/references/repo-docs-template.md",
-      "sha256": "5376da068f33265a86566058849039cdba6a286b881f171ff025c2214c2ae74e",
-      "size": 7842
+      "sha256": "472292c2966f95bf6ec3de1e9d6512fdd54197998ed6ce0ed414890e9d951707",
+      "size": 9059
+    },
+    {
+      "path": ".agents/skills/technical-docs-pack/references/search-documentation-template.md",
+      "sha256": "026b6c1e0b34262a54e47a3b6f39b99decf3c0f100a4968fa723d4099de393a5",
+      "size": 1515
     },
     {
       "path": ".agents/skills/vercel-optimize/AGENTS.md",
@@ -2138,8 +2153,8 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "5bb1e4b327143f7b6a4403b5ab01f910bb1abb82619a406dc9196cc609f60b40",
-      "size": 4905
+      "sha256": "3d61c8f335ad3b4743988e233129c76032c2cce2d395f1a25807b7209db02dca",
+      "size": 5443
     },
     {
       "path": "CHANGELOG.md",
@@ -2358,13 +2373,13 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "a244847d3474944a221b41beea8b419298fbeaa4fda1507229eeaa0657f08c41",
-      "size": 21643
+      "sha256": "401a6f9427f44c2fc5f47086985a8a82fdf763a2d8d5dfd6877df6e549f35ba2",
+      "size": 26468
     },
     {
       "path": "pack.schema.json",
-      "sha256": "9be9a6d09f20bc94d7178c795412fc5ac4fd9b17785f2e5e3f62d81354024cc4",
-      "size": 5867
+      "sha256": "a55b4a1869cba00ef586deef725e99b20ed1088bb9b674bda0e78c8887d23e76",
+      "size": 8312
     },
     {
       "path": "patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md",
@@ -2457,6 +2472,11 @@
       "size": 136613
     },
     {
+      "path": "scripts/json-schema-validation.ps1",
+      "sha256": "77fdf041dad6ad8279ad09f16a26bc6a60d3a830fe1634c5f51e0a1981389cd5",
+      "size": 1234
+    },
+    {
       "path": "scripts/package.ps1",
       "sha256": "7fc9cb9e2998d4aa9f71bdb06cd61d9a5130a8ab2cc29d7532fd6440dfa21fb0",
       "size": 3475
@@ -2483,13 +2503,13 @@
     },
     {
       "path": "scripts/validate-pack.ps1",
-      "sha256": "270729ee7b880c55a563e7406ed94c8de17f37bd052aebe4532045051e6b19bf",
-      "size": 12794
+      "sha256": "1c5121b0c36aea14b1232b16ea763e07d6c6099715e19d83f6f1176be8fcd06c",
+      "size": 13318
     },
     {
       "path": "scripts/validate_documentation_contracts.py",
-      "sha256": "1ba1bee5f408104854dd51900608611d2ee9b381bc500682e33c08caf55bcc13",
-      "size": 12706
+      "sha256": "4844ed923d2cb81c0cacc8f289f8bb07b33628a4936fdcb307ac2f20c270b823",
+      "size": 16675
     },
     {
       "path": "templates/CLAUDE.md",
@@ -2568,8 +2588,8 @@
     },
     {
       "path": "templates/repo-docs-template.md",
-      "sha256": "5376da068f33265a86566058849039cdba6a286b881f171ff025c2214c2ae74e",
-      "size": 7842
+      "sha256": "472292c2966f95bf6ec3de1e9d6512fdd54197998ed6ce0ed414890e9d951707",
+      "size": 9059
     },
     {
       "path": "templates/review-checklist.md",
@@ -2617,6 +2637,11 @@
       "size": 2568
     },
     {
+      "path": "tests/fixtures/pack.manifest.invalid-schema.json",
+      "sha256": "2930727d0d5debfce2fbaa36890e6c2a0c098c64a7b3b8b1b2388d6ca9e5f7ba",
+      "size": 52
+    },
+    {
       "path": "tests/install-transaction-faults.ps1",
       "sha256": "57127154c19abcb15f55a2aec643375b6206bb8f8a82b55bba46f560c0bc3c0f",
       "size": 3291
@@ -2630,6 +2655,11 @@
       "path": "tests/install-uninstall-smoke.sh",
       "sha256": "a3f880ecd0c2b4f9b21eeec544922d1b2c917478ef486f184515991308f97fbe",
       "size": 2793
+    },
+    {
+      "path": "tests/json-schema-validation-smoke.ps1",
+      "sha256": "88975d733dba76dc8480370c32a174d8754f88b32e54e66333513a156757d604",
+      "size": 2430
     },
     {
       "path": "tests/runtime_actor_test_support.py",
@@ -2683,13 +2713,18 @@
     },
     {
       "path": "tests/test_documentation_contracts.py",
-      "sha256": "4517b8289d7d80368ccf7e6bf21a217839b960809fcd1756bf461dff2c0397bb",
-      "size": 8047
+      "sha256": "a948ce4bb4407a607a375985ceaa0cf12fe38b9de67b7d27e1e09c3fa6563e45",
+      "size": 9826
     },
     {
       "path": "tests/test_install_transaction.py",
       "sha256": "8e4a418bc4d0ca78f860a9fafbb9b9a6aaedd758227b9031c1e641e69b7f38e7",
       "size": 72889
+    },
+    {
+      "path": "tests/test_project_artifact_instances.py",
+      "sha256": "4a973f957a394637d8497c1b20678f8525b3f1779c026f34af8e8c5f665ec4e4",
+      "size": 14345
     },
     {
       "path": "tests/test_public_install_docs.py",

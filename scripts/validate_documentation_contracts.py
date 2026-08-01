@@ -14,6 +14,18 @@ from typing import Any
 
 SOURCE_STATUSES = {"authoritative", "projection"}
 RELATIONSHIPS = {"canonical", "exact_mirror", "intentional_variant", "derived"}
+TRIGGER_KINDS = {"workflow_phase", "manual", "conditional"}
+WORKFLOW_PHASES = {
+    "0_route_scope",
+    "1_source_inventory",
+    "2_material_decisions",
+    "3_controlled_docs",
+    "4_tdd_alignment",
+    "5_repo_documentation",
+    "6_agent_instructions",
+    "7_handoff",
+    "8_final_validation",
+}
 REQUIRED_ARTIFACT_FIELDS = (
     "artifact_id",
     "family_id",
@@ -90,6 +102,71 @@ def _declared_file(repo_root: Path, raw_path: Any) -> tuple[Path | None, str | N
     return candidate, None
 
 
+def validate_artifact_trigger(trigger: Any, label: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(trigger, dict):
+        return [f"{label} must be a typed trigger object"]
+
+    trigger_id = trigger.get("trigger_id")
+    kind = trigger.get("kind")
+    if not _nonempty_string(trigger_id):
+        errors.append(f"{label}.trigger_id must be a non-empty string")
+    if kind not in TRIGGER_KINDS:
+        errors.append(f"{label}.kind is invalid: {kind!r}")
+        return errors
+
+    expected_fields = {
+        "workflow_phase": {"trigger_id", "kind", "phase"},
+        "manual": {"trigger_id", "kind"},
+        "conditional": {"trigger_id", "kind", "match", "predicates"},
+    }[str(kind)]
+    missing_fields = expected_fields - set(trigger)
+    unknown_fields = set(trigger) - expected_fields
+    for field in sorted(missing_fields):
+        errors.append(f"{label} is missing {field}")
+    for field in sorted(unknown_fields):
+        errors.append(f"{label} contains unsupported field {field}")
+
+    if kind == "workflow_phase":
+        phase = trigger.get("phase")
+        if phase not in WORKFLOW_PHASES:
+            errors.append(f"{label}.phase is invalid: {phase!r}")
+    elif kind == "conditional":
+        match = trigger.get("match")
+        if match not in {"any", "all"}:
+            errors.append(f"{label}.match must be any or all")
+
+        predicates = trigger.get("predicates")
+        if not isinstance(predicates, list) or not predicates:
+            errors.append(f"{label}.predicates must be a non-empty array")
+        else:
+            seen_facts: set[str] = set()
+            for index, predicate in enumerate(predicates):
+                predicate_label = f"{label}.predicates[{index}]"
+                if not isinstance(predicate, dict):
+                    errors.append(f"{predicate_label} must be an object")
+                    continue
+                predicate_fields = {"fact", "operator", "value"}
+                for field in sorted(predicate_fields - set(predicate)):
+                    errors.append(f"{predicate_label} is missing {field}")
+                for field in sorted(set(predicate) - predicate_fields):
+                    errors.append(f"{predicate_label} contains unsupported field {field}")
+
+                fact = predicate.get("fact")
+                if not _nonempty_string(fact):
+                    errors.append(f"{predicate_label}.fact must be a non-empty string")
+                elif str(fact) in seen_facts:
+                    errors.append(f"{label} contains duplicate predicate fact {fact}")
+                else:
+                    seen_facts.add(str(fact))
+                if predicate.get("operator") != "equals":
+                    errors.append(f"{predicate_label}.operator must be equals")
+                if not isinstance(predicate.get("value"), bool):
+                    errors.append(f"{predicate_label}.value must be Boolean")
+
+    return errors
+
+
 def validate_artifact_definitions(repo_root: Path, manifest: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     definitions = manifest.get("artifact_definitions")
@@ -105,6 +182,7 @@ def validate_artifact_definitions(repo_root: Path, manifest: dict[str, Any]) -> 
     by_path: dict[str, str] = {}
     families: dict[str, list[dict[str, Any]]] = defaultdict(list)
     resolved_paths: dict[str, Path] = {}
+    triggers_by_id: dict[str, dict[str, Any]] = {}
 
     for index, definition in enumerate(definitions):
         label = f"artifact_definitions[{index}]"
@@ -130,7 +208,6 @@ def validate_artifact_definitions(repo_root: Path, manifest: dict[str, Any]) -> 
             "source_status",
             "relationship",
             "owner",
-            "trigger",
             "generation_route",
         ):
             if field in definition and not _nonempty_string(definition.get(field)):
@@ -139,6 +216,18 @@ def validate_artifact_definitions(repo_root: Path, manifest: dict[str, Any]) -> 
         consumers = definition.get("consumers")
         if not isinstance(consumers, list) or not consumers or not all(_nonempty_string(item) for item in consumers):
             errors.append(f"{label}.consumers must be a non-empty array of strings")
+        elif len(consumers) != len(set(consumers)):
+            errors.append(f"{label}.consumers must not contain duplicates")
+
+        trigger = definition.get("trigger")
+        errors.extend(validate_artifact_trigger(trigger, f"{label}.trigger"))
+        if isinstance(trigger, dict) and _nonempty_string(trigger.get("trigger_id")):
+            trigger_id = str(trigger["trigger_id"])
+            existing_trigger = triggers_by_id.get(trigger_id)
+            if existing_trigger is None:
+                triggers_by_id[trigger_id] = trigger
+            elif existing_trigger != trigger:
+                errors.append(f"trigger_id {trigger_id} is reused with a conflicting definition")
 
         if source_status not in SOURCE_STATUSES:
             errors.append(f"{label}.source_status is invalid: {source_status!r}")

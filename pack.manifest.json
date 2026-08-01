@@ -29,8 +29,10 @@
     "anti_loop_human_disposition_verifier": "scripts/agent/case_human_disposition_verifier.py",
     "universal_policy": "universal/AGENTS.automation-case-policy.md",
     "merge_authority_rule": "universal/rules/gh-pr-merge-authority.rules",
+    "artifact_instance_contract": "pack.manifest.json#artifact_contract_version",
     "artifact_definitions": "pack.manifest.json#artifact_definitions"
   },
+  "artifact_contract_version": "1.1",
   "artifact_definitions": [
     {
       "artifact_id": "template.repo-docs.full",
@@ -44,7 +46,11 @@
         "technical-docs-pack:full-pack",
         "new-project-documentation-system:phase-5"
       ],
-      "trigger": "full_repo_documentation",
+      "trigger": {
+        "trigger_id": "full_repo_documentation",
+        "kind": "workflow_phase",
+        "phase": "5_repo_documentation"
+      },
       "generation_route": "technical-docs-pack"
     },
     {
@@ -58,7 +64,10 @@
       "consumers": [
         "installed-pack:manual-template"
       ],
-      "trigger": "manual_repo_documentation",
+      "trigger": {
+        "trigger_id": "manual_repo_documentation",
+        "kind": "manual"
+      },
       "generation_route": "copy_from_canonical",
       "canonical_artifact_id": "template.repo-docs.full"
     },
@@ -73,7 +82,11 @@
       "consumers": [
         "new-project-documentation-system:phase-3"
       ],
-      "trigger": "project_brief_required",
+      "trigger": {
+        "trigger_id": "project_brief_required",
+        "kind": "workflow_phase",
+        "phase": "3_controlled_docs"
+      },
       "generation_route": "new-project-documentation-system"
     },
     {
@@ -87,7 +100,10 @@
       "consumers": [
         "installed-pack:manual-template"
       ],
-      "trigger": "manual_project_brief",
+      "trigger": {
+        "trigger_id": "manual_project_brief",
+        "kind": "manual"
+      },
       "generation_route": "copy_from_canonical",
       "canonical_artifact_id": "template.project-brief.full-run"
     },
@@ -102,7 +118,11 @@
       "consumers": [
         "new-project-documentation-system:phase-6"
       ],
-      "trigger": "full_run_agent_instruction_layer",
+      "trigger": {
+        "trigger_id": "full_run_agent_instruction_layer",
+        "kind": "workflow_phase",
+        "phase": "6_agent_instructions"
+      },
       "generation_route": "new-project-documentation-system"
     },
     {
@@ -116,7 +136,10 @@
       "consumers": [
         "installed-pack:standalone-project-setup"
       ],
-      "trigger": "standalone_agent_setup",
+      "trigger": {
+        "trigger_id": "standalone_agent_setup",
+        "kind": "manual"
+      },
       "generation_route": "manual_template_selection",
       "canonical_artifact_id": "template.root-agents.full-run",
       "variant_reason": "The standalone template includes the complete repository operating layer, while the full-run asset is generated inside an already controlled project."
@@ -132,7 +155,11 @@
       "consumers": [
         "new-project-documentation-system:phase-6"
       ],
-      "trigger": "full_run_scoped_instruction_layer",
+      "trigger": {
+        "trigger_id": "full_run_scoped_instruction_layer",
+        "kind": "workflow_phase",
+        "phase": "6_agent_instructions"
+      },
       "generation_route": "new-project-documentation-system"
     },
     {
@@ -146,7 +173,10 @@
       "consumers": [
         "installed-pack:standalone-folder-setup"
       ],
-      "trigger": "standalone_scoped_agent_setup",
+      "trigger": {
+        "trigger_id": "standalone_scoped_agent_setup",
+        "kind": "manual"
+      },
       "generation_route": "manual_template_selection",
       "canonical_artifact_id": "template.scoped-agents.full-run",
       "variant_reason": "The standalone template captures detailed folder setup fields, while the full-run asset supplies a minimal generated instruction layer."
@@ -162,7 +192,11 @@
       "consumers": [
         "new-project-documentation-system:phase-6"
       ],
-      "trigger": "full_run_claude_entrypoint",
+      "trigger": {
+        "trigger_id": "full_run_claude_entrypoint",
+        "kind": "workflow_phase",
+        "phase": "6_agent_instructions"
+      },
       "generation_route": "new-project-documentation-system"
     },
     {
@@ -176,7 +210,10 @@
       "consumers": [
         "installed-pack:standalone-project-setup"
       ],
-      "trigger": "standalone_claude_entrypoint",
+      "trigger": {
+        "trigger_id": "standalone_claude_entrypoint",
+        "kind": "manual"
+      },
       "generation_route": "manual_template_selection",
       "canonical_artifact_id": "template.claude-entry.full-run",
       "variant_reason": "The standalone entrypoint includes editable handoff fields, while the full-run asset routes directly through generated project controls."
@@ -192,7 +229,11 @@
       "consumers": [
         "new-project-documentation-system:phase-7"
       ],
-      "trigger": "project_setup_handoff",
+      "trigger": {
+        "trigger_id": "project_setup_handoff",
+        "kind": "workflow_phase",
+        "phase": "7_handoff"
+      },
       "generation_route": "new-project-documentation-system"
     },
     {
@@ -206,10 +247,116 @@
       "consumers": [
         "installed-pack:manual-session-handoff"
       ],
-      "trigger": "session_boundary_handoff",
+      "trigger": {
+        "trigger_id": "session_boundary_handoff",
+        "kind": "manual"
+      },
       "generation_route": "manual_template_selection",
       "canonical_artifact_id": "template.handoff.project-setup",
       "variant_reason": "The project-setup handoff closes documentation setup, while the session-boundary template records an implementation or review transition."
+    },
+    {
+      "artifact_id": "template.content-guidelines.full-run",
+      "family_id": "template.content-guidelines",
+      "artifact_type": "template",
+      "path": ".agents/skills/technical-docs-pack/references/content-guidelines-template.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "technical-docs-pack",
+      "consumers": [
+        "technical-docs-pack:conditional-pack",
+        "new-project-documentation-system:phase-5"
+      ],
+      "trigger": {
+        "trigger_id": "content_guidelines_required",
+        "kind": "conditional",
+        "match": "any",
+        "predicates": [
+          {
+            "fact": "product.substantial_user_facing_copy",
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "fact": "product.localization",
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "fact": "product.generated_content",
+            "operator": "equals",
+            "value": true
+          }
+        ]
+      },
+      "generation_route": "technical-docs-pack"
+    },
+    {
+      "artifact_id": "template.search-documentation.full-run",
+      "family_id": "template.search-documentation",
+      "artifact_type": "template",
+      "path": ".agents/skills/technical-docs-pack/references/search-documentation-template.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "technical-docs-pack",
+      "consumers": [
+        "technical-docs-pack:conditional-pack",
+        "new-project-documentation-system:phase-5"
+      ],
+      "trigger": {
+        "trigger_id": "public_search_documentation_required",
+        "kind": "conditional",
+        "match": "all",
+        "predicates": [
+          {
+            "fact": "product.public_indexable_surfaces",
+            "operator": "equals",
+            "value": true
+          }
+        ]
+      },
+      "generation_route": "technical-docs-pack"
+    },
+    {
+      "artifact_id": "template.module-contract.full-run",
+      "family_id": "template.module-contract",
+      "artifact_type": "template",
+      "path": ".agents/skills/technical-docs-pack/references/module-contract-template.md",
+      "source_status": "authoritative",
+      "relationship": "canonical",
+      "owner": "technical-docs-pack",
+      "consumers": [
+        "technical-docs-pack:conditional-pack",
+        "new-project-documentation-system:phase-5"
+      ],
+      "trigger": {
+        "trigger_id": "module_contracts_required",
+        "kind": "conditional",
+        "match": "any",
+        "predicates": [
+          {
+            "fact": "architecture.stable_interfaces",
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "fact": "architecture.independent_module_lifecycles",
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "fact": "architecture.meaningful_module_dependencies",
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "fact": "architecture.material_module_failure_behavior",
+            "operator": "equals",
+            "value": true
+          }
+        ]
+      },
+      "generation_route": "technical-docs-pack"
     }
   ],
   "required_files": [
@@ -254,6 +401,9 @@
     "docs/component-classification.md",
     "docs/publishing-checklist.md",
     ".agents/skills/technical-docs-pack/references/repo-docs-template.md",
+    ".agents/skills/technical-docs-pack/references/content-guidelines-template.md",
+    ".agents/skills/technical-docs-pack/references/search-documentation-template.md",
+    ".agents/skills/technical-docs-pack/references/module-contract-template.md",
     ".agents/skills/new-project-documentation-system/assets/project-brief-template.md",
     ".agents/skills/new-project-documentation-system/assets/AGENTS.md",
     ".agents/skills/new-project-documentation-system/assets/scoped-AGENTS.md",
@@ -304,6 +454,7 @@
     "scripts/apply-external-skill-overlays.ps1",
     "scripts/package.ps1",
     "scripts/release-safety-scan.ps1",
+    "scripts/json-schema-validation.ps1",
     "scripts/validate_documentation_contracts.py",
     "scripts/validate-pack.ps1",
     "scripts/validate-links.ps1",
@@ -316,6 +467,8 @@
     "tests/install-uninstall-smoke.ps1",
     "tests/install-uninstall-smoke.sh",
     "tests/install-transaction-faults.ps1",
+    "tests/json-schema-validation-smoke.ps1",
+    "tests/fixtures/pack.manifest.invalid-schema.json",
     "tests/workflow-gates-smoke.py",
     "tests/worktree-lanes-smoke.py",
     "tests/test_case_state_engine.py",
@@ -328,6 +481,7 @@
     "tests/test_anti_loop_runtime_hook.py",
     "tests/test_activate_anti_loop.py",
     "tests/test_documentation_contracts.py",
+    "tests/test_project_artifact_instances.py",
     "tests/test_public_install_docs.py",
     "tests/runtime_actor_test_support.py",
     "tests/test_source_repository_profile.py",

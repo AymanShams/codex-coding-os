@@ -123,6 +123,23 @@ Use this reference when the user requests a complete file-by-file technical docu
       cost-management.md
 ```
 
+## Conditional Project-Specific Artifacts
+
+Evaluate these artifacts in `project-documentation-manifest.json` before the
+repository-documentation phase advances. The manifest instance must reference
+the canonical `artifact_id` from `pack.manifest.json`, record complete trigger
+evidence, and keep the output absent when the trigger is false.
+
+| Output | Create only when | Canonical artifact |
+|---|---|---|
+| `docs/product/content-guidelines.md` | Substantial user-facing copy, localization, or generated user-facing content exists. | `template.content-guidelines.full-run` |
+| `docs/product/search-surfaces.md` | A public, intentionally indexable surface exists. | `template.search-documentation.full-run` |
+| `docs/architecture/module-contracts.md` | A module has a stable interface, independent lifecycle, meaningful dependency, or material failure behavior. | `template.module-contract.full-run` |
+
+Use the registered canonical templates for the selected outputs. Tailor their
+content to real project surfaces and modules. Do not create any of these files
+from a screenshot filename, generic checklist, or directory name alone.
+
 ## Governance Rules
 
 ### Definition of Done for Every PR
@@ -387,7 +404,7 @@ What did we decide?
 
 ### Understand
 - System context exists.
-- Container or module architecture exists.
+- Container architecture exists. Module contracts exist only for modules that meet at least one typed qualification condition.
 - Core workflows have sequence diagrams or equivalent explanations.
 - ADRs exist for major decisions.
 
