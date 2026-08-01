@@ -76,6 +76,16 @@ foreach ($Property in $Manifest.source_of_truth.PSObject.Properties) {
   }
 }
 
+$DocumentationContractValidator = Join-Path $RepoRoot "scripts\validate_documentation_contracts.py"
+if (-not (Test-Path $DocumentationContractValidator -PathType Leaf)) {
+  $Errors += "Missing documentation contract validator."
+} else {
+  & python -B $DocumentationContractValidator --repo-root $RepoRoot
+  if ($LASTEXITCODE -ne 0) {
+    $Errors += "Documentation contract validation failed."
+  }
+}
+
 foreach ($Path in $Manifest.support_items) {
   $Full = Join-Path $RepoRoot (Convert-PackPath ([string]$Path))
   if (-not (Test-Path $Full)) {

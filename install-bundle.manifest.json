@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "9d1cdc42c95725a9e6aa615211cd69e9b845fd1d4fa89f4507ce2dd9fe72ca86",
+  "aggregate_sha256": "218f4b76f43ead90520ac2b0df9fb292a8bef77d28cf2feb4714119a4056d532",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -393,8 +393,8 @@
     },
     {
       "path": ".agents/skills/new-project-documentation-system/references/template-ownership-and-output-contracts.md",
-      "sha256": "6b1a14dc0eff41678aec91e2591a99fe8648cbaaf4f38136a084e861dc03d27e",
-      "size": 3283
+      "sha256": "94a0af72dcecc64e4158388b169431365b42374f8bd858ae388e399171af8ef9",
+      "size": 6121
     },
     {
       "path": ".agents/skills/new-project-documentation-system/references/validation-gates.md",
@@ -2138,13 +2138,13 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "ab6725d5c51f1ccfe7b6153fb18b83f7fa02cb0dbbff3fd54e7616551e88ebc6",
-      "size": 4633
+      "sha256": "5bb1e4b327143f7b6a4403b5ab01f910bb1abb82619a406dc9196cc609f60b40",
+      "size": 4905
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "2bb04b5a0737412886fb8fabfee4d33d5109787a683765af525fe651a600069d",
-      "size": 15651
+      "sha256": "eb88f1cef401ad0c642b8ca84499584ebc0213ac5249021402ffde283b9a9d63",
+      "size": 16241
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2168,8 +2168,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "95ec89bc1921efc9a34d97fbebc52085e12660624b304218c0fadabb5e7dc2b9",
-      "size": 47572
+      "sha256": "e677db8b016691e726a47144b7dc257269147566b43a840e101259ec82d95d80",
+      "size": 41725
     },
     {
       "path": "SECURITY.md",
@@ -2283,8 +2283,8 @@
     },
     {
       "path": "docs/publishing-checklist.md",
-      "sha256": "11d2c60cd2f07418a19b6e609f46d07eebce1d392d5c18812b6103792f8ed2b0",
-      "size": 2773
+      "sha256": "d41e181203593a223a9cd649190a2cc5cdb65adc74aa79e1876186a1713e4f8c",
+      "size": 3371
     },
     {
       "path": "docs/review-doctrine.md",
@@ -2358,13 +2358,13 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "1b21587032e1cba9a4a3eed34dd8df8fcabc14621cc0ca99a91969358af19ce9",
-      "size": 13601
+      "sha256": "a244847d3474944a221b41beea8b419298fbeaa4fda1507229eeaa0657f08c41",
+      "size": 21643
     },
     {
       "path": "pack.schema.json",
-      "sha256": "0ef885f96b85385a395ef1d4305657289e5df00ebd68ad2cb75c82cf3b076107",
-      "size": 3793
+      "sha256": "9be9a6d09f20bc94d7178c795412fc5ac4fd9b17785f2e5e3f62d81354024cc4",
+      "size": 5867
     },
     {
       "path": "patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md",
@@ -2483,8 +2483,13 @@
     },
     {
       "path": "scripts/validate-pack.ps1",
-      "sha256": "68f7601a4dfbda8c1590034fd40b7fa452060608d574b61d9957b7e1cf4a9451",
-      "size": 12394
+      "sha256": "270729ee7b880c55a563e7406ed94c8de17f37bd052aebe4532045051e6b19bf",
+      "size": 12794
+    },
+    {
+      "path": "scripts/validate_documentation_contracts.py",
+      "sha256": "1ba1bee5f408104854dd51900608611d2ee9b381bc500682e33c08caf55bcc13",
+      "size": 12706
     },
     {
       "path": "templates/CLAUDE.md",
@@ -2553,8 +2558,8 @@
     },
     {
       "path": "templates/project-brief.md",
-      "sha256": "f42e2473648bef0db754a6ea5ee8ee05389f066625aa1ae4082777f7fcd6ea54",
-      "size": 1024
+      "sha256": "fcc64b0a865245c3b3d884a9a7d1c4e02823ec0eafcda5063e8658dc428f60de",
+      "size": 753
     },
     {
       "path": "templates/repo-AGENTS.md",
@@ -2563,8 +2568,8 @@
     },
     {
       "path": "templates/repo-docs-template.md",
-      "sha256": "a9472a09c68a78caf79148886bbd3f7d9fc98bcb8cc38aad861c291d9824beea",
-      "size": 7802
+      "sha256": "5376da068f33265a86566058849039cdba6a286b881f171ff025c2214c2ae74e",
+      "size": 7842
     },
     {
       "path": "templates/review-checklist.md",
@@ -2677,14 +2682,19 @@
       "size": 153865
     },
     {
+      "path": "tests/test_documentation_contracts.py",
+      "sha256": "4517b8289d7d80368ccf7e6bf21a217839b960809fcd1756bf461dff2c0397bb",
+      "size": 8047
+    },
+    {
       "path": "tests/test_install_transaction.py",
       "sha256": "8e4a418bc4d0ca78f860a9fafbb9b9a6aaedd758227b9031c1e641e69b7f38e7",
       "size": 72889
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "701fc6b6e82ffd5298684e087efb3d279f2de4dd74b460926d4418ef14468b95",
-      "size": 6778
+      "sha256": "16cb60a36b449fe903b70f4ebbd4b0a96fd819404d9c5f73bfc455dbd100f74e",
+      "size": 8829
     },
     {
       "path": "tests/test_reentry_summary.py",
