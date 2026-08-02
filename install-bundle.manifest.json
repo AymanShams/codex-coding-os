@@ -1,10 +1,10 @@
 {
-  "aggregate_sha256": "8dd8208a536c78adc23bc5db10c4e46a33db9e4ad0e398dc0e38e43de4844c02",
+  "aggregate_sha256": "928798d25692fb18ee21b1962d999229c516f9562f70f74cf81fe371aac304f3",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
-      "sha256": "2f32263b5a99829d05bc2cf3ffb1332f675b136d3c90a432990fb925cddbd83f",
-      "size": 16725
+      "sha256": "e281c818d6165d4af228f0fbea2125b2f9688cd52f84c3fd30cbc679b2b0feca",
+      "size": 17726
     },
     {
       "path": ".agents/skills/artifact-system-designer/SKILL.md",
@@ -203,8 +203,8 @@
     },
     {
       "path": ".agents/skills/defensive-security-checklist/SKILL.md",
-      "sha256": "ab987665e3927d7a39c4a519601ece900dd017149c9befde6387727f96522b44",
-      "size": 5744
+      "sha256": "4857bf8167700e676cada8fe596d56532db4ec349a9e9c94140052c8cbbae23d",
+      "size": 5919
     },
     {
       "path": ".agents/skills/defensive-security-checklist/agents/openai.yaml",
@@ -212,9 +212,14 @@
       "size": 255
     },
     {
+      "path": ".agents/skills/defensive-security-checklist/references/conditional-surface-overlays.md",
+      "sha256": "7857dd427cb7191b13df53e975f14629bfbfb887592ec49074d9e2c8b2a60f84",
+      "size": 2240
+    },
+    {
       "path": ".agents/skills/defensive-security-checklist/references/defensive-checklist-taxonomy.md",
-      "sha256": "8306ea49ca8e76ada5753cde0ec360904d8ef69fda57358421bc92a6e90d17f6",
-      "size": 8070
+      "sha256": "1d81e472515eed349c94205fba81ed89bfc44da84d91d3a6a60d0c7887050da0",
+      "size": 8267
     },
     {
       "path": ".agents/skills/doc/LICENSE.txt",
@@ -1128,8 +1133,8 @@
     },
     {
       "path": ".agents/skills/security-best-practices/SKILL.md",
-      "sha256": "7890efcfe39f5aa4bd7bb9abc0a9bbc5f15a8c9ebb2a087fb89997c57d93470c",
-      "size": 9417
+      "sha256": "44d31488716a11e65a3fbf7c281c15cef8f40f1c88bb94adcd956cb8d5f00127",
+      "size": 10084
     },
     {
       "path": ".agents/skills/security-best-practices/agents/openai.yaml",
@@ -1233,8 +1238,8 @@
     },
     {
       "path": ".agents/skills/security-threat-model/SKILL.md",
-      "sha256": "6840346fb838f0154a0e1880d528e6754fa437d0a9036efcc16a3b8eeefff1bf",
-      "size": 6157
+      "sha256": "b56b4ab545618dae8b0e5e98ff3422e0fb8259a060f870c23095816eff49adc8",
+      "size": 6514
     },
     {
       "path": ".agents/skills/security-threat-model/agents/openai.yaml",
@@ -2158,8 +2163,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "eb88f1cef401ad0c642b8ca84499584ebc0213ac5249021402ffde283b9a9d63",
-      "size": 16241
+      "sha256": "d470aa01a8a870c2fc4ee5e363ae2f7d4360375f59ad7140b9698b1643ef4bfc",
+      "size": 16479
     },
     {
       "path": "COMMERCIAL-USE.md",

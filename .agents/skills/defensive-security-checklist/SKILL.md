@@ -75,7 +75,7 @@ Do not provide:
    - If a source file, repo, architecture, or artifact is available, ground the checklist in that evidence. If not, label assumptions.
 
 2. **Load reference details only if needed**
-   - For a normal checklist, read `references/defensive-checklist-taxonomy.md`.
+   - For a normal checklist, read `references/defensive-checklist-taxonomy.md`. If a storage, payment, metered-work, credential-response, recovery, or managed-platform surface is evidenced in scope, also read `references/conditional-surface-overlays.md`.
    - For a narrow code-security review, route to `security-best-practices` instead of loading this reference.
 
 3. **Separate facts from assumptions**

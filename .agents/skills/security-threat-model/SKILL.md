@@ -29,6 +29,7 @@ Deliver an actionable AppSec-grade threat model that is specific to the reposito
 - Enumerate trust boundaries as concrete edges between components, noting protocol, auth, encryption, validation, and rate limiting.
 - List assets that drive risk (data, credentials, models, config, compute resources, audit logs).
 - Identify entry points (endpoints, upload surfaces, parsers/decoders, job triggers, admin tooling, logging/error sinks).
+- When AI tools or agents exist, model `untrusted input -> model -> tool -> external effect` as separate trust boundaries. Do not collapse those stages into one component.
 
 ### 3) Calibrate assets and attacker capabilities
 - List the assets that drive risk (credentials, PII, integrity-critical state, availability-critical components, build artifacts).
@@ -57,6 +58,7 @@ Deliver an actionable AppSec-grade threat model that is specific to the reposito
 - Tie mitigations to concrete locations (component, boundary, or entry point) and control types (authZ checks, input validation, schema enforcement, sandboxing, rate limits, secrets isolation, audit logging).
 - Prefer specific implementation hints over generic advice (e.g., "enforce schema at gateway for upload payloads" vs "validate inputs").
 - Base recommendations on validated user context; if assumptions remain unresolved, mark recommendations as conditional.
+- Require each tool to independently enforce actor, scope, parameters, and current state at its authoritative boundary. Model instructions or upstream validation are not authorization.
 
 ### 8) Run a quality check before finalizing
 - Confirm all discovered entrypoints are covered.

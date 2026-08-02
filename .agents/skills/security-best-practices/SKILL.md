@@ -53,6 +53,8 @@ The report should be clearly delineated into multiple sections based on severity
 
 For critical findings include a one sentence impact statement.
 
+For every finding, record the entry point, missing or bypassable control, reachable operation, impact, counterevidence or proof gap, disposition, and verification step. A keyword, configuration, or dependency match is a lead, not proof. Mark a finding confirmed only when the entry point, missing or bypassable control, reachable operation, and impact are supported by evidence.
+
 Once the report is written, also report it to the user directly, although you may be less verbose. You can offer to explain any of the findings or the reasons behind the security best practices guidance if the user wants more info on any findings.
 
 Important: When referencing code in the report, make sure to find and include line numbers for the code you are referencing.
@@ -82,6 +84,8 @@ Below is a few bits of secure coding advice that applies to almost any language 
 ### Avoid Using Incrementing IDs for Public IDs of Resources
 
 When assigning an ID for some resource, which will then be used by exposed to the internet, avoid using small auto-incrementing IDs. Use longer, random UUID4 or random hex string instead. This will prevent users from learning the quantity of a resource and being able to guess resource IDs.
+
+Opaque public identifiers reduce enumeration. They never authorize a caller. At the authoritative boundary, every protected operation must enforce the actor, action, resource, applicable scope, allowed writable fields, and required state. Verify both authorized and unauthorized paths.
 
 ### A note on TLS
 

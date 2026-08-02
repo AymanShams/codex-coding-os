@@ -2,6 +2,8 @@
 
 Use this reference to build authorized defensive security checklists. Keep output grounded in the user's system, evidence, and authorization limits.
 
+For storage, payment, metered-work, credential-response, recovery, or managed-platform surfaces, also load `conditional-surface-overlays.md`. Do not apply those checks when the surface is absent.
+
 ## 1. Authorization And Scope
 
 Required checks:
