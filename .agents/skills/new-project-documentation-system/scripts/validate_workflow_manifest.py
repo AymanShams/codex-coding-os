@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path, PurePosixPath
@@ -62,6 +63,40 @@ LINEAGE_FIELDS = {
 TRIGGER_EVIDENCE_FIELDS = {"fact", "value", "evidence"}
 SUPPORTED_ARTIFACT_CONTRACT_VERSION = "1.1"
 PROJECT_DOCUMENTATION_CONSUMER = "new-project-documentation-system:phase-5"
+
+
+def resolve_pack_manifest_path(
+    explicit_path: Path | None,
+    *,
+    script_path: Path = Path(__file__),
+    home: Path | None = None,
+    codex_home: str | None = None,
+) -> Path:
+    """Resolve the pack manifest in source and transactional install layouts."""
+    if explicit_path is not None:
+        return explicit_path.expanduser().resolve()
+
+    resolved_script = script_path.expanduser().resolve()
+    resolved_home = (home or Path.home()).expanduser().resolve()
+    candidates = [resolved_script.parents[4] / "pack.manifest.json"]
+    if codex_home:
+        candidates.append(Path(codex_home).expanduser().resolve() / "coding-os" / "pack.manifest.json")
+    candidates.extend(
+        [
+            resolved_script.parents[3] / "coding-os" / "pack.manifest.json",
+            resolved_home / ".codex" / "coding-os" / "pack.manifest.json",
+        ]
+    )
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.is_file():
+            return resolved
+    return candidates[0].resolve()
 
 
 def fail(errors: list[str], message: str) -> None:
@@ -490,8 +525,10 @@ def main() -> int:
     pack_manifest: dict[str, Any] | None = None
     pack_errors: list[str] = []
     if data.get("schema_version") == "1.1" or "artifact_instances" in data:
-        default_pack_path = Path(__file__).resolve().parents[4] / "pack.manifest.json"
-        pack_path = (args.pack_manifest or default_pack_path).resolve()
+        pack_path = resolve_pack_manifest_path(
+            args.pack_manifest,
+            codex_home=os.environ.get("CODEX_HOME"),
+        )
         try:
             loaded_pack = json.loads(pack_path.read_text(encoding="utf-8"))
             if not isinstance(loaded_pack, dict):

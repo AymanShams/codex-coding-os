@@ -83,6 +83,76 @@ class ProjectArtifactInstanceTests(unittest.TestCase):
             project_root=self.project,
         )
 
+    def test_pack_manifest_resolver_finds_source_checkout(self) -> None:
+        resolved = VALIDATOR.resolve_pack_manifest_path(
+            None,
+            script_path=VALIDATOR_PATH,
+            home=self.project,
+        )
+        self.assertEqual(PACK_PATH.resolve(), resolved)
+
+    def test_pack_manifest_resolver_finds_legacy_installed_support_root(self) -> None:
+        codex_home = self.project / ".codex"
+        script_path = (
+            codex_home
+            / "skills"
+            / "new-project-documentation-system"
+            / "scripts"
+            / "validate_workflow_manifest.py"
+        )
+        pack_path = codex_home / "coding-os" / "pack.manifest.json"
+        pack_path.parent.mkdir(parents=True)
+        pack_path.write_text("{}\n", encoding="utf-8")
+
+        resolved = VALIDATOR.resolve_pack_manifest_path(
+            None,
+            script_path=script_path,
+            home=self.project,
+        )
+        self.assertEqual(pack_path.resolve(), resolved)
+
+    def test_pack_manifest_resolver_finds_default_installed_support_root(self) -> None:
+        script_path = (
+            self.project
+            / ".agents"
+            / "skills"
+            / "new-project-documentation-system"
+            / "scripts"
+            / "validate_workflow_manifest.py"
+        )
+        pack_path = self.project / ".codex" / "coding-os" / "pack.manifest.json"
+        pack_path.parent.mkdir(parents=True)
+        pack_path.write_text("{}\n", encoding="utf-8")
+
+        resolved = VALIDATOR.resolve_pack_manifest_path(
+            None,
+            script_path=script_path,
+            home=self.project,
+        )
+        self.assertEqual(pack_path.resolve(), resolved)
+
+    def test_pack_manifest_resolver_honors_custom_codex_home(self) -> None:
+        custom_codex_home = self.project / "custom-codex"
+        pack_path = custom_codex_home / "coding-os" / "pack.manifest.json"
+        pack_path.parent.mkdir(parents=True)
+        pack_path.write_text("{}\n", encoding="utf-8")
+        script_path = (
+            self.project
+            / ".agents"
+            / "skills"
+            / "new-project-documentation-system"
+            / "scripts"
+            / "validate_workflow_manifest.py"
+        )
+
+        resolved = VALIDATOR.resolve_pack_manifest_path(
+            None,
+            script_path=script_path,
+            home=self.project,
+            codex_home=str(custom_codex_home),
+        )
+        self.assertEqual(pack_path.resolve(), resolved)
+
     def test_fresh_version_1_1_template_passes_before_phase_five(self) -> None:
         self.assertEqual([], self.errors(fresh_manifest()))
 

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "2eab1915c7ed29284b2ea94cb588c60684ba713c2dc6c73bfdf94c0300b98e6b",
+  "aggregate_sha256": "8dd8208a536c78adc23bc5db10c4e46a33db9e4ad0e398dc0e38e43de4844c02",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -323,8 +323,8 @@
     },
     {
       "path": ".agents/skills/new-project-documentation-system/SKILL.md",
-      "sha256": "51a675acae3e71719008cfff62ac8f50d184a8ad2763335b25c6571d8c9df200",
-      "size": 10663
+      "sha256": "87bd71132e9c33602fa17baba3fdd37b3d7ba0fd157a7a2759930e3765f951e9",
+      "size": 10966
     },
     {
       "path": ".agents/skills/new-project-documentation-system/agents/openai.yaml",
@@ -413,8 +413,8 @@
     },
     {
       "path": ".agents/skills/new-project-documentation-system/scripts/validate_workflow_manifest.py",
-      "sha256": "64440f1392ad9a33a31bace2ea9b5238349f5c392f9330ed03501bfa14b1954e",
-      "size": 21955
+      "sha256": "b6ad61150c6d2b733e13bd41048fc11a9bb3efb7b90076b54e41a04a6a1365e0",
+      "size": 23093
     },
     {
       "path": ".agents/skills/pdf/LICENSE.txt",
@@ -2723,8 +2723,8 @@
     },
     {
       "path": "tests/test_project_artifact_instances.py",
-      "sha256": "4a973f957a394637d8497c1b20678f8525b3f1779c026f34af8e8c5f665ec4e4",
-      "size": 14345
+      "sha256": "ec1ef88bc187625249c90b5bcacc045261411e077e91a9aa90fbbc7f55deead8",
+      "size": 16838
     },
     {
       "path": "tests/test_public_install_docs.py",

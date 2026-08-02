@@ -41,6 +41,11 @@ Run `scripts/validate_workflow_manifest.py <manifest-path>`:
 - before saying repo documentation or handoff is complete
 - before saying coding is the next step
 
+The validator resolves `pack.manifest.json` from a source checkout, an installed
+`$CODEX_HOME/coding-os` support root, or the default `$HOME/.codex/coding-os`
+support root. For a custom install whose Codex home is not exported, pass
+`--pack-manifest <path-to-coding-os/pack.manifest.json>` explicitly.
+
 These validator commands are invoked checks, not an always-on edit interceptor.
 The policy requires agents to run them at the declared gates. A passing result
 proves only the contract evaluated by that command at that time.
