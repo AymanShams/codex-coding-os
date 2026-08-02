@@ -2,7 +2,7 @@
 
 ## Ownership Rule
 
-Keep one authoritative owner for each detailed template. The orchestrator enforces sequence and completeness, not duplicate wording.
+Keep one authoritative owner for each detailed template. The orchestrator sequences the work and requires declared evidence. Validator commands check the machine-readable contracts at the gates where they are invoked.
 
 | Output | Template or method owner | Orchestrator responsibility |
 |---|---|---|
@@ -17,7 +17,10 @@ Keep one authoritative owner for each detailed template. The orchestrator enforc
 | Implementation plan | `wbs-artifact-planner` | Ensure dependencies, milestones, exit criteria, validation, and first vertical slice |
 | TDD | `wbs-artifact-planner` plus `technical-docs-pack` | Ensure it is source-locked and aligned |
 | Alignment review | This skill asset | Record keep/correct/reject/defer decisions and drift |
-| Full repo docs | `technical-docs-pack/references/repo-docs-template.md` | Enforce stage fit and coverage |
+| Full repo docs | `technical-docs-pack/references/repo-docs-template.md` | Require stage fit and coverage, then invoke the declared validation checks |
+| Content guidelines | `technical-docs-pack/references/content-guidelines-template.md` | Select only when substantial copy, localization, or generated content makes the typed trigger true |
+| Public search surfaces | `technical-docs-pack/references/search-documentation-template.md` | Select only when a public indexable surface makes the typed trigger true |
+| Module contracts | `technical-docs-pack/references/module-contract-template.md` | Select only when a stable interface, independent lifecycle, meaningful dependency, or material failure behavior makes the typed trigger true |
 | Validation report | `artifact-validation-workflow` | Require pass/fail verdict and exact blockers |
 | Current state, active-slice manifest, and session handoff | `project-session-continuity` | Keep coordination subordinate to the workflow manifest, active-slice manifest, and controlling docs |
 
@@ -30,7 +33,7 @@ itself establish whether two files are mirrors or variants.
 | Relationship | Required behavior |
 |---|---|
 | Canonical | One authoritative artifact owns the family contract. |
-| Exact mirror | The mirror has the same owner and must remain byte-identical to the canonical artifact. |
+| Exact mirror | The mirror has the same owner. Documentation-contract validation rejects byte drift when it is invoked, including in pack CI. |
 | Intentional variant | The variant has a distinct consumer or trigger and records why it differs. |
 | Derived | The artifact is a projection and records its canonical source and generation route. |
 
@@ -44,6 +47,9 @@ The audited template families are classified as follows:
 | Scoped agent instructions | `assets/scoped-AGENTS.md` in this skill | `templates/scoped-AGENTS.md` is a standalone intentional variant. |
 | Claude entrypoint | `assets/CLAUDE.md` in this skill | `templates/CLAUDE.md` is a standalone intentional variant. |
 | Handoff | `assets/history-handoff-template.md` in this skill | `templates/handoff-note.md` is a session-boundary intentional variant owned by `project-session-continuity`. |
+| Content guidelines | `technical-docs-pack/references/content-guidelines-template.md` | Canonical conditional artifact with no distributed variant. |
+| Public search surfaces | `technical-docs-pack/references/search-documentation-template.md` | Canonical conditional artifact with no distributed variant. |
+| Module contracts | `technical-docs-pack/references/module-contract-template.md` | Canonical conditional artifact with no distributed variant. |
 
 Maintenance rules:
 
@@ -52,12 +58,43 @@ Maintenance rules:
 3. Register a new family member before a workflow or public template consumes it.
 4. Keep each registered path in `pack.manifest.json#required_files`.
 5. Run `python tests/test_documentation_contracts.py` after changing a registered artifact.
+6. Treat policy instructions as agent obligations and validator results as invoked checks. Do not describe either as an always-on edit interceptor.
+
+## Project Artifact Instances
+
+`pack.manifest.json#artifact_definitions` remains the only artifact registry.
+It owns template identity, canonical paths, owners, consumers, typed triggers,
+and generation routes. `artifact_contract_version` identifies the pack contract
+that version 1.1 project manifests can consume. Do not copy those fields into a
+separate registry.
+
+Version 1.1 of `project-documentation-manifest.json` records target-project
+instances only. Each instance references one pack `artifact_id`, names its
+target output, records trigger evidence and lifecycle status, and keeps lineage
+evidence for the controlling sources, selection decision, generation, and
+validation. The workflow-manifest validator cross-references the pack
+definition and evaluates conditional predicates when that command is invoked.
+
+The canonical conditional artifacts are:
+
+| Artifact | Match rule | Typed facts |
+|---|---|---|
+| Content guidelines | Any | `product.substantial_user_facing_copy`, `product.localization`, `product.generated_content` |
+| Public search surfaces | All | `product.public_indexable_surfaces` |
+| Module contracts | Any | `architecture.stable_interfaces`, `architecture.independent_module_lifecycles`, `architecture.meaningful_module_dependencies`, `architecture.material_module_failure_behavior` |
+
+When workflow-manifest validation is invoked before repository documentation
+advances, it rejects incomplete Boolean evidence for declared facts. A false
+trigger keeps the output absent. A true trigger must be generated before the
+repository-documentation phase is approved or completed and validated before
+final validation is approved or completed, unless the repository-documentation
+phase is explicitly deferred with recorded decision evidence.
 
 ## Artifact Contract Decision
 
 | Decision | Alternatives rejected | Reason | Owner | Approver | Revisit trigger | Evidence test | Status | Authority source |
 |---|---|---|---|---|---|---|---|---|
-| Extend the pack manifest with typed artifact definitions and deterministic validation. | Filename convention alone. A separate registry file. Universal byte equality for all similar templates. | Existing manifests already own pack identity. Typed relationships prevent mirror drift without erasing valid variants. | Codex Coding OS maintainers | Ayman Shams | A new generator, consumer, or artifact relationship cannot be represented by the current schema. | Documentation-contract negative fixtures and full pack validation pass. | Approved | Explicit implementation and merge authorization in the current task. |
+| Extend the pack manifest with typed artifact definitions and deterministic validation. | Filename convention alone. A separate registry file. Universal byte equality for all similar templates. | Existing manifests already own pack identity. Typed relationships prevent mirror drift without erasing valid variants. | Codex Coding OS maintainers | Ayman Shams | A new generator, consumer, or artifact relationship cannot be represented by the current schema. | Documentation-contract negative fixtures and full pack validation pass. | Approved | Owner-approved artifact-lineage implementation decision. |
 
 ## Seven-Doc Completeness Contract
 
@@ -82,4 +119,4 @@ Incorporate these durable controls from the Codex Coding OS process:
 - Separate user-facing deliverables from maintainer/process commentary.
 - Add a first vertical slice recommendation only after documentation approval.
 - Add a handoff note that reports actual state, validation, known issues, and the next permitted task.
-- Add a current-state file, active-slice manifest, and automated session-start gate that refuse implementation when either manifest does not permit coding.
+- Add a current-state file, active-slice manifest, and session-start check that rejects implementation when invoked if either manifest does not permit coding.

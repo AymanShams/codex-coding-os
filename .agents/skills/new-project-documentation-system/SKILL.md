@@ -1,6 +1,6 @@
 ---
 name: new-project-documentation-system
-description: Use when the user asks Codex to start or review a new software project, turn an idea or source folder into a complete controlled documentation system, create a project brief, PRD, app flow, tech stack, frontend, backend, security, implementation plan, TDD, repo docs, AGENTS.md, CLAUDE.md, or prepare a repo for later implementation. This is a fail-closed orchestration skill: it routes to existing specialist skills, requires a workflow manifest and explicit phase gates, stops for unresolved material decisions, and prevents coding or completion claims until the required documentation and validation phases are approved or explicitly deferred by the user.
+description: Use when the user asks Codex to start or review a new software project, turn an idea or source folder into a complete controlled documentation system, create a project brief, PRD, app flow, tech stack, frontend, backend, security, implementation plan, TDD, repo docs, AGENTS.md, CLAUDE.md, or prepare a repo for later implementation. This is a fail-closed orchestration skill: it routes to existing specialist skills, requires a workflow manifest and explicit phase gates, stops for unresolved material decisions, and instructs agents not to make coding or completion claims until the required documentation and validation phases are approved or explicitly deferred by the user.
 ---
 
 # New Project Documentation System
@@ -25,7 +25,13 @@ Before drafting any controlled document, create `project-documentation-manifest.
 
 Keep the manifest current throughout the run. It is the workflow source of truth.
 
-When a repository or repo-ready folder exists, also create `docs/delivery/active-slice-manifest.json` before any implementation handoff. It is the permission-to-code boundary for the current slice and must list the approved slice, allowed files, forbidden actions, source authority, validation commands, review state, and stop conditions.
+Version 1.1 of the manifest pre-registers the conditional content-guidelines,
+public-search, and module-contract instances. Record complete typed trigger
+evidence before repository documentation advances. Keep a false-trigger output
+absent. Generate and validate a true-trigger output at the phases declared by
+the manifest validator.
+
+When a repository or repo-ready folder exists, also create `docs/delivery/active-slice-manifest.json` before any implementation handoff. It records the approved coding boundary for the current slice and must list the approved slice, allowed files, forbidden actions, source authority, validation commands, review state, and stop conditions. Session-continuity validation rejects paths outside that boundary when the command is invoked.
 
 Run `scripts/validate_workflow_manifest.py <manifest-path>`:
 
@@ -34,6 +40,15 @@ Run `scripts/validate_workflow_manifest.py <manifest-path>`:
 - after the TDD and alignment review
 - before saying repo documentation or handoff is complete
 - before saying coding is the next step
+
+The validator resolves `pack.manifest.json` from a source checkout, an installed
+`$CODEX_HOME/coding-os` support root, or the default `$HOME/.codex/coding-os`
+support root. For a custom install whose Codex home is not exported, pass
+`--pack-manifest <path-to-coding-os/pack.manifest.json>` explicitly.
+
+These validator commands are invoked checks, not an always-on edit interceptor.
+The policy requires agents to run them at the declared gates. A passing result
+proves only the contract evaluated by that command at that time.
 
 If validation fails, stop at the failing gate. Do not bypass a failed gate with assumptions.
 
@@ -132,7 +147,7 @@ Do not claim the workflow is complete or recommend coding unless:
 - source authority is clear
 - the seven controlled docs and TDD are approved
 - repo documentation and agent instructions exist
-- the active-slice manifest exists and blocks work outside the approved slice
+- the active-slice manifest exists, records the approved slice, and the invoked session validation passes
 - final validation is complete
 - the user approved coding to start
 

@@ -63,6 +63,22 @@ For source-rich pre-build projects, fill Stage 0 to Stage 3 in full when the sou
 
 Tailor this list to the template and project. Do not treat it as a fixed universal count.
 
+## Conditional Project Documentation
+
+Do not add these files to every project. Evaluate their typed predicates in the
+project documentation manifest and record evidence for every fact.
+
+| Output | Required when |
+|---|---|
+| `docs/product/content-guidelines.md` | Any of substantial user-facing copy, localization, or generated user-facing content exists. |
+| `docs/product/search-surfaces.md` | A public, intentionally indexable surface exists. |
+| `docs/architecture/module-contracts.md` | Any module has a stable interface, independent lifecycle, meaningful dependency, or material failure behavior. |
+
+When a trigger is false, mark the instance `not_applicable` and keep the output
+absent. When it is true, use the canonical registered template and tailor it to
+the project. The invoked workflow-manifest validator checks evidence,
+applicability, output state, and lineage.
+
 ## Not Due Wording
 
 For Stage 4 to Stage 6 files before implementation, write a short controlled placeholder:

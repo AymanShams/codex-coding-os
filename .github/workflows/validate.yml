@@ -28,6 +28,10 @@ jobs:
         shell: pwsh
         run: .\scripts\validate-pack.ps1
 
+      - name: Smoke test JSON Schema validation
+        shell: pwsh
+        run: .\tests\json-schema-validation-smoke.ps1
+
       - name: Smoke test install and uninstall
         shell: pwsh
         run: .\tests\install-uninstall-smoke.ps1
@@ -43,6 +47,10 @@ jobs:
       - name: Test documentation artifact contracts
         shell: pwsh
         run: python -B .\tests\test_documentation_contracts.py
+
+      - name: Test project artifact instances and triggers
+        shell: pwsh
+        run: python -B .\tests\test_project_artifact_instances.py
 
       - name: Test transactional hard-crash recovery
         shell: pwsh
@@ -111,6 +119,10 @@ jobs:
         shell: pwsh
         run: ./scripts/validate-pack.ps1
 
+      - name: Smoke test JSON Schema validation
+        shell: pwsh
+        run: ./tests/json-schema-validation-smoke.ps1
+
       - name: Check bash syntax
         shell: bash
         run: bash -n ./scripts/install.sh ./scripts/uninstall.sh ./tests/install-uninstall-smoke.sh
@@ -126,6 +138,10 @@ jobs:
       - name: Test documentation artifact contracts
         shell: bash
         run: python -B ./tests/test_documentation_contracts.py
+
+      - name: Test project artifact instances and triggers
+        shell: bash
+        run: python -B ./tests/test_project_artifact_instances.py
 
       - name: Smoke test bash install and uninstall
         shell: bash

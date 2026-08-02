@@ -4,7 +4,7 @@ Use these gates before reporting a new project documentation setup as complete.
 
 ## Required Checks
 
-1. Workflow manifest: `scripts/validate_workflow_manifest.py` passes for the current mode and next action.
+1. Workflow manifest: `scripts/validate_workflow_manifest.py` passes for the current mode and next action, including pack cross-references, conditional trigger evidence, output state, and artifact lineage for version 1.1 manifests.
 2. File presence: expected controlled docs, repo docs, instruction files, and handoff note exist.
 3. Source inventory: sources were classified and sensitive files were flagged.
 4. Source-lock: filled docs name controlling sources or clearly identify current assumptions.
@@ -18,7 +18,7 @@ Use these gates before reporting a new project documentation setup as complete.
 12. Repo hygiene: `.gitignore`, review workflow, ownership mapping where needed, and governance checks exist where practical.
 13. Agent context: root and scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, active-slice manifest, session continuity command, and handoff note exist.
 14. Git state: run and report `git status -sb` when a repo exists.
-15. Session gate: a new session cannot reach implementation unless the workflow manifest and active-slice manifest both permit coding.
+15. Session gate: when session-start validation is invoked, it rejects implementation unless the workflow manifest and active-slice manifest both permit coding.
 
 ## Contradiction Patterns
 
