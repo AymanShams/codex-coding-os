@@ -20,6 +20,12 @@ All notable package changes are recorded here. The authoritative package release
 - Replaced stale README release, pull-request, and inventory snapshots with links
   to their live authorities.
 
+### Changed
+
+- Strengthened bundled coding and security skills with evidence-based finding
+  reports, explicit authorization boundaries, behavior-matched verification,
+  controlled agent-input handling, and conditional surface overlays.
+
 ## [0.10.0] - 2026-07-29
 
 ### Added
