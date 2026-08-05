@@ -1,9 +1,14 @@
 # ADR 0002: Artifact-Authorized One-Shot Action
 
-- Status: Accepted, amended by actor-bound v3
+- Status: Historical, fully superseded by the campaign engine replacement
 - Decision owners: Human run-envelope authority and Codex Coding OS maintainers
 - Scope: One exact existing-file replacement enforced outside every model process
 - Supersedes: ADR 0001 for production action authorization
+
+This record is retained as historical design evidence only. Its case, grant,
+broker, and lifecycle authority is retired. The proven exact-file replacement
+verification semantics now live exclusively in
+`scripts/agent/campaign_engine/effects.py` as a narrow effect driver.
 
 ## Context
 

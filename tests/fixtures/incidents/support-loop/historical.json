@@ -1,0 +1,1 @@
+{"incident_id":"support-loop","case":"historical","input":{"budget_remaining":0,"attempt":"NO_OP_ATTEMPT"},"expected":{"allowed":false,"reason":"budget_exhausted"}}

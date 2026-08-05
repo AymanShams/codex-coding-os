@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the fail-closed workflow manifest for new project documentation."""
+"""Validate the stable documentation ledger for a project."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ PHASES = [
     "4_tdd_alignment",
     "5_repo_documentation",
     "6_agent_instructions",
-    "7_handoff",
+    "7_work_summary",
     "8_final_validation",
 ]
 
@@ -35,7 +35,7 @@ STATUSES = {
 }
 
 DONE = {"approved", "completed", "explicitly_deferred"}
-READY_TO_CODE = {"approved", "completed"}
+DOCUMENTATION_FINAL = {"approved", "completed"}
 ADVANCED = {"in_progress", "awaiting_approval", *DONE}
 ARTIFACT_INSTANCE_STATUSES = {
     "not_evaluated",
@@ -347,11 +347,11 @@ def validate_artifact_instances(
 
             if phase5_status in ADVANCED and lifecycle_status == "not_evaluated":
                 fail(errors, f"{label} must be evaluated before 5_repo_documentation advances")
-            if applicability and phase5_status in READY_TO_CODE and lifecycle_status not in {"generated", "validated"}:
+            if applicability and phase5_status in DOCUMENTATION_FINAL and lifecycle_status not in {"generated", "validated"}:
                 fail(errors, f"{label} must be generated before 5_repo_documentation is approved or completed")
             if (
                 applicability
-                and final_status in READY_TO_CODE
+                and final_status in DOCUMENTATION_FINAL
                 and lifecycle_status not in {"validated", "explicitly_deferred"}
             ):
                 fail(errors, f"{label} must be validated before 8_final_validation is approved or completed")
@@ -399,6 +399,12 @@ def validate(
     mode = data.get("mode")
     if mode not in {"full_run", "review_only", "single_phase", "resume"}:
         fail(errors, "mode must be full_run, review_only, single_phase, or resume")
+
+    if data.get("schema_version") == "1.1":
+        if data.get("document_role") != "stable_product_documentation_ledger":
+            fail(errors, "schema_version 1.1 requires document_role stable_product_documentation_ledger")
+        if data.get("execution_authority") is not False:
+            fail(errors, "schema_version 1.1 requires execution_authority false")
 
     phases = data.get("phases")
     if not isinstance(phases, dict):
@@ -464,41 +470,6 @@ def validate(
     if tdd_status in DONE and not approvals.get("controlled_docs"):
         fail(errors, "TDD/alignment completion requires controlled_docs approval")
 
-    next_action = data.get("next_action")
-    if next_action == "code":
-        if not data.get("code_allowed"):
-            fail(errors, "next_action code requires code_allowed true")
-        permission_manifest_path = data.get("permission_manifest_path")
-        if not isinstance(permission_manifest_path, str) or not permission_manifest_path.strip():
-            fail(errors, "next_action code requires permission_manifest_path")
-        else:
-            permission_path = Path(permission_manifest_path)
-            candidates = [permission_path] if permission_path.is_absolute() else [
-                Path.cwd() / permission_path,
-                Path(data.get("output_root") or ".") / permission_path,
-            ]
-            if not any(candidate.exists() for candidate in candidates):
-                fail(errors, f"next_action code requires permission manifest to exist: {permission_manifest_path}")
-        if open_decisions or conflicts:
-            fail(errors, "next_action code requires no open material decisions or source conflicts")
-        for approval in ("source_authority", "material_decisions", "controlled_docs", "tdd", "coding_start"):
-            if not approvals.get(approval):
-                fail(errors, f"next_action code requires {approval} approval")
-        for phase in PHASES:
-            status = phases.get(phase, {}).get("status")
-            if status not in READY_TO_CODE:
-                fail(errors, f"next_action code requires {phase} approved or completed, got {status!r}")
-
-    if mode == "full_run" and next_action == "complete":
-        for phase in PHASES:
-            status = phases.get(phase, {}).get("status")
-            if status not in DONE:
-                fail(errors, f"full_run completion requires {phase} done, got {status!r}")
-
-    for field in ("coordination_state_path", "permission_manifest_path", "session_continuity_command"):
-        if not isinstance(data.get(field), str) or not data.get(field, "").strip():
-            fail(errors, f"{field} must be a non-empty string")
-
     return errors
 
 
@@ -551,7 +522,7 @@ def main() -> int:
             print(f"- {error}")
         return 1
 
-    print("PASS: workflow manifest is valid for its current state")
+    print("PASS: project documentation ledger is valid")
     return 0
 
 

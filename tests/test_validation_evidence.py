@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Focused contract tests for typed validation evidence."""
+"""Tests for the retained, non-executing validation receipt validator."""
 
 from __future__ import annotations
 
+import hashlib
 import json
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,175 +17,125 @@ VALIDATOR = ROOT / "scripts" / "agent" / "validation_evidence.py"
 EXAMPLE = ROOT / "templates" / "validation-evidence.example.json"
 
 
-def run(command: list[str], cwd: Path, expected: int = 0) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
-    if result.returncode != expected:
-        raise AssertionError(
-            f"expected exit {expected}, got {result.returncode}\n"
-            f"command: {command}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-        )
-    return result
+def canonical_json(value: object) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
 
 
-def git(cwd: Path, *args: str) -> str:
-    return run(["git", *args], cwd).stdout.strip()
-
-
-def init_repo(root: Path) -> str:
-    git(root, "init")
-    git(root, "config", "user.email", "synthetic@example.invalid")
-    git(root, "config", "user.name", "Synthetic Test")
-    git(root, "remote", "add", "origin", "https://example.invalid/example/synthetic-validation.git")
-    (root / "tracked.txt").write_text("tracked\n", encoding="utf-8")
-    git(root, "add", "tracked.txt")
-    git(root, "commit", "-m", "synthetic baseline")
-    return git(root, "rev-parse", "HEAD")
-
-
-def evidence(head: str) -> dict[str, object]:
-    return {
-        "schema_version": 1,
-        "evidence_id": "synthetic-command-pass-001",
-        "proof_type": "COMMAND_EXIT",
-        "result": "PASS",
-        "scope": {"kind": "COMMAND", "targets": ["python -B tests/synthetic.py"]},
-        "repository": "https://example.invalid/example/synthetic-validation.git",
-        "exact_head": head,
-        "environment": {
-            "platform": "synthetic-platform",
-            "runtimes": ["Python synthetic"],
-            "working_tree": "clean",
-        },
-        "authority": {
-            "source_type": "RUN_ENVELOPE",
-            "reference": "synthetic-run-envelope",
-            "scope": "validation only",
-        },
-        "observations": [
-            {"command": "python -B tests/synthetic.py", "exit_code": 0, "fact": "Synthetic checks exited zero."}
-        ],
-        "proves": ["The named synthetic command exited zero at the exact recorded head."],
-        "does_not_prove": ["It does not authorize merge, deployment, release, or lifecycle closure."],
+def receipt(*, exit_code: int = 0, passed: bool = True) -> dict[str, object]:
+    stdout = "synthetic validation\n"
+    stderr = ""
+    body: dict[str, object] = {
+        "protocol_version": "ccos-validation-execution-v1",
+        "executable": "C:/synthetic/python.exe",
+        "executable_sha256": "1" * 64,
+        "arguments": ["-B", "-c", "print('synthetic validation')"],
+        "working_directory": "C:/synthetic/repository",
+        "environment_names": ["PATH"],
+        "timeout_seconds": 30,
+        "output_limit_bytes": 65536,
+        "candidate_head": "2" * 40,
+        "head_after": "2" * 40,
+        "status_before_sha256": "3" * 64,
+        "status_after_sha256": "3" * 64,
+        "exit_code": exit_code,
+        "timed_out": False,
+        "output_limited": False,
+        "stdout_sha256": hashlib.sha256(stdout.encode("utf-8")).hexdigest(),
+        "stderr_sha256": hashlib.sha256(stderr.encode("utf-8")).hexdigest(),
+        "stdout": stdout,
+        "stderr": stderr,
+        "required_exit_code": 0,
+        "passed": passed,
+        "duration_ms": 1,
     }
+    body["evidence_sha256"] = hashlib.sha256(canonical_json(body)).hexdigest()
+    return body
 
 
-def validate(root: Path, path: Path, expected: int = 0) -> dict[str, object]:
-    result = run(
-        [sys.executable, "-B", str(VALIDATOR), "validate", "--file", str(path), "--repo-root", ".", "--json"],
-        root,
-        expected,
-    )
-    return json.loads(result.stdout)
+def run_validator(payload: dict[str, object], expected: int) -> dict[str, object]:
+    with tempfile.TemporaryDirectory() as raw:
+        path = Path(raw) / "receipt.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        completed = subprocess.run(
+            [sys.executable, "-B", str(VALIDATOR), str(path), "--json"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    if completed.returncode != expected:
+        raise AssertionError(
+            f"expected {expected}, got {completed.returncode}: "
+            f"stdout={completed.stdout!r} stderr={completed.stderr!r}"
+        )
+    return json.loads(completed.stdout)
 
 
 class ValidationEvidenceTests(unittest.TestCase):
-    def test_synthetic_example_is_contract_valid_but_never_claims_truth_or_authority(self) -> None:
-        self.assertTrue(EXAMPLE.exists())
-        example = json.loads(EXAMPLE.read_text(encoding="utf-8"))
-        self.assertIn("example.invalid", example["repository"])
-        self.assertNotIn("Ayman", json.dumps(example))
+    def test_synthetic_template_is_one_valid_record_shape(self) -> None:
+        payload = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+        result = run_validator(payload, 0)
+        self.assertEqual(result, {
+            "ok": True,
+            "passed": True,
+            "protocol_version": "ccos-validation-execution-v1",
+        })
 
-        with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp)
-            head = init_repo(repo)
-            example["exact_head"] = head
-            evidence_path = repo / "evidence.json"
-            evidence_path.write_text(json.dumps(example, indent=2) + "\n", encoding="utf-8")
-            git(repo, "add", "evidence.json")
-            git(repo, "commit", "-m", "add synthetic evidence")
-            new_head = git(repo, "rev-parse", "HEAD")
-            example["exact_head"] = new_head
-            evidence_path.write_text(json.dumps(example, indent=2) + "\n", encoding="utf-8")
-            git(repo, "add", "evidence.json")
-            git(repo, "commit", "--amend", "--no-edit")
-            # The evidence file cannot self-record its own commit without changing it.
-            # Validate an untracked external copy against the clean committed repository.
-            final_head = git(repo, "rev-parse", "HEAD")
-            external = repo.parent / f"{repo.name}-evidence.json"
-            try:
-                example["exact_head"] = final_head
-                external.write_text(json.dumps(example, indent=2) + "\n", encoding="utf-8")
-                output = validate(repo, external)
-            finally:
-                external.unlink(missing_ok=True)
+    def test_nonzero_exit_can_be_recorded_but_never_credited_as_passing(self) -> None:
+        failed = receipt(exit_code=7, passed=False)
+        self.assertFalse(run_validator(failed, 0)["passed"])
+        dishonest = dict(failed)
+        dishonest["passed"] = True
+        dishonest["evidence_sha256"] = hashlib.sha256(
+            canonical_json({key: value for key, value in dishonest.items() if key != "evidence_sha256"})
+        ).hexdigest()
+        denied = run_validator(dishonest, 2)
+        self.assertFalse(denied["ok"])
+        self.assertIn("passed conflicts", denied["message"])
 
-            self.assertTrue(output["valid"])
-            self.assertTrue(output["identity_match"])
-            self.assertTrue(output["head_match"])
-            self.assertTrue(output["working_tree_match"])
-            self.assertFalse(output["claim_truth_assessed"])
-            self.assertFalse(output["lifecycle_authority"])
-            self.assertEqual(output["protocol_version"], 1)
+    def test_digest_output_and_head_mutations_are_rejected(self) -> None:
+        cases = {
+            "record digest": ("evidence_sha256", "0" * 64, "digest"),
+            "stdout": ("stdout", "changed", "stdout_sha256"),
+            "head": ("head_after", "4" * 40, "head race"),
+        }
+        for name, (field, value, message) in cases.items():
+            with self.subTest(name=name):
+                payload = receipt()
+                payload[field] = value
+                if field != "evidence_sha256":
+                    payload["evidence_sha256"] = hashlib.sha256(
+                        canonical_json(
+                            {
+                                key: item
+                                for key, item in payload.items()
+                                if key != "evidence_sha256"
+                            }
+                        )
+                    ).hexdigest()
+                denied = run_validator(payload, 2)
+                self.assertIn(message, denied["message"])
 
-    def test_abbreviated_or_stale_head_unknown_enum_and_dirty_pass_fail(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp)
-            head = init_repo(repo)
-            evidence_path = repo.parent / f"{repo.name}-evidence.json"
-            try:
-                cases = []
-                abbreviated = evidence(head)
-                abbreviated["exact_head"] = head[:12]
-                cases.append(("abbreviated", abbreviated, "full lowercase"))
-
-                stale = evidence("0" * 40)
-                cases.append(("stale", stale, "exact_head does not match"))
-
-                unknown = evidence(head)
-                unknown["proof_type"] = "PROSE_ASSERTION"
-                cases.append(("unknown", unknown, "proof_type"))
-
-                for name, payload, expected_error in cases:
-                    with self.subTest(name=name):
-                        evidence_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-                        output = validate(repo, evidence_path, expected=2)
-                        self.assertFalse(output["valid"])
-                        self.assertIn(expected_error, "\n".join(output["errors"]))
-                        self.assertFalse(output["claim_truth_assessed"])
-                        self.assertFalse(output["lifecycle_authority"])
-
-                (repo / "tracked.txt").write_text("dirty\n", encoding="utf-8")
-                evidence_path.write_text(json.dumps(evidence(head), indent=2) + "\n", encoding="utf-8")
-                output = validate(repo, evidence_path, expected=2)
-                self.assertFalse(output["working_tree_match"])
-                self.assertIn("PASS evidence requires an actually clean working tree", "\n".join(output["errors"]))
-            finally:
-                evidence_path.unlink(missing_ok=True)
-
-    def test_validator_never_executes_observation_commands(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp)
-            head = init_repo(repo)
-            marker = repo / "must-not-exist.txt"
-            payload = evidence(head)
-            payload["observations"] = [
-                {
-                    "command": f"write forbidden marker {marker.name}",
-                    "exit_code": 0,
-                    "fact": "This is inert recorded text.",
-                }
-            ]
-            evidence_path = repo.parent / f"{repo.name}-evidence.json"
-            try:
-                evidence_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-                validate(repo, evidence_path)
-                self.assertFalse(marker.exists())
-            finally:
-                evidence_path.unlink(missing_ok=True)
-
-    def test_credential_free_https_identity_matches_ssh_origin(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp)
-            head = init_repo(repo)
-            git(repo, "remote", "set-url", "origin", "git@example.invalid:example/synthetic-validation.git")
-            evidence_path = repo.parent / f"{repo.name}-evidence.json"
-            try:
-                evidence_path.write_text(json.dumps(evidence(head), indent=2) + "\n", encoding="utf-8")
-                output = validate(repo, evidence_path)
-                self.assertTrue(output["identity_match"])
-                self.assertNotIn("git@", output["live_repository"])
-            finally:
-                evidence_path.unlink(missing_ok=True)
+    def test_recorded_arguments_are_inert_and_never_executed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            marker = Path(raw) / "must-not-exist.txt"
+            payload = receipt()
+            payload["arguments"] = ["write", str(marker)]
+            payload["evidence_sha256"] = hashlib.sha256(
+                canonical_json(
+                    {
+                        key: value
+                        for key, value in payload.items()
+                        if key != "evidence_sha256"
+                    }
+                )
+            ).hexdigest()
+            self.assertTrue(run_validator(payload, 0)["ok"])
+            self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

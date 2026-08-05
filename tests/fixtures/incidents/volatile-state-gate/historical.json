@@ -1,0 +1,1 @@
+{"incident_id":"volatile-state-gate","case":"historical","input":{"repository_state":"STOPPED","external_campaign":"RUNNING"},"expected":{"authority":"external_campaign","repository_state_ignored":true}}

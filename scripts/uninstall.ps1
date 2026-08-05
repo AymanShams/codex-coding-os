@@ -1,7 +1,7 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "High")]
 param(
-  [string]$SkillsRoot = "$HOME\.agents\skills",
   [string]$CodexHome = "$HOME\.codex",
+  [string]$SkillsRoot,
   [switch]$LegacyOverlapMigration,
   [switch]$DryRun
 )
@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Engine = Join-Path $RepoRoot "scripts\install_transaction.py"
+if (-not $SkillsRoot) { $SkillsRoot = Join-Path $CodexHome "skills" }
 $Python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $Python) { $Python = Get-Command py -ErrorAction SilentlyContinue }
 if (-not $Python) { throw "Python 3 is required for the transactional uninstaller." }

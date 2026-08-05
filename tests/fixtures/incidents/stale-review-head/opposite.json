@@ -1,0 +1,1 @@
+{"incident_id":"stale-review-head","case":"opposite","input":{"candidate_head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","reviewed_head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"expected":{"allowed":true}}

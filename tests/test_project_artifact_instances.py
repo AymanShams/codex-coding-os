@@ -156,6 +156,11 @@ class ProjectArtifactInstanceTests(unittest.TestCase):
     def test_fresh_version_1_1_template_passes_before_phase_five(self) -> None:
         self.assertEqual([], self.errors(fresh_manifest()))
 
+    def test_project_documentation_manifest_is_informational_not_lifecycle_authority(self) -> None:
+        manifest = fresh_manifest()
+        self.assertFalse(manifest["execution_authority"])
+        self.assertEqual("stable_product_documentation_ledger", manifest["document_role"])
+
     def test_legacy_version_1_0_without_instances_remains_valid(self) -> None:
         manifest = fresh_manifest()
         manifest["schema_version"] = "1.0"

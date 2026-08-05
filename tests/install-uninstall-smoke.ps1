@@ -2,12 +2,16 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ccos-transaction-smoke-" + [guid]::NewGuid().ToString("N"))
-$SkillsRoot = Join-Path $TestRoot "skills"
-$CodexHome = Join-Path $TestRoot "codex-home"
+$ProfileRoot = Join-Path $TestRoot "profile"
+$CodexHome = Join-Path $ProfileRoot ".codex"
+$SkillsRoot = Join-Path $CodexHome "skills"
 $InstallScript = Join-Path $RepoRoot "scripts\install.ps1"
 $UninstallScript = Join-Path $RepoRoot "scripts\uninstall.ps1"
 $Bundle = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "install-bundle.manifest.json") | ConvertFrom-Json
 $BundleHash = [string]$Bundle.aggregate_sha256
+$SourceCommit = (& git -C $RepoRoot rev-parse HEAD).Trim()
+$Python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $Python) { $Python = Get-Command py -ErrorAction Stop }
 
 try {
   New-Item -ItemType Directory -Force -Path $SkillsRoot, $CodexHome | Out-Null
@@ -26,7 +30,7 @@ try {
     $Preserved[$Path] = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
   }
 
-  & $InstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ArchiveMode -Confirm:$false
+  & $InstallScript -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ExpectedSourceCommit $SourceCommit -ArchiveMode -Confirm:$false
   if (-not $?) { throw "Transactional install failed." }
 
   $ManifestPath = Join-Path $CodexHome "coding-os\install-manifest.json"
@@ -36,11 +40,41 @@ try {
   if ($Manifest.manifest_version -ne 3) { throw "V3 install manifest was not written." }
   if ($Manifest.transaction_protocol -ne "ccos-install-transaction-v1") { throw "Transaction protocol mismatch." }
   if ($Manifest.package.bundle_sha256 -ne $BundleHash) { throw "Bundle provenance mismatch." }
+  if ($Manifest.runtime_pin.source_commit -ne $SourceCommit) { throw "Runtime source pin mismatch." }
+  if ($Manifest.runtime_pin.bundle_digest -ne $BundleHash) { throw "Runtime bundle pin mismatch." }
+  if ($Manifest.runtime_pin.install_transaction -ne $Manifest.transaction.id) { throw "Runtime transaction pin mismatch." }
+  if ($Manifest.runtime_pin.protocol_version -ne "ccos-campaign-v1") { throw "Campaign protocol pin mismatch." }
+  if ($Manifest.runtime_pin.schema_compatibility -ne "campaign-store-v1") { throw "Schema compatibility pin mismatch." }
+  if ($Manifest.runtime_pin.host_capability_probe_version -ne "native-bind-before-turn-scoped-tools-v3") { throw "Host capability pin mismatch." }
+  if ([System.IO.Path]::GetFullPath([string]$Manifest.targets.skills_root) -ne [System.IO.Path]::GetFullPath($SkillsRoot)) { throw "Canonical nested SkillsRoot mismatch." }
+  if ($Manifest.PSObject.Properties.Name -contains "legacy_overlap_migration") { throw "Clean canonical install was misclassified as a legacy migration." }
   if ($Current.status -ne "committed") { throw "Current pointer was not committed." }
   if (-not (Test-Path (Join-Path $SkillsRoot "codex-coding-os-master\SKILL.md"))) { throw "Managed skill was not installed." }
+  if (-not (Test-Path (Join-Path $CodexHome "hooks\campaign-engine\campaign_hook.py"))) { throw "Campaign hook was not installed." }
+  if (-not (Test-Path (Join-Path $CodexHome "coding-os-state\campaigns.sqlite3"))) { throw "Campaign state store was not initialized." }
+
+  $DoctorCode = @'
+import pathlib, sys
+profile = pathlib.Path(sys.argv[1]).resolve(strict=True)
+support = profile / ".codex" / "coding-os"
+sys.path.insert(0, str(support / "scripts" / "agent"))
+from campaign_engine import cli
+from campaign_engine.runtime_bootstrap import runtime_layout
+raise SystemExit(cli.main(["--json", "doctor"], injected_runtime=runtime_layout(profile=profile)))
+'@
+  if ($Python.Name -eq "py.exe" -or $Python.Name -eq "py") {
+    $DoctorOutput = $DoctorCode | & $Python.Source -3 -B - $ProfileRoot
+  } else {
+    $DoctorOutput = $DoctorCode | & $Python.Source -B - $ProfileRoot
+  }
+  if ($LASTEXITCODE -ne 0) {
+    throw "Installed campaign-engine doctor failed: $($DoctorOutput -join [Environment]::NewLine)"
+  }
+  $Doctor = $DoctorOutput | ConvertFrom-Json
+  if (-not $Doctor.ok -or $Doctor.integrity.status -ne "ok") { throw "Installed campaign-engine doctor returned invalid evidence." }
 
   $PointerBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $CurrentPath).Hash
-  & $InstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ArchiveMode -Confirm:$false
+  & $InstallScript -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ExpectedSourceCommit $SourceCommit -ArchiveMode -Confirm:$false
   if (-not $?) { throw "Transactional idempotent reinstall failed." }
   if ((Get-FileHash -Algorithm SHA256 -LiteralPath $CurrentPath).Hash -ne $PointerBefore) { throw "Idempotent reinstall changed current.json." }
 
@@ -50,10 +84,12 @@ try {
     }
   }
 
-  & $UninstallScript -SkillsRoot $SkillsRoot -CodexHome $CodexHome -Confirm:$false
+  & $UninstallScript -CodexHome $CodexHome -Confirm:$false
   if (-not $?) { throw "Transactional uninstall failed." }
   if (Test-Path (Join-Path $CodexHome "coding-os")) { throw "Managed support root remained after uninstall." }
   if (Test-Path (Join-Path $SkillsRoot "codex-coding-os-master")) { throw "Managed skill remained after uninstall." }
+  if (Test-Path (Join-Path $CodexHome "hooks\campaign-engine")) { throw "Managed campaign hook remained after uninstall." }
+  if (-not (Test-Path (Join-Path $CodexHome "coding-os-state\campaigns.sqlite3"))) { throw "Uninstall removed external campaign state." }
   foreach ($Path in $Preserved.Keys) {
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash -ne $Preserved[$Path]) {
       throw "Uninstall changed preserved path: $Path"

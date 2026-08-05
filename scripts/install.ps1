@@ -1,20 +1,20 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
 param(
-  [Alias("InstallGlobalAgents")][switch]$InstallUniversalPolicy,
-  [string]$UniversalBundleId = "automation-preserving-case-state-recovery-v1",
+  [switch]$InstallUniversalPolicy,
+  [string]$UniversalBundleId = "campaign-engine-policy-v1",
   [switch]$RefreshCapabilityIndex,
-  [string]$SkillsRoot = "$HOME\.agents\skills",
   [string]$CodexHome = "$HOME\.codex",
+  [string]$SkillsRoot,
   [Parameter(Mandatory = $true)][string]$ExpectedBundleSha256,
-  [string]$ExpectedSourceCommit,
-  [string]$AuthorityCaseId,
-  [ValidateSet("preauthorized-run-envelope", "explicit-user-approval")][string]$AuthoritySource,
-  [string]$AuthorityReference,
-  [string]$AuthorityActorThreadId,
-  [string]$AuthorityRequestId,
-  [int]$AuthorityExpectedRevision,
-  [string]$CaseStateEnginePath,
-  [string]$CaseStateRoot,
+  [Parameter(Mandatory = $true)][string]$ExpectedSourceCommit,
+  [ValidateSet("explicit-user-approval", "campaign-publication-authority")][string]$PolicyAuthoritySource,
+  [string]$PolicyAuthorityReference,
+  [string]$PublicationCampaignId,
+  [string]$PublicationNodeId,
+  [int]$PublicationAuthorityEpoch,
+  [int]$PublicationCancellationEpoch = -1,
+  [switch]$ArchiveLegacyState,
+  [string]$LegacyStateRoot,
   [switch]$LegacyOverlapMigration,
   [switch]$ArchiveMode,
   [switch]$InstallExternalSkills,
@@ -25,6 +25,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Engine = Join-Path $RepoRoot "scripts\install_transaction.py"
+if (-not $SkillsRoot) { $SkillsRoot = Join-Path $CodexHome "skills" }
 
 if ($InstallExternalSkills -or $AllowUnpinnedExternalSkills) {
   throw "Optional external skills are not enabled in the transactional public package. Install only a separately reviewed pinned bundle."
@@ -48,20 +49,17 @@ $Arguments = @(
   "--expected-bundle-sha256", $ExpectedBundleSha256,
   "--universal-bundle-id", $UniversalBundleId
 )
-if ($ExpectedSourceCommit) { $Arguments += @("--expected-source-commit", $ExpectedSourceCommit) }
+$Arguments += @("--expected-source-commit", $ExpectedSourceCommit)
 if ($InstallUniversalPolicy) { $Arguments += "--install-universal-policy" }
 if ($RefreshCapabilityIndex) { $Arguments += "--refresh-capability-index" }
-if ($AuthorityCaseId) { $Arguments += @("--authority-case-id", $AuthorityCaseId) }
-if ($AuthoritySource) { $Arguments += @("--authority-source", $AuthoritySource) }
-if ($AuthorityReference) { $Arguments += @("--authority-reference", $AuthorityReference) }
-if ($AuthorityActorThreadId) { $Arguments += @("--authority-actor-thread-id", $AuthorityActorThreadId) }
-if ($AuthorityRequestId) { $Arguments += @("--authority-request-id", $AuthorityRequestId) }
-if ($AuthorityExpectedRevision -gt 0) { $Arguments += @("--authority-expected-revision", [string]$AuthorityExpectedRevision) }
-if (-not $CaseStateEnginePath) { $CaseStateEnginePath = Join-Path $RepoRoot "scripts\agent\case_state.py" }
-if (-not $CaseStateRoot) { $CaseStateRoot = Join-Path $CodexHome "case-state" }
-if ($InstallUniversalPolicy) {
-  $Arguments += @("--case-state-engine", $CaseStateEnginePath, "--case-state-root", $CaseStateRoot)
-}
+if ($PolicyAuthoritySource) { $Arguments += @("--policy-authority-source", $PolicyAuthoritySource) }
+if ($PolicyAuthorityReference) { $Arguments += @("--policy-authority-reference", $PolicyAuthorityReference) }
+if ($PublicationCampaignId) { $Arguments += @("--publication-campaign-id", $PublicationCampaignId) }
+if ($PublicationNodeId) { $Arguments += @("--publication-node-id", $PublicationNodeId) }
+if ($PublicationAuthorityEpoch -gt 0) { $Arguments += @("--publication-authority-epoch", [string]$PublicationAuthorityEpoch) }
+if ($PublicationCancellationEpoch -ge 0) { $Arguments += @("--publication-cancellation-epoch", [string]$PublicationCancellationEpoch) }
+if ($ArchiveLegacyState) { $Arguments += "--archive-legacy-state" }
+if ($LegacyStateRoot) { $Arguments += @("--legacy-state-root", $LegacyStateRoot) }
 if ($ArchiveMode) { $Arguments += "--archive-mode" }
 if ($LegacyOverlapMigration) { $Arguments += "--legacy-overlap-migration" }
 if ($DryRun) { $Arguments += "--dry-run" }

@@ -1,0 +1,1 @@
+{"incident_id":"uncertain-external-effect","case":"historical","input":{"state":"AMBIGUOUS","query_result":"not_found","mutation_calls":1},"expected":{"action":"query_only","mutation_calls":1}}

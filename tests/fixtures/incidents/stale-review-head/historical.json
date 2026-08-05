@@ -1,0 +1,1 @@
+{"incident_id":"stale-review-head","case":"historical","input":{"candidate_head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","reviewed_head":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"expected":{"allowed":false,"reason":"head_race"}}

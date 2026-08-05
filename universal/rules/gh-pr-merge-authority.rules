@@ -1,7 +1,12 @@
-# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY
+# BEGIN CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS
 prefix_rule(
-    pattern = ["gh", "pr", "merge"],
+    pattern = ["gh", "pr", ["create", "merge"]],
     decision = "prompt",
-    justification = "Pull request merge requires explicit authority for the exact repository, pull request, and reviewed head.",
+    justification = "Automated pull-request mutations must use the campaign engine outbox and exact-head reconciliation.",
 )
-# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Automated pushes must use the campaign engine outbox and stable operation identity.",
+)
+# END CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS

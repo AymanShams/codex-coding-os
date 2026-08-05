@@ -1,17 +1,15 @@
-# Workflow Modes And Gates
+# Documentation Workflow Modes And Checks
 
 ## Modes
 
 | Mode | Use when | Completion meaning |
 |---|---|---|
-| Full Run | The skill is explicitly invoked for a new project or source folder without a narrower limit | All phases 0 to 8 pass |
-| Review Only | The user asks to review, audit, compare, or identify gaps without changing files | Review findings delivered, no drafting or completion claim |
-| Single Phase | The user explicitly asks for one deliverable or phase only | Requested phase completed, wider workflow remains incomplete |
-| Resume | A valid workflow manifest exists from a prior run | Continue from the first incomplete or blocked phase |
+| Full Run | The skill is invoked for a new project or source folder without a narrower limit | Documentation phases 0 through 8 pass |
+| Review Only | The user requests review or gap analysis without file changes | Findings delivered, no drafting claim |
+| Single Phase | The user explicitly requests one deliverable or phase | Requested documentation completed, wider workflow remains open |
+| Resume | A documentation manifest exists from an earlier run | Continue the first incomplete documentation phase |
 
-Do not infer Single Phase merely because the user mentions one folder or one document. An explicit invocation of the skill defaults to Full Run.
-
-## Status Values
+## Documentation Status Values
 
 Use only:
 
@@ -23,54 +21,54 @@ Use only:
 - `completed`
 - `explicitly_deferred`
 
-Only one phase may be `in_progress`.
+Only one documentation phase may be `in_progress`.
 
-## Hard Gates
+These values describe document creation. They do not permit or stop coding and must not mirror campaign state.
 
-### Gate A: Scope
+## Checks
 
-Do not inventory or draft until the mode, output location, required formats, and code permission are recorded.
+### A. Scope
 
-### Gate B: Source Authority
+Record mode, output location, required formats, selected skills, and the requested deliverables before inventory or drafting.
 
-If sources conflict on a material issue, stop and ask the user which source controls. Repetition across generated files is not independent confirmation.
+### B. Source Authority
 
-### Gate C: Material Decisions
+If sources conflict on a material statement, identify the conflict and ask the user which source controls. Repetition across generated files is not independent confirmation.
 
-Do not draft the PRD while material decisions remain open. Consolidate questions into one numbered decision request.
+### C. Material Decisions
 
-### Gate D: Controlled Docs
+Do not draft dependent product material while material decisions remain open. Consolidate the questions into one decision request.
 
-Treat all seven documents as drafts until approved. Do not use them as source truth for repo docs or code before approval.
+### D. Controlled Documents
 
-### Gate E: TDD Alignment
+Treat generated product documents as drafts until approved. Do not represent draft content as accepted project truth.
 
-Do not call a TDD merged unless every external draft was classified by keep, correct, reject, or defer. Do not advance while TDD conflicts with controlled docs.
+### E. TDD Alignment
 
-### Gate F: Repo And Instructions
+Do not call a TDD merged unless every competing statement was classified as keep, correct, reject, or defer. Do not complete alignment while the TDD contradicts approved product documents.
 
-Do not recommend coding before repo documentation and agent instructions exist. If no repo exists, ask for a decision rather than skipping the phase.
+### F. Repository Documentation
 
-### Gate G: Final Validation
+Create stage-appropriate repository documentation and agent instructions. Instructions must point to stable sources, exact validation commands, and the installed campaign CLI for automated execution.
 
-Run the manifest validator and artifact validation. Any blocker or major defect prevents a ready-to-code claim.
+### G. Final Documentation Validation
 
-### Gate H: Session Continuity
-
-Every new or resumed non-trivial session must read the workflow manifest, current delivery state, active-slice manifest, latest handoff, and controlling sources before editing. If current state or a handoff implies coding while either manifest does not permit it, the blocking manifest wins and the session must continue from the first blocked or incomplete phase.
+Run the workflow-manifest and filled-artifact validators. Report any unavailable check or unresolved documentation gap.
 
 ## Approval Rules
 
-Record approval only from:
+Record document approval only from an explicit user statement, a controlling source with clear decision authority, or explicit delegated document-approval authority. Silence and model inference are not approval.
 
-- an explicit user statement
-- a controlling source that clearly grants the decision
-- explicit delegated authority from the user
+Repository summaries, current-state files, active-slice files, handoffs, review markers, branches, pull requests, and notifications are informational only. They cannot approve documents or control implementation.
 
-Silence, lack of response, or Codex inference is not approval.
+## Implementation Bridge
 
-A handoff, new chat prompt, coordination-state update, review marker, or review notification is also not approval.
+Documentation completion does not start an implementation lifecycle.
 
-Coordination drift is not a review trigger by itself. Current-state drift, manifest drift, review-field drift, handoff drift, branch drift, PR-open state, CI-wait state, or local dirty state may require inspection or reconciliation, but review need comes from actual diff risk, controlled-source risk, or explicit user instruction. Same-slice status is not a review waiver.
+- Manual implementation requires an explicit current user request.
+- Automated implementation requires a separately admitted and user-approved campaign specification.
+- Query automation through `python <installed-cli> --json status --repository-root .`.
+- Admit automation through `python <installed-cli> --json admit --spec <path>`.
+- Use only the campaign ID, specification digest, and next command returned by the engine.
 
-Parent/orchestrator final closeout records the exact PR head, current-head review records, inline comments, issue comments, required checks, local branch, local HEAD, and working-tree state as raw evidence. GitHub collection and the continuity helper do not own lifecycle. A `COMMENTED` review, issue-comment prose, clean-sounding summary, coordination manifest, or handoff cannot approve or close a case. The internal case-state engine is the sole lifecycle authority: one stable case permits one implementation generation, one frozen review cohort, at most one explicitly authorized combined repair of the frozen `CURRENT_BLOCKER` set, and one blocker-identifier-limited closure check. Late, stale, invalid, or non-blocking findings do not reopen the case. Failed closure locks only that case, one identical operational retry is allowed only for a control failure, and unrelated work remains available.
+Do not reproduce automated execution rules in documentation.

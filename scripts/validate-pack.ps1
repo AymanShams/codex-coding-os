@@ -106,15 +106,25 @@ foreach ($Path in $Manifest.support_items) {
   }
 }
 
-$RequiredAntiLoopRuntime = @(
-  ".codex/anti-loop-support-scope.json",
-  "hooks/anti-loop-runtime/anti_loop_runtime.py",
-  "scripts/activate_anti_loop.py",
-  "scripts/agent/case_human_disposition_verifier.py"
+$RequiredCampaignRuntime = @(
+  "scripts/agent/case_state.py",
+  "scripts/agent/campaign_engine/__init__.py",
+  "scripts/agent/campaign_engine/__main__.py",
+  "scripts/agent/campaign_engine/model.py",
+  "scripts/agent/campaign_engine/reducer.py",
+  "scripts/agent/campaign_engine/store.py",
+  "scripts/agent/campaign_engine/admission.py",
+  "scripts/agent/campaign_engine/supervisor.py",
+  "scripts/agent/campaign_engine/host.py",
+  "scripts/agent/campaign_engine/evidence.py",
+  "scripts/agent/campaign_engine/effects.py",
+  "scripts/agent/campaign_engine/legacy.py",
+  "scripts/agent/campaign_engine/cli.py",
+  "hooks/campaign-engine/campaign_hook.py"
 )
-foreach ($Path in $RequiredAntiLoopRuntime) {
+foreach ($Path in $RequiredCampaignRuntime) {
   if (@($Manifest.installation.runtime_files) -notcontains $Path) {
-    $Errors += "Missing mandatory anti-loop runtime declaration: $Path"
+    $Errors += "Missing mandatory campaign runtime declaration: $Path"
   }
 }
 
@@ -210,75 +220,57 @@ if ($Errors.Count -eq 0) {
 }
 
 if ($Errors.Count -eq 0) {
-  $AgentsPolicyPath = Join-Path $RepoRoot "universal\AGENTS.automation-case-policy.md"
-  $MergeRulesPath = Join-Path $RepoRoot "universal\rules\gh-pr-merge-authority.rules"
-  $AgentsPolicy = Get-Content -Raw -LiteralPath $AgentsPolicyPath
-  $MergeRules = Get-Content -Raw -LiteralPath $MergeRulesPath
-  if (($AgentsPolicy | Select-String -Pattern '<!-- BEGIN CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->' -AllMatches).Matches.Count -ne 1 -or
-      ($AgentsPolicy | Select-String -Pattern '<!-- END CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->' -AllMatches).Matches.Count -ne 1) {
-    $Errors += "Universal AGENTS policy must contain one exact managed marker pair."
-  }
-  foreach ($RequiredClause in @(
-    "ANTI_LOOP_LATCH",
-    "higher precedence than every ordinary workflow,",
-    "second consecutive support mutation is attempted",
-    "Permit only read-only status and evidence inspection plus",
-    "protected external case store is authoritative",
-    "must never expand into a second support generation"
-  )) {
-    if ($AgentsPolicy -notlike "*$RequiredClause*") {
-      $Errors += "Universal AGENTS policy is missing mandatory anti-loop clause: $RequiredClause"
+  $CampaignCliPath = Join-Path $RepoRoot "scripts\agent\campaign_engine\cli.py"
+  $CampaignReducerPath = Join-Path $RepoRoot "scripts\agent\campaign_engine\reducer.py"
+  $LegacyCliPath = Join-Path $RepoRoot "scripts\agent\case_state.py"
+  $CampaignFormalPath = Join-Path $RepoRoot "formal\Campaign.tla"
+  $CampaignConfigPath = Join-Path $RepoRoot "formal\Campaign.cfg"
+  $IncidentIndexPath = Join-Path $RepoRoot "tests\fixtures\incidents\index.json"
+
+  foreach ($Path in @($CampaignCliPath, $CampaignReducerPath, $LegacyCliPath, $CampaignFormalPath, $CampaignConfigPath, $IncidentIndexPath)) {
+    if (-not (Test-Path $Path -PathType Leaf)) {
+      $Errors += "Missing campaign source contract: $Path"
     }
   }
-  $AntiLoopHookPath = Join-Path $RepoRoot "hooks\anti-loop-runtime\anti_loop_runtime.py"
-  $AntiLoopScopePath = Join-Path $RepoRoot ".codex\anti-loop-support-scope.json"
-  if (-not (Test-Path $AntiLoopHookPath -PathType Leaf)) {
-    $Errors += "Mandatory anti-loop runtime hook is absent."
-  } else {
-    $AntiLoopHook = Get-Content -Raw -LiteralPath $AntiLoopHookPath
-    foreach ($RequiredHookMarker in @(
-      "ccos-anti-loop-hook-v1",
-      "record_anti_loop_event",
-      "support-chain-proposed",
-      "control-patch",
-      "repository_review_worktree_create",
-      "repository_pr_body_write"
-    )) {
-      if ($AntiLoopHook -notlike "*$RequiredHookMarker*") {
-        $Errors += "Mandatory anti-loop runtime hook is missing marker: $RequiredHookMarker"
+
+  if ($Errors.Count -eq 0) {
+    $CampaignCli = Get-Content -Raw -LiteralPath $CampaignCliPath
+    $CampaignReducer = Get-Content -Raw -LiteralPath $CampaignReducerPath
+    $LegacyCli = Get-Content -Raw -LiteralPath $LegacyCliPath
+    $CampaignFormal = Get-Content -Raw -LiteralPath $CampaignFormalPath
+    foreach ($Command in @("admit", "approve", "run", "status", "cancel", "reconcile", "doctor", "legacy")) {
+      if ($CampaignCli -notlike "*sub.add_parser(`"$Command`")*") {
+        $Errors += "Campaign CLI is missing public command: $Command"
       }
     }
-  }
-  if (-not (Test-Path $AntiLoopScopePath -PathType Leaf)) {
-    $Errors += "Mandatory anti-loop support-scope manifest is absent."
-  } else {
+    if ($CampaignReducer -notmatch 'def\s+reduce\(') {
+      $Errors += "Campaign reducer has no reduce function."
+    }
+    foreach ($Marker in @("LEGACY_ENGINE_RETIRED", "campaign_engine.cli legacy inspect", "return 78")) {
+      if ($LegacyCli -notlike "*$Marker*") {
+        $Errors += "Retired case CLI is missing deterministic retirement marker: $Marker"
+      }
+    }
+    foreach ($Marker in @("MODULE Campaign", "Spec == Init /\ [][Next]_vars", "CancelledIsTerminal")) {
+      if ($CampaignFormal -notmatch [regex]::Escape($Marker)) {
+        $Errors += "Campaign formal model is missing marker: $Marker"
+      }
+    }
     try {
-      $AntiLoopScope = Get-Content -Raw -LiteralPath $AntiLoopScopePath | ConvertFrom-Json
-      if ($AntiLoopScope.protocol_version -ne "ccos-anti-loop-support-scope-v1" -or
-          $AntiLoopScope.schema_version -ne 1 -or
-          -not $AntiLoopScope.record_sha256 -or
-          @($AntiLoopScope.support_only_patterns).Count -eq 0) {
-        $Errors += "Mandatory anti-loop support-scope manifest is invalid."
+      $IncidentIndex = Get-Content -Raw -LiteralPath $IncidentIndexPath | ConvertFrom-Json
+      if ($IncidentIndex.schema_version -ne 1 -or @($IncidentIndex.incidents).Count -eq 0) {
+        $Errors += "Campaign incident index is incomplete."
+      } else {
+        foreach ($Incident in $IncidentIndex.incidents) {
+          foreach ($Fixture in @($Incident.historical_fixture, $Incident.opposite_fixture)) {
+            if ([string]::IsNullOrWhiteSpace([string]$Fixture) -or -not (Test-Path (Join-Path $RepoRoot "tests\fixtures\incidents\$Fixture") -PathType Leaf)) {
+              $Errors += "Campaign incident fixture is missing: $Fixture"
+            }
+          }
+        }
       }
     } catch {
-      $Errors += "Mandatory anti-loop support-scope manifest is not valid JSON: $($_.Exception.Message)"
-    }
-  }
-  if (($MergeRules | Select-String -Pattern '# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY' -AllMatches).Matches.Count -ne 1 -or
-      ($MergeRules | Select-String -Pattern '# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY' -AllMatches).Matches.Count -ne 1 -or
-      $MergeRules -notmatch 'decision\s*=\s*"prompt"' -or
-      $MergeRules -notmatch 'exact repository, pull request, and reviewed head') {
-    $Errors += "Universal merge authority rule must be the exact prompt policy."
-  }
-  $CodexCommand = Get-Command codex -ErrorAction SilentlyContinue
-  if ($CodexCommand) {
-    try {
-      $PolicyResult = & $CodexCommand.Source execpolicy check --pretty --rules $MergeRulesPath -- gh pr merge 1 2>&1
-      if ($LASTEXITCODE -ne 0 -or (($PolicyResult -join "`n") -notmatch '(?i)prompt')) {
-        $Errors += "codex execpolicy check did not classify gh pr merge as prompt."
-      }
-    } catch {
-      Write-Warning "codex execpolicy check is unavailable in this host; exact static prompt-policy validation passed. $($_.Exception.Message)"
+      $Errors += "Campaign incident index is not valid JSON: $($_.Exception.Message)"
     }
   }
 }

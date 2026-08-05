@@ -11,42 +11,44 @@ import sys
 from pathlib import Path
 
 
-REQUIRED_HEADING_GROUPS = [
-    ("## Summary",),
-    ("## Scope And Authority", "## Source And Scope"),
-    ("## Decision Record",),
-    ("## Scope-Creep And Hidden-Dependency Check",),
-    ("## Review And Validation", "## AI Review And Agent Coordination"),
-]
+REQUIRED_HEADINGS = (
+    "## Requested outcome",
+    "## Scope",
+    "## Validation",
+    "## Review",
+    "## Publication authority",
+)
 
-REQUIRED_PHRASES = [
-    "Original requested outcome",
+REQUIRED_FIELDS = (
+    "Campaign ID",
+    "Objective",
+    "Objective kind",
+    "Exact base SHA",
+    "Exact candidate head SHA",
+    "Specification digest",
+    "Changed paths",
     "Acceptance criteria",
     "Explicit non-goals",
-    "Owner | Approver",
-    "hidden dependency",
-    "Parent/orchestrator sessions did not implement product code",
-    "Current PR head SHA",
-    "Reviewed head SHA",
-    "Review source",
-    "Current-head review count",
-]
+    "Frozen candidate diff digest",
+    "Required review cohort",
+    "Frozen finding IDs",
+    "Repair used",
+    "Closure result",
+    "Allowed effects",
+    "Exact operation IDs",
+)
 
-AI_REVIEW_OPTIONS = [
-    "Codex reviewed this exact PR head",
-    "Claude reviewed this diff",
-    "AI review intentionally deferred with reason below",
-]
+VALIDATION_CHECKS = (
+    "product-quality",
+    "product-tests",
+    "product-acceptance",
+    "requested-documentation",
+    "coding-os-adapter",
+    "pr-metadata",
+)
 
-
-def checked_line(body: str, label: str) -> bool:
-    escaped_label = re.escape(label)
-    return bool(re.search(rf"(?m)^\s*-\s*\[[xX]\]\s+{escaped_label}\s*$", body))
-
-
-def option_line_present(body: str, label: str) -> bool:
-    escaped_label = re.escape(label)
-    return bool(re.search(rf"(?m)^\s*-\s*\[[ xX]\]\s+{escaped_label}\s*$", body))
+OBJECTIVE_KINDS = {"PRODUCT_CODE", "PRODUCT_DOCUMENTATION", "CONTROL_RUNTIME"}
+ALLOWED_EFFECTS = {"PUSH", "CREATE_PULL_REQUEST", "UPSERT_COMMENT", "MERGE"}
 
 
 def field_value(body: str, label: str) -> str:
@@ -59,118 +61,166 @@ def valid_sha(value: str) -> bool:
     return bool(re.fullmatch(r"[0-9a-fA-F]{40}", value))
 
 
-def positive_int(value: str) -> bool:
-    return bool(re.fullmatch(r"[1-9][0-9]*", value))
+def valid_digest(value: str) -> bool:
+    return bool(re.fullmatch(r"[0-9a-fA-F]{64}", value))
+
+
+def validation_row(body: str, check: str) -> tuple[str, str, str] | None:
+    match = re.search(
+        rf"(?im)^\|\s*{re.escape(check)}\s*\|\s*([^|]*)\|\s*([^|]*)\|\s*([^|]*)\|\s*$",
+        body,
+    )
+    if match is None:
+        return None
+    return tuple(item.strip() for item in match.groups())  # type: ignore[return-value]
 
 
 def validate_body(
     body: str,
     *,
-    allow_unmarked_ai_review: bool = False,
+    template_mode: bool = False,
     expected_current_head: str = "",
 ) -> list[str]:
     failures: list[str] = []
 
-    for heading_group in REQUIRED_HEADING_GROUPS:
-        if not any(heading in body for heading in heading_group):
-            failures.append(f"PR body is missing required section: {' or '.join(heading_group)}")
+    for heading in REQUIRED_HEADINGS:
+        if heading not in body:
+            failures.append(f"PR body is missing required section: {heading}")
+    for label in REQUIRED_FIELDS:
+        if not re.search(rf"(?im)^\s*(?:-\s*)?{re.escape(label)}:", body):
+            failures.append(f"PR body is missing required field: {label}")
+    for check in VALIDATION_CHECKS:
+        if validation_row(body, check) is None:
+            failures.append(f"PR body is missing validation row: {check}")
 
-    for phrase in REQUIRED_PHRASES:
-        if phrase not in body:
-            failures.append(f"PR body is missing required workflow-control phrase: {phrase}")
+    if template_mode:
+        return failures
 
-    if allow_unmarked_ai_review:
-        for option in AI_REVIEW_OPTIONS:
-            if not option_line_present(body, option):
-                failures.append(f"PR template is missing AI review option: {option}")
-    elif not any(checked_line(body, option) for option in AI_REVIEW_OPTIONS):
-        failures.append("PR must mark Codex review, Claude review, or intentional AI-review deferral.")
+    values = {label: field_value(body, label) for label in REQUIRED_FIELDS}
+    for label, value in values.items():
+        if not value:
+            failures.append(f"PR body field must not be blank: {label}")
 
-    if checked_line(body, "Codex reviewed this exact PR head"):
-        current_pr_head = field_value(body, "Current PR head SHA")
-        reviewed_head = field_value(body, "Reviewed head SHA")
-        review_source = field_value(body, "Review source")
-        review_count = field_value(body, "Current-head review count")
-        if not valid_sha(current_pr_head):
-            failures.append("Codex exact-head review must record a valid Current PR head SHA.")
-        elif expected_current_head and current_pr_head.lower() != expected_current_head.lower():
-            failures.append("Codex exact-head review Current PR head SHA must match the live pull request head SHA.")
-        if not valid_sha(reviewed_head):
-            failures.append("Codex exact-head review must record a valid Reviewed head SHA.")
-        if valid_sha(current_pr_head) and valid_sha(reviewed_head) and current_pr_head.lower() != reviewed_head.lower():
-            failures.append("Codex exact-head review Reviewed head SHA must match Current PR head SHA.")
-        if not review_source:
-            failures.append("Codex exact-head review must record the review source.")
-        if not positive_int(review_count):
-            failures.append("Codex exact-head review must record a positive Current-head review count.")
+    if values["Objective kind"] not in OBJECTIVE_KINDS:
+        failures.append("Objective kind is not one supported campaign objective kind.")
+    for label in ("Exact base SHA", "Exact candidate head SHA"):
+        if not valid_sha(values[label]):
+            failures.append(f"{label} must be one full 40-character Git SHA.")
+    candidate_head = values["Exact candidate head SHA"]
+    if (
+        expected_current_head
+        and valid_sha(candidate_head)
+        and candidate_head.casefold() != expected_current_head.casefold()
+    ):
+        failures.append(
+            "Exact candidate head SHA must match the live pull request head SHA."
+        )
+    for label in ("Specification digest", "Frozen candidate diff digest"):
+        if not valid_digest(values[label]):
+            failures.append(f"{label} must be one full SHA-256 digest.")
+    if values["Repair used"] not in {"Yes", "No"}:
+        failures.append("Repair used must be exactly Yes or No.")
+    effects = {
+        item.strip()
+        for item in values["Allowed effects"].split(",")
+        if item.strip()
+    }
+    if not effects or not effects.issubset(ALLOWED_EFFECTS):
+        failures.append("Allowed effects contains an empty or unsupported effect set.")
+    operation_ids = [
+        item.strip()
+        for item in values["Exact operation IDs"].split(",")
+        if item.strip()
+    ]
+    if not operation_ids or any(
+        re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", item) is None
+        for item in operation_ids
+    ):
+        failures.append("Exact operation IDs must contain stable operation identifiers.")
+    for check in VALIDATION_CHECKS:
+        row = validation_row(body, check)
+        if row is not None and any(not item for item in row):
+            failures.append(
+                f"Validation row must record command, evidence ID, and result: {check}"
+            )
 
     return failures
 
 
-def fixture_body(current_head: str, reviewed_head: str, review_source: str, review_count: str) -> str:
-    source_value = f" {review_source}" if review_source else ""
-    return f"""## Summary
+def fixture_body(current_head: str, *, specification_digest: str | None = None) -> str:
+    digest = specification_digest if specification_digest is not None else "b" * 64
+    validation = "\n".join(
+        f"| {check} | command-{check} | evidence-{check} | PASS |"
+        for check in VALIDATION_CHECKS
+    )
+    return f"""## Requested outcome
 
-- Changed files: control helpers
-- Original requested outcome: verify exact-head review metadata
-- Acceptance criteria: parse line-bounded fields
-- Explicit non-goals: no product implementation
+- Campaign ID: campaign-1
+- Objective: verify the exact campaign candidate
+- Objective kind: CONTROL_RUNTIME
+- Exact base SHA: {'a' * 40}
+- Exact candidate head SHA: {current_head}
+- Specification digest: {digest}
 
-## Scope And Authority
+## Scope
 
-- [x] This PR maps to the original requested outcome and acceptance criteria.
-- [x] Explicit non-goals stayed out of the diff.
+- Changed paths: scripts/agent/campaign_engine/**
+- Acceptance criteria: exact-head replacement passes
+- Explicit non-goals: no unrelated product changes
 
-## Decision Record
+## Validation
 
-| Decision | Alternatives rejected | Reason | Owner | Approver | Revisit trigger | Evidence test | Status | Authority source |
-|---|---|---|---|---|---|---|---|---|
-| Line-bounded parser | Cross-line capture | Avoid hidden dependency on PR prose | Ayman | Ayman | parser drift | self-test | Approved | control-state contract |
+| Check | Command | Evidence ID | Result |
+|---|---|---|---|
+{validation}
 
-## Scope-Creep And Hidden-Dependency Check
+## Review
 
-- [x] No hidden dependency was added.
-- [x] Parent/orchestrator sessions did not implement product code.
+- Frozen candidate diff digest: {'c' * 64}
+- Required review cohort: reviewer-a, reviewer-b
+- Frozen finding IDs: None
+- Repair used: No
+- Closure result: PASS
 
-## Review And Validation
+## Publication authority
 
-- [x] Codex reviewed this exact PR head
-  - Current PR head SHA: {current_head}
-  - Reviewed head SHA: {reviewed_head}
-  - Review source:{source_value}
-  - Current-head review count: {review_count}
-- [ ] Claude reviewed this diff
-- [ ] AI review intentionally deferred with reason below
-- [x] Required validation commands were run or explicitly reported as not run.
+- Allowed effects: PUSH, CREATE_PULL_REQUEST, MERGE
+- Exact operation IDs: push-1, pr-1, merge-1
 """
 
 
 def run_self_test(template_path: Path | None = None) -> None:
     head = "a" * 40
     valid_failures = validate_body(
-        fixture_body(head, head, "https://example.invalid/review", "1"),
+        fixture_body(head),
         expected_current_head=head,
     )
     if valid_failures:
         raise AssertionError(f"valid PR body fixture failed: {'; '.join(valid_failures)}")
 
-    blank_source_failures = validate_body(fixture_body(head, head, "", "1"))
-    if not any("review source" in failure.lower() for failure in blank_source_failures):
-        raise AssertionError("blank Review source fixture did not fail closed")
-
-    short_sha_failures = validate_body(fixture_body(head, head[:10], "https://example.invalid/review", "1"))
-    if not any("Reviewed head SHA" in failure for failure in short_sha_failures):
-        raise AssertionError("abbreviated Reviewed head SHA fixture did not fail closed")
-
     stale_head_failures = validate_body(
-        fixture_body(head, head, "https://example.invalid/review", "1"),
+        fixture_body(head),
         expected_current_head="b" * 40,
     )
     if not any("live pull request head SHA" in failure for failure in stale_head_failures):
-        raise AssertionError("stale Current PR head SHA fixture did not fail closed")
+        raise AssertionError("stale candidate head fixture did not fail closed")
+
+    digest_failures = validate_body(fixture_body(head, specification_digest="short"))
+    if not any("Specification digest" in failure for failure in digest_failures):
+        raise AssertionError("abbreviated specification digest fixture did not fail closed")
+
+    incomplete_validation = fixture_body(head).replace(
+        "| product-tests | command-product-tests | evidence-product-tests | PASS |",
+        "| product-tests | command-product-tests |  | PASS |",
+    )
+    validation_failures = validate_body(incomplete_validation)
+    if not any("product-tests" in failure for failure in validation_failures):
+        raise AssertionError("blank validation evidence fixture did not fail closed")
 
     if template_path is not None:
-        template_failures = validate_body(template_path.read_text(encoding="utf-8"), allow_unmarked_ai_review=True)
+        template_failures = validate_body(
+            template_path.read_text(encoding="utf-8"), template_mode=True
+        )
         if template_failures:
             raise AssertionError(f"PR template failed template-mode validation: {'; '.join(template_failures)}")
 
@@ -190,7 +240,6 @@ def read_github_event_body(event_path: Path, *, enforce_draft: bool) -> tuple[st
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--body-file")
-    parser.add_argument("--allow-unmarked-ai-review", action="store_true")
     parser.add_argument("--enforce-draft", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     return parser.parse_args(argv)
@@ -226,7 +275,6 @@ def main(argv: list[str]) -> int:
 
     failures = validate_body(
         body,
-        allow_unmarked_ai_review=args.allow_unmarked_ai_review,
         expected_current_head=expected_current_head,
     )
     if failures:

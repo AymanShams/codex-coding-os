@@ -1,40 +1,42 @@
-## Summary
+## Requested outcome
 
-- Changed files:
-- Original requested outcome:
+- Campaign ID:
+- Objective:
+- Objective kind:
+- Exact base SHA:
+- Exact candidate head SHA:
+- Specification digest:
+
+## Scope
+
+- Changed paths:
 - Acceptance criteria:
 - Explicit non-goals:
 
-## Scope And Authority
+## Validation
 
-- [ ] This PR maps to the original requested outcome and acceptance criteria.
-- [ ] Explicit non-goals stayed out of the diff.
-- [ ] The workflow manifest and active-slice manifest allow these files and actions.
-- [ ] This is not a docs-only slice-selection, current-state, active-slice, handoff, or review-marker PR unless explicitly authorized.
+| Check | Command | Evidence ID | Result |
+|---|---|---|---|
+| product-quality |  |  |  |
+| product-tests |  |  |  |
+| product-acceptance |  |  |  |
+| requested-documentation |  |  |  |
+| coding-os-adapter |  |  |  |
+| pr-metadata |  |  |  |
 
-## Decision Record
+## Review
 
-| Decision | Alternatives rejected | Reason | Owner | Approver | Revisit trigger | Evidence test | Status | Authority source |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  | Proposed, Approved, Rejected, Deferred, Needs human, or Superseded |  |
+- Frozen candidate diff digest:
+- Required review cohort:
+- Frozen finding IDs:
+- Repair used: No
+- Closure result:
 
-## Scope-Creep And Hidden-Dependency Check
+## Publication authority
 
-- [ ] Added behavior was explicitly requested or approved.
-- [ ] No hidden dependency, provider, service, script, hook, or workflow was added.
-- [ ] Unresolved material decisions did not enter implementation.
-- [ ] Parent/orchestrator sessions did not implement product code.
+- Allowed effects:
+- Exact operation IDs:
 
-## Review And Validation
-
-- [ ] Review need was classified from the actual diff, controlled-source risk, or explicit user instruction.
-- [ ] Codex reviewed this exact PR head
-  - Current PR head SHA:
-  - Reviewed head SHA:
-  - Review source:
-  - Current-head review count:
-- [ ] Claude reviewed this diff
-- [ ] AI review intentionally deferred with reason below
-- [ ] Required validation commands were run or explicitly reported as not run.
-
-Reason if AI review was deferred:
+Repository state files, handoffs, review prose, and caller-declared roles are
+informational only. Publication requires the approved campaign contract and the
+exact frozen candidate head.

@@ -1,0 +1,1 @@
+{"incident_id":"uncertain-external-effect","case":"opposite","input":{"state":"AMBIGUOUS","query_result":"confirmed","mutation_calls":1},"expected":{"state":"CONFIRMED","mutation_calls":1}}

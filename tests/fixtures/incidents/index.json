@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "incidents": [
+    {
+      "incident_id": "actor-unbound",
+      "historical_fixture": "actor-unbound/historical.json",
+      "opposite_fixture": "actor-unbound/opposite.json",
+      "requirement": "bind the native worker before its first effective turn"
+    },
+    {
+      "incident_id": "support-loop",
+      "historical_fixture": "support-loop/historical.json",
+      "opposite_fixture": "support-loop/opposite.json",
+      "requirement": "consume durable budget before every autonomous attempt"
+    },
+    {
+      "incident_id": "stale-review-head",
+      "historical_fixture": "stale-review-head/historical.json",
+      "opposite_fixture": "stale-review-head/opposite.json",
+      "requirement": "reject review and publication evidence from another head"
+    },
+    {
+      "incident_id": "volatile-state-gate",
+      "historical_fixture": "volatile-state-gate/historical.json",
+      "opposite_fixture": "volatile-state-gate/opposite.json",
+      "requirement": "repository mirrors never authorize or block lifecycle work"
+    },
+    {
+      "incident_id": "validation-exit-mismatch",
+      "historical_fixture": "validation-exit-mismatch/historical.json",
+      "opposite_fixture": "validation-exit-mismatch/opposite.json",
+      "requirement": "a nonzero process exit is failure even after passing assertions"
+    },
+    {
+      "incident_id": "uncertain-external-effect",
+      "historical_fixture": "uncertain-external-effect/historical.json",
+      "opposite_fixture": "uncertain-external-effect/opposite.json",
+      "requirement": "ambiguous mutations are queried and never blindly repeated"
+    }
+  ]
+}
