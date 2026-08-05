@@ -1,61 +1,50 @@
-# Parallel Lane Handoff
+# Worker Result Summary
 
-## Lane
-- Run ID:
-- Lane:
+Status: `INFORMATIONAL_ONLY`
+
+The external campaign store owns worker identity, leases, node status, budgets, and continuation. This summary cannot authorize another worker, repair, review, publication, or campaign action.
+
+## Engine Receipt Identity
+
+- Campaign ID:
+- Node ID:
+- Worker receipt ID:
+
+## Exact Repository Binding
+
+- Repository root:
+- Remote:
+- Worktree:
 - Branch:
-- Local worktree path: keep out of committed summaries unless explicitly needed for local-only handoff.
-- Base commit:
-- Handoff target: Parent by default in parent/orchestrator automation
-- Parent consumes next: Yes or No
+- Base HEAD:
+- Candidate HEAD:
+- Allowed paths:
 
-## Work Completed
--
+## Work Result
+
+- Objective:
+- Terminal result:
+- Product evidence:
+- Work explicitly not performed:
 
 ## Changed Files
--
 
-## Validation Evidence
-| Command | Result | Notes |
-|---|---|---|
-|  |  |  |
+- None recorded.
 
-- Typed evidence file: `validation-evidence.json` or Not produced
-- Validator command: `python -B scripts/agent/validation_evidence.py validate --file validation-evidence.json --repo-root . --json`
-- Identity match: True, False, or Not validated
-- Full-head match: True, False, or Not validated
-- Working-tree match: True, False, or Not validated
-- What the evidence proves:
-- What the evidence does not prove:
+## Trusted Validation Evidence
 
-Typed validation evidence is a reference-only record. The validator does not run
-the recorded commands, assess whether their claims are true, or authorize review,
-repair, closure, merge, publication, or any other lifecycle transition.
+| Command receipt | Working directory | Candidate HEAD | Exit | Output evidence |
+|---|---|---|---|---|
+|  |  |  |  |  |
 
-## Checks Not Run
--
+## Findings Or Blockers
 
-## Source Documents Read Or Used
--
+- None recorded.
 
-## Review Packet
-- Diff:
-- Controlling sources:
-- Acceptance criteria:
-- Validation output:
-- Non-goals:
-- Scope creep and hidden dependencies:
-- Assumptions that entered code:
-- Local runtime files: `.codex/parallel-worktrees/<run-id>/`
+## External Status Query
 
-## Blockers Or Risks
--
+```text
+python <installed-cli> --json status --repository-root .
+```
 
-## Merge Readiness
-- Ready / Blocked / Needs parent decision
-
-## Stop Conditions Hit
--
-
-## Next Action For Parent Orchestrator
--
+Return this evidence to the campaign engine. Do not select or start follow-on work from this file.

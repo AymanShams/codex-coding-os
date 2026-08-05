@@ -2,8 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-skills_root="${SKILLS_ROOT:-$HOME/.agents/skills}"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
+skills_root="${SKILLS_ROOT:-$codex_home/skills}"
 dry_run=0
 legacy_overlap_migration=0
 

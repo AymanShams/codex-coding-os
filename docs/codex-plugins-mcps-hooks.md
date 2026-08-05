@@ -132,9 +132,9 @@ Recommended hook uses:
 3. Run secret-pattern scans before commit.
 4. Run frontend QA checks after UI changes.
 5. Reapply external skill overlays after optional external skill installation.
-6. Run `python scripts/agent/worktree_lanes.py validate --current` before commit
-   or push in projects that enable parallel worktree lanes. This validates the
-   lane contract; it does not replace the lane's declared test or build commands.
+6. Use the installed campaign hook for a read-only pointer to
+   `coding-os-state/campaigns.sqlite3`. The hook does not own lifecycle state or
+   grant write authority.
 7. Add advisory capability-routing hints with
    `hooks/capability-router/user_prompt_skill_router.py` after source review.
    This reduces noisy skill/plugin suggestions but does not choose the final
@@ -143,10 +143,8 @@ Recommended hook uses:
    `$CODEX_CAPABILITY_INDEX_DIR/canonical-registry.csv` or
    `CODEX_CAPABILITY_REGISTRY`. The public sample registry is a schema example,
    not a complete installed-state inventory.
-9. Create fresh-context review prompts with
-   `python scripts/agent/fresh_context_review.py --print-only` for dry runs or
-   `python scripts/agent/fresh_context_review.py` after the source worktree is
-   clean.
+9. Dispatch implementation and review workers only through approved campaign
+   nodes. The engine binds each native task before its first turn.
 
 ## Hook safety rules
 

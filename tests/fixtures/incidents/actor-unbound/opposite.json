@@ -1,0 +1,1 @@
+{"incident_id":"actor-unbound","case":"opposite","input":{"native_thread_bound":true,"caller_role":"IMPLEMENTER","turn_started":true},"expected":{"allowed":true,"reason":"exact_native_binding"}}

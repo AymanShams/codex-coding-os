@@ -1,47 +1,33 @@
-# Validation Gates
+# Documentation Validation Checks
 
-Use these gates before reporting a new project documentation setup as complete.
+Use these checks before reporting a new project documentation setup as complete.
 
 ## Required Checks
 
-1. Workflow manifest: `scripts/validate_workflow_manifest.py` passes for the current mode and next action, including pack cross-references, conditional trigger evidence, output state, and artifact lineage for version 1.1 manifests.
-2. File presence: expected controlled docs, repo docs, instruction files, and handoff note exist.
-3. Source inventory: sources were classified and sensitive files were flagged.
-4. Source-lock: filled docs name controlling sources or clearly identify current assumptions.
-5. Approval state: material decisions, controlled docs, TDD, and coding-start approvals are recorded when required.
-6. Stage fit: Stage 0 to Stage 3 are filled when sources exist, and Stage 4 to Stage 6 are not falsely completed before evidence exists.
-7. Drift: high-risk decisions match across project brief, PRD, app flow, tech stack, frontend, backend, security, implementation plan, TDD, and repo docs.
-8. Generic filler: run `scripts/validate_filled_artifacts.py` against filled docs. Blank source templates are excluded from this check.
-9. Name hygiene: old project names are removed from file names, Markdown, YAML, JSON, env examples, README files, and generated DOCX internals when applicable.
-10. Secret hygiene: no obvious credentials, generated passwords, tokens, or `.env` values are staged.
-11. PHI hygiene: no protected health information, pilot member records, or private medical files are staged for Git.
-12. Repo hygiene: `.gitignore`, review workflow, ownership mapping where needed, and governance checks exist where practical.
-13. Agent context: root and scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, active-slice manifest, session continuity command, and handoff note exist.
-14. Git state: run and report `git status -sb` when a repo exists.
-15. Session gate: when session-start validation is invoked, it rejects implementation unless the workflow manifest and active-slice manifest both permit coding.
+1. Workflow manifest: `scripts/validate_workflow_manifest.py` passes for the documentation contract, conditional trigger evidence, artifact lineage, and phase evidence.
+2. Manifest boundary: `document_role` identifies a stable documentation ledger and `execution_authority` is `false`.
+3. File presence: expected product documents, repository docs, instruction files, and optional work summary exist.
+4. Source inventory: sources are classified and controlling sources are named.
+5. Source lock: filled documents identify controlling sources and unresolved assumptions.
+6. Approval evidence: material decisions, controlled documents, and TDD approvals are recorded where required.
+7. Stage fit: documents do not claim implementation or operational evidence that does not exist.
+8. Drift: material terms, workflows, interfaces, and scope agree across the project brief, product documents, TDD, and repository docs.
+9. Generic filler: `scripts/validate_filled_artifacts.py` passes for filled documents. Blank templates are excluded.
+10. Name hygiene: obsolete project names and template placeholders are absent from filled artifacts.
+11. Secret hygiene: no credentials, tokens, private keys, generated passwords, or real environment values are staged.
+12. Agent context: root and scoped instructions identify stable sources, exact validation, and the installed campaign CLI without reproducing lifecycle rules.
+13. Git evidence: report exact root, branch, HEAD, and working-tree state when a repository exists.
+14. Diff integrity: run `git diff --check` when a repository exists.
 
-## Contradiction Patterns
+## Automation Separation
 
-Search for contradictions around:
+The documentation validators do not execute product tests, admit campaigns, approve campaign specifications, dispatch workers, or publish changes. Verify automation separately with:
 
-- shared versus independent database
-- auth provider and MFA model
-- Supabase Auth if prohibited
-- Vercel or Supabase as development-only versus permanent architecture
-- role visibility and admin access
-- PHI, encryption, audit, and break-glass access
-- AI autonomy and human approval gates
-- WhatsApp, email, notifications, and clinical content rules
-- integration ownership and source-of-truth sync direction
+```text
+python <installed-cli> --json doctor
+python <installed-cli> --json status --repository-root .
+```
 
 ## Final Report
 
-Report:
-
-- created or updated paths
-- checks passed
-- checks not run and why
-- material blockers
-- remaining decisions before coding
-
-Do not claim completion if a critical validation gate was skipped without explanation.
+Report created or updated paths, checks passed, checks not run, unresolved documentation gaps, and remaining user decisions. Report product completion and campaign status separately from documentation completion.

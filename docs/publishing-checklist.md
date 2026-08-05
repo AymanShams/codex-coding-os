@@ -25,6 +25,7 @@
 - Run `.\tests\install-uninstall-smoke.ps1`.
 - Confirm the GitHub Actions Ubuntu and macOS bash smoke tests pass.
 - Rebuild the ZIP with `.\scripts\package.ps1`.
+- Confirm the package `runtime_pin` and source runtime record contain the exact source commit, bundle digest, install transaction, protocol version, schema compatibility, and host capability probe version.
 - Inspect the ZIP and confirm excluded local files are absent.
 - Verify every third-party source in `external-skills/manifest.json`.
 - Confirm attribution and license notes in `THIRD_PARTY_SKILLS.md`.

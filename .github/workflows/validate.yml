@@ -12,160 +12,108 @@ permissions:
   contents: read
 
 jobs:
-  validate-windows:
-    runs-on: windows-2025-vs2026
-
+  product-quality:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Validate PR body control metadata
-        if: github.event_name == 'pull_request'
+      - name: Validate pack and source contracts
         shell: pwsh
-        run: python .\scripts\check-pr-body.py
-
-      - name: Validate manifest and release safety
+        run: ./scripts/validate-pack.ps1
+      - name: Validate JSON Schema support
         shell: pwsh
-        run: .\scripts\validate-pack.ps1
-
-      - name: Smoke test JSON Schema validation
-        shell: pwsh
-        run: .\tests\json-schema-validation-smoke.ps1
-
-      - name: Smoke test install and uninstall
-        shell: pwsh
-        run: .\tests\install-uninstall-smoke.ps1
-
-      - name: Test transactional install contract
-        shell: pwsh
-        run: python -B .\tests\test_install_transaction.py
-
-      - name: Test public installer documentation contract
-        shell: pwsh
-        run: python -B .\tests\test_public_install_docs.py
-
-      - name: Test documentation artifact contracts
-        shell: pwsh
-        run: python -B .\tests\test_documentation_contracts.py
-
-      - name: Test project artifact instances and triggers
-        shell: pwsh
-        run: python -B .\tests\test_project_artifact_instances.py
-
-      - name: Test transactional hard-crash recovery
-        shell: pwsh
-        run: .\tests\install-transaction-faults.ps1
-
-      - name: Regression test finite case-state engine
-        shell: pwsh
-        run: python -B .\tests\test_case_state_engine.py
-
-      - name: Test mandatory anti-loop runtime and activation
-        shell: pwsh
-        run: |
-          python -B .\tests\test_case_human_disposition_verifier.py
-          python -B .\tests\test_anti_loop_runtime_hook.py
-          python -B .\tests\test_activate_anti_loop.py
-
-      - name: Test proposal-only controller and brokered action boundary
-        shell: pwsh
-        run: |
-          python -B .\tests\test_case_review_completion_verifier.py
-          python -B .\tests\test_case_app_server_controller.py
-          python -B .\tests\test_case_runtime_supervisor.py
-          python -B .\tests\test_case_runtime_broker.py
-          python -B .\tests\test_case_proposal_action_grant.py
-
-      - name: Smoke test workflow gates
-        shell: pwsh
-        run: python .\tests\workflow-gates-smoke.py
-
-      - name: Smoke test worktree lanes
-        shell: pwsh
-        run: python .\tests\worktree-lanes-smoke.py
-
-      - name: Test finite case controls and continuity profiles
-        shell: pwsh
-        run: |
-          python -B .\tests\test_case_state_engine.py
-          python -B .\tests\test_source_repository_profile.py
-          python -B .\tests\test_validation_evidence.py
-          python -B .\tests\test_reentry_summary.py
-
+        run: ./tests/json-schema-validation-smoke.ps1
       - name: Build release package
         shell: pwsh
-        run: .\scripts\package.ps1 -OutputPath "$env:RUNNER_TEMP\codex-coding-os.zip"
+        run: ./scripts/package.ps1 -OutputPath "$env:RUNNER_TEMP/codex-coding-os.zip"
 
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v7
+  product-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Test campaign model and reducer
+        run: python -B -m unittest tests.test_campaign_model_reducer -v
+      - name: Check reducer-to-formal lifecycle conformance
+        run: python -B -m unittest tests.test_campaign_formal_conformance -v
+      - name: Test pinned TLC runner
+        run: python -B -m unittest tests.test_campaign_tlc_runner -v
+      - name: Install the pinned TLC Java runtime
+        uses: actions/setup-java@v5
         with:
-          name: codex-coding-os
-          path: ${{ runner.temp }}/codex-coding-os.zip
+          distribution: temurin
+          java-version: "21"
+      - name: Model-check bounded campaign lifecycle with TLC
+        run: python ./scripts/run_campaign_tlc.py --download --jar "${{ runner.temp }}/tla2tools-v1.7.4.jar"
+      - name: Test campaign store
+        run: python -B -m unittest tests.test_campaign_store -v
+      - name: Test campaign runtime components
+        run: python -B -m unittest tests.test_campaign_runtime_components -v
+      - name: Test deterministic campaign supervisor
+        run: python -B -m unittest tests.test_campaign_supervisor -v
+      - name: Replay campaign incidents and cross-layer conformance
+        run: python -B -m unittest tests.test_campaign_incident_conformance -v
+      - name: Test executable campaign CLI
+        run: python -B -m unittest tests.test_campaign_cli -v
 
-  validate-bash:
+  product-acceptance:
     strategy:
       fail-fast: false
       matrix:
         os:
+          - windows-latest
           - ubuntu-latest
           - macos-latest
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Validate manifest and release safety
+      - name: Test transactional install contract
+        run: python -B tests/test_install_transaction.py
+      - name: Smoke test Windows install and uninstall
+        if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/validate-pack.ps1
-
-      - name: Smoke test JSON Schema validation
+        run: ./tests/install-uninstall-smoke.ps1
+      - name: Test transactional hard-crash recovery
+        if: runner.os == 'Windows'
         shell: pwsh
-        run: ./tests/json-schema-validation-smoke.ps1
-
-      - name: Check bash syntax
+        run: ./tests/install-transaction-faults.ps1
+      - name: Check bash installer syntax
+        if: runner.os != 'Windows'
         shell: bash
         run: bash -n ./scripts/install.sh ./scripts/uninstall.sh ./tests/install-uninstall-smoke.sh
-
-      - name: Test transactional install contract
-        shell: bash
-        run: python -B ./tests/test_install_transaction.py
-
-      - name: Test public installer documentation contract
-        shell: bash
-        run: python -B ./tests/test_public_install_docs.py
-
-      - name: Test documentation artifact contracts
-        shell: bash
-        run: python -B ./tests/test_documentation_contracts.py
-
-      - name: Test project artifact instances and triggers
-        shell: bash
-        run: python -B ./tests/test_project_artifact_instances.py
-
       - name: Smoke test bash install and uninstall
+        if: runner.os != 'Windows'
         shell: bash
         run: bash ./tests/install-uninstall-smoke.sh
 
-      - name: Smoke test workflow gates
-        shell: bash
-        run: python ./tests/workflow-gates-smoke.py
+  requested-documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Test public installer documentation contract
+        run: python -B tests/test_public_install_docs.py
+      - name: Test documentation artifact contracts
+        run: python -B tests/test_documentation_contracts.py
+      - name: Test project artifact instances and triggers
+        run: python -B tests/test_project_artifact_instances.py
 
-      - name: Smoke test worktree lanes
-        shell: bash
-        run: python ./tests/worktree-lanes-smoke.py
+  coding-os-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Test source-only campaign adapter contracts
+        run: python -B tests/test_source_repository_profile.py
 
-      - name: Test finite case controls and continuity profiles
-        shell: bash
-        run: |
-          python -B ./tests/test_case_state_engine.py
-          python -B ./tests/test_case_human_disposition_verifier.py
-          python -B ./tests/test_anti_loop_runtime_hook.py
-          python -B ./tests/test_activate_anti_loop.py
-          python -B ./tests/test_source_repository_profile.py
-          python -B ./tests/test_validation_evidence.py
-          python -B ./tests/test_reentry_summary.py
-          python -B ./tests/test_case_app_server_controller.py
-          python -B ./tests/test_case_runtime_supervisor.py
-          python -B ./tests/test_case_runtime_broker.py
-          python -B ./tests/test_case_proposal_action_grant.py
+  pr-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Self-test pull request metadata contract
+        run: python ./scripts/check-pr-body.py --self-test
+      - name: Validate pull request metadata
+        if: github.event_name == 'pull_request'
+        run: python ./scripts/check-pr-body.py

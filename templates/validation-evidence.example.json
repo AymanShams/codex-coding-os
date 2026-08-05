@@ -1,39 +1,31 @@
 {
-  "schema_version": 1,
-  "evidence_id": "synthetic-command-pass-001",
-  "proof_type": "COMMAND_EXIT",
-  "result": "PASS",
-  "scope": {
-    "kind": "COMMAND",
-    "targets": [
-      "python -B tests/synthetic.py"
-    ]
-  },
-  "repository": "https://example.invalid/example/synthetic-validation.git",
-  "exact_head": "0000000000000000000000000000000000000000",
-  "environment": {
-    "platform": "synthetic-platform",
-    "runtimes": [
-      "Python synthetic"
-    ],
-    "working_tree": "clean"
-  },
-  "authority": {
-    "source_type": "RUN_ENVELOPE",
-    "reference": "synthetic-run-envelope",
-    "scope": "validation only"
-  },
-  "observations": [
-    {
-      "command": "python -B tests/synthetic.py",
-      "exit_code": 0,
-      "fact": "The synthetic command exited zero."
-    }
+  "protocol_version": "ccos-validation-execution-v1",
+  "executable": "C:/synthetic/python.exe",
+  "executable_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "arguments": [
+    "-B",
+    "-c",
+    "print('synthetic validation')"
   ],
-  "proves": [
-    "The named synthetic command exited zero at the exact recorded head."
+  "working_directory": "C:/synthetic/repository",
+  "environment_names": [
+    "PATH"
   ],
-  "does_not_prove": [
-    "It does not authorize merge, deployment, release, or lifecycle closure."
-  ]
+  "timeout_seconds": 30,
+  "output_limit_bytes": 65536,
+  "candidate_head": "2222222222222222222222222222222222222222",
+  "head_after": "2222222222222222222222222222222222222222",
+  "status_before_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "status_after_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "exit_code": 0,
+  "timed_out": false,
+  "output_limited": false,
+  "stdout_sha256": "39f70b34e74772e98ab76f64cb1d62cae368ae6960e5ccdf9fcc09eabdbb180b",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout": "synthetic validation\n",
+  "stderr": "",
+  "required_exit_code": 0,
+  "passed": true,
+  "duration_ms": 1,
+  "evidence_sha256": "aa0c542e2e1aade10d5272591d8acc3de34ea6428e5bc49d906c17e294463074"
 }

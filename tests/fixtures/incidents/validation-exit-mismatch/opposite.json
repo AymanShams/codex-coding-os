@@ -1,0 +1,1 @@
+{"incident_id":"validation-exit-mismatch","case":"opposite","input":{"assertions":"passing","exit_code":0,"required_exit_code":0},"expected":{"passed":true}}

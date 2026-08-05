@@ -287,6 +287,7 @@
         "managed_skill_root",
         "runtime_files",
         "universal_policy_sources",
+        "campaign_hook",
         "capability_refresh_cli",
         "external_skills_staged"
       ],
@@ -308,6 +309,15 @@
           "properties": {
             "global_agents": { "type": "string", "minLength": 1 },
             "default_rules": { "type": "string", "minLength": 1 }
+          }
+        },
+        "campaign_hook": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "target"],
+          "properties": {
+            "source": { "const": "hooks/campaign-engine" },
+            "target": { "const": "hooks/campaign-engine" }
           }
         },
         "capability_refresh_cli": { "type": "string", "minLength": 1 },

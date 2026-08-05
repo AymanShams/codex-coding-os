@@ -1,32 +1,19 @@
 # Hooks
 
-This pack documents hook candidates but does not enable hooks during installation.
+`campaign-engine/campaign_hook.py` is the only lifecycle-aware hook. It is a
+thin client of the installed campaign engine and contains no transition table,
+budget reset, actor-role inference, Git-state mirror gate, or fallback path.
 
-Recommended hook candidates:
+The installer owns one narrow `PreToolUse` entry matching only
+`campaign_apply_patch` and `campaign_commit`. It transactionally removes the
+retired anti-loop runtime entries and preserves every unrelated hook. Uninstall
+removes the owned campaign entry without restoring the retired engine.
 
-1. Pack validation with `scripts/validate-pack.ps1` before release.
-2. Release-safety scan with `scripts/release-safety-scan.ps1` before public publishing.
-3. Secret-pattern scan before commit.
-4. Frontend QA after UI changes.
-5. External skill overlay reapply after optional external install.
-6. Parallel worktree lane validation with `hooks/worktree-lane-pre-commit.py`
-   and `hooks/worktree-lane-pre-push.py` for projects that enable lane mode.
-7. Capability-router prompt hints with
-   `hooks/capability-router/user_prompt_skill_router.py` for users who want
-   reviewed prompt-time skill and plugin suggestions.
+Manual work and incomplete inherited environments are unaffected. Delegation
+requires `CCOS_CAMPAIGN_ID`, `CCOS_ACTOR_ID`, `CCOS_LEASE_ID`, all three exact
+epochs, `CCOS_REPOSITORY_ROOT`, and `CCOS_HOOK_ACTION`. If any value is absent,
+the hook returns success without consulting state. With the complete tuple, it
+delegates the exact decision to `campaign_engine/cli.py authorize-action`.
 
-Before enabling any hook, verify current Codex hook syntax and trust behavior in official Codex docs. For command approval policy, review `.codex/rules/default.rules` and `docs/codex-rules.md`.
-
-The worktree lane hooks are optional Git hook wrappers. They call
-`python scripts/agent/worktree_lanes.py validate --current` and fail closed when
-an active lane edits files outside its contract, touches controlled files without
-permission, or lacks required lane state.
-
-If an active lane marker exists but `scripts/agent/worktree_lanes.py` is missing,
-the hooks fail closed. Passing this hook means the lane contract is valid; it does
-not replace the lane's declared tests, build, lint, or review commands.
-
-The capability-router hook is advisory and fail-open. It builds a local index,
-filters generic false positives, and adds routing hints only. It does not install
-skills, enable plugins, mutate files, or replace the `catalogue-router` decision
-gate.
+Pack validation and capability-routing hooks remain ordinary advisory or build
+tools. They do not own campaign state.

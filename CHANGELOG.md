@@ -4,27 +4,38 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-04
+
 ### Added
 
-- Added typed artifact-family definitions for canonical templates, exact
-  mirrors, intentional variants, owners, consumers, triggers, and generation
-  routes.
-- Added cross-platform documentation-contract validation with negative fixtures
-  for mirror drift, broken lineage, missing ownership fields, and mutable README
-  snapshots.
+- Added the single immutable campaign engine with a pure reducer, durable
+  SQLite store, deterministic supervisor, native bind-before-turn host,
+  trusted validation runner, external-effect outbox, read-only legacy archive,
+  executable CLI, formal model, and paired incident corpus.
+- Added exact runtime pins for source commit, bundle digest, install transaction,
+  protocol version, schema compatibility, and host capability probe version.
+- Added thin repository adapters and separate CI signals for product quality,
+  product tests, product acceptance, requested documentation, Coding OS adapter,
+  and pull request metadata.
 
 ### Fixed
 
-- Synchronized the distributed repository-documentation and project-brief
-  templates with their canonical skill assets.
-- Replaced stale README release, pull-request, and inventory snapshots with links
-  to their live authorities.
+- Bound validation, review, repair, publication, cancellation, recovery, and
+  installation to exact revisions, epochs, fences, heads, digests, and durable
+  budget receipts.
+- Preserved exact-file replacement verification inside one narrow campaign
+  effect driver without retaining a second lifecycle authority.
 
 ### Changed
 
-- Strengthened bundled coding and security skills with evidence-based finding
-  reports, explicit authorization boundaries, behavior-matched verification,
-  controlled agent-input handling, and conditional surface overlays.
+- Retired every former case, controller, broker, session-state, active-slice,
+  handoff, path-only, and anti-loop lifecycle mutation entrypoint. Former public
+  case commands now return `LEGACY_ENGINE_RETIRED`.
+- Moved volatile execution state out of Git into
+  `coding-os-state/campaigns.sqlite3` and made repository state artifacts
+  informational only.
+- Replaced the installer, managed rules, campaign hook, repository templates,
+  and core coding skills so they call only the campaign engine.
 
 ## [0.10.0] - 2026-07-29
 

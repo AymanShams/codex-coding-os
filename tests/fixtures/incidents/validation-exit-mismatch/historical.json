@@ -1,0 +1,1 @@
+{"incident_id":"validation-exit-mismatch","case":"historical","input":{"assertions":"passing","exit_code":1,"required_exit_code":0},"expected":{"passed":false,"reason":"exit_code_mismatch"}}

@@ -22,7 +22,7 @@ Keep one authoritative owner for each detailed template. The orchestrator sequen
 | Public search surfaces | `technical-docs-pack/references/search-documentation-template.md` | Select only when a public indexable surface makes the typed trigger true |
 | Module contracts | `technical-docs-pack/references/module-contract-template.md` | Select only when a stable interface, independent lifecycle, meaningful dependency, or material failure behavior makes the typed trigger true |
 | Validation report | `artifact-validation-workflow` | Require pass/fail verdict and exact blockers |
-| Current state, active-slice manifest, and session handoff | `project-session-continuity` | Keep coordination subordinate to the workflow manifest, active-slice manifest, and controlling docs |
+| Informational work summary | This skill asset | Record exact documentation and validation facts without execution authority |
 
 ## Artifact Identity Rule
 
@@ -46,7 +46,7 @@ The audited template families are classified as follows:
 | Root agent instructions | `assets/AGENTS.md` in this skill | `templates/repo-AGENTS.md` is a standalone intentional variant. |
 | Scoped agent instructions | `assets/scoped-AGENTS.md` in this skill | `templates/scoped-AGENTS.md` is a standalone intentional variant. |
 | Claude entrypoint | `assets/CLAUDE.md` in this skill | `templates/CLAUDE.md` is a standalone intentional variant. |
-| Handoff | `assets/history-handoff-template.md` in this skill | `templates/handoff-note.md` is a session-boundary intentional variant owned by `project-session-continuity`. |
+| Work summary | `assets/history-handoff-template.md` in this skill | `templates/handoff-note.md` is an informational intentional variant. |
 | Content guidelines | `technical-docs-pack/references/content-guidelines-template.md` | Canonical conditional artifact with no distributed variant. |
 | Public search surfaces | `technical-docs-pack/references/search-documentation-template.md` | Canonical conditional artifact with no distributed variant. |
 | Module contracts | `technical-docs-pack/references/module-contract-template.md` | Canonical conditional artifact with no distributed variant. |
@@ -115,8 +115,8 @@ Incorporate these durable controls from the Codex Coding OS process:
 - Create a project brief before the seven-doc pack.
 - Route one primary skill per phase.
 - Use supporting skills only when they materially change the phase.
-- Maintain a machine-readable manifest as workflow source of truth.
+- Maintain a machine-readable manifest as the stable documentation ledger.
 - Separate user-facing deliverables from maintainer/process commentary.
 - Add a first vertical slice recommendation only after documentation approval.
-- Add a handoff note that reports actual state, validation, known issues, and the next permitted task.
-- Add a current-state file, active-slice manifest, and session-start check that rejects implementation when invoked if either manifest does not permit coding.
+- Add an informational work summary that reports documents, validation, and known gaps without selecting work.
+- Point automated implementation to the installed campaign CLI. Keep campaign state outside Git and do not duplicate lifecycle rules in documentation.

@@ -179,6 +179,14 @@ class DocumentationContractTests(unittest.TestCase):
     def test_live_repository_contract_passes(self) -> None:
         self.assertEqual([], VALIDATOR.validate_repository(ROOT))
 
+    def test_campaign_contract_documents_the_executable_and_formal_boundaries(self) -> None:
+        campaign_contract = (ROOT / "docs" / "campaign-engine.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("scripts/agent/campaign_engine/reducer.py", campaign_contract)
+        self.assertIn("formal/Campaign.tla", campaign_contract)
+        self.assertIn("LEGACY_ENGINE_RETIRED", campaign_contract)
+        self.assertIn("Repository state files, handoffs, comments, branch names", readme)
+
     def test_all_audited_family_members_are_registered(self) -> None:
         manifest = json.loads((ROOT / "pack.manifest.json").read_text(encoding="utf-8"))
         registered = {

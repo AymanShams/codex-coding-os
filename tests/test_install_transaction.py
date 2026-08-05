@@ -4,18 +4,25 @@ import hashlib
 import importlib.util
 import json
 import os
+from contextlib import closing
 from pathlib import Path
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
-import uuid
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.agent.campaign_engine.effects import ExactFileEffectDriver
+
+
 MODULE_PATH = REPO_ROOT / "scripts" / "install_transaction.py"
 SPEC = importlib.util.spec_from_file_location("install_transaction", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -29,23 +36,44 @@ AGENTS_LEGACY = (
     "and review-fix trains are disabled. A human may deliberately start one bounded implementation or review "
     "session, but no session may automatically spawn, authorize, or chain another session."
 )
-AGENTS_POLICY = """<!-- BEGIN CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->
-  - Automation-Preserving Case Orchestration Policy: Parent orchestration and child agents are enabled only inside an explicitly approved run envelope bound to one canonical case ID. The parent is administrative only. A case permits one implementation generation, one frozen-head review cohort, at most one explicitly authorized combined repair, and one closure check. A new chat, branch, worktree, pull request, commit counter, or child session cannot reset the case. The case-state engine is the lifecycle authority and prose files are mirrors. A stop or red lock is case-scoped and unrelated work remains available.
-  - `ANTI_LOOP_LATCH` is a canonical engine state, not advisory prose. It has higher precedence than every ordinary workflow gate.
-  - Repeated support failures, a second consecutive support mutation, a support-only chain, or a controller-bound actor contradiction latch the exact case.
-  - Once latched, deny every mutation before ordinary workflow eligibility and permit only read-only evidence plus `STOP_CASE` or `SHIP_PRODUCT_WITH_CONTROL_QUARANTINED`.
-  - Repository files cannot clear the protected external latch.
-  - Every support mutation binds one-use request, actor, case revision, repository, worktree, and product-head evidence. Ordinary product editing in `CLEAR` remains allowed.
-  - A support step must never expand into a second support generation.
-<!-- END CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->"""
+AGENTS_POLICY = """<!-- BEGIN CODEX CODING OS MANAGED: CAMPAIGN ENGINE POLICY -->
+- The installed campaign engine and external SQLite store are the only lifecycle authority.
+- Repository state files are informational only and old lifecycle commands are retired.
+<!-- END CODEX CODING OS MANAGED: CAMPAIGN ENGINE POLICY -->"""
 RULES_LEGACY = 'prefix_rule(pattern=["gh", "pr", "merge"], decision="allow")'
-RULES_POLICY = """# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY
+RULES_POLICY = """# BEGIN CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS
 prefix_rule(
-    pattern = ["gh", "pr", "merge"],
+    pattern = ["gh", "pr", ["create", "merge"]],
     decision = "prompt",
-    justification = "Pull request merge requires explicit authority for the exact repository, pull request, and reviewed head.",
+    justification = "Campaign publication uses the transactional outbox.",
 )
-# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"""
+# END CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS"""
+
+
+def hook_command(name: str) -> dict[str, object]:
+    return {
+        "type": "command",
+        "command": f'python3 -B "$HOME/.codex/hooks/{name}.py"',
+        "commandWindows": f'python.exe -B "C:\\synthetic\\hooks\\{name}.py"',
+        "timeout": 11,
+        "statusMessage": f"Running {name}",
+    }
+
+
+def legacy_lifecycle_hook_command() -> dict[str, object]:
+    return {
+        "type": "command",
+        "command": (
+            'python3 -B "$HOME/.codex/coding-os/hooks/anti-loop-runtime/'
+            'anti_loop_runtime.py"'
+        ),
+        "commandWindows": (
+            'python.exe -B "C:\\synthetic\\coding-os\\hooks\\anti-loop-runtime\\'
+            'anti_loop_runtime.py"'
+        ),
+        "timeout": 30,
+        "statusMessage": "Enforcing mandatory anti-loop latch",
+    }
 
 
 def sha(path: Path) -> str:
@@ -75,42 +103,192 @@ class SyntheticEnvironment:
         self.source = root / "source"
         self.skills = root / "skills"
         self.codex = root / "codex-home"
-        self.state = root / "case-state"
-        self.case_engine = self.source / "scripts" / "agent" / "case_state.py"
-        self.case_id = str(uuid.uuid4())
-        self.publication_thread_id = "01900000-0000-7000-8000-000000000701"
-        self.action_request_id = str(uuid.uuid4())
-        self.case_revision = 7
+        self.legacy_state = self.codex / "case-state"
+        self.state_db = self.codex / "coding-os-state" / "campaigns.sqlite3"
+        self.campaign_id = "campaign-synthetic"
+        self.node_id = "install-runtime"
+        self.authority_epoch = 3
+        self.cancellation_epoch = 0
         self.repository = "https://example.invalid/synthetic/coding-os"
         self.source.mkdir(parents=True)
         write_text(self.source / ".agents/skills/alpha/SKILL.md", "---\nname: alpha\ndescription: synthetic\n---\n")
         write_text(self.source / "payload/doc.txt", "payload-v1\n")
         write_text(self.source / "scripts/install_transaction.py", "# synthetic runtime\n")
+        write_text(self.source / "scripts/agent/campaign_engine/__init__.py", "# synthetic package\n")
         write_text(
-            self.case_engine,
-            """import json, pathlib, sys
-args = sys.argv[1:]
-root = pathlib.Path(args[args.index('--state-root') + 1])
-if 'action-check' in args:
-    (root / 'last-action-check.json').write_text(json.dumps(args), encoding='utf-8')
-name = 'show.json' if 'show' in args else 'authority.json'
-print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
+            self.source / "scripts/agent/campaign_engine/effects.py",
+            """import hashlib, json, os, pathlib, tempfile
+
+class ExactFileEffectDriver:
+    def __init__(self, journal_root):
+        self.journal_root = pathlib.Path(journal_root)
+        self.journal_root.mkdir(parents=True, exist_ok=True)
+
+    def replace(self, *, operation_id, target, expected_baseline_sha256, replacement, expected_replacement_sha256):
+        path = pathlib.Path(target).resolve(strict=True)
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_baseline_sha256:
+            raise RuntimeError("synthetic exact-file baseline mismatch")
+        if hashlib.sha256(replacement).hexdigest() != expected_replacement_sha256:
+            raise RuntimeError("synthetic exact-file replacement mismatch")
+        descriptor, temporary = tempfile.mkstemp(prefix=".synthetic-effect-", dir=path.parent)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(replacement)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_replacement_sha256:
+            raise RuntimeError("synthetic exact-file post-write mismatch")
+        receipt = {
+            "protocol_version": "ccos-exact-file-effect-v1",
+            "operation_id": operation_id,
+            "target": str(path),
+            "baseline_sha256": expected_baseline_sha256,
+            "replacement_sha256": expected_replacement_sha256,
+            "state": "CONFIRMED",
+            "replayed": False,
+        }
+        (self.journal_root / (operation_id.replace(":", "-") + ".json")).write_text(
+            json.dumps(receipt, sort_keys=True), encoding="utf-8"
+        )
+        return receipt
+""",
+        )
+        write_text(
+            self.source / "scripts/agent/campaign_engine/store.py",
+            """import json, pathlib, sqlite3
+from contextlib import closing
+
+class CampaignStore:
+    def __init__(self, path, timeout_seconds=10.0):
+        self.path = pathlib.Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(self._connect()) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS runtime_installations (installation_id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS legacy_archives (archive_id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+            db.commit()
+
+    def _connect(self):
+        db = sqlite3.connect(self.path)
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA synchronous=FULL")
+        return db
+
+    def integrity_check(self):
+        with closing(self._connect()) as db:
+            return {
+                "status": "ok",
+                "foreign_keys": db.execute("PRAGMA foreign_keys").fetchone()[0],
+                "journal_mode": db.execute("PRAGMA journal_mode").fetchone()[0].lower(),
+                "synchronous": db.execute("PRAGMA synchronous").fetchone()[0],
+                "schema_version": db.execute("PRAGMA user_version").fetchone()[0],
+            }
+
+    def record_runtime_installation(self, installation):
+        raw = json.dumps(installation, sort_keys=True, separators=(",", ":"))
+        with closing(self._connect()) as db:
+            row = db.execute("SELECT payload FROM runtime_installations WHERE installation_id=?", (installation["installation_id"],)).fetchone()
+            if row is not None and row[0] != raw:
+                raise RuntimeError("runtime installation identity drift")
+            db.execute("INSERT OR IGNORE INTO runtime_installations VALUES (?, ?)", (installation["installation_id"], raw))
+            db.commit()
+
+    def verify_publication_authority(self, campaign_id, effect_kind, *, authority_epoch, cancellation_epoch, node_id=None, candidate_head=None):
+        record = json.loads(self.path.with_name("authority.json").read_text(encoding="utf-8"))
+        expected = {
+            "campaign_id": campaign_id,
+            "effect_kind": str(effect_kind),
+            "authority_epoch": authority_epoch,
+            "cancellation_epoch": cancellation_epoch,
+            "node_id": node_id,
+            "candidate_head": candidate_head,
+            "authorized": True,
+        }
+        if record != expected:
+            raise RuntimeError("publication authority tuple mismatch")
+        return record
+
+    def record_legacy_archive(self, *, archive_id, source_path, digest, last_state, classification, evidence):
+        payload = {
+            "archive_id": archive_id,
+            "source_path": source_path,
+            "digest": digest,
+            "last_state": last_state,
+            "classification": classification,
+            "evidence": evidence,
+        }
+        raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        with closing(self._connect()) as db:
+            row = db.execute("SELECT payload FROM legacy_archives WHERE archive_id=?", (archive_id,)).fetchone()
+            if row is not None and row[0] != raw:
+                raise RuntimeError("legacy archive identity drift")
+            db.execute("INSERT OR IGNORE INTO legacy_archives VALUES (?, ?)", (archive_id, raw))
+            db.commit()
+        return payload
+""",
+        )
+        write_text(
+            self.source / "scripts/agent/campaign_engine/legacy.py",
+            """import hashlib, json, pathlib, shutil
+from dataclasses import dataclass, asdict
+
+@dataclass(frozen=True)
+class Result:
+    archive_id: str
+    archive_root: str
+    source_digest: str
+    replayed: bool
+    def to_dict(self):
+        return asdict(self)
+
+def inspect_legacy_root(root):
+    source = pathlib.Path(root).resolve()
+    state_file = source / "case-state.json"
+    if state_file.is_file():
+        json.loads(state_file.read_text(encoding="utf-8"))
+    digest = hashlib.sha256()
+    for path in sorted(item for item in source.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(source).as_posix().encode())
+        digest.update(path.read_bytes())
+    return {"source_root": str(source), "source_digest": digest.hexdigest()}
+
+def archive_legacy_root(root, *, state_root, store=None):
+    source = pathlib.Path(root).resolve()
+    value = inspect_legacy_root(source)["source_digest"]
+    destination = pathlib.Path(state_root) / "legacy-archives" / ("legacy-" + value[:24])
+    replayed = destination.exists()
+    if not replayed:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, destination)
+        (destination / "archive-manifest.json").write_text(json.dumps({"source_digest": value}, sort_keys=True), encoding="utf-8")
+        if store is not None:
+            store.record_legacy_archive(
+                archive_id="legacy-" + value[:24],
+                source_path=str(source),
+                digest=value,
+                last_state="UNKNOWN",
+                classification="LEGACY_ARCHIVED_UNRESOLVED",
+                evidence={"translated_outcome": None},
+            )
+    return Result("legacy-" + value[:24], str(destination), value, replayed)
 """,
         )
         write_text(
             self.source / "scripts/fake_refresh.py",
             "import os, sys\nsys.exit(int(os.environ.get('CCOS_SYNTHETIC_REFRESH_EXIT', '0')))\n",
         )
+        write_text(self.source / "hooks/campaign-engine/campaign_hook.py", "# synthetic campaign hook\n")
         write_text(self.source / "universal/AGENTS.automation-case-policy.md", AGENTS_POLICY + "\n")
         write_text(self.source / "universal/rules/gh-pr-merge-authority.rules", RULES_POLICY + "\n")
         self.pack = {
-            "version": "0.9.0",
+            "version": "1.0.0",
             "package_name": "codex-coding-os",
             "support_items": [
                 "payload",
                 "scripts/install_transaction.py",
-                "scripts/agent/case_state.py",
+                "scripts/agent/campaign_engine",
                 "scripts/fake_refresh.py",
+                "hooks/campaign-engine",
                 "universal",
                 "pack.manifest.json",
                 "install-bundle.manifest.json",
@@ -125,9 +303,14 @@ print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
                 "managed_skill_root": ".agents/skills",
                 "runtime_files": [
                     "scripts/install_transaction.py",
-                    "scripts/agent/case_state.py",
+                    "scripts/agent/campaign_engine",
                     "scripts/fake_refresh.py",
+                    "hooks/campaign-engine",
                 ],
+                "campaign_hook": {
+                    "source": "hooks/campaign-engine",
+                    "target": "hooks/campaign-engine",
+                },
                 "universal_policy_sources": {
                     "global_agents": "universal/AGENTS.automation-case-policy.md",
                     "default_rules": "universal/rules/gh-pr-merge-authority.rules",
@@ -148,77 +331,21 @@ print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
             run_git(self.source, "add", ".")
             run_git(self.source, "commit", "-q", "-m", "synthetic bundle")
             self.commit = run_git(self.source, "rev-parse", "HEAD")
-            self._write_case_authority(allowed=False)
 
-    def _write_case_authority(
-        self,
-        *,
-        allowed: bool,
-        approved_head: str | None = None,
-        universal_bundle: str = "automation-preserving-case-state-recovery-v1",
-        state: str = "CLOSED_SUCCESS",
-    ) -> None:
-        self.state.mkdir(parents=True, exist_ok=True)
-        action = {
-            "protocol_version": "ccos-case-action-v2",
-            "schema_version": 2,
-            "case_id": self.case_id,
-            "state": state,
-            "action": "universal_sync",
-            "actor_role": "publication_child",
-            "request_id": self.action_request_id,
-            "expected_revision": self.case_revision,
-            "revision": self.case_revision,
-            "repository": self.repository,
-            "head": approved_head or self.commit,
-            "context": {
-                "actor_role": "publication_child",
-                "actor_thread_id": self.publication_thread_id,
-                "repository": self.repository,
-                "branch": None,
-                "worktree": None,
-                "pr": None,
-                "thread": self.publication_thread_id,
-                "universal_bundle": universal_bundle,
-                "head": approved_head or self.commit,
-                "support_action": None,
-                "request_id": self.action_request_id,
-                "expected_revision": self.case_revision,
-            },
-            "actor_identity_bound": True,
-            "controller_bound_actor_role": "publication_child",
-            "limits": {},
-            "allowed": allowed,
-            "reason_codes": ["SEPARATE_AUTHORITY_REQUIRED"] if not allowed else [],
-            "reason": "universal_sync requires separately recorded external authority",
-            "separate_authority_required": not allowed,
-            "blocked_case_id": None,
+    def write_campaign_authority(self, **overrides: object) -> None:
+        assert self.commit is not None
+        self.state_db.parent.mkdir(parents=True, exist_ok=True)
+        record: dict[str, object] = {
+            "campaign_id": self.campaign_id,
+            "effect_kind": "EXACT_FILE_REPLACE",
+            "authority_epoch": self.authority_epoch,
+            "cancellation_epoch": self.cancellation_epoch,
+            "node_id": self.node_id,
+            "candidate_head": self.commit,
+            "authorized": True,
         }
-        latch = {
-            "protocol_version": "ccos-anti-loop-latch-v1",
-            "schema_version": 1,
-            "status": "CLEAR",
-            "objective_sha256": "4" * 64,
-            "product_heads": {},
-            "consecutive_support_mutations": 0,
-            "last_support_action": None,
-            "last_failure_fingerprint": None,
-            "failure_fingerprint_repetitions": 0,
-            "event_count": 0,
-            "trigger_reason": None,
-            "trigger_event_id": None,
-            "latched_at": None,
-            "latched_from_state": None,
-            "disposition": None,
-            "disposition_authority": None,
-        }
-        latch["record_sha256"] = hashlib.sha256(
-            json.dumps(latch, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        action["anti_loop_latch"] = latch
-        show = {"case_id": self.case_id, "state": state, "revision": self.case_revision}
-        write_text(self.state / "authority.json", json.dumps(action))
-        write_text(self.state / "show.json", json.dumps(show))
+        record.update(overrides)
+        write_text(self.state_db.with_name("authority.json"), json.dumps(record))
 
     def archive_options(self, **overrides: object) -> object:
         values = dict(
@@ -226,6 +353,7 @@ print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
             skills_root=self.skills,
             codex_home=self.codex,
             expected_bundle_sha256=self.bundle_hash,
+            expected_source_commit=self.commit or ("a" * 40),
             archive_mode=True,
         )
         values.update(overrides)
@@ -233,7 +361,6 @@ print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
 
     def policy_options(self, **overrides: object) -> object:
         assert self.commit is not None
-        os.environ["CODEX_THREAD_ID"] = self.publication_thread_id
         values = dict(
             source_root=self.source,
             skills_root=self.skills,
@@ -241,17 +368,24 @@ print(json.dumps(json.loads((root / name).read_text(encoding='utf-8'))))
             expected_bundle_sha256=self.bundle_hash,
             expected_source_commit=self.commit,
             install_universal_policy=True,
-            authority_case_id=self.case_id,
-            authority_source="preauthorized-run-envelope",
-            authority_reference="synthetic-approved-run",
-            authority_actor_thread_id=self.publication_thread_id,
-            authority_request_id=self.action_request_id,
-            authority_expected_revision=self.case_revision,
-            case_state_engine=self.case_engine,
-            case_state_root=self.state,
+            policy_authority_source="explicit-user-approval",
+            policy_authority_reference="synthetic-user-approval",
         )
         values.update(overrides)
         return it.InstallOptions(**values)
+
+    def campaign_policy_options(self, **overrides: object) -> object:
+        self.write_campaign_authority()
+        values = dict(
+            policy_authority_source="campaign-publication-authority",
+            policy_authority_reference="synthetic-campaign-publication",
+            publication_campaign_id=self.campaign_id,
+            publication_node_id=self.node_id,
+            publication_authority_epoch=self.authority_epoch,
+            publication_cancellation_epoch=self.cancellation_epoch,
+        )
+        values.update(overrides)
+        return self.policy_options(**values)
 
     def prepare_legacy_policy(self) -> tuple[bytes, bytes]:
         agents = b"alpha\r\n" + AGENTS_LEGACY.encode() + b"\npost\r\n"
@@ -314,6 +448,16 @@ class BundleContractTests(unittest.TestCase):
             self.assertEqual(manifest["aggregate_sha256"], digest.hexdigest())
             verified = it.verify_bundle(env.source, env.bundle_hash)
             self.assertEqual(verified.aggregate_sha256, env.bundle_hash)
+
+    def test_bundle_requires_the_single_campaign_hook_contract(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            manifest_path = env.source / "pack.manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["installation"].pop("campaign_hook")
+            write_text(manifest_path, json.dumps(manifest))
+            with self.assertRaisesRegex(it.BundleError, "campaign_hook"):
+                it.build_bundle_manifest(env.source)
 
     def test_bundle_rejects_tampering_traversal_and_case_collisions(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -556,6 +700,139 @@ class RepositoryNormalizationTests(unittest.TestCase):
 
 
 class InstallTransactionTests(unittest.TestCase):
+    def test_verified_runtime_import_isolated_without_bytecode_writes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            module_prefixes = (
+                "scripts",
+                "scripts.agent",
+                "scripts.agent.campaign_engine",
+            )
+            before_modules = {
+                name: module
+                for name, module in sys.modules.items()
+                if name in module_prefixes
+                or name.startswith("scripts.agent.campaign_engine.")
+            }
+            before_bytecode_setting = sys.dont_write_bytecode
+
+            with it._campaign_runtime_modules(
+                env.source, include_effects=True
+            ) as runtime_modules:
+                self.assertTrue(sys.dont_write_bytecode)
+                for module in runtime_modules:
+                    self.assertTrue(
+                        it._path_is_within(
+                            Path(module.__file__).resolve(strict=True), env.source
+                        )
+                    )
+
+            self.assertEqual(sys.dont_write_bytecode, before_bytecode_setting)
+            after_modules = {
+                name: module
+                for name, module in sys.modules.items()
+                if name in module_prefixes
+                or name.startswith("scripts.agent.campaign_engine.")
+            }
+            self.assertEqual(set(after_modules), set(before_modules))
+            for name, module in before_modules.items():
+                self.assertIs(after_modules[name], module)
+            self.assertFalse(
+                any(path.name == "__pycache__" for path in env.source.rglob("*"))
+            )
+            self.assertFalse(any(env.source.rglob("*.pyc")))
+
+    def test_managed_file_replacement_journal_records_confirmed_exact_effect(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            root = Path(raw).resolve(strict=True)
+            skills = root / "skills"
+            codex_home = root / "codex-home"
+            live = codex_home / "AGENTS.md"
+            staged = codex_home / "staging" / "AGENTS.md"
+            rollback = codex_home / "rollback" / "AGENTS.md"
+            write_text(live, "managed baseline\n")
+            write_text(staged, "managed replacement\n")
+            target = {
+                "target_id": "policy:global-agents",
+                "live_path": str(live),
+                "staged_path": str(staged),
+                "rollback_path": str(rollback),
+                "prior_state": "present",
+                "prior_sha256": sha(live),
+                "new_sha256": sha(staged),
+                "step": "planned",
+            }
+            journal_path = codex_home / "transactions" / "journal.json"
+            transaction_id = "synthetic-exact-file-journal-test"
+            journal = it.Journal(
+                journal_path,
+                {
+                    "transaction_id": transaction_id,
+                    "targets": [target],
+                },
+            )
+            journal.save()
+
+            it._promote_targets(
+                journal,
+                skills,
+                codex_home,
+                exact_file_driver=ExactFileEffectDriver(
+                    codex_home / "transactions" / "exact-file-effects"
+                ),
+            )
+
+            persisted = json.loads(journal_path.read_text(encoding="utf-8"))
+            receipt = persisted["targets"][0]["exact_file_effect"]
+            self.assertEqual(
+                receipt["protocol_version"], "ccos-exact-file-effect-v1"
+            )
+            self.assertEqual(
+                receipt["operation_id"], f"install:{transaction_id}:0"
+            )
+            self.assertEqual(receipt["state"], "CONFIRMED")
+            self.assertEqual(receipt["baseline_sha256"], target["prior_sha256"])
+            self.assertEqual(receipt["replacement_sha256"], target["new_sha256"])
+            self.assertEqual(live.read_text(encoding="utf-8"), "managed replacement\n")
+
+    def test_runtime_pin_requires_every_exact_field_and_provenance_match(self) -> None:
+        valid = {
+            "source_commit": "1" * 40,
+            "bundle_digest": "2" * 64,
+            "install_transaction": "3" * 32,
+            "protocol_version": "ccos-campaign-v1",
+            "schema_compatibility": "campaign-store-v1",
+            "host_capability_probe_version": "native-bind-before-turn-scoped-tools-v3",
+        }
+        self.assertEqual(
+            it._validate_runtime_pin(
+                valid,
+                source_commit="1" * 40,
+                bundle_digest="2" * 64,
+                install_transaction="3" * 32,
+            ),
+            valid,
+        )
+        for field in it.RUNTIME_PIN_FIELDS:
+            with self.subTest(missing=field), self.assertRaises(it.TransactionError):
+                it._validate_runtime_pin({key: value for key, value in valid.items() if key != field})
+        invalid = {
+            "source_commit": "0" * 40,
+            "bundle_digest": "0" * 64,
+            "install_transaction": "0" * 32,
+            "protocol_version": "ccos-campaign-v0",
+            "schema_compatibility": "campaign-store-v0",
+            "host_capability_probe_version": "caller-role-v0",
+        }
+        for field, value in invalid.items():
+            with self.subTest(invalid=field), self.assertRaises(it.TransactionError):
+                it._validate_runtime_pin(
+                    {**valid, field: value},
+                    source_commit="1" * 40,
+                    bundle_digest="2" * 64,
+                    install_transaction="3" * 32,
+                )
+
     def test_fresh_archive_install_writes_v3_provenance_and_preserves_unmanaged_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
@@ -579,12 +856,14 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(manifest["transaction_protocol"], it.TRANSACTION_PROTOCOL)
             self.assertEqual(manifest["package"]["bundle_sha256"], env.bundle_hash)
             self.assertEqual(manifest["source"]["kind"], "archive")
-            self.assertFalse(manifest["preserved_paths"]["case_state"]["managed"])
+            self.assertFalse(manifest["preserved_paths"]["legacy_state"]["managed"])
+            self.assertFalse(manifest["preserved_paths"]["campaign_state"]["managed"])
             current = json.loads((env.codex / ".coding-os-install/current.json").read_text(encoding="utf-8"))
             self.assertEqual(current["status"], "committed")
             self.assertEqual(current["install_manifest_sha256"], sha(manifest_path))
             self.assertTrue((env.skills / "alpha/SKILL.md").is_file())
             self.assertTrue((env.codex / "coding-os/payload/doc.txt").is_file())
+            self.assertTrue((env.codex / "hooks/campaign-engine/campaign_hook.py").is_file())
             self.assertEqual(before, {path: sha(path) for path in before})
 
     def test_install_is_idempotent(self) -> None:
@@ -597,6 +876,194 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(first["status"], "committed")
             self.assertEqual(second["status"], "already_committed")
             self.assertEqual(current_path.read_bytes(), before)
+            for runtime_root in (env.source, env.codex / "coding-os"):
+                self.assertFalse(
+                    any(path.name == "__pycache__" for path in runtime_root.rglob("*"))
+                )
+                self.assertFalse(any(runtime_root.rglob("*.pyc")))
+
+    def test_hooks_migration_retires_only_legacy_and_records_exact_evidence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            hooks_path = env.codex / "hooks.json"
+            original = {
+                "userSetting": {"keep": True},
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": ".*",
+                            "hooks": [
+                                hook_command("user_pre"),
+                                legacy_lifecycle_hook_command(),
+                            ],
+                        }
+                    ],
+                    "PostToolUse": [
+                        {
+                            "matcher": ".*",
+                            "hooks": [legacy_lifecycle_hook_command()],
+                        }
+                    ],
+                    "Stop": [{"hooks": [hook_command("user_stop")]}],
+                },
+            }
+            original_bytes = it._json_bytes(original)
+            hooks_path.parent.mkdir(parents=True)
+            hooks_path.write_bytes(original_bytes)
+
+            result = it.install(env.archive_options())
+
+            installed = json.loads(hooks_path.read_text(encoding="utf-8"))
+            self.assertEqual(installed["userSetting"], original["userSetting"])
+            self.assertEqual(installed["hooks"]["Stop"], original["hooks"]["Stop"])
+            self.assertEqual(
+                installed["hooks"]["PreToolUse"][0]["hooks"],
+                [hook_command("user_pre")],
+            )
+            self.assertNotIn("anti-loop-runtime", hooks_path.read_text(encoding="utf-8"))
+            locations = it._campaign_hook_group_locations(installed)
+            self.assertEqual(locations, [(it.CAMPAIGN_HOOK_EVENT, 1)])
+            owned_group = installed["hooks"][it.CAMPAIGN_HOOK_EVENT][1]
+            self.assertEqual(owned_group["matcher"], it.CAMPAIGN_HOOK_MATCHER)
+
+            manifest = json.loads(
+                (env.codex / "coding-os/install-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            record = manifest["targets"]["hooks_configuration"]
+            self.assertEqual(record["ownership_protocol"], it.HOOKS_CONFIGURATION_PROTOCOL)
+            self.assertEqual(record["preinstall_sha256"], hashlib.sha256(original_bytes).hexdigest())
+            self.assertEqual(record["installed_sha256"], sha(hooks_path))
+            self.assertEqual(len(record["retired_legacy_entries"]), 2)
+            self.assertEqual(
+                record["owned_entries"][0]["digest"],
+                it._canonical_json_digest(owned_group),
+            )
+
+            journal = json.loads(
+                (
+                    env.codex
+                    / ".coding-os-install/transactions"
+                    / result["transaction_id"]
+                    / "journal.json"
+                ).read_text(encoding="utf-8")
+            )
+            target = next(
+                item
+                for item in journal["targets"]
+                if item["target_id"] == "hooks_configuration"
+            )
+            self.assertEqual(target["prior_sha256"], hashlib.sha256(original_bytes).hexdigest())
+            self.assertEqual(target["new_sha256"], sha(hooks_path))
+            self.assertEqual(target["exact_file_effect"]["state"], "CONFIRMED")
+            retained = Path(target["retained_backup_path"])
+            self.assertEqual(retained.read_bytes(), original_bytes)
+
+    def test_hooks_reinstall_preserves_unrelated_additions_and_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            first = it.install(env.archive_options())
+            hooks_path = env.codex / "hooks.json"
+            document = json.loads(hooks_path.read_text(encoding="utf-8"))
+            document["hooks"]["Stop"] = [{"hooks": [hook_command("added_later")]}]
+            hooks_path.write_bytes(it._json_bytes(document))
+            before = hooks_path.read_bytes()
+
+            second = it.install(env.archive_options())
+
+            self.assertEqual(first["status"], "committed")
+            self.assertEqual(second["status"], "already_committed")
+            self.assertEqual(hooks_path.read_bytes(), before)
+            self.assertEqual(
+                json.loads(hooks_path.read_text(encoding="utf-8"))["hooks"]["Stop"],
+                document["hooks"]["Stop"],
+            )
+
+    def test_hooks_install_failure_restores_original_bytes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            hooks_path = env.codex / "hooks.json"
+            original = it._json_bytes(
+                {
+                    "hooks": {
+                        "PreToolUse": [
+                            {
+                                "matcher": ".*",
+                                "hooks": [
+                                    hook_command("keep"),
+                                    legacy_lifecycle_hook_command(),
+                                ],
+                            }
+                        ]
+                    }
+                }
+            )
+            hooks_path.parent.mkdir(parents=True)
+            hooks_path.write_bytes(original)
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "CCOS_INSTALL_TEST_MODE": "1",
+                    "CCOS_INSTALL_TEST_FAIL_AFTER": "PROMOTION:last",
+                },
+                clear=False,
+            ):
+                with self.assertRaises(it.InjectedFailure):
+                    it.install(env.archive_options())
+            self.assertEqual(hooks_path.read_bytes(), original)
+            self.assertFalse((env.codex / "coding-os").exists())
+
+    def test_tampered_owned_campaign_hook_blocks_reinstall(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            it.install(env.archive_options())
+            hooks_path = env.codex / "hooks.json"
+            document = json.loads(hooks_path.read_text(encoding="utf-8"))
+            event, index = it._campaign_hook_group_locations(document)[0]
+            document["hooks"][event][index]["matcher"] = ".*"
+            hooks_path.write_bytes(it._json_bytes(document))
+            before = hooks_path.read_bytes()
+
+            with self.assertRaisesRegex(it.OwnershipError, "changed or duplicated"):
+                it.install(env.archive_options())
+
+            self.assertEqual(hooks_path.read_bytes(), before)
+
+    def test_requested_legacy_archive_is_read_only_and_survives_uninstall(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            write_text(env.legacy_state / "case-state.json", '{"cases": {}}\n')
+            before = sha(env.legacy_state / "case-state.json")
+
+            result = it.install(env.archive_options(archive_legacy_state=True))
+
+            self.assertEqual(result["status"], "committed")
+            self.assertEqual(sha(env.legacy_state / "case-state.json"), before)
+            archives = list((env.codex / "coding-os-state/legacy-archives").glob("legacy-*"))
+            self.assertEqual(len(archives), 1)
+            self.assertTrue((archives[0] / "archive-manifest.json").is_file())
+            with closing(sqlite3.connect(env.state_db)) as database:
+                self.assertEqual(
+                    database.execute("SELECT COUNT(*) FROM legacy_archives").fetchone()[0],
+                    1,
+                )
+
+            it.uninstall(it.UninstallOptions(skills_root=env.skills, codex_home=env.codex))
+            self.assertEqual(sha(env.legacy_state / "case-state.json"), before)
+            self.assertTrue(env.state_db.is_file())
+            self.assertTrue(archives[0].is_dir())
+
+    def test_invalid_legacy_archive_fails_before_live_install_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            write_text(env.legacy_state / "case-state.json", "{invalid-json")
+
+            with self.assertRaisesRegex(it.TransactionError, "legacy archive preflight"):
+                it.install(env.archive_options(archive_legacy_state=True))
+
+            self.assertFalse((env.codex / "coding-os").exists())
+            self.assertFalse((env.codex / "coding-os-state").exists())
 
     def test_install_and_uninstall_use_target_local_workspaces_across_filesystems(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -649,6 +1116,17 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual((env.skills / "alpha/owner.txt").read_text(), "not ours")
             self.assertFalse((env.codex / "coding-os").exists())
 
+    def test_unowned_campaign_hook_collision_fails_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            hook = env.codex / "hooks/campaign-engine/user-hook.py"
+            write_text(hook, "# user owned\n")
+            before = sha(hook)
+            with self.assertRaises(it.OwnershipError):
+                it.install(env.archive_options())
+            self.assertEqual(sha(hook), before)
+            self.assertFalse((env.codex / "coding-os").exists())
+
     def test_case_insensitive_unowned_collision_fails(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
@@ -681,7 +1159,7 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(preserved, {path: sha(path) for path in preserved})
             self.assertFalse((env.codex / ".coding-os-install/current.json").exists())
 
-    def test_policy_sync_requires_clean_exact_git_source_bundle_and_case_authority(self) -> None:
+    def test_policy_sync_requires_clean_exact_git_source_and_explicit_authority(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw), git_source=True)
             env.prepare_legacy_policy()
@@ -693,99 +1171,21 @@ class InstallTransactionTests(unittest.TestCase):
             with self.assertRaises(it.SourceVerificationError):
                 it.install(env.policy_options())
             (env.source / "untracked.txt").unlink()
-            env._write_case_authority(allowed=True)
             with self.assertRaises(it.AuthorityError):
-                it.install(env.policy_options())
+                it.install(env.policy_options(policy_authority_source=None))
+            with self.assertRaises(it.AuthorityError):
+                it.install(env.policy_options(policy_authority_reference=""))
 
-    def test_policy_sync_rejects_missing_and_substituted_authority_engines(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
-            env = SyntheticEnvironment(Path(raw), git_source=True)
-            env.prepare_legacy_policy()
-            substituted = env.root / "substituted_case_state.py"
-            substituted.write_bytes(env.case_engine.read_bytes())
-            missing = env.root / "missing_case_state.py"
-
-            for candidate in (substituted, missing):
-                with self.subTest(candidate=candidate):
-                    with self.assertRaisesRegex(
-                        it.AuthorityError,
-                        "CaseStateEngine",
-                    ):
-                        it.install(
-                            env.policy_options(case_state_engine=candidate)
-                        )
-            self.assertFalse((env.state / "last-action-check.json").exists())
-
-            backing = env.root / "hardlinked_case_state.py"
-            backing.write_bytes(env.case_engine.read_bytes())
-            env.case_engine.unlink()
-            os.link(backing, env.case_engine)
-            self.assertEqual(env.case_engine.stat().st_nlink, 2)
-            with self.assertRaisesRegex(
-                it.AuthorityError,
-                "direct non-link",
-            ):
-                it.install(env.policy_options())
-
-    def test_policy_sync_rejects_an_indirect_authority_engine_ancestor(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
-            env = SyntheticEnvironment(Path(raw), git_source=True)
-            env.prepare_legacy_policy()
-            alias = env.root / "source-alias"
-            try:
-                alias.symlink_to(env.source, target_is_directory=True)
-            except OSError:
-                self.skipTest("directory symlink creation is unavailable")
-            indirect = alias / "scripts" / "agent" / "case_state.py"
-            with self.assertRaisesRegex(it.AuthorityError, "indirect path"):
-                it.install(env.policy_options(case_state_engine=indirect))
-
-    def test_policy_sync_accepts_exact_installed_manifest_engine_and_rejects_tampering(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
-            env = SyntheticEnvironment(Path(raw), git_source=True)
-            it.install(env.archive_options())
-            env.prepare_legacy_policy()
-            installed_engine = (
-                env.codex / "coding-os" / "scripts" / "agent" / "case_state.py"
-            )
-            result = it.install(
-                env.policy_options(case_state_engine=installed_engine)
-            )
-            self.assertEqual(result["status"], "committed")
-            manifest = json.loads(
-                (env.codex / "coding-os/install-manifest.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            engine = manifest["authority"]["engine"]
-            self.assertEqual(engine["kind"], "installed-manifest")
-            self.assertEqual(engine["path"], str(installed_engine.resolve()))
-            self.assertEqual(engine["sha256"], sha(installed_engine))
-
-        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
-            env = SyntheticEnvironment(Path(raw), git_source=True)
-            it.install(env.archive_options())
-            env.prepare_legacy_policy()
-            installed_engine = (
-                env.codex / "coding-os" / "scripts" / "agent" / "case_state.py"
-            )
-            installed_engine.write_text("# substituted after install\n", encoding="utf-8")
-            with self.assertRaisesRegex(
-                it.AuthorityError,
-                "differs from its manifest digest",
-            ):
-                it.install(
-                    env.policy_options(case_state_engine=installed_engine)
-                )
-
-    def test_policy_sync_migrates_only_agents_and_rules_and_records_authority(self) -> None:
+    def test_policy_sync_migrates_only_managed_files_and_records_runtime_pin(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw), git_source=True)
             original_agents, original_rules = env.prepare_legacy_policy()
             config = env.codex / "config.toml"
             write_text(config, "never-write\n")
             config_hash = sha(config)
+
             result = it.install(env.policy_options())
+
             self.assertEqual(result["status"], "committed")
             agents = (env.codex / "AGENTS.md").read_bytes()
             rules = (env.codex / "rules/default.rules").read_bytes()
@@ -793,36 +1193,109 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(rules, original_rules.replace(RULES_LEGACY.encode(), RULES_POLICY.encode()))
             self.assertEqual(sha(config), config_hash)
             manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text())
-            self.assertEqual(manifest["authority"]["case_id"], env.case_id)
-            self.assertEqual(manifest["authority"]["approved_head"], env.commit)
-            self.assertEqual(manifest["authority"]["source"], "preauthorized-run-envelope")
-            self.assertEqual(manifest["authority"]["reference"], "synthetic-approved-run")
-            self.assertEqual(manifest["authority"]["boundary_reason"], "SEPARATE_AUTHORITY_REQUIRED")
-            engine = manifest["authority"]["engine"]
-            self.assertEqual(engine["kind"], "source-bundle")
-            self.assertEqual(engine["path"], str(env.case_engine.resolve()))
-            self.assertEqual(engine["sha256"], sha(env.case_engine))
-            self.assertEqual(manifest["source"]["git_commit"], env.commit)
-            self.assertTrue(manifest["source"]["working_tree_clean"])
+            self.assertEqual(manifest["authority"]["source"], "explicit-user-approval")
+            self.assertEqual(manifest["authority"]["reference"], "synthetic-user-approval")
+            self.assertIsNone(manifest["authority"]["campaign"])
+            pin = manifest["runtime_pin"]
+            self.assertEqual(set(pin), set(it.RUNTIME_PIN_FIELDS))
+            self.assertEqual(pin["source_commit"], env.commit)
+            self.assertEqual(pin["bundle_digest"], env.bundle_hash)
+            self.assertEqual(pin["install_transaction"], result["transaction_id"])
+            self.assertEqual(pin["protocol_version"], "ccos-campaign-v1")
+            self.assertEqual(pin["schema_compatibility"], "campaign-store-v1")
+            self.assertEqual(
+                pin["host_capability_probe_version"],
+                "native-bind-before-turn-scoped-tools-v3",
+            )
+            self.assertEqual(manifest["source"]["git_commit"], pin["source_commit"])
+            self.assertEqual(manifest["package"]["bundle_sha256"], pin["bundle_digest"])
+            self.assertTrue(env.state_db.is_file())
+            self.assertTrue((env.codex / "hooks/campaign-engine/campaign_hook.py").is_file())
+            self.assertEqual(
+                manifest["targets"]["campaign_hook"]["sha256"],
+                it._tree_hash(env.codex / "hooks/campaign-engine"),
+            )
+            it._verify_split_payload_layout(manifest, env.skills, env.codex / "coding-os")
 
-    def test_policy_sync_matches_canonical_authority_for_credentialed_mixed_case_origin(self) -> None:
-        bundle_id = "automation-preserving-case-state-recovery-v1-remote-normalization"
-        canonical_repository = "https://github.com/aymanshams/codex-coding-os"
-        credentialed_origin = "https://AymanShams@github.com/AymanShams/codex-coding-os.git"
+    def test_campaign_publication_authority_binds_epochs_node_and_candidate_head(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw), git_source=True)
             env.prepare_legacy_policy()
-            run_git(env.source, "remote", "set-url", "origin", credentialed_origin)
-            env.repository = canonical_repository
-            env._write_case_authority(allowed=False, universal_bundle=bundle_id)
-
-            result = it.install(env.policy_options(universal_bundle_id=bundle_id))
-
+            result = it.install(env.campaign_policy_options())
             self.assertEqual(result["status"], "committed")
-            request = json.loads((env.state / "last-action-check.json").read_text(encoding="utf-8"))
-            self.assertEqual(request[request.index("--repository") + 1], canonical_repository)
-            manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["source"]["repository"], canonical_repository)
+            manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text())
+            campaign = manifest["authority"]["campaign"]
+            self.assertEqual(campaign["campaign_id"], env.campaign_id)
+            self.assertEqual(campaign["node_id"], env.node_id)
+            self.assertEqual(campaign["candidate_head"], env.commit)
+            self.assertEqual(campaign["authority_epoch"], env.authority_epoch)
+            self.assertEqual(campaign["cancellation_epoch"], env.cancellation_epoch)
+            self.assertEqual(campaign["effect_kind"], "EXACT_FILE_REPLACE")
+
+        for override in (
+            {"publication_authority_epoch": 4},
+            {"publication_cancellation_epoch": 1},
+            {"publication_node_id": "other-node"},
+        ):
+            with self.subTest(override=override), tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+                env = SyntheticEnvironment(Path(raw), git_source=True)
+                env.prepare_legacy_policy()
+                with self.assertRaises(it.AuthorityError):
+                    it.install(env.campaign_policy_options(**override))
+
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            options = env.campaign_policy_options()
+            env.write_campaign_authority(candidate_head="0" * 40)
+            with self.assertRaises(it.AuthorityError):
+                it.install(options)
+
+    def test_legacy_authority_entrypoints_are_absent(self) -> None:
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        for retired in (
+            "--authority-case-id",
+            "--authority-actor-thread-id",
+            "--authority-request-id",
+            "--case-state-engine",
+            "--case-state-root",
+            "action-check",
+            "ANTI_LOOP_LATCH",
+        ):
+            self.assertNotIn(retired, source)
+        parser = it.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "install",
+                    "--source-root", "source",
+                    "--skills-root", "skills",
+                    "--codex-home", "codex",
+                    "--expected-bundle-sha256", "0" * 64,
+                    "--expected-source-commit", "0" * 40,
+                    "--case-state-engine", "retired.py",
+                ]
+            )
+
+    def test_policy_sync_replaces_retired_managed_markers_once(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.codex.mkdir(parents=True)
+            write_text(
+                env.codex / "AGENTS.md",
+                "before\n" + it.RETIRED_AGENTS_START + "\nretired\n" + it.RETIRED_AGENTS_END + "\nafter\n",
+            )
+            write_text(
+                env.codex / "rules/default.rules",
+                "before\n" + it.RETIRED_RULES_START + "\nretired\n" + it.RETIRED_RULES_END + "\nafter\n",
+            )
+            it.install(env.policy_options())
+            agents = (env.codex / "AGENTS.md").read_text(encoding="utf-8")
+            rules = (env.codex / "rules/default.rules").read_text(encoding="utf-8")
+            self.assertEqual(agents.count(it.AGENTS_START), 1)
+            self.assertNotIn(it.RETIRED_AGENTS_START, agents)
+            self.assertEqual(rules.count(it.RULES_START), 1)
+            self.assertNotIn(it.RETIRED_RULES_START, rules)
 
     def test_policy_sync_missing_migration_target_fails_before_live_mutation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -834,15 +1307,6 @@ class InstallTransactionTests(unittest.TestCase):
                 it.install(env.policy_options())
             self.assertEqual((env.codex / "AGENTS.md").read_text(), "no legacy")
             self.assertFalse((env.codex / "coding-os").exists())
-
-    def test_policy_sync_requires_explicit_external_authority_reference(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
-            env = SyntheticEnvironment(Path(raw), git_source=True)
-            env.prepare_legacy_policy()
-            with self.assertRaises(it.AuthorityError):
-                it.install(env.policy_options(authority_source=None))
-            with self.assertRaises(it.AuthorityError):
-                it.install(env.policy_options(authority_reference=""))
 
     def test_capability_refresh_failure_rolls_back_all_live_targets(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -902,6 +1366,67 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual(result["status"], "committed_recovered")
             self.assertTrue((env.codex / "coding-os/payload/doc.txt").is_file())
 
+    def test_forced_process_termination_recovers_and_records_one_runtime_install(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            ready = Path(raw) / "forced-termination-ready.txt"
+            command = [
+                sys.executable,
+                "-B",
+                str(MODULE_PATH),
+                "--json",
+                "install",
+                "--source-root",
+                str(env.source),
+                "--skills-root",
+                str(env.skills),
+                "--codex-home",
+                str(env.codex),
+                "--expected-bundle-sha256",
+                env.bundle_hash,
+                "--expected-source-commit",
+                "a" * 40,
+                "--archive-mode",
+            ]
+            process_env = os.environ.copy()
+            process_env.update(
+                {
+                    "CCOS_INSTALL_TEST_MODE": "1",
+                    "CCOS_INSTALL_TEST_FAIL_AFTER": "PROMOTION:middle",
+                    "CCOS_INSTALL_TEST_PAUSE_AFTER": "1",
+                    "CCOS_INSTALL_TEST_READY_FILE": str(ready),
+                }
+            )
+            process_env.pop("CCOS_INSTALL_TEST_HARD_CRASH", None)
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=process_env,
+            )
+            deadline = time.monotonic() + 10
+            while not ready.is_file() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            if not ready.is_file():
+                stdout, stderr = process.communicate(timeout=2)
+                self.fail(f"installer did not reach forced-termination point: {stdout} {stderr}")
+            process.kill()
+            process.communicate(timeout=5)
+            self.assertNotEqual(process.returncode, 0)
+
+            result = it.install(env.archive_options())
+
+            self.assertEqual(result["status"], "committed")
+            journals = [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in (env.codex / ".coding-os-install/transactions").glob("*/journal.json")
+            ]
+            self.assertTrue(any(item.get("outcome") == "rolled_back" for item in journals))
+            with closing(sqlite3.connect(env.state_db)) as database:
+                count = database.execute("SELECT COUNT(*) FROM runtime_installations").fetchone()[0]
+            self.assertEqual(count, 1)
+
     def test_fault_injection_is_rejected_without_both_test_mode_and_temp_roots(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
@@ -918,6 +1443,7 @@ class InstallTransactionTests(unittest.TestCase):
                         skills_root=outside / "skills",
                         codex_home=outside / "codex",
                         expected_bundle_sha256="0" * 64,
+                        expected_source_commit="0" * 40,
                         archive_mode=True,
                     )
                 )
@@ -939,16 +1465,13 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertFalse(env.skills.exists())
             self.assertFalse(env.codex.exists())
 
-    def test_policy_sync_uses_the_supplied_bundle_id_and_refuses_preclosure(self) -> None:
-        bundle_id = "automation-preserving-case-state-recovery-v1-legacy-layout-migration"
+    def test_policy_sync_uses_the_supplied_campaign_policy_bundle_id(self) -> None:
+        bundle_id = "campaign-engine-policy-v1-synthetic"
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw), git_source=True)
             env.prepare_legacy_policy()
-            env._write_case_authority(allowed=False, universal_bundle=bundle_id)
             result = it.install(env.policy_options(universal_bundle_id=bundle_id))
             self.assertEqual(result["status"], "committed")
-            request = json.loads((env.state / "last-action-check.json").read_text(encoding="utf-8"))
-            self.assertEqual(request[request.index("--universal-bundle") + 1], bundle_id)
             manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["authority"]["universal_bundle"], bundle_id)
             with self.assertRaises(it.AuthorityError):
@@ -956,14 +1479,7 @@ class InstallTransactionTests(unittest.TestCase):
             with self.assertRaises(it.AuthorityError):
                 it.install(env.policy_options(universal_bundle_id=""))
 
-        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
-            env = SyntheticEnvironment(Path(raw), git_source=True)
-            env.prepare_legacy_policy()
-            env._write_case_authority(allowed=False, universal_bundle=bundle_id, state="IMPLEMENTING")
-            with self.assertRaises(it.AuthorityError):
-                it.install(env.policy_options(universal_bundle_id=bundle_id))
-
-    def test_cli_exposes_legacy_overlap_and_universal_bundle_inputs(self) -> None:
+    def test_cli_exposes_campaign_authority_legacy_archive_and_overlap_inputs(self) -> None:
         parser = it.build_parser()
         install_args = parser.parse_args(
             [
@@ -976,16 +1492,37 @@ class InstallTransactionTests(unittest.TestCase):
                 "codex",
                 "--expected-bundle-sha256",
                 "0" * 64,
+                "--expected-source-commit",
+                "1" * 40,
                 "--universal-bundle-id",
-                "automation-preserving-case-state-recovery-v1-legacy-layout-migration",
+                "campaign-engine-policy-v1-synthetic",
+                "--policy-authority-source",
+                "campaign-publication-authority",
+                "--policy-authority-reference",
+                "campaign-receipt",
+                "--publication-campaign-id",
+                "campaign-1",
+                "--publication-node-id",
+                "install-runtime",
+                "--publication-authority-epoch",
+                "4",
+                "--publication-cancellation-epoch",
+                "0",
+                "--archive-legacy-state",
                 "--legacy-overlap-migration",
             ]
         )
         self.assertTrue(install_args.legacy_overlap_migration)
         self.assertEqual(
             install_args.universal_bundle_id,
-            "automation-preserving-case-state-recovery-v1-legacy-layout-migration",
+            "campaign-engine-policy-v1-synthetic",
         )
+        self.assertEqual(install_args.policy_authority_source, "campaign-publication-authority")
+        self.assertEqual(install_args.publication_campaign_id, "campaign-1")
+        self.assertEqual(install_args.publication_node_id, "install-runtime")
+        self.assertEqual(install_args.publication_authority_epoch, 4)
+        self.assertEqual(install_args.publication_cancellation_epoch, 0)
+        self.assertTrue(install_args.archive_legacy_state)
         uninstall_args = parser.parse_args(
             [
                 "uninstall",
@@ -997,6 +1534,45 @@ class InstallTransactionTests(unittest.TestCase):
             ]
         )
         self.assertTrue(uninstall_args.legacy_overlap_migration)
+
+
+class CanonicalNestedLayoutTests(unittest.TestCase):
+    def test_public_install_and_uninstall_wrappers_default_to_codex_home_skills(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        install_ps = (root / "scripts/install.ps1").read_text(encoding="utf-8")
+        uninstall_ps = (root / "scripts/uninstall.ps1").read_text(encoding="utf-8")
+        install_sh = (root / "scripts/install.sh").read_text(encoding="utf-8")
+        uninstall_sh = (root / "scripts/uninstall.sh").read_text(encoding="utf-8")
+        for source in (install_ps, uninstall_ps):
+            self.assertIn('$SkillsRoot = Join-Path $CodexHome "skills"', source)
+            self.assertNotIn(".agents\\skills", source)
+        for source in (install_sh, uninstall_sh):
+            self.assertIn('skills_root="${SKILLS_ROOT:-$codex_home/skills}"', source)
+            self.assertNotIn(".agents/skills", source)
+
+    def test_clean_canonical_nested_install_reinstall_and_uninstall_need_no_migration_flag(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            skills = env.codex / "skills"
+            options = env.archive_options(skills_root=skills)
+
+            first = it.install(options)
+            self.assertEqual(first["status"], "committed")
+            manifest_path = env.codex / "coding-os/install-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                Path(manifest["targets"]["skills_root"]).resolve(strict=False),
+                skills.resolve(strict=False),
+            )
+            self.assertNotIn("legacy_overlap_migration", manifest)
+            self.assertEqual(it.install(options)["status"], "already_committed")
+
+            removed = it.uninstall(
+                it.UninstallOptions(skills_root=skills, codex_home=env.codex)
+            )
+            self.assertEqual(removed["status"], "uninstalled")
+            self.assertFalse((skills / "alpha").exists())
+            self.assertFalse((env.codex / "coding-os").exists())
 
 
 class LegacyOverlapMigrationTests(unittest.TestCase):
@@ -1208,7 +1784,7 @@ class LegacyOverlapMigrationTests(unittest.TestCase):
             self.assertFalse((env.codex / ".coding-os-stage").exists())
             self.assertFalse((env.codex / ".coding-os-rollback").exists())
 
-    def test_follow_up_overlap_install_and_uninstall_require_the_explicit_flag(self) -> None:
+    def test_migrated_v3_overlap_reinstall_and_uninstall_are_idempotent_without_flag(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
             skills, _ = env.prepare_legacy_overlap_v2()
@@ -1219,17 +1795,13 @@ class LegacyOverlapMigrationTests(unittest.TestCase):
                 env.codex / "config.toml": sha(env.codex / "config.toml"),
             }
             self.assertEqual(it.install(env.legacy_overlap_options())["status"], "committed")
-            with self.assertRaises(it.TransactionError):
-                it.install(env.archive_options(skills_root=skills))
-            with self.assertRaises(it.TransactionError):
-                it.uninstall(it.UninstallOptions(skills_root=skills, codex_home=env.codex))
+            self.assertEqual(
+                it.install(env.archive_options(skills_root=skills))["status"],
+                "already_committed",
+            )
             self.assertEqual(it.install(env.legacy_overlap_options())["status"], "already_committed")
             result = it.uninstall(
-                it.UninstallOptions(
-                    skills_root=skills,
-                    codex_home=env.codex,
-                    legacy_overlap_migration=True,
-                )
+                it.UninstallOptions(skills_root=skills, codex_home=env.codex)
             )
             self.assertEqual(result["status"], "uninstalled")
             self.assertFalse((skills / "alpha").exists())
@@ -1237,6 +1809,63 @@ class LegacyOverlapMigrationTests(unittest.TestCase):
 
 
 class UninstallTransactionTests(unittest.TestCase):
+    def test_uninstall_removes_only_owned_hook_and_never_restores_legacy(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            hooks_path = env.codex / "hooks.json"
+            initial = {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": ".*",
+                            "hooks": [
+                                hook_command("user_pre"),
+                                legacy_lifecycle_hook_command(),
+                            ],
+                        }
+                    ]
+                },
+                "userSetting": "keep",
+            }
+            hooks_path.parent.mkdir(parents=True)
+            hooks_path.write_bytes(it._json_bytes(initial))
+            it.install(env.archive_options())
+            live = json.loads(hooks_path.read_text(encoding="utf-8"))
+            live["hooks"]["Stop"] = [{"hooks": [hook_command("added_after_install")]}]
+            hooks_path.write_bytes(it._json_bytes(live))
+
+            result = it.uninstall(
+                it.UninstallOptions(skills_root=env.skills, codex_home=env.codex)
+            )
+
+            self.assertEqual(result["status"], "uninstalled")
+            remaining = json.loads(hooks_path.read_text(encoding="utf-8"))
+            self.assertEqual(remaining["userSetting"], "keep")
+            self.assertEqual(
+                remaining["hooks"]["PreToolUse"][0]["hooks"],
+                [hook_command("user_pre")],
+            )
+            self.assertEqual(
+                remaining["hooks"]["Stop"],
+                [{"hooks": [hook_command("added_after_install")]}],
+            )
+            rendered = hooks_path.read_text(encoding="utf-8")
+            self.assertNotIn("anti-loop-runtime", rendered)
+            self.assertNotIn("campaign_hook.py", rendered)
+
+    def test_uninstall_removes_created_empty_hooks_configuration(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            it.install(env.archive_options())
+            hooks_path = env.codex / "hooks.json"
+            self.assertTrue(hooks_path.is_file())
+
+            it.uninstall(
+                it.UninstallOptions(skills_root=env.skills, codex_home=env.codex)
+            )
+
+            self.assertFalse(hooks_path.exists())
+
     def test_policy_install_then_opt_out_reinstall_removes_only_managed_policy_blocks(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw), git_source=True)
@@ -1260,11 +1889,8 @@ class UninstallTransactionTests(unittest.TestCase):
 
             opt_out = env.policy_options(
                 install_universal_policy=False,
-                authority_case_id=None,
-                authority_source=None,
-                authority_reference=None,
-                case_state_engine=None,
-                case_state_root=None,
+                policy_authority_source=None,
+                policy_authority_reference=None,
             )
             result = it.install(opt_out)
             self.assertEqual(result["status"], "committed")

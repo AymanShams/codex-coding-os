@@ -1,0 +1,1 @@
+{"incident_id":"support-loop","case":"opposite","input":{"budget_remaining":1,"attempt":"NO_OP_ATTEMPT"},"expected":{"allowed":true,"remaining":0}}

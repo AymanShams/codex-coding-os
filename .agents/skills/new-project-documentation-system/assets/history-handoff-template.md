@@ -1,68 +1,54 @@
-# <Date> Project Setup And Agent Context
+# <Date> Project Documentation Work Summary
+
+Status: `INFORMATIONAL_ONLY`
+
+This summary records completed documentation work and evidence. It cannot authorize, stop, review, repair, publish, or select implementation work.
 
 ## Project
 
 - Name:
-- Repo path:
-- Source documentation path:
-- Current status:
-- Current-state path:
-- Active-slice manifest path:
-- Workflow-manifest path:
-- Exact next permitted action:
+- Repository root:
+- Branch:
+- HEAD:
+- Documentation manifest:
+- Campaign ID, if applicable:
 
-## Source Of Truth
+## Stable Sources Used
 
 1.
 2.
 3.
 
-## Decisions Made
+## Documents Created Or Updated
 
-- Product:
-- Architecture:
-- Data:
-- Security:
-- Integrations:
-- Deployment:
+| Path | Purpose | Approval evidence |
+|---|---|---|
+|  |  |  |
 
-## Sensitive Data Rules
+## Material Decisions Recorded
 
-- Do not commit:
-- Keep local only:
-- Required scans:
+| Decision | Owning stable source | Status |
+|---|---|---|
+|  |  |  |
 
-## Validation Completed
+## Validation Evidence
 
-- Files:
-- Drift:
-- Secrets:
-- PHI:
-- Git:
+| Command | Result | Exact evidence |
+|---|---|---|
+|  |  |  |
 
-## Known Blockers
+## Unresolved Documentation Gaps
+
+- None, or list the exact gap and affected document.
+
+## Work Not Performed
 
 - 
 
-## New Chat Prompt
+## Automation Status Query
+
+When a campaign exists, query the external engine rather than copying volatile state here:
 
 ```text
-We are starting implementation for <Project Name> in Codex.
-
-Repo path:
-<absolute repo path>
-
-Before coding:
-1. Run python scripts/agent/session_continuity.py start --start-new.
-2. Read AGENTS.md and CLAUDE.md.
-3. Read docs/delivery/current-state.md.
-4. Read docs/delivery/active-slice-manifest.json.
-5. Read docs/index.md.
-6. Read docs/history/<handoff file>.
-7. Read the controlled TDD.
-8. Read project-documentation-manifest.json.
-9. Run the workflow manifest validator.
-10. Run git status -sb and confirm whether the local repo is synced with origin/main.
-
-If the workflow manifest or active-slice manifest is not ready for coding, continue from its first blocked or incomplete phase. Propose the first implementation slice only when both manifests permit coding.
+python <installed-cli> --json status --repository-root .
 ```

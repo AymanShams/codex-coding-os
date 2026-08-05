@@ -1,10 +1,15 @@
 # ADR 0001: Brokered Runtime Action Boundary
 
-- Status: Superseded for production action authorization by ADR 0002
+- Status: Historical, fully superseded by the campaign engine replacement
 - Decision owners: Human run-envelope authority and Codex Coding OS maintainers
 - Scope: Canonical review receipts, terminal quarantine, and one exact existing-file replacement primitive
 
-ADR 0002 replaces this ADR's App Server identity, actor, thread, turn, and
+This record is retained as historical design evidence only. None of its case,
+controller, supervisor, broker, grant, or lifecycle components are installed or
+callable. The campaign reducer, SQLite store, native host, and exact-file effect
+driver replace the design completely.
+
+ADR 0002 previously replaced this ADR's App Server identity, actor, thread, turn, and
 supervisor-HMAC authorization design. Existing `ccos-runtime-action-grant-v1`
 records remain readable only for bounded terminal recovery. New v1 grant
 issuance is disabled. The reviewer-receipt and terminal-quarantine decisions in

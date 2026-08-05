@@ -4,6 +4,7 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Engine = Join-Path $RepoRoot "scripts\install_transaction.py"
 $Bundle = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "install-bundle.manifest.json") | ConvertFrom-Json
 $BundleHash = [string]$Bundle.aggregate_sha256
+$SourceCommit = (& git -C $RepoRoot rev-parse HEAD).Trim()
 
 function Invoke-Engine {
   param([string[]]$Arguments)
@@ -36,6 +37,7 @@ foreach ($Scenario in $Scenarios) {
       "--skills-root", $Roots.Skills,
       "--codex-home", $Roots.Codex,
       "--expected-bundle-sha256", $BundleHash,
+      "--expected-source-commit", $SourceCommit,
       "--archive-mode"
     )
     if ($Scenario.Operation -eq "uninstall") {
@@ -57,6 +59,9 @@ foreach ($Scenario in $Scenarios) {
       if ($Code -ne 0) { throw "Install recovery invocation failed." }
       $Current = Get-Content -Raw -LiteralPath (Join-Path $Roots.Codex ".coding-os-install\current.json") | ConvertFrom-Json
       if ($Current.status -ne "committed") { throw "Recovered install did not commit." }
+      $Manifest = Get-Content -Raw -LiteralPath (Join-Path $Roots.Codex "coding-os\install-manifest.json") | ConvertFrom-Json
+      if ($Manifest.runtime_pin.source_commit -ne $SourceCommit) { throw "Recovered install source pin mismatch." }
+      if ($Manifest.runtime_pin.bundle_digest -ne $BundleHash) { throw "Recovered install bundle pin mismatch." }
     } else {
       $Code = Invoke-Engine -Arguments @("uninstall", "--skills-root", $Roots.Skills, "--codex-home", $Roots.Codex)
       if ($Code -ne 0) { throw "Uninstall recovery invocation failed." }

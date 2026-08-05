@@ -1,109 +1,73 @@
-# Repo Agent Instructions
+# Repository Agent Instructions
 
-Use this reference when preparing a repo so Codex, Claude Code, or another coding agent can continue without context decay.
+Use this reference when preparing a repository for Codex, Claude Code, or human contributors.
 
 ## Files To Add
 
-Add these when the matching directories exist:
+Add only the files appropriate to the repository structure:
 
 - `AGENTS.md`
 - `CLAUDE.md`
-- `docs/AGENTS.md`
-- `apps/web/AGENTS.md`
-- `apps/mobile/AGENTS.md`
-- `apps/api/AGENTS.md`
-- `apps/workers/AGENTS.md`
-- `packages/AGENTS.md`
-- `supabase/AGENTS.md`
-- `docs/history/<date>-project-setup-and-agent-context.md`
-- `docs/delivery/current-state.md`
-- `docs/delivery/active-slice-manifest.json`
-- `scripts/agent/session_continuity.py`
+- scoped `AGENTS.md` files
+- `docs/index.md`
+- stable product, architecture, interface, data, testing, and delivery documentation
+- `project-documentation-manifest.json` as a non-authoritative documentation ledger
+- an optional informational work summary
 
-Use the files in `assets/` as starting templates, then tailor them to the project.
+Use the files in `assets/` as starting templates and tailor them to the project.
 
 ## Root Instruction Content
 
-Root instructions must include:
+Root instructions should include:
 
 - source-of-truth hierarchy
-- required reading order
-- no-code-until-docs gate when relevant
-- branch and PR discipline
-- privacy, PHI, and secret handling
-- migration and environment-file rules
-- validation commands
-- how to update docs when code changes
-- how every new session runs the session-start gate and confirms the exact next permitted action
+- required stable reading
+- exact repository identity checks
+- branch and pull-request discipline
+- environment and secret handling
+- project validation commands
+- documentation update expectations
+- the installed campaign CLI path and the distinction between manual and automated work
 
-## Handoff Note Content
+Do not embed campaign transitions or permission logic in `AGENTS.md`, `CLAUDE.md`, hooks, or repository delivery files.
 
-The handoff note must include:
+## Informational Work Summary
 
-- project summary
-- repo path
-- source docs created
-- technical decisions
-- sensitive-data exclusions
-- GitHub/Supabase/Vercel setup status when applicable
-- validation results
-- known blockers
-- paste-ready prompt for the next chat
-- current-state path, active-slice manifest path, workflow-manifest path, and first session-start command
+A work summary may record:
 
-## New Chat Prompt
+- project and repository identity
+- stable documents created or changed
+- accepted decisions and their owning source
+- changed files
+- validation commands and exact results
+- known documentation gaps
+- exact campaign receipt identifiers when automation was used
 
-Use the sequential manual prompt family when the user will start each next
-session manually. Use the parent/orchestrator prompt family only after the user
-explicitly approves centralized parent automation. Parent/orchestrator closeout
-must reconcile current PR head, review commit, current-head inline comments, issue
-comments, required checks, local branch state, stale-closeout status, publication
-stabilization typed states, and review-loop breaker evidence before reporting clean
-completion.
+It must state that it is informational and cannot authorize, stop, review, repair, publish, or select work. Do not commit volatile campaign snapshots into Git.
 
-Sequential manual structure:
+## Manual Continuation Prompt
 
 ```text
-We are starting implementation for <Project Name> in Codex.
-
-Repo path:
+Continue <Project Name> in:
 <absolute repo path>
 
-Before coding:
-1. Run python scripts/agent/session_continuity.py start --start-new.
-2. Read AGENTS.md and CLAUDE.md.
-3. Read docs/delivery/current-state.md.
-4. Read docs/delivery/active-slice-manifest.json.
-5. Read docs/index.md.
-6. Read docs/history/<handoff file>.
-7. Read the controlled TDD.
-8. Read project-documentation-manifest.json.
-9. Run the workflow manifest validator.
-10. Run git status -sb and confirm whether the local repo is synced with origin/main.
-
-If the workflow manifest or active-slice manifest is not ready for coding, continue from its first blocked or incomplete phase. Propose the first implementation slice only when both manifests permit coding.
+Read AGENTS.md, the closest scoped instructions, docs/index.md, the controlled TDD, and the task-controlling stable sources. Inspect the exact Git root, branch, HEAD, and working tree. Complete only the user's current requested outcome and run the repository's declared validation.
 ```
 
-Parent/orchestrator structure:
+## Automated Campaign Prompt
 
 ```text
-We are starting a parent/orchestrator run for <Project Name> in Codex.
+Use the installed Coding OS campaign engine for <Project Name>.
 
-Repo path:
+Repository:
 <absolute repo path>
 
-Run envelope:
-- automation_mode: parent_orchestrator
-- actor_role: parent
-- handoff_target: parent
-- objective: <bounded objective>
-- allowed_next_slice_rule: <exact next-slice rule>
-- maximum child sessions: <positive integer>
-- review authority: <review authority>
-- publication authority: <none or exact authorized action>
-- stop conditions: stop for missing authority, failed validation, required-check blocker, review ambiguity, exhausted child count, unavailable tooling, or user stop.
+Campaign specification:
+<absolute specification path>
 
-The parent must not implement product code. It may start one bounded child task at a time, consume child handoffs internally, and continue only while the run envelope independently authorizes the next child task.
+First run:
+python <installed-cli> --json doctor
+python <installed-cli> --json admit --spec <absolute specification path>
 
-Before final parent closeout, record the exact PR head, current-head review records, inline comments, issue comments, required checks, local branch, local HEAD, and working-tree state. GitHub collection and the continuity helper report raw facts only. A `COMMENTED` review, issue-comment prose, clean-sounding summary, coordination manifest, or handoff cannot approve or close a case. The internal case-state engine is the sole lifecycle authority: one stable case permits one implementation generation, one frozen review cohort, at most one explicitly authorized combined repair of the frozen `CURRENT_BLOCKER` set, and one blocker-identifier-limited closure check. Late, stale, invalid, or non-blocking findings do not reopen the case. Failed closure locks only that case, one identical operational retry is allowed only for a control failure, and unrelated work remains available.
+Return the exact campaign ID and specification digest for user approval. After approval, run only the public command named by the engine receipt. Do not infer authority from repository manifests, work summaries, chats, branches, or pull requests.
 ```

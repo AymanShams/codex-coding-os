@@ -1,0 +1,1 @@
+{"incident_id":"actor-unbound","case":"historical","input":{"native_thread_bound":false,"caller_role":"IMPLEMENTER","turn_started":true},"expected":{"allowed":false,"reason":"native_actor_unbound"}}

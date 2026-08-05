@@ -14,24 +14,43 @@ import contextlib
 from dataclasses import dataclass
 import datetime as dt
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shlex
 import shutil
 import socket
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 import urllib.parse
 import uuid
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 
 TRANSACTION_PROTOCOL = "ccos-install-transaction-v1"
 BUNDLE_PROTOCOL = "CCOS-INSTALL-BUNDLE-v1"
+CAMPAIGN_PROTOCOL = "ccos-campaign-v1"
+SCHEMA_COMPATIBILITY = "campaign-store-v1"
+HOST_CAPABILITY_PROBE_VERSION = "native-bind-before-turn-scoped-tools-v3"
+HOOKS_CONFIGURATION_PROTOCOL = "ccos-hooks-configuration-v1"
+CAMPAIGN_HOOK_EVENT = "PreToolUse"
+CAMPAIGN_HOOK_MATCHER = "^(campaign_apply_patch|campaign_commit)$"
+CAMPAIGN_HOOK_STATUS = "Verifying exact campaign actor lease"
+LEGACY_LIFECYCLE_HOOK_SUFFIX = "/coding-os/hooks/anti-loop-runtime/anti_loop_runtime.py"
+RUNTIME_PIN_FIELDS = (
+    "source_commit",
+    "bundle_digest",
+    "install_transaction",
+    "protocol_version",
+    "schema_compatibility",
+    "host_capability_probe_version",
+)
 BUNDLE_DOMAIN = b"CCOS-INSTALL-BUNDLE-v1\0"
 TREE_DOMAIN = b"CCOS-TREE-v1\0"
 MANIFEST_VERSION = 3
@@ -48,24 +67,27 @@ PHASES = (
     "CLEANUP_COMPLETE",
 )
 
-AGENTS_START = "<!-- BEGIN CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->"
-AGENTS_END = "<!-- END CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->"
+AGENTS_START = "<!-- BEGIN CODEX CODING OS MANAGED: CAMPAIGN ENGINE POLICY -->"
+AGENTS_END = "<!-- END CODEX CODING OS MANAGED: CAMPAIGN ENGINE POLICY -->"
+RETIRED_AGENTS_START = "<!-- BEGIN CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->"
+RETIRED_AGENTS_END = "<!-- END CODEX CODING OS MANAGED: AUTOMATION-PRESERVING CASE POLICY -->"
 AGENTS_LEGACY_LINE = (
     "  - Manual Session And Case Isolation Policy: parent-orchestrator mode and automatic session, review, "
     "and review-fix trains are disabled. A human may deliberately start one bounded implementation or review "
     "session, but no session may automatically spawn, authorize, or chain another session."
 )
-RULES_START = "# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
-RULES_END = "# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
+RULES_START = "# BEGIN CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS"
+RULES_END = "# END CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS"
+RETIRED_RULES_START = "# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
+RETIRED_RULES_END = "# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
 RULES_LEGACY_LINE = 'prefix_rule(pattern=["gh", "pr", "merge"], decision="allow")'
-UNIVERSAL_BUNDLE_ID = "automation-preserving-case-state-recovery-v1"
+UNIVERSAL_BUNDLE_ID = "campaign-engine-policy-v1"
 UNIVERSAL_BUNDLE_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$")
-AUTHORITY_ENGINE_RELATIVE_PATH = "scripts/agent/case_state.py"
 LEGACY_OVERLAP_LAYOUT = "codex-home-skills-v2-to-v3"
 LEGACY_V2_PACKAGES = frozenset({"codex-coding-os", "codex-coding-os-starter"})
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-CASE_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,126}[A-Za-z0-9])?$")
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 FILE_ATTRIBUTE_READONLY = 0x1
 WINDOWS_PLATFORM = os.name == "nt"
@@ -126,14 +148,14 @@ class InstallOptions:
     install_universal_policy: bool = False
     universal_bundle_id: str = UNIVERSAL_BUNDLE_ID
     refresh_capability_index: bool = False
-    authority_case_id: str | None = None
-    authority_source: str | None = None
-    authority_reference: str | None = None
-    authority_actor_thread_id: str | None = None
-    authority_request_id: str | None = None
-    authority_expected_revision: int | None = None
-    case_state_engine: Path | str | None = None
-    case_state_root: Path | str | None = None
+    policy_authority_source: str | None = None
+    policy_authority_reference: str | None = None
+    publication_campaign_id: str | None = None
+    publication_node_id: str | None = None
+    publication_authority_epoch: int | None = None
+    publication_cancellation_epoch: int | None = None
+    archive_legacy_state: bool = False
+    legacy_state_root: Path | str | None = None
     legacy_overlap_migration: bool = False
     archive_mode: bool = False
     dry_run: bool = False
@@ -389,6 +411,15 @@ def _load_pack(root: Path) -> dict[str, Any]:
         raise BundleError("pack bundle manifest path must be install-bundle.manifest.json")
     if installation.get("external_skills_staged") is not False:
         raise BundleError("this public package must declare external_skills_staged=false")
+    hook = installation.get("campaign_hook")
+    if not isinstance(hook, dict) or set(hook) != {"source", "target"}:
+        raise BundleError("installation.campaign_hook must declare only source and target")
+    source = _normalize_relative(str(hook.get("source", "")))
+    target = _normalize_relative(str(hook.get("target", "")))
+    if target != "hooks/campaign-engine":
+        raise BundleError("campaign hook target must be hooks/campaign-engine")
+    if not _safe_repo_path(root, source).is_dir():
+        raise BundleError("campaign hook source must be one real directory")
     return pack
 
 
@@ -414,6 +445,9 @@ def _inventory_paths(root: Path, pack: dict[str, Any]) -> list[str]:
     if not isinstance(runtime_files, list) or not runtime_files:
         raise BundleError("installation.runtime_files must be a non-empty list")
     declared.extend(str(value) for value in runtime_files)
+    campaign_hook = installation.get("campaign_hook")
+    if isinstance(campaign_hook, dict):
+        declared.append(str(campaign_hook["source"]))
     policies = installation.get("universal_policy_sources")
     if not isinstance(policies, dict) or set(policies) != {"global_agents", "default_rules"}:
         raise BundleError("installation.universal_policy_sources must declare global_agents and default_rules")
@@ -535,6 +569,7 @@ def _replace_line_or_marker(
     start: str,
     end: str,
     label: str,
+    retired_markers: Sequence[tuple[str, str]] = (),
 ) -> bytes:
     _strict_utf8(existing, label)
     replacement = _trim_policy_source(replacement, label, start, end)
@@ -551,6 +586,28 @@ def _replace_line_or_marker(
         if finish_start < begin:
             raise PolicyMigrationError(f"{label} managed marker order is invalid")
         finish = finish_start + len(end_bytes)
+        return existing[:begin] + replacement + existing[finish:]
+    retired_matches: list[tuple[bytes, bytes]] = []
+    for retired_start, retired_end in retired_markers:
+        retired_start_bytes = retired_start.encode("utf-8")
+        retired_end_bytes = retired_end.encode("utf-8")
+        retired_start_count = existing.count(retired_start_bytes)
+        retired_end_count = existing.count(retired_end_bytes)
+        if retired_start_count or retired_end_count:
+            if retired_start_count != 1 or retired_end_count != 1:
+                raise PolicyMigrationError(
+                    f"{label} has a missing, duplicate, or partial retired managed marker block"
+                )
+            retired_matches.append((retired_start_bytes, retired_end_bytes))
+    if len(retired_matches) > 1:
+        raise PolicyMigrationError(f"{label} contains multiple retired managed marker blocks")
+    if retired_matches:
+        retired_start_bytes, retired_end_bytes = retired_matches[0]
+        begin = existing.find(retired_start_bytes)
+        finish_start = existing.find(retired_end_bytes)
+        if finish_start < begin:
+            raise PolicyMigrationError(f"{label} retired managed marker order is invalid")
+        finish = finish_start + len(retired_end_bytes)
         return existing[:begin] + replacement + existing[finish:]
     if existing.count(legacy) != 1:
         raise PolicyMigrationError(f"{label} first migration requires exactly one byte-exact legacy line")
@@ -584,6 +641,7 @@ def migrate_agents_bytes(existing: bytes, policy_source: bytes) -> bytes:
         start=AGENTS_START,
         end=AGENTS_END,
         label="AGENTS.md",
+        retired_markers=((RETIRED_AGENTS_START, RETIRED_AGENTS_END),),
     )
 
 
@@ -595,6 +653,7 @@ def migrate_rules_bytes(existing: bytes, policy_source: bytes) -> bytes:
         start=RULES_START,
         end=RULES_END,
         label="default.rules",
+        retired_markers=((RETIRED_RULES_START, RETIRED_RULES_END),),
     )
 
 
@@ -604,6 +663,19 @@ def remove_agents_policy_bytes(existing: bytes) -> bytes:
 
 def remove_rules_policy_bytes(existing: bytes) -> bytes:
     return _remove_exact_marker(existing, RULES_START, RULES_END, "default.rules")
+
+
+def _remove_recorded_policy_bytes(
+    existing: bytes,
+    record: dict[str, Any],
+    *,
+    allowed_markers: Sequence[tuple[str, str]],
+    label: str,
+) -> bytes:
+    markers = (str(record.get("marker_start", "")), str(record.get("marker_end", "")))
+    if markers not in allowed_markers:
+        raise OwnershipError(f"{label} recorded managed markers are not recognized")
+    return _remove_exact_marker(existing, markers[0], markers[1], label)
 
 
 @contextlib.contextmanager
@@ -803,7 +875,8 @@ class Journal:
 def _fault_configuration(skills_root: Path, codex_home: Path) -> str | None:
     point = os.environ.get("CCOS_INSTALL_TEST_FAIL_AFTER")
     hard = os.environ.get("CCOS_INSTALL_TEST_HARD_CRASH")
-    if not point and not hard:
+    pause = os.environ.get("CCOS_INSTALL_TEST_PAUSE_AFTER")
+    if not point and not hard and not pause:
         return None
     if not point or os.environ.get("CCOS_INSTALL_TEST_MODE") != "1":
         raise TransactionError(
@@ -819,6 +892,18 @@ def _fault_after(point: str, skills_root: Path, codex_home: Path) -> None:
     configured = _fault_configuration(skills_root, codex_home)
     if configured != point:
         return
+    if os.environ.get("CCOS_INSTALL_TEST_PAUSE_AFTER") == "1":
+        ready_file = Path(str(os.environ.get("CCOS_INSTALL_TEST_READY_FILE") or "")).resolve(
+            strict=False
+        )
+        temp_root = Path(tempfile.gettempdir()).resolve(strict=True)
+        if not str(ready_file) or not _path_is_within(ready_file, temp_root):
+            raise TransactionError(
+                "forced-termination pause requires CCOS_INSTALL_TEST_READY_FILE under the OS temp root"
+            )
+        _atomic_write_bytes(ready_file, (point + "\n").encode("utf-8"))
+        while True:
+            time.sleep(0.05)
     if os.environ.get("CCOS_INSTALL_TEST_HARD_CRASH") == "1":
         os._exit(86)
     raise InjectedFailure(f"synthetic fault after {point}")
@@ -833,17 +918,12 @@ def _canonical_roots(
     skills = Path(skills_root).expanduser().resolve(strict=False)
     codex = Path(codex_home).expanduser().resolve(strict=False)
     overlaps = skills == codex or _path_is_within(skills, codex) or _path_is_within(codex, skills)
-    expected_legacy_skills = (codex / "skills").resolve(strict=False)
-    if overlaps:
-        if not legacy_overlap_migration:
-            raise TransactionError(
-                "SkillsRoot and CodexHome must be separate, non-overlapping roots unless legacy-overlap migration is explicit"
-            )
-        if skills != expected_legacy_skills:
-            raise TransactionError(
-                "legacy-overlap migration requires SkillsRoot to be exactly CodexHome/skills"
-            )
-    elif legacy_overlap_migration:
+    expected_canonical_skills = (codex / "skills").resolve(strict=False)
+    if overlaps and skills != expected_canonical_skills:
+        raise TransactionError(
+            "SkillsRoot and CodexHome may overlap only in the canonical CodexHome/skills layout"
+        )
+    if legacy_overlap_migration and skills != expected_canonical_skills:
         raise TransactionError(
             "legacy-overlap migration is valid only when SkillsRoot is exactly CodexHome/skills"
         )
@@ -1127,6 +1207,56 @@ def _legacy_overlap_manifest_marker(
     }
 
 
+def _canonical_overlap_marker(
+    previous: dict[str, Any] | None,
+    skills_root: Path,
+    codex_home: Path,
+    *,
+    explicit_legacy_migration: bool,
+) -> dict[str, Any] | None:
+    """Classify the canonical nested layout without weakening v2 migration proof."""
+
+    if not _legacy_overlap_layout(skills_root, codex_home):
+        if explicit_legacy_migration:
+            raise OwnershipError(
+                "legacy-overlap migration is valid only for the canonical CodexHome/skills layout"
+            )
+        return None
+    if previous is None:
+        if explicit_legacy_migration:
+            raise OwnershipError(
+                "legacy-overlap migration requires an existing strict v2 ownership manifest"
+            )
+        return None
+    version = previous.get("manifest_version")
+    if version == 2:
+        if not explicit_legacy_migration:
+            raise OwnershipError(
+                "an existing strict v2 CodexHome/skills install requires --legacy-overlap-migration"
+            )
+        return _legacy_overlap_manifest_marker(previous, skills_root, codex_home)
+    if version != 3:
+        raise OwnershipError("canonical nested install has an unsupported ownership manifest")
+
+    targets = previous.get("targets")
+    if not isinstance(targets, dict):
+        raise OwnershipError("canonical nested v3 install has no target inventory")
+    if Path(str(targets.get("skills_root", ""))).expanduser().resolve(strict=False) != skills_root:
+        raise OwnershipError("canonical nested v3 SkillsRoot does not match the requested root")
+    if Path(str(targets.get("support_root", ""))).expanduser().resolve(strict=False) != (
+        codex_home / "coding-os"
+    ).resolve(strict=False):
+        raise OwnershipError("canonical nested v3 support root is outside CodexHome")
+    marker = previous.get("legacy_overlap_migration")
+    if marker is not None:
+        return _legacy_overlap_manifest_marker(previous, skills_root, codex_home)
+    if explicit_legacy_migration:
+        raise OwnershipError(
+            "legacy-overlap migration applies only to an existing strict v2 install"
+        )
+    return None
+
+
 def _previous_skill_records(previous: dict[str, Any] | None, skills_root: Path) -> list[dict[str, Any]]:
     if previous is None:
         return []
@@ -1249,20 +1379,20 @@ def _verify_source(options: InstallOptions, source_root: Path, bundle: BundleInf
     expected = str(options.expected_bundle_sha256).lower()
     if not HASH_RE.fullmatch(expected) or expected != bundle.aggregate_sha256:
         raise BundleError("ExpectedBundleSha256 must exactly match the verified bundle aggregate")
+    expected_commit = str(options.expected_source_commit or "").lower()
+    if not COMMIT_RE.fullmatch(expected_commit):
+        raise SourceVerificationError("ExpectedSourceCommit must be one full 40-character lowercase Git commit")
     if options.archive_mode:
         if options.install_universal_policy:
             raise AuthorityError("archive mode cannot synchronize universal policy")
         return {
             "kind": "archive",
             "repo_root": str(source_root),
-            "git_commit": None,
+            "git_commit": expected_commit,
             "git_tree": None,
             "working_tree_clean": None,
             "bundle_manifest_sha256": bundle.manifest_sha256,
         }
-    expected_commit = str(options.expected_source_commit or "").lower()
-    if not COMMIT_RE.fullmatch(expected_commit):
-        raise SourceVerificationError("ExpectedSourceCommit must be one full 40-character lowercase Git commit")
     head = _git_output(source_root, "rev-parse", "HEAD").lower()
     if head != expected_commit:
         raise SourceVerificationError(f"source HEAD {head} does not match expected commit {expected_commit}")
@@ -1330,210 +1460,76 @@ def _validated_universal_bundle_id(value: str | None) -> str:
     return bundle_id
 
 
-def _authority_engine_entry(
-    entries: Sequence[dict[str, Any]],
-) -> dict[str, Any]:
-    matches = [
-        entry
-        for entry in entries
-        if isinstance(entry, dict)
-        and entry.get("path") == AUTHORITY_ENGINE_RELATIVE_PATH
-    ]
-    if len(matches) != 1:
-        raise AuthorityError(
-            "verified bundle must contain exactly one canonical case-state authority engine"
-        )
-    entry = matches[0]
-    digest = str(entry.get("sha256", ""))
-    size = entry.get("size")
-    if (
-        not HASH_RE.fullmatch(digest)
-        or isinstance(size, bool)
-        or not isinstance(size, int)
-        or size < 0
-    ):
-        raise AuthorityError("authority engine bundle identity is malformed")
-    return {"path": AUTHORITY_ENGINE_RELATIVE_PATH, "sha256": digest, "size": size}
+def _validated_identifier(value: str | None, label: str) -> str:
+    normalized = str(value or "").strip()
+    if not IDENTIFIER_RE.fullmatch(normalized):
+        raise AuthorityError(f"{label} must be one bounded canonical identifier")
+    return normalized
 
 
-def _authority_no_links(path: Path, boundary: Path) -> None:
-    try:
-        _assert_no_link_components(path, boundary)
-    except TransactionError as exc:
-        raise AuthorityError(f"authority engine identity uses an indirect path: {exc}") from exc
+def _campaign_state_db(codex_home: Path) -> Path:
+    return codex_home / "coding-os-state" / "campaigns.sqlite3"
 
 
-def _installed_authority_engine_identity(
-    options: InstallOptions,
-    provided: Path,
-) -> dict[str, Any]:
-    try:
-        codex_home = Path(options.codex_home).expanduser().resolve(strict=True)
-        support_root = (codex_home / "coding-os").resolve(strict=True)
-    except OSError as exc:
-        raise AuthorityError(
-            "CaseStateEngine is not the exact verified source-bundle engine and "
-            "no installed authority manifest is available"
-        ) from exc
-    installed_engine = support_root.joinpath(
-        *PurePosixPath(AUTHORITY_ENGINE_RELATIVE_PATH).parts
-    )
-    try:
-        installed_engine = installed_engine.resolve(strict=True)
-    except OSError as exc:
-        raise AuthorityError("installed case-state authority engine is unavailable") from exc
-    if provided != installed_engine:
-        raise AuthorityError(
-            "CaseStateEngine must be the exact verified source-bundle or installed-manifest engine"
-        )
-    _authority_no_links(installed_engine, support_root)
+@contextlib.contextmanager
+def _campaign_runtime_modules(
+    runtime_root: Path | str, *, include_effects: bool = False
+) -> Iterator[tuple[Any, ...]]:
+    """Load the exact verified campaign runtime without retaining module aliases."""
 
-    pointer_path = codex_home / ".coding-os-install" / "current.json"
-    manifest_path = support_root / "install-manifest.json"
-    bundle_manifest_path = support_root / "install-bundle.manifest.json"
-    for required in (pointer_path, manifest_path, bundle_manifest_path):
-        _authority_no_links(required, codex_home)
-        if not required.is_file():
-            raise AuthorityError(
-                f"installed authority identity file is unavailable: {required}"
-            )
-    try:
-        pointer = _load_json(pointer_path, "current install pointer")
-        install_manifest = _load_json(manifest_path, "installed authority manifest")
-        installed_bundle = _load_json(
-            bundle_manifest_path, "installed authority bundle manifest"
-        )
-    except TransactionError as exc:
-        raise AuthorityError(str(exc)) from exc
-
-    recorded_manifest_path = Path(
-        str(pointer.get("install_manifest_path", ""))
-    )
-    if (
-        not recorded_manifest_path.is_absolute()
-        or recorded_manifest_path.resolve(strict=False) != manifest_path
-        or pointer.get("protocol") != TRANSACTION_PROTOCOL
-        or pointer.get("status") != "committed"
-        or pointer.get("install_manifest_sha256") != _sha_file(manifest_path)
-    ):
-        raise AuthorityError(
-            "current install pointer does not bind the exact installed authority manifest"
-        )
-    package = install_manifest.get("package")
-    source_record = install_manifest.get("source")
-    targets = install_manifest.get("targets")
-    bundle_package = installed_bundle.get("package")
-    raw_entries = installed_bundle.get("entries")
-    if (
-        install_manifest.get("manifest_version") != MANIFEST_VERSION
-        or install_manifest.get("transaction_protocol") != TRANSACTION_PROTOCOL
-        or not isinstance(package, dict)
-        or package.get("name") != "codex-coding-os"
-        or not isinstance(source_record, dict)
-        or not isinstance(targets, dict)
-        or Path(str(targets.get("support_root", ""))).resolve(strict=False)
-        != support_root
-        or installed_bundle.get("protocol") != BUNDLE_PROTOCOL
-        or not isinstance(bundle_package, dict)
-        or bundle_package.get("name") != "codex-coding-os"
-        or bundle_package.get("version") != package.get("version")
-        or not isinstance(raw_entries, list)
-        or any(not isinstance(entry, dict) for entry in raw_entries)
-    ):
-        raise AuthorityError("installed authority manifest identity is malformed")
-    try:
-        paths = [_normalize_relative(str(entry.get("path", ""))) for entry in raw_entries]
-        _validate_casefold_collisions(paths, "installed authority bundle path")
-        aggregate = _aggregate_entries(raw_entries)
-    except (BundleError, TransactionError) as exc:
-        raise AuthorityError(f"installed authority bundle identity is invalid: {exc}") from exc
-    bundle_manifest_sha256 = _sha_file(bundle_manifest_path)
-    if (
-        installed_bundle.get("aggregate_sha256") != aggregate
-        or package.get("bundle_sha256") != aggregate
-        or pointer.get("bundle_sha256") != aggregate
-        or source_record.get("bundle_manifest_sha256")
-        != bundle_manifest_sha256
-    ):
-        raise AuthorityError(
-            "installed authority bundle digest does not match its pointer and manifest"
-        )
-    entry = _authority_engine_entry(raw_entries)
-    if (
-        installed_engine.stat().st_size != entry["size"]
-        or _sha_file(installed_engine) != entry["sha256"]
-    ):
-        raise AuthorityError(
-            "installed case-state authority engine differs from its manifest digest"
-        )
-    return {
-        "kind": "installed-manifest",
-        "path": str(installed_engine),
-        "sha256": entry["sha256"],
-        "size": entry["size"],
-        "bundle_sha256": aggregate,
-        "bundle_manifest_sha256": bundle_manifest_sha256,
-        "install_manifest_sha256": _sha_file(manifest_path),
+    root = Path(runtime_root).expanduser().resolve(strict=True)
+    prefixes = ("scripts", "scripts.agent", "scripts.agent.campaign_engine")
+    saved = {
+        name: module
+        for name, module in list(sys.modules.items())
+        if name in prefixes or name.startswith("scripts.agent.campaign_engine.")
     }
-
-
-def _verified_authority_engine(
-    options: InstallOptions,
-    source: dict[str, Any],
-    bundle: BundleInfo,
-) -> dict[str, Any]:
-    raw = Path(str(options.case_state_engine or ""))
-    if (
-        not raw.is_absolute()
-        or any(part in {".", ".."} for part in raw.parts)
-    ):
-        raise AuthorityError("CaseStateEngine must be one canonical absolute path")
-    _authority_no_links(raw, Path(raw.anchor))
+    saved_dont_write_bytecode = sys.dont_write_bytecode
+    for name in saved:
+        sys.modules.pop(name, None)
+    sys.path.insert(0, str(root))
+    sys.dont_write_bytecode = True
+    importlib.invalidate_caches()
     try:
-        provided = raw.resolve(strict=True)
-    except OSError as exc:
-        raise AuthorityError("CaseStateEngine is unavailable") from exc
-    if not provided.is_file() or provided.stat().st_nlink != 1:
-        raise AuthorityError(
-            "CaseStateEngine must be a direct non-link regular-file identity"
-        )
-
-    source_root = Path(str(source.get("repo_root", ""))).resolve(strict=True)
-    source_engine = _safe_repo_path(
-        source_root, AUTHORITY_ENGINE_RELATIVE_PATH
-    ).resolve(strict=True)
-    if provided == source_engine:
-        _authority_no_links(source_engine, source_root)
-        entry = _authority_engine_entry(bundle.entries)
-        if (
-            source_engine.stat().st_size != entry["size"]
-            or _sha_file(source_engine) != entry["sha256"]
-        ):
-            raise AuthorityError(
-                "source case-state authority engine differs from the verified bundle"
+        store_module = importlib.import_module("scripts.agent.campaign_engine.store")
+        legacy_module = importlib.import_module("scripts.agent.campaign_engine.legacy")
+        modules: list[tuple[str, Any]] = [
+            ("CampaignStore", store_module),
+            ("legacy archive", legacy_module),
+        ]
+        effects_module = None
+        if include_effects:
+            effects_module = importlib.import_module(
+                "scripts.agent.campaign_engine.effects"
             )
-        return {
-            "kind": "source-bundle",
-            "path": str(source_engine),
-            "sha256": entry["sha256"],
-            "size": entry["size"],
-            "bundle_sha256": bundle.aggregate_sha256,
-            "bundle_manifest_sha256": bundle.manifest_sha256,
-            "install_manifest_sha256": None,
-        }
-    return _installed_authority_engine_identity(options, provided)
-
-
-def _assert_authority_engine_unchanged(identity: dict[str, Any]) -> None:
-    path = Path(str(identity.get("path", "")))
-    if (
-        not path.is_file()
-        or path.stat().st_size != identity.get("size")
-        or _sha_file(path) != identity.get("sha256")
-    ):
-        raise AuthorityError(
-            "case-state authority engine changed after digest verification"
-        )
+            modules.append(("exact-file effect driver", effects_module))
+        for label, module in modules:
+            raw = getattr(module, "__file__", None)
+            if not raw:
+                raise TransactionError(f"{label} module has no direct file identity")
+            module_path = Path(raw).resolve(strict=True)
+            if not _path_is_within(module_path, root):
+                raise TransactionError(f"{label} module escaped the verified runtime root")
+            _assert_no_link_components(module_path, root)
+        if include_effects:
+            yield store_module, legacy_module, effects_module
+        else:
+            yield store_module, legacy_module
+    except TransactionError:
+        raise
+    except Exception as exc:
+        raise TransactionError(f"campaign runtime load failed: {exc}") from exc
+    finally:
+        sys.dont_write_bytecode = saved_dont_write_bytecode
+        for name in list(sys.modules):
+            if name in prefixes or name.startswith("scripts.agent.campaign_engine."):
+                sys.modules.pop(name, None)
+        try:
+            sys.path.remove(str(root))
+        except ValueError:
+            pass
+        sys.modules.update(saved)
+        importlib.invalidate_caches()
 
 
 def _check_universal_authority(
@@ -1542,215 +1538,482 @@ def _check_universal_authority(
     bundle: BundleInfo,
 ) -> dict[str, Any]:
     bundle_id = _validated_universal_bundle_id(options.universal_bundle_id)
+    authority_inputs = (
+        options.policy_authority_source,
+        options.policy_authority_reference,
+        options.publication_campaign_id,
+        options.publication_node_id,
+        options.publication_authority_epoch,
+        options.publication_cancellation_epoch,
+    )
     if not options.install_universal_policy:
+        if any(value is not None for value in authority_inputs):
+            raise AuthorityError(
+                "policy authority inputs require --install-universal-policy"
+            )
         return {
-            "case_id": None,
-            "action": None,
-            "action_protocol": None,
-            "approved_head": None,
             "source": None,
             "reference": None,
-            "boundary_reason": None,
-            "engine": None,
+            "effect_kind": None,
+            "campaign": None,
+            "universal_bundle": None,
         }
-    case_id = str(options.authority_case_id or "").lower()
-    if not CASE_ID_RE.fullmatch(case_id):
-        raise AuthorityError("AuthorityCaseId must be one canonical UUID")
-    authority_source = str(options.authority_source or "")
-    if authority_source not in {"preauthorized-run-envelope", "explicit-user-approval"}:
+
+    authority_source = str(options.policy_authority_source or "")
+    if authority_source not in {
+        "explicit-user-approval",
+        "campaign-publication-authority",
+    }:
         raise AuthorityError(
-            "AuthoritySource must be preauthorized-run-envelope or explicit-user-approval for universal policy sync"
+            "PolicyAuthoritySource must be explicit-user-approval or "
+            "campaign-publication-authority"
         )
-    authority_reference = str(options.authority_reference or "").strip()
+    authority_reference = str(options.policy_authority_reference or "").strip()
     if not authority_reference or len(authority_reference) > 512:
-        raise AuthorityError("AuthorityReference must be a nonempty bounded reference to the external authority")
-    actor_thread_id = str(options.authority_actor_thread_id or "").strip().lower()
-    try:
-        parsed_actor_thread = uuid.UUID(actor_thread_id)
-    except (ValueError, AttributeError) as exc:
-        raise AuthorityError("AuthorityActorThreadId must be a canonical UUIDv7") from exc
-    if (
-        str(parsed_actor_thread) != actor_thread_id
-        or parsed_actor_thread.version != 7
-        or parsed_actor_thread.variant != uuid.RFC_4122
-    ):
-        raise AuthorityError("AuthorityActorThreadId must be a canonical UUIDv7")
-    process_thread_id = str(os.environ.get("CODEX_THREAD_ID") or "").strip().lower()
-    if process_thread_id != actor_thread_id:
         raise AuthorityError(
-            "AuthorityActorThreadId must equal this process CODEX_THREAD_ID"
+            "PolicyAuthorityReference must be a nonempty bounded authority reference"
         )
-    action_request_id = str(options.authority_request_id or "").strip().lower()
-    if not CASE_ID_RE.fullmatch(action_request_id):
-        raise AuthorityError("AuthorityRequestId must be one canonical UUID")
-    expected_revision = options.authority_expected_revision
-    if (
-        isinstance(expected_revision, bool)
-        or not isinstance(expected_revision, int)
-        or expected_revision < 1
-    ):
-        raise AuthorityError("AuthorityExpectedRevision must be a positive integer")
-    engine_identity = _verified_authority_engine(options, source, bundle)
-    engine = Path(engine_identity["path"])
-    state_root = Path(options.case_state_root or "").expanduser().resolve(strict=False)
-    if not state_root.is_dir():
-        raise AuthorityError("case-state state root is required for universal policy synchronization")
-    base = [sys.executable, "-B", str(engine), "--state-root", str(state_root), "--json"]
-    _assert_authority_engine_unchanged(engine_identity)
-    shown = subprocess.run(
-        [*base, "show", "--case-id", case_id],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
+
+    campaign_fields = (
+        options.publication_campaign_id,
+        options.publication_node_id,
+        options.publication_authority_epoch,
+        options.publication_cancellation_epoch,
     )
-    _assert_authority_engine_unchanged(engine_identity)
-    if shown.returncode != 0:
-        raise AuthorityError(f"case-state show failed: {(shown.stderr or shown.stdout).strip()}")
-    try:
-        shown_case = json.loads(shown.stdout)
-    except json.JSONDecodeError as exc:
-        raise AuthorityError("case-state show did not return JSON") from exc
-    if not isinstance(shown_case, dict) or shown_case.get("case_id") != case_id or shown_case.get("state") != "CLOSED_SUCCESS":
-        raise AuthorityError("universal policy sync requires the exact case to be CLOSED_SUCCESS")
-    if shown_case.get("revision") != expected_revision:
+    if authority_source == "explicit-user-approval":
+        if any(value is not None for value in campaign_fields):
+            raise AuthorityError(
+                "explicit-user-approval must not include campaign authority fields"
+            )
+        return {
+            "source": authority_source,
+            "reference": authority_reference,
+            "effect_kind": "EXACT_FILE_REPLACE",
+            "campaign": None,
+            "universal_bundle": bundle_id,
+        }
+
+    if source.get("kind") != "git":
         raise AuthorityError(
-            "AuthorityExpectedRevision differs from the exact closed case revision"
+            "campaign publication authority requires a clean exact Git source"
         )
-    repository = str(source.get("repository") or "")
-    head = str(source.get("git_commit") or "")
-    command = [
-        *base,
-        "action-check",
-        "--case-id",
-        case_id,
-        "--action",
-        "universal_sync",
-        "--actor-role",
-        "publication_child",
-        "--actor-thread-id",
-        actor_thread_id,
-        "--thread",
-        actor_thread_id,
-        "--request-id",
-        action_request_id,
-        "--expected-revision",
-        str(expected_revision),
-        "--repository",
-        repository,
-        "--universal-bundle",
-        bundle_id,
-        "--head",
-        head,
-    ]
-    _assert_authority_engine_unchanged(engine_identity)
-    completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
-    _assert_authority_engine_unchanged(engine_identity)
-    if completed.returncode != 0:
-        raise AuthorityError(f"case-state action-check failed: {(completed.stderr or completed.stdout).strip()}")
-    try:
-        response = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise AuthorityError("case-state action-check did not return JSON") from exc
-    if not isinstance(response, dict):
-        raise AuthorityError("case-state action-check response must be an object")
-    context = response.get("context") if isinstance(response.get("context"), dict) else {}
-    latch = response.get("anti_loop_latch")
-    latch_fields = {
-        "protocol_version",
-        "schema_version",
-        "status",
-        "objective_sha256",
-        "product_heads",
-        "consecutive_support_mutations",
-        "last_support_action",
-        "last_failure_fingerprint",
-        "failure_fingerprint_repetitions",
-        "event_count",
-        "trigger_reason",
-        "trigger_event_id",
-        "latched_at",
-        "latched_from_state",
-        "disposition",
-        "disposition_authority",
-        "record_sha256",
-    }
-    latch_sealed = False
-    if isinstance(latch, dict) and set(latch) == latch_fields:
-        latch_body = {name: value for name, value in latch.items() if name != "record_sha256"}
-        latch_digest = hashlib.sha256(
-            json.dumps(
-                latch_body,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
-        latch_sealed = latch.get("record_sha256") == latch_digest
-    required_context_keys = {
-        "actor_role",
-        "actor_thread_id",
-        "repository",
-        "branch",
-        "worktree",
-        "pr",
-        "thread",
-        "universal_bundle",
-        "head",
-        "support_action",
-        "request_id",
-        "expected_revision",
-    }
+    campaign_id = _validated_identifier(
+        options.publication_campaign_id, "PublicationCampaignId"
+    )
+    node_id = _validated_identifier(options.publication_node_id, "PublicationNodeId")
+    authority_epoch = options.publication_authority_epoch
+    cancellation_epoch = options.publication_cancellation_epoch
     if (
-        response.get("protocol_version") != "ccos-case-action-v2"
-        or response.get("case_id") != case_id
-        or response.get("state") != "CLOSED_SUCCESS"
-        or response.get("action") != "universal_sync"
-        or response.get("actor_role") != "publication_child"
-        or response.get("request_id") != action_request_id
-        or response.get("expected_revision") != expected_revision
-        or response.get("revision") != expected_revision
-        or response.get("repository") != repository
-        or response.get("head") != head
-        or set(context) != required_context_keys
-        or context.get("actor_role") != "publication_child"
-        or context.get("actor_thread_id") != actor_thread_id
-        or context.get("thread") != actor_thread_id
-        or context.get("request_id") != action_request_id
-        or context.get("expected_revision") != expected_revision
-        or context.get("repository") != repository
-        or context.get("universal_bundle") != bundle_id
-        or context.get("head") != head
-        or response.get("allowed") is not False
-        or response.get("reason_codes") != ["SEPARATE_AUTHORITY_REQUIRED"]
-        or response.get("separate_authority_required") is not True
-        or response.get("blocked_case_id") is not None
-        or response.get("actor_identity_bound") is not True
-        or response.get("controller_bound_actor_role") != "publication_child"
-        or not latch_sealed
-        or latch.get("protocol_version") != "ccos-anti-loop-latch-v1"
-        or latch.get("schema_version") != 1
-        or latch.get("status") != "CLEAR"
-        or latch.get("disposition") is not None
+        isinstance(authority_epoch, bool)
+        or not isinstance(authority_epoch, int)
+        or authority_epoch < 1
+    ):
+        raise AuthorityError("PublicationAuthorityEpoch must be a positive integer")
+    if (
+        isinstance(cancellation_epoch, bool)
+        or not isinstance(cancellation_epoch, int)
+        or cancellation_epoch < 0
     ):
         raise AuthorityError(
-            "case-state engine did not validate the exact closed case, publication role, repository, head, and bundle boundary"
+            "PublicationCancellationEpoch must be a nonnegative integer"
+        )
+
+    source_root = Path(str(source.get("repo_root", ""))).resolve(strict=True)
+    codex_home = Path(options.codex_home).expanduser().resolve(strict=False)
+    with _campaign_runtime_modules(source_root) as (store_module, _):
+        try:
+            store = store_module.CampaignStore(_campaign_state_db(codex_home))
+            verification = store.verify_publication_authority(
+                campaign_id,
+                "EXACT_FILE_REPLACE",
+                authority_epoch=authority_epoch,
+                cancellation_epoch=cancellation_epoch,
+                node_id=node_id,
+                candidate_head=str(source.get("git_commit") or ""),
+            )
+        except Exception as exc:
+            raise AuthorityError(
+                f"campaign publication authority verification failed: {exc}"
+            ) from exc
+    if (
+        not isinstance(verification, dict)
+        or verification.get("authorized") is not True
+        or verification.get("campaign_id") != campaign_id
+        or verification.get("node_id") != node_id
+        or verification.get("candidate_head") != source.get("git_commit")
+        or verification.get("effect_kind") != "EXACT_FILE_REPLACE"
+        or verification.get("authority_epoch") != authority_epoch
+        or verification.get("cancellation_epoch") != cancellation_epoch
+    ):
+        raise AuthorityError(
+            "CampaignStore did not verify the exact publication authority tuple"
         )
     return {
-        "case_id": case_id,
-        "action": "universal_sync",
-        "action_protocol": "ccos-case-action-v2",
-        "actor_thread_id": actor_thread_id,
-        "action_request_id": action_request_id,
-        "action_revision": expected_revision,
-        "approved_head": head,
-        "repository": repository,
-        "universal_bundle": bundle_id,
         "source": authority_source,
         "reference": authority_reference,
-        "boundary_reason": "SEPARATE_AUTHORITY_REQUIRED",
-        "engine": engine_identity,
+        "effect_kind": "EXACT_FILE_REPLACE",
+        "campaign": verification,
+        "universal_bundle": bundle_id,
+        "bundle_sha256": bundle.aggregate_sha256,
     }
+
+
+def _campaign_hook_contract(pack: dict[str, Any]) -> dict[str, str] | None:
+    raw = pack["installation"].get("campaign_hook")
+    if raw is None:
+        return None
+    return {
+        "source": _normalize_relative(str(raw["source"])),
+        "target": _normalize_relative(str(raw["target"])),
+    }
+
+
+def _canonical_json_digest(value: Any) -> str:
+    payload = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return _sha_bytes(payload)
+
+
+def _hooks_configuration_path(codex_home: Path) -> Path:
+    return (codex_home / "hooks.json").resolve(strict=False)
+
+
+def _load_hooks_document(raw: bytes | None) -> dict[str, Any]:
+    if raw is None:
+        return {"hooks": {}}
+    try:
+        parsed = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PolicyMigrationError("hooks.json must be valid UTF-8 JSON") from exc
+    if not isinstance(parsed, dict):
+        raise PolicyMigrationError("hooks.json root must be one object")
+    hooks = parsed.get("hooks")
+    if hooks is None:
+        parsed["hooks"] = {}
+        hooks = parsed["hooks"]
+    if not isinstance(hooks, dict):
+        raise PolicyMigrationError("hooks.json hooks field must be one object")
+    for event, groups in hooks.items():
+        if not isinstance(event, str) or not isinstance(groups, list):
+            raise PolicyMigrationError("hooks.json event inventories must be arrays")
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                raise PolicyMigrationError("hooks.json hook groups must contain hook arrays")
+            if any(not isinstance(command, dict) for command in group["hooks"]):
+                raise PolicyMigrationError("hooks.json hook commands must be objects")
+    return parsed
+
+
+def _hook_command_points_to(command: dict[str, Any], suffix: str) -> bool:
+    normalized_suffix = suffix.replace("\\", "/").casefold()
+    for key in ("command", "commandWindows"):
+        value = command.get(key)
+        if isinstance(value, str) and normalized_suffix in value.replace("\\", "/").casefold():
+            return True
+    return False
+
+
+def _legacy_lifecycle_hook(command: dict[str, Any]) -> bool:
+    return _hook_command_points_to(command, LEGACY_LIFECYCLE_HOOK_SUFFIX)
+
+
+def _campaign_hook_command(command: dict[str, Any]) -> bool:
+    return _hook_command_points_to(
+        command, "/hooks/campaign-engine/campaign_hook.py"
+    )
+
+
+def _strip_hook_commands(
+    document: dict[str, Any], predicate: Callable[[dict[str, Any]], bool]
+) -> list[dict[str, Any]]:
+    removed: list[dict[str, Any]] = []
+    hooks = document["hooks"]
+    for event in list(hooks):
+        replacement_groups: list[dict[str, Any]] = []
+        event_removed = False
+        for group in hooks[event]:
+            replacement_commands: list[dict[str, Any]] = []
+            for command in group["hooks"]:
+                if predicate(command):
+                    event_removed = True
+                    removed.append(
+                        {
+                            "event": event,
+                            "matcher": group.get("matcher"),
+                            "digest": _canonical_json_digest(command),
+                        }
+                    )
+                else:
+                    replacement_commands.append(command)
+            if replacement_commands:
+                group["hooks"] = replacement_commands
+                replacement_groups.append(group)
+        if replacement_groups or not event_removed:
+            hooks[event] = replacement_groups
+        else:
+            del hooks[event]
+    return removed
+
+
+def _campaign_hook_group(codex_home: Path) -> dict[str, Any]:
+    hook = codex_home / "hooks" / "campaign-engine" / "campaign_hook.py"
+    return {
+        "matcher": CAMPAIGN_HOOK_MATCHER,
+        "hooks": [
+            {
+                "type": "command",
+                "command": (
+                    f"{shlex.quote(sys.executable)} -B {shlex.quote(str(hook))}"
+                ),
+                "commandWindows": subprocess.list2cmdline(
+                    [sys.executable, "-B", str(hook)]
+                ),
+                "timeout": 30,
+                "statusMessage": CAMPAIGN_HOOK_STATUS,
+            }
+        ],
+    }
+
+
+def _campaign_hook_group_locations(document: dict[str, Any]) -> list[tuple[str, int]]:
+    locations: list[tuple[str, int]] = []
+    for event, groups in document["hooks"].items():
+        for index, group in enumerate(groups):
+            if any(_campaign_hook_command(command) for command in group["hooks"]):
+                locations.append((event, index))
+    return locations
+
+
+def _previous_hooks_configuration(
+    previous: dict[str, Any] | None, codex_home: Path
+) -> dict[str, Any] | None:
+    if previous is None or previous.get("manifest_version") != MANIFEST_VERSION:
+        return None
+    targets = previous.get("targets")
+    if not isinstance(targets, dict):
+        raise OwnershipError("previous install target inventory is invalid")
+    record = targets.get("hooks_configuration")
+    if record is None:
+        return None
+    if not isinstance(record, dict):
+        raise OwnershipError("previous hooks.json ownership record is invalid")
+    expected = _hooks_configuration_path(codex_home)
+    actual = Path(str(record.get("path", ""))).expanduser().resolve(strict=False)
+    owned = record.get("owned_entries")
+    valid_entry = (
+        isinstance(owned, list)
+        and len(owned) == 1
+        and isinstance(owned[0], dict)
+        and owned[0].get("event") == CAMPAIGN_HOOK_EVENT
+        and owned[0].get("matcher") == CAMPAIGN_HOOK_MATCHER
+        and HASH_RE.fullmatch(str(owned[0].get("digest", ""))) is not None
+    )
+    preinstall_state = record.get("preinstall_state")
+    preinstall_sha = record.get("preinstall_sha256")
+    valid_preinstall = preinstall_state in {"present", "absent"} and (
+        (preinstall_state == "absent" and preinstall_sha is None)
+        or (preinstall_state == "present" and HASH_RE.fullmatch(str(preinstall_sha or "")) is not None)
+    )
+    if (
+        record.get("managed") is not True
+        or record.get("ownership_protocol") != HOOKS_CONFIGURATION_PROTOCOL
+        or actual != expected
+        or not valid_entry
+        or not valid_preinstall
+        or HASH_RE.fullmatch(str(record.get("installed_sha256", ""))) is None
+        or HASH_RE.fullmatch(str(record.get("preserved_unrelated_digest", ""))) is None
+    ):
+        raise OwnershipError("previous hooks.json ownership identity is invalid")
+    return record
+
+
+def _remove_owned_campaign_hook(
+    document: dict[str, Any], record: dict[str, Any]
+) -> None:
+    ownership = record["owned_entries"][0]
+    event = str(ownership["event"])
+    expected_digest = str(ownership["digest"])
+    groups = document["hooks"].get(event, [])
+    matching = [
+        index
+        for index, group in enumerate(groups)
+        if _canonical_json_digest(group) == expected_digest
+    ]
+    if len(matching) != 1:
+        raise OwnershipError(
+            "managed campaign hook entry changed or duplicated since installation"
+        )
+    del groups[matching[0]]
+    if not groups:
+        del document["hooks"][event]
+
+
+def _merge_retired_hook_evidence(
+    previous: dict[str, Any] | None, removed: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    combined: list[dict[str, Any]] = []
+    if previous is not None:
+        prior = previous.get("retired_legacy_entries", [])
+        if not isinstance(prior, list) or any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("event"), str)
+            or HASH_RE.fullmatch(str(item.get("digest", ""))) is None
+            for item in prior
+        ):
+            raise OwnershipError("previous legacy hook retirement evidence is invalid")
+        combined.extend(dict(item) for item in prior)
+    combined.extend(dict(item) for item in removed)
+    unique = {
+        (str(item["event"]), str(item["digest"])): item for item in combined
+    }
+    return [unique[key] for key in sorted(unique)]
+
+
+def _prepare_install_hooks_configuration(
+    previous: dict[str, Any] | None, codex_home: Path
+) -> tuple[bytes, dict[str, Any]]:
+    live = _hooks_configuration_path(codex_home)
+    if live.exists():
+        _assert_no_link_components(live, codex_home)
+        if not live.is_file() or _is_link_or_reparse(live):
+            raise OwnershipError("hooks.json cannot be a link, reparse point, or directory")
+        raw: bytes | None = live.read_bytes()
+    else:
+        raw = None
+    document = _load_hooks_document(raw)
+    previous_record = _previous_hooks_configuration(previous, codex_home)
+    if previous_record is not None:
+        if raw is None:
+            raise OwnershipError("previously managed hooks.json is missing")
+        _remove_owned_campaign_hook(document, previous_record)
+    elif _campaign_hook_group_locations(document):
+        raise OwnershipError("unowned campaign engine hook entry already exists")
+
+    removed_legacy = _strip_hook_commands(document, _legacy_lifecycle_hook)
+    if _campaign_hook_group_locations(document):
+        raise OwnershipError("duplicate or unowned campaign engine hook entry exists")
+    unrelated_digest = _canonical_json_digest(document)
+    owned_group = _campaign_hook_group(codex_home)
+    document["hooks"].setdefault(CAMPAIGN_HOOK_EVENT, []).append(owned_group)
+    installed = _json_bytes(document)
+    if previous_record is None:
+        preinstall_state = "present" if raw is not None else "absent"
+        preinstall_sha = _sha_bytes(raw) if raw is not None else None
+    else:
+        preinstall_state = previous_record["preinstall_state"]
+        preinstall_sha = previous_record["preinstall_sha256"]
+    record = {
+        "path": str(live),
+        "managed": True,
+        "ownership_protocol": HOOKS_CONFIGURATION_PROTOCOL,
+        "preinstall_state": preinstall_state,
+        "preinstall_sha256": preinstall_sha,
+        "transaction_prior_state": "present" if raw is not None else "absent",
+        "transaction_prior_sha256": _sha_bytes(raw) if raw is not None else None,
+        "installed_sha256": _sha_bytes(installed),
+        "preserved_unrelated_digest": unrelated_digest,
+        "owned_entries": [
+            {
+                "event": CAMPAIGN_HOOK_EVENT,
+                "matcher": CAMPAIGN_HOOK_MATCHER,
+                "digest": _canonical_json_digest(owned_group),
+            }
+        ],
+        "retired_legacy_entries": _merge_retired_hook_evidence(
+            previous_record, removed_legacy
+        ),
+    }
+    return installed, record
+
+
+def _prepare_uninstall_hooks_configuration(
+    manifest: dict[str, Any], codex_home: Path
+) -> bytes | None:
+    record = _previous_hooks_configuration(manifest, codex_home)
+    if record is None:
+        return None
+    live = _hooks_configuration_path(codex_home)
+    if not live.is_file() or _is_link_or_reparse(live):
+        raise OwnershipError("managed hooks.json is unavailable for uninstall")
+    _assert_no_link_components(live, codex_home)
+    document = _load_hooks_document(live.read_bytes())
+    _remove_owned_campaign_hook(document, record)
+    _strip_hook_commands(document, _legacy_lifecycle_hook)
+    if _campaign_hook_group_locations(document):
+        raise OwnershipError("unowned campaign engine hook entry blocks uninstall")
+    if record["preinstall_state"] == "absent" and document == {"hooks": {}}:
+        return None
+    return _json_bytes(document)
+
+
+def _payload_layout(bundle: BundleInfo) -> dict[str, Any]:
+    skill_prefix = _normalize_relative(
+        str(bundle.pack["installation"]["managed_skill_root"])
+    ) + "/"
+    skill_entries = [
+        str(entry["path"])
+        for entry in bundle.entries
+        if str(entry["path"]).startswith(skill_prefix)
+    ]
+    support_entries = [
+        str(entry["path"])
+        for entry in bundle.entries
+        if not str(entry["path"]).startswith(skill_prefix)
+    ]
+    if not skill_entries or not support_entries:
+        raise BundleError("verified bundle must contain both skill and support payloads")
+    return {
+        "skill_source_root": skill_prefix.rstrip("/"),
+        "skill_entry_paths": skill_entries,
+        "support_entry_paths": support_entries,
+    }
+
+
+def _verify_split_payload_layout(
+    install_manifest: dict[str, Any], skills_root: Path, support_root: Path
+) -> None:
+    targets = install_manifest.get("targets")
+    source = install_manifest.get("source")
+    package = install_manifest.get("package")
+    if not isinstance(targets, dict) or not isinstance(source, dict) or not isinstance(package, dict):
+        raise OwnershipError("installed payload provenance is malformed")
+    layout = targets.get("payload_layout")
+    if not isinstance(layout, dict) or set(layout) != {
+        "skill_source_root",
+        "skill_entry_paths",
+        "support_entry_paths",
+    }:
+        raise OwnershipError("installed split payload layout is malformed")
+    skill_prefix = _normalize_relative(str(layout["skill_source_root"])) + "/"
+    bundle_manifest_path = support_root / "install-bundle.manifest.json"
+    bundle_manifest = _load_json(bundle_manifest_path, "installed bundle manifest")
+    if (
+        bundle_manifest.get("protocol") != BUNDLE_PROTOCOL
+        or bundle_manifest.get("aggregate_sha256") != package.get("bundle_sha256")
+        or source.get("bundle_manifest_sha256") != _sha_file(bundle_manifest_path)
+    ):
+        raise OwnershipError("installed bundle manifest provenance is invalid")
+    entries = bundle_manifest.get("entries")
+    if not isinstance(entries, list) or any(not isinstance(item, dict) for item in entries):
+        raise OwnershipError("installed bundle entry inventory is malformed")
+    skill_paths = [str(item["path"]) for item in entries if str(item.get("path", "")).startswith(skill_prefix)]
+    support_paths = [str(item["path"]) for item in entries if not str(item.get("path", "")).startswith(skill_prefix)]
+    if layout["skill_entry_paths"] != skill_paths or layout["support_entry_paths"] != support_paths:
+        raise OwnershipError("installed split payload inventory differs from the verified bundle")
+    for entry in entries:
+        relative = _normalize_relative(str(entry.get("path", "")))
+        if relative.startswith(skill_prefix):
+            projected = relative[len(skill_prefix) :]
+            target = skills_root.joinpath(*PurePosixPath(projected).parts)
+        else:
+            target = support_root.joinpath(*PurePosixPath(relative).parts)
+        if (
+            not target.is_file()
+            or target.stat().st_size != entry.get("size")
+            or _sha_file(target) != entry.get("sha256")
+        ):
+            raise OwnershipError(f"installed split payload entry differs: {relative}")
 
 
 def _support_payload_hash(root: Path, generated_files: Sequence[dict[str, Any]] | Sequence[str]) -> str | None:
@@ -1763,6 +2026,41 @@ def _support_payload_hash(root: Path, generated_files: Sequence[dict[str, Any]] 
         if isinstance(path, str):
             excluded.add(_normalize_relative(path))
     return _tree_hash(root, excluded)
+
+
+def _validate_runtime_pin(
+    value: Any,
+    *,
+    source_commit: str | None = None,
+    bundle_digest: str | None = None,
+    install_transaction: str | None = None,
+) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != set(RUNTIME_PIN_FIELDS):
+        raise TransactionError("runtime_pin must contain exactly the six required fields")
+    pin = {name: str(value.get(name, "")) for name in RUNTIME_PIN_FIELDS}
+    if not COMMIT_RE.fullmatch(pin["source_commit"]):
+        raise TransactionError("runtime pin source_commit is invalid")
+    if not HASH_RE.fullmatch(pin["bundle_digest"]):
+        raise TransactionError("runtime pin bundle_digest is invalid")
+    if not re.fullmatch(r"[0-9a-f]{32}", pin["install_transaction"]):
+        raise TransactionError("runtime pin install_transaction is invalid")
+    expected_constants = {
+        "protocol_version": CAMPAIGN_PROTOCOL,
+        "schema_compatibility": SCHEMA_COMPATIBILITY,
+        "host_capability_probe_version": HOST_CAPABILITY_PROBE_VERSION,
+    }
+    for name, expected in expected_constants.items():
+        if pin[name] != expected:
+            raise TransactionError(f"runtime pin {name} is incompatible")
+    comparisons = {
+        "source_commit": source_commit,
+        "bundle_digest": bundle_digest,
+        "install_transaction": install_transaction,
+    }
+    for name, expected in comparisons.items():
+        if expected is not None and pin[name] != expected:
+            raise TransactionError(f"runtime pin {name} does not match install provenance")
+    return pin
 
 
 def _stage_bundle(
@@ -1785,6 +2083,7 @@ def _stage_bundle(
     codex_stage_home = transaction_workspaces["codex_home"] / "stage" / "codex-home"
     support_stage = codex_stage_home / "coding-os"
     policy_stage = codex_stage_home / "policy"
+    hook_stage: Path | None = None
     skill_stage_root.mkdir(parents=True, exist_ok=False)
     support_stage.mkdir(parents=True, exist_ok=False)
     managed_skills: list[dict[str, Any]] = []
@@ -1820,6 +2119,35 @@ def _stage_bundle(
     shutil.copy2(bundle_manifest_source, bundle_manifest_stage)
     if _sha_file(bundle_manifest_stage) != bundle.manifest_sha256:
         raise TransactionError("staged install bundle manifest hash mismatch")
+
+    hook_contract = _campaign_hook_contract(bundle.pack)
+    hook_target: dict[str, Any] = {
+        "path": str((codex_home / "hooks" / "campaign-engine").resolve(strict=False)),
+        "managed": False,
+    }
+    if hook_contract is not None:
+        hook_source = _safe_repo_path(source_root, hook_contract["source"])
+        hook_stage = codex_stage_home.joinpath(*PurePosixPath(hook_contract["target"]).parts)
+        _copy_path(hook_source, hook_stage)
+        hook_sha = _tree_hash(hook_stage)
+        if hook_sha is None or hook_sha != _tree_hash(hook_source):
+            raise TransactionError("staged campaign hook hash mismatch")
+        hook_target = {
+            "path": str(
+                codex_home.joinpath(*PurePosixPath(hook_contract["target"]).parts).resolve(
+                    strict=False
+                )
+            ),
+            "managed": True,
+            "source": hook_contract["source"],
+            "sha256": hook_sha,
+        }
+
+    hooks_config_bytes, hooks_config_target = _prepare_install_hooks_configuration(
+        previous, codex_home
+    )
+    staged_hooks_config = policy_stage / "hooks.json"
+    _atomic_write_bytes(staged_hooks_config, hooks_config_bytes)
 
     generated_records: list[dict[str, Any]] = []
     before_refresh = {entry["path"]: entry for entry in _tree_entries(support_stage)}
@@ -1898,12 +2226,36 @@ def _stage_bundle(
             if not global_agents_path.is_file() or _is_link_or_reparse(global_agents_path):
                 raise OwnershipError("previously managed AGENTS.md is unavailable for opt-out removal")
             staged_agents = policy_stage / "AGENTS.md"
-            _atomic_write_bytes(staged_agents, remove_agents_policy_bytes(global_agents_path.read_bytes()))
+            previous_agents = previous["targets"]["global_agents"]
+            _atomic_write_bytes(
+                staged_agents,
+                _remove_recorded_policy_bytes(
+                    global_agents_path.read_bytes(),
+                    previous_agents,
+                    allowed_markers=(
+                        (AGENTS_START, AGENTS_END),
+                        (RETIRED_AGENTS_START, RETIRED_AGENTS_END),
+                    ),
+                    label="AGENTS.md",
+                ),
+            )
         if previous_rules_managed:
             if not default_rules_path.is_file() or _is_link_or_reparse(default_rules_path):
                 raise OwnershipError("previously managed default.rules is unavailable for opt-out removal")
             staged_rules = policy_stage / "rules" / "default.rules"
-            _atomic_write_bytes(staged_rules, remove_rules_policy_bytes(default_rules_path.read_bytes()))
+            previous_rules = previous["targets"]["default_rules"]
+            _atomic_write_bytes(
+                staged_rules,
+                _remove_recorded_policy_bytes(
+                    default_rules_path.read_bytes(),
+                    previous_rules,
+                    allowed_markers=(
+                        (RULES_START, RULES_END),
+                        (RETIRED_RULES_START, RETIRED_RULES_END),
+                    ),
+                    label="default.rules",
+                ),
+            )
 
     generated_paths = {str(record["path"]) for record in generated_records}
     generated_paths.update({"install-manifest.json", "install-manifest.txt"})
@@ -1923,6 +2275,14 @@ def _stage_bundle(
                 else None
             ),
         }
+    runtime_pin = {
+        "source_commit": source["git_commit"],
+        "bundle_digest": bundle.aggregate_sha256,
+        "install_transaction": transaction_id,
+        "protocol_version": CAMPAIGN_PROTOCOL,
+        "schema_compatibility": SCHEMA_COMPATIBILITY,
+        "host_capability_probe_version": HOST_CAPABILITY_PROBE_VERSION,
+    }
     install_manifest = {
         "manifest_version": MANIFEST_VERSION,
         "transaction_protocol": TRANSACTION_PROTOCOL,
@@ -1932,6 +2292,7 @@ def _stage_bundle(
             "bundle_sha256": bundle.aggregate_sha256,
         },
         "source": source,
+        "runtime_pin": runtime_pin,
         "authority": authority,
         "transaction": {"id": transaction_id, "committed_at": utc_now()},
         "targets": {
@@ -1939,6 +2300,9 @@ def _stage_bundle(
             "support_root": str((codex_home / "coding-os").resolve(strict=False)),
             "managed_skills": managed_skills,
             "support_payload_sha256": support_payload_sha,
+            "payload_layout": _payload_layout(bundle),
+            "campaign_hook": hook_target,
+            "hooks_configuration": hooks_config_target,
             "global_agents": global_target,
             "default_rules": rules_target,
         },
@@ -1949,7 +2313,11 @@ def _stage_bundle(
                 "present": config_snapshot["present"],
                 "sha256": config_snapshot["sha256"],
             },
-            "case_state": {"path": str(codex_home / "case-state"), "managed": False},
+            "legacy_state": {"path": str(codex_home / "case-state"), "managed": False},
+            "campaign_state": {
+                "path": str(_campaign_state_db(codex_home)),
+                "managed": False,
+            },
             "plugins": {"path": str(codex_home / "plugins"), "managed": False},
             "non_managed_skills": {"root": str(skills_root), "managed": False},
         },
@@ -1965,6 +2333,11 @@ def _stage_bundle(
         "Package=codex-coding-os",
         f"TransactionProtocol={TRANSACTION_PROTOCOL}",
         f"BundleSha256={bundle.aggregate_sha256}",
+        f"SourceCommit={runtime_pin['source_commit']}",
+        f"InstallTransaction={runtime_pin['install_transaction']}",
+        f"CampaignProtocol={runtime_pin['protocol_version']}",
+        f"SchemaCompatibility={runtime_pin['schema_compatibility']}",
+        f"HostCapabilityProbeVersion={runtime_pin['host_capability_probe_version']}",
         f"SkillsRoot={skills_root}",
         f"CodexHome={codex_home}",
         f"SupportRoot={codex_home / 'coding-os'}",
@@ -2003,12 +2376,16 @@ def _stage_bundle(
         "skill_stage_root": skill_stage_root,
         "codex_stage_home": codex_stage_home,
         "support_stage": support_stage,
+        "hook_stage": hook_stage,
+        "staged_hooks_config": staged_hooks_config,
+        "hooks_config_target": hooks_config_target,
         "staged_agents": staged_agents,
         "staged_rules": staged_rules,
         "managed_skills": managed_skills,
         "support_payload_sha256": support_payload_sha,
         "support_tree_sha256": support_tree_sha,
         "install_manifest": install_manifest,
+        "runtime_pin": runtime_pin,
         "install_manifest_sha256": _sha_file(manifest_path),
         "generated_files": install_manifest["generated_files"],
         "legacy_overlap_migration": legacy_overlap_marker,
@@ -2035,6 +2412,17 @@ def _is_idempotent(
         return False
     if not isinstance(prior_source, dict) or prior_source.get("kind") != source.get("kind") or prior_source.get("git_commit") != source.get("git_commit"):
         return False
+    try:
+        _validate_runtime_pin(
+            previous.get("runtime_pin"),
+            source_commit=str(prior_source.get("git_commit") or ""),
+            bundle_digest=str(package.get("bundle_sha256") or "") if isinstance(package, dict) else "",
+            install_transaction=str(previous.get("transaction", {}).get("id") or "")
+            if isinstance(previous.get("transaction"), dict)
+            else "",
+        )
+    except TransactionError:
+        return False
     if options.install_universal_policy and prior_authority != authority:
         return False
     if not options.install_universal_policy and any(_previous_managed_policy_targets(previous, codex_home)):
@@ -2055,6 +2443,22 @@ def _is_idempotent(
             return False
     generated = previous.get("generated_files") if isinstance(previous.get("generated_files"), list) else []
     if _support_payload_hash(codex_home / "coding-os", generated) != staged["support_payload_sha256"]:
+        return False
+    previous_hook = _previous_campaign_hook(previous, codex_home)
+    if staged["hook_stage"] is not None:
+        live_hook = codex_home / "hooks" / "campaign-engine"
+        if not live_hook.exists() or _tree_hash(live_hook) != _tree_hash(staged["hook_stage"]):
+            return False
+    elif previous_hook is not None:
+        return False
+    previous_hooks_config = _previous_hooks_configuration(previous, codex_home)
+    live_hooks_config = _hooks_configuration_path(codex_home)
+    if (
+        previous_hooks_config is None
+        or not live_hooks_config.is_file()
+        or _sha_file(live_hooks_config)
+        != staged["hooks_config_target"]["installed_sha256"]
+    ):
         return False
     if options.install_universal_policy:
         if staged["staged_agents"] is None or staged["staged_rules"] is None:
@@ -2095,6 +2499,7 @@ def _prepare_install_targets(
     codex_home: Path,
     transaction_workspaces: dict[str, Path],
     previous_records: Sequence[dict[str, Any]],
+    previous: dict[str, Any] | None,
     staged: dict[str, Any],
 ) -> list[dict[str, Any]]:
     skill_rollback = transaction_workspaces["skills"] / "rollback" / "skills"
@@ -2111,6 +2516,33 @@ def _prepare_install_targets(
             codex_home / "coding-os",
             staged["support_stage"],
             codex_rollback / "coding-os",
+        )
+    )
+    previous_hook = _previous_campaign_hook(previous, codex_home)
+    if staged["hook_stage"] is not None or previous_hook is not None:
+        targets.append(
+            _make_target(
+                "campaign_hook",
+                codex_home / "hooks" / "campaign-engine",
+                staged["hook_stage"],
+                codex_rollback / "hooks" / "campaign-engine",
+            )
+        )
+    live_hooks_config = _hooks_configuration_path(codex_home)
+    hooks_record = staged["hooks_config_target"]
+    expected_present = hooks_record["transaction_prior_state"] == "present"
+    if live_hooks_config.exists() != expected_present or (
+        expected_present
+        and _tree_hash(live_hooks_config)
+        != hooks_record["transaction_prior_sha256"]
+    ):
+        raise RecoveryError("hooks.json drifted after migration staging")
+    targets.append(
+        _make_target(
+            "hooks_configuration",
+            live_hooks_config,
+            staged["staged_hooks_config"],
+            codex_rollback / "hooks.json",
         )
     )
     if staged["staged_agents"] is not None:
@@ -2174,7 +2606,13 @@ def _verify_target_state(target: dict[str, Any], use_new: bool) -> bool:
     return live.exists() and not _is_link_or_reparse(live) and _tree_hash(live) == expected_hash
 
 
-def _promote_targets(journal: Journal, skills_root: Path, codex_home: Path) -> None:
+def _promote_targets(
+    journal: Journal,
+    skills_root: Path,
+    codex_home: Path,
+    *,
+    exact_file_driver: Any | None = None,
+) -> None:
     targets = journal.data["targets"]
     count = len(targets)
     for index, target in enumerate(targets):
@@ -2183,10 +2621,24 @@ def _promote_targets(journal: Journal, skills_root: Path, codex_home: Path) -> N
         rollback = Path(target["rollback_path"])
         live.parent.mkdir(parents=True, exist_ok=True)
         rollback.parent.mkdir(parents=True, exist_ok=True)
+        exact_file_replacement = (
+            exact_file_driver is not None
+            and target["prior_state"] == "present"
+            and live.is_file()
+            and staged is not None
+            and staged.is_file()
+        )
         if target["prior_state"] == "present":
             if not live.exists() or _tree_hash(live) != target["prior_sha256"]:
                 raise RecoveryError(f"live target drifted before promotion: {target['target_id']}")
-            os.replace(live, rollback)
+            if exact_file_replacement:
+                _copy_path(live, rollback)
+                if _tree_hash(rollback) != target["prior_sha256"]:
+                    raise RecoveryError(
+                        f"exact-file rollback copy failed verification: {target['target_id']}"
+                    )
+            else:
+                os.replace(live, rollback)
         elif live.exists():
             raise OwnershipError(f"an unowned target appeared during promotion: {live}")
         target["step"] = "old_moved"
@@ -2194,7 +2646,25 @@ def _promote_targets(journal: Journal, skills_root: Path, codex_home: Path) -> N
         if staged is not None:
             if not staged.exists() or _tree_hash(staged) != target["new_sha256"]:
                 raise RecoveryError(f"staged target drifted before promotion: {target['target_id']}")
-            os.replace(staged, live)
+            if exact_file_replacement:
+                replacement = staged.read_bytes()
+                receipt = exact_file_driver.replace(
+                    operation_id=(
+                        f"install:{journal.data['transaction_id']}:{index}"
+                    ),
+                    target=live,
+                    expected_baseline_sha256=str(target["prior_sha256"]),
+                    replacement=replacement,
+                    expected_replacement_sha256=str(target["new_sha256"]),
+                )
+                if receipt.get("state") != "CONFIRMED":
+                    raise RecoveryError(
+                        f"exact-file effect did not confirm: {target['target_id']}"
+                    )
+                target["exact_file_effect"] = receipt
+                staged.unlink()
+            else:
+                os.replace(staged, live)
         target["step"] = "new_moved"
         journal.save()
         if not _verify_target_state(target, True):
@@ -2323,6 +2793,77 @@ def _retain_and_cleanup(
     journal.save()
 
 
+def _finalize_campaign_runtime(
+    *,
+    codex_home: Path,
+    runtime_pin: dict[str, Any],
+    legacy_state_root: str | None,
+    legacy_source_digest: str | None,
+) -> dict[str, Any]:
+    pin = _validate_runtime_pin(runtime_pin)
+    support_root = (codex_home / "coding-os").resolve(strict=True)
+    state_root = (codex_home / "coding-os-state").resolve(strict=False)
+    with _campaign_runtime_modules(support_root) as (store_module, legacy_module):
+        try:
+            store = store_module.CampaignStore(_campaign_state_db(codex_home))
+            integrity = store.integrity_check()
+            if (
+                not isinstance(integrity, dict)
+                or integrity.get("status") != "ok"
+                or integrity.get("foreign_keys") != 1
+                or integrity.get("journal_mode") != "wal"
+                or integrity.get("synchronous") != 2
+            ):
+                raise TransactionError("CampaignStore startup integrity contract failed")
+            store.record_runtime_installation(
+                {"installation_id": pin["install_transaction"], **pin}
+            )
+            archive_receipt: dict[str, Any] | None = None
+            if legacy_state_root is not None:
+                current = legacy_module.inspect_legacy_root(legacy_state_root)
+                if current.get("source_digest") != legacy_source_digest:
+                    raise TransactionError(
+                        "legacy source changed after the verified install preflight"
+                    )
+                result = legacy_module.archive_legacy_root(
+                    legacy_state_root,
+                    state_root=state_root,
+                    store=store,
+                )
+                if result.source_digest != legacy_source_digest:
+                    raise TransactionError(
+                        "legacy archive digest differs from the verified preflight"
+                    )
+                archive_receipt = result.to_dict()
+        except TransactionError:
+            raise
+        except Exception as exc:
+            raise TransactionError(f"campaign runtime finalization failed: {exc}") from exc
+    return {
+        "state_db": str(_campaign_state_db(codex_home)),
+        "integrity": integrity,
+        "runtime_installation": pin,
+        "legacy_archive": archive_receipt,
+    }
+
+
+def _finalize_journal_campaign_runtime(journal: Journal, codex_home: Path) -> None:
+    if journal.data.get("operation") != "install" or not isinstance(
+        journal.data.get("runtime_pin"), dict
+    ):
+        return
+    if isinstance(journal.data.get("campaign_runtime_finalization"), dict):
+        return
+    receipt = _finalize_campaign_runtime(
+        codex_home=codex_home,
+        runtime_pin=journal.data["runtime_pin"],
+        legacy_state_root=journal.data.get("legacy_state_root"),
+        legacy_source_digest=journal.data.get("legacy_source_digest"),
+    )
+    journal.data["campaign_runtime_finalization"] = receipt
+    journal.save()
+
+
 def _recover_pending(state_root: Path, skills_root: Path, codex_home: Path) -> None:
     transactions = state_root / "transactions"
     if not transactions.exists():
@@ -2358,6 +2899,7 @@ def _recover_pending(state_root: Path, skills_root: Path, codex_home: Path) -> N
                 journal.data["recovery_error"] = f"committed target mismatch: {target['target_id']}"
                 journal.save()
                 raise RecoveryError(f"committed target mismatch during recovery: {target['target_id']}")
+        _finalize_journal_campaign_runtime(journal, codex_home)
         journal.data["outcome"] = "committed_recovered"
         _retain_and_cleanup(journal, state_root, committed=True, skills_root=skills_root, codex_home=codex_home)
     else:
@@ -2390,7 +2932,11 @@ def _previous_managed_policy_targets(previous: dict[str, Any] | None, codex_home
     if not isinstance(targets, dict):
         raise OwnershipError("previous v3 install policy inventory is invalid")
 
-    def is_managed(name: str, path: Path, start: str, end: str) -> bool:
+    def is_managed(
+        name: str,
+        path: Path,
+        allowed_markers: Sequence[tuple[str, str]],
+    ) -> bool:
         record = targets.get(name)
         if record is None:
             return False
@@ -2403,14 +2949,106 @@ def _previous_managed_policy_targets(previous: dict[str, Any] | None, codex_home
         recorded_path = Path(str(record.get("path", ""))).expanduser().resolve(strict=False)
         if recorded_path != path.resolve(strict=False):
             raise OwnershipError(f"previous v3 install policy path is outside the requested CodexHome: {name}")
-        if record.get("marker_start") != start or record.get("marker_end") != end:
+        if (record.get("marker_start"), record.get("marker_end")) not in allowed_markers:
             raise OwnershipError(f"previous v3 install policy markers are invalid: {name}")
         return True
 
     return (
-        is_managed("global_agents", codex_home / "AGENTS.md", AGENTS_START, AGENTS_END),
-        is_managed("default_rules", codex_home / "rules" / "default.rules", RULES_START, RULES_END),
+        is_managed(
+            "global_agents",
+            codex_home / "AGENTS.md",
+            ((AGENTS_START, AGENTS_END), (RETIRED_AGENTS_START, RETIRED_AGENTS_END)),
+        ),
+        is_managed(
+            "default_rules",
+            codex_home / "rules" / "default.rules",
+            ((RULES_START, RULES_END), (RETIRED_RULES_START, RETIRED_RULES_END)),
+        ),
     )
+
+
+def _previous_campaign_hook(
+    previous: dict[str, Any] | None, codex_home: Path
+) -> dict[str, Any] | None:
+    if previous is None or previous.get("manifest_version") != MANIFEST_VERSION:
+        return None
+    targets = previous.get("targets")
+    if not isinstance(targets, dict):
+        raise OwnershipError("previous install target inventory is invalid")
+    record = targets.get("campaign_hook")
+    if record is None:
+        return None
+    if not isinstance(record, dict):
+        raise OwnershipError("previous campaign hook ownership record is invalid")
+    if record.get("managed") is False:
+        return None
+    expected = (codex_home / "hooks" / "campaign-engine").resolve(strict=False)
+    actual = Path(str(record.get("path", ""))).resolve(strict=False)
+    digest = str(record.get("sha256", ""))
+    if record.get("managed") is not True or actual != expected or not HASH_RE.fullmatch(digest):
+        raise OwnershipError("previous campaign hook ownership identity is invalid")
+    return record
+
+
+def _preflight_campaign_hook(
+    pack: dict[str, Any],
+    previous: dict[str, Any] | None,
+    source_root: Path,
+    codex_home: Path,
+) -> None:
+    contract = _campaign_hook_contract(pack)
+    previous_record = _previous_campaign_hook(previous, codex_home)
+    live = codex_home / "hooks" / "campaign-engine"
+    if live.exists():
+        _assert_no_link_components(live, codex_home)
+        if _is_link_or_reparse(live):
+            raise OwnershipError("campaign hook target cannot be a link or reparse point")
+        if previous_record is None:
+            raise OwnershipError("unowned campaign hook target already exists")
+        if _tree_hash(live) != previous_record["sha256"]:
+            raise OwnershipError("managed campaign hook changed since installation")
+    elif previous_record is not None:
+        raise OwnershipError("previously managed campaign hook is missing")
+    if contract is not None:
+        source = _safe_repo_path(source_root, contract["source"])
+        if not source.is_dir() or _tree_hash(source) is None:
+            raise BundleError("campaign hook source is unavailable")
+
+
+def _legacy_archive_source(options: InstallOptions, codex_home: Path) -> str | None:
+    if not options.archive_legacy_state:
+        if options.legacy_state_root is not None:
+            raise TransactionError(
+                "LegacyStateRoot requires the explicit archive-legacy-state option"
+            )
+        return None
+    expected = (codex_home / "case-state").resolve(strict=False)
+    requested = Path(options.legacy_state_root or expected).expanduser().resolve(strict=False)
+    if requested != expected:
+        raise TransactionError("legacy state archive source must be exactly CodexHome/case-state")
+    if not requested.is_dir() or _is_link_or_reparse(requested):
+        raise TransactionError("requested legacy state archive source is unavailable")
+    _assert_no_link_components(requested, codex_home)
+    return str(requested)
+
+
+def _inspect_legacy_archive_source(
+    source_root: Path, legacy_state_root: str | None
+) -> dict[str, Any] | None:
+    if legacy_state_root is None:
+        return None
+    with _campaign_runtime_modules(source_root) as (_, legacy_module):
+        try:
+            inspection = legacy_module.inspect_legacy_root(legacy_state_root)
+        except Exception as exc:
+            raise TransactionError(f"legacy archive preflight failed: {exc}") from exc
+    if (
+        not isinstance(inspection, dict)
+        or inspection.get("source_root") != legacy_state_root
+        or not HASH_RE.fullmatch(str(inspection.get("source_digest", "")))
+    ):
+        raise TransactionError("legacy archive preflight returned invalid evidence")
+    return inspection
 
 
 def _install_preflight(
@@ -2422,10 +3060,11 @@ def _install_preflight(
     pack = _load_pack(source_root)
     names = [str(record["name"]) for record in pack["bundled_skills"]]
     previous = _load_previous_install(skills_root, codex_home)
-    legacy_overlap_marker = (
-        _legacy_overlap_manifest_marker(previous, skills_root, codex_home)
-        if options.legacy_overlap_migration
-        else None
+    legacy_overlap_marker = _canonical_overlap_marker(
+        previous,
+        skills_root,
+        codex_home,
+        explicit_legacy_migration=options.legacy_overlap_migration,
     )
     previous_records = _validate_unowned_collisions(
         skills_root,
@@ -2434,6 +3073,9 @@ def _install_preflight(
         previous,
     )
     _validate_legacy_v2_skill_descendants(previous, previous_records, source_root, pack)
+    _preflight_campaign_hook(pack, previous, source_root, codex_home)
+    _prepare_install_hooks_configuration(previous, codex_home)
+    _legacy_archive_source(options, codex_home)
     _preflight_policy_sources(options, source_root, pack, codex_home)
     config = codex_home / "config.toml"
     if config.exists():
@@ -2461,7 +3103,7 @@ def _dry_run_install(options: InstallOptions, source_root: Path, skills_root: Pa
         "operation": "install",
         "bundle_sha256": bundle.aggregate_sha256,
         "source_commit": source.get("git_commit"),
-        "authority_case_id": authority.get("case_id"),
+        "policy_authority_source": authority.get("source"),
         "skills_root": str(skills_root),
         "support_root": str(codex_home / "coding-os"),
     }
@@ -2477,6 +3119,13 @@ def install(options: InstallOptions) -> dict[str, Any]:
     _fault_configuration(skills_root, codex_home)
     if options.dry_run:
         return _dry_run_install(options, source_root, skills_root, codex_home)
+    if _legacy_overlap_layout(skills_root, codex_home):
+        _canonical_overlap_marker(
+            _load_previous_install(skills_root, codex_home),
+            skills_root,
+            codex_home,
+            explicit_legacy_migration=options.legacy_overlap_migration,
+        )
     transaction_id = uuid.uuid4().hex
     transaction_workspaces = _transaction_workspace_paths(transaction_id, skills_root, codex_home)
     state_root = codex_home / ".coding-os-install"
@@ -2529,6 +3178,10 @@ def install(options: InstallOptions) -> dict[str, Any]:
             journal.phase("PREFLIGHT_VERIFIED", skills_root, codex_home)
             bundle = verify_bundle(source_root, options.expected_bundle_sha256)
             source = _verify_source(options, source_root, bundle)
+            legacy_state_root = _legacy_archive_source(options, codex_home)
+            legacy_inspection = _inspect_legacy_archive_source(
+                source_root, legacy_state_root
+            )
             authority = _check_universal_authority(options, source, bundle)
             journal.data["bundle_sha256"] = bundle.aggregate_sha256
             journal.data["source_commit"] = source.get("git_commit")
@@ -2550,10 +3203,25 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 authority,
                 config_snapshot,
             )
+            journal.data["runtime_pin"] = staged["runtime_pin"]
+            journal.data["legacy_state_root"] = legacy_state_root
+            journal.data["legacy_source_digest"] = (
+                legacy_inspection["source_digest"]
+                if legacy_inspection is not None
+                else None
+            )
+            journal.save()
             journal.phase("STAGE_VERIFIED", skills_root, codex_home)
             if _is_idempotent(options, previous, staged, source, authority, skills_root, codex_home):
+                runtime_receipt = _finalize_campaign_runtime(
+                    codex_home=codex_home,
+                    runtime_pin=previous["runtime_pin"],
+                    legacy_state_root=journal.data["legacy_state_root"],
+                    legacy_source_digest=journal.data["legacy_source_digest"],
+                )
                 journal.data["status"] = "NOOP"
                 journal.data["outcome"] = "already_committed"
+                journal.data["campaign_runtime_finalization"] = runtime_receipt
                 journal.save()
                 _retain_and_cleanup(
                     journal, state_root, committed=False, skills_root=skills_root, codex_home=codex_home
@@ -2562,12 +3230,14 @@ def install(options: InstallOptions) -> dict[str, Any]:
                     "status": "already_committed",
                     "operation": "install",
                     "bundle_sha256": bundle.aggregate_sha256,
+                    "runtime_pin": previous["runtime_pin"],
                 }
             targets = _prepare_install_targets(
                 skills_root,
                 codex_home,
                 transaction_workspaces,
                 previous_records,
+                previous,
                 staged,
             )
             _assert_atomic_target_layout(targets, transaction_workspaces)
@@ -2580,6 +3250,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 "install_manifest_path": str(install_manifest_path),
                 "install_manifest_sha256": staged["install_manifest_sha256"],
                 "bundle_sha256": bundle.aggregate_sha256,
+                "runtime_pin": staged["runtime_pin"],
             }
             pointer_bytes = _json_bytes(pointer)
             journal.data["new_pointer"] = pointer
@@ -2587,7 +3258,18 @@ def install(options: InstallOptions) -> dict[str, Any]:
             journal.save()
             journal.phase("PROMOTION_PREPARED", skills_root, codex_home)
             journal.phase("PROMOTING", skills_root, codex_home)
-            _promote_targets(journal, skills_root, codex_home)
+            with _campaign_runtime_modules(
+                source_root, include_effects=True
+            ) as (_, _, effects_module):
+                exact_file_driver = effects_module.ExactFileEffectDriver(
+                    transaction_dir / "exact-file-effects"
+                )
+                _promote_targets(
+                    journal,
+                    skills_root,
+                    codex_home,
+                    exact_file_driver=exact_file_driver,
+                )
             for target in targets:
                 if not _verify_target_state(target, True):
                     raise RecoveryError(f"live target verification failed: {target['target_id']}")
@@ -2597,8 +3279,21 @@ def install(options: InstallOptions) -> dict[str, Any]:
             live_manifest = codex_home / "coding-os" / "install-manifest.json"
             if _sha_file(live_manifest) != staged["install_manifest_sha256"]:
                 raise RecoveryError("live install manifest hash differs from staged provenance")
+            live_manifest_data = _load_json(live_manifest, "live install manifest")
+            _validate_runtime_pin(
+                live_manifest_data.get("runtime_pin"),
+                source_commit=str(live_manifest_data.get("source", {}).get("git_commit") or "")
+                if isinstance(live_manifest_data.get("source"), dict)
+                else "",
+                bundle_digest=bundle.aggregate_sha256,
+                install_transaction=transaction_id,
+            )
+            _verify_split_payload_layout(
+                live_manifest_data, skills_root, codex_home / "coding-os"
+            )
             _atomic_write_bytes(state_root / "current.json", pointer_bytes)
             journal.phase("CURRENT_POINTER_COMMITTED", skills_root, codex_home)
+            _finalize_journal_campaign_runtime(journal, codex_home)
             journal.data["outcome"] = "committed"
             journal.save()
             _retain_and_cleanup(
@@ -2611,6 +3306,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
                 "transaction_id": transaction_id,
                 "bundle_sha256": bundle.aggregate_sha256,
                 "install_manifest_sha256": staged["install_manifest_sha256"],
+                "runtime_pin": staged["runtime_pin"],
             }
         except Exception as exc:
             if _pointer_matches_new(journal, state_root):
@@ -2620,6 +3316,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
                         journal.data["recovery_error"] = f"post-pointer target mismatch: {target['target_id']}"
                         journal.save()
                         raise RecoveryError(journal.data["recovery_error"]) from exc
+                _finalize_journal_campaign_runtime(journal, codex_home)
                 journal.data["outcome"] = "committed_recovered"
                 _retain_and_cleanup(
                     journal, state_root, committed=True, skills_root=skills_root, codex_home=codex_home
@@ -2629,6 +3326,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
                     "operation": "install",
                     "transaction_id": transaction_id,
                     "bundle_sha256": journal.data.get("bundle_sha256"),
+                    "runtime_pin": journal.data.get("runtime_pin"),
                 }
             _rollback_targets(journal, state_root)
             _retain_and_cleanup(
@@ -2654,8 +3352,24 @@ def _validate_v3_for_uninstall(
     support_root = Path(str(targets.get("support_root", ""))).resolve(strict=False)
     if support_root != (codex_home / "coding-os").resolve(strict=False):
         raise TransactionError("v3 support root is outside the requested CodexHome")
-    if legacy_overlap_migration:
-        _legacy_overlap_manifest_marker(manifest, skills_root, codex_home)
+    if _legacy_overlap_layout(skills_root, codex_home):
+        marker = manifest.get("legacy_overlap_migration")
+        if marker is not None:
+            _legacy_overlap_manifest_marker(manifest, skills_root, codex_home)
+        elif legacy_overlap_migration:
+            raise OwnershipError(
+                "legacy-overlap migration applies only to an existing strict v2 install"
+            )
+    package = manifest.get("package")
+    source = manifest.get("source")
+    transaction = manifest.get("transaction")
+    if isinstance(package, dict) and isinstance(source, dict) and isinstance(transaction, dict):
+        _validate_runtime_pin(
+            manifest.get("runtime_pin"),
+            source_commit=str(source.get("git_commit") or ""),
+            bundle_digest=str(package.get("bundle_sha256") or ""),
+            install_transaction=str(transaction.get("id") or ""),
+        )
     records = _previous_skill_records(manifest, skills_root)
     for record in records:
         live = Path(record["path"])
@@ -2671,6 +3385,14 @@ def _validate_v3_for_uninstall(
         path = support_root.joinpath(*PurePosixPath(relative).parts)
         if not path.is_file() or _sha_file(path) != record.get("sha256"):
             raise OwnershipError(f"generated support file changed since install: {relative}")
+    _verify_split_payload_layout(manifest, skills_root, support_root)
+    hook = _previous_campaign_hook(manifest, codex_home)
+    if hook is not None:
+        live_hook = Path(str(hook["path"]))
+        if not live_hook.is_dir() or _tree_hash(live_hook) != hook["sha256"]:
+            raise OwnershipError("managed campaign hook changed since install")
+    if _previous_hooks_configuration(manifest, codex_home) is not None:
+        _prepare_uninstall_hooks_configuration(manifest, codex_home)
     return records, support_root
 
 
@@ -2690,6 +3412,10 @@ def _dry_run_uninstall(options: UninstallOptions, skills_root: Path, codex_home:
             legacy_overlap_migration=options.legacy_overlap_migration,
         )
     else:
+        if _legacy_overlap_layout(skills_root, codex_home):
+            raise OwnershipError(
+                "strict v2 CodexHome/skills installs must be migrated to v3 before uninstall"
+            )
         if options.legacy_overlap_migration:
             raise OwnershipError("legacy-overlap uninstall requires the prior v2 install to be migrated to v3 first")
         records = _previous_skill_records(manifest, skills_root)
@@ -2775,6 +3501,10 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
                     legacy_overlap_migration=options.legacy_overlap_migration,
                 )
             else:
+                if _legacy_overlap_layout(skills_root, codex_home):
+                    raise OwnershipError(
+                        "strict v2 CodexHome/skills installs must be migrated to v3 before uninstall"
+                    )
                 if options.legacy_overlap_migration:
                     raise OwnershipError("legacy-overlap uninstall requires the prior v2 install to be migrated to v3 first")
                 records = _previous_skill_records(manifest, skills_root)
@@ -2805,17 +3535,73 @@ def uninstall(options: UninstallOptions) -> dict[str, Any]:
             targets.append(_make_target("support", support_root, None, codex_rollback / support_root.name))
             if manifest.get("manifest_version") == 3:
                 target_info = manifest["targets"]
+                hook_record = _previous_campaign_hook(manifest, codex_home)
+                if hook_record is not None:
+                    live_hook = Path(str(hook_record["path"]))
+                    targets.append(
+                        _make_target(
+                            "campaign_hook",
+                            live_hook,
+                            None,
+                            codex_rollback / "hooks" / "campaign-engine",
+                        )
+                    )
+                hooks_record = _previous_hooks_configuration(manifest, codex_home)
+                if hooks_record is not None:
+                    live_hooks = _hooks_configuration_path(codex_home)
+                    hooks_baseline = _sha_file(live_hooks)
+                    hooks_after = _prepare_uninstall_hooks_configuration(
+                        manifest, codex_home
+                    )
+                    if _sha_file(live_hooks) != hooks_baseline:
+                        raise RecoveryError(
+                            "hooks.json drifted after uninstall migration staging"
+                        )
+                    staged_hooks: Path | None = None
+                    if hooks_after is not None:
+                        staged_hooks = codex_stage_home / "policy" / "hooks.json"
+                        _atomic_write_bytes(staged_hooks, hooks_after)
+                    targets.append(
+                        _make_target(
+                            "hooks_configuration",
+                            live_hooks,
+                            staged_hooks,
+                            codex_rollback / "hooks.json",
+                        )
+                    )
                 agents_record = target_info.get("global_agents", {})
                 rules_record = target_info.get("default_rules", {})
                 if isinstance(agents_record, dict) and agents_record.get("managed") is True:
                     live_agents = codex_home / "AGENTS.md"
                     staged_agents = codex_stage_home / "policy" / "AGENTS.md"
-                    _atomic_write_bytes(staged_agents, remove_agents_policy_bytes(live_agents.read_bytes()))
+                    _atomic_write_bytes(
+                        staged_agents,
+                        _remove_recorded_policy_bytes(
+                            live_agents.read_bytes(),
+                            agents_record,
+                            allowed_markers=(
+                                (AGENTS_START, AGENTS_END),
+                                (RETIRED_AGENTS_START, RETIRED_AGENTS_END),
+                            ),
+                            label="AGENTS.md",
+                        ),
+                    )
                     targets.append(_make_target("global_agents", live_agents, staged_agents, codex_rollback / "AGENTS.md"))
                 if isinstance(rules_record, dict) and rules_record.get("managed") is True:
                     live_rules = codex_home / "rules" / "default.rules"
                     staged_rules = codex_stage_home / "policy" / "rules" / "default.rules"
-                    _atomic_write_bytes(staged_rules, remove_rules_policy_bytes(live_rules.read_bytes()))
+                    _atomic_write_bytes(
+                        staged_rules,
+                        _remove_recorded_policy_bytes(
+                            live_rules.read_bytes(),
+                            rules_record,
+                            allowed_markers=(
+                                (RULES_START, RULES_END),
+                                (RETIRED_RULES_START, RETIRED_RULES_END),
+                            ),
+                            label="default.rules",
+                        ),
+                    )
                     targets.append(_make_target("default_rules", live_rules, staged_rules, codex_rollback / "rules/default.rules"))
             for target in targets:
                 if Path(target["live_path"]).resolve(strict=False) == codex_home:
@@ -2896,21 +3682,21 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--skills-root", required=True)
     install_parser.add_argument("--codex-home", required=True)
     install_parser.add_argument("--expected-bundle-sha256", required=True)
-    install_parser.add_argument("--expected-source-commit")
+    install_parser.add_argument("--expected-source-commit", required=True)
     install_parser.add_argument("--install-universal-policy", action="store_true")
     install_parser.add_argument("--universal-bundle-id", default=UNIVERSAL_BUNDLE_ID)
     install_parser.add_argument("--refresh-capability-index", action="store_true")
-    install_parser.add_argument("--authority-case-id")
     install_parser.add_argument(
-        "--authority-source",
-        choices=("preauthorized-run-envelope", "explicit-user-approval"),
+        "--policy-authority-source",
+        choices=("explicit-user-approval", "campaign-publication-authority"),
     )
-    install_parser.add_argument("--authority-reference")
-    install_parser.add_argument("--authority-actor-thread-id")
-    install_parser.add_argument("--authority-request-id")
-    install_parser.add_argument("--authority-expected-revision", type=int)
-    install_parser.add_argument("--case-state-engine")
-    install_parser.add_argument("--case-state-root")
+    install_parser.add_argument("--policy-authority-reference")
+    install_parser.add_argument("--publication-campaign-id")
+    install_parser.add_argument("--publication-node-id")
+    install_parser.add_argument("--publication-authority-epoch", type=int)
+    install_parser.add_argument("--publication-cancellation-epoch", type=int)
+    install_parser.add_argument("--archive-legacy-state", action="store_true")
+    install_parser.add_argument("--legacy-state-root")
     install_parser.add_argument("--legacy-overlap-migration", action="store_true")
     install_parser.add_argument("--archive-mode", action="store_true")
     install_parser.add_argument("--dry-run", action="store_true")
@@ -2951,14 +3737,14 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 install_universal_policy=args.install_universal_policy,
                 universal_bundle_id=args.universal_bundle_id,
                 refresh_capability_index=args.refresh_capability_index,
-                authority_case_id=args.authority_case_id,
-                authority_source=args.authority_source,
-                authority_reference=args.authority_reference,
-                authority_actor_thread_id=args.authority_actor_thread_id,
-                authority_request_id=args.authority_request_id,
-                authority_expected_revision=args.authority_expected_revision,
-                case_state_engine=args.case_state_engine,
-                case_state_root=args.case_state_root,
+                policy_authority_source=args.policy_authority_source,
+                policy_authority_reference=args.policy_authority_reference,
+                publication_campaign_id=args.publication_campaign_id,
+                publication_node_id=args.publication_node_id,
+                publication_authority_epoch=args.publication_authority_epoch,
+                publication_cancellation_epoch=args.publication_cancellation_epoch,
+                archive_legacy_state=args.archive_legacy_state,
+                legacy_state_root=args.legacy_state_root,
                 legacy_overlap_migration=args.legacy_overlap_migration,
                 archive_mode=args.archive_mode,
                 dry_run=args.dry_run,

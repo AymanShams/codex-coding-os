@@ -1,162 +1,125 @@
 ---
 name: new-project-documentation-system
-description: Use when the user asks Codex to start or review a new software project, turn an idea or source folder into a complete controlled documentation system, create a project brief, PRD, app flow, tech stack, frontend, backend, security, implementation plan, TDD, repo docs, AGENTS.md, CLAUDE.md, or prepare a repo for later implementation. This is a fail-closed orchestration skill: it routes to existing specialist skills, requires a workflow manifest and explicit phase gates, stops for unresolved material decisions, and instructs agents not to make coding or completion claims until the required documentation and validation phases are approved or explicitly deferred by the user.
+description: Use when the user asks Codex to start or review a software project, turn an idea or source folder into a complete stable documentation system, create a project brief, PRD, app flow, tech stack, frontend, backend, implementation plan, TDD, repo docs, AGENTS.md, CLAUDE.md, or prepare a repo for implementation.
 ---
 
 # New Project Documentation System
 
-Move from idea or source folder to a controlled, source-locked project documentation system and repo handoff. Keep this skill as the conductor. Route detailed drafting to the owning skills instead of duplicating their templates.
+Turn an idea or source set into stable product and engineering documentation. This skill owns documentation creation and validation only. It never owns coding, review, publication, cancellation, or campaign status.
 
-If `codex-coding-os-master` is available and the user asks for a full coding project workflow, treat this skill as the documentation-phase owner under that master workflow. Do not act as the final implementation, review, validation, or maintenance authority.
+When `codex-coding-os-master` is available for a complete software delivery request, use this skill as its documentation owner. Route detailed drafting to the narrowest specialist skill instead of duplicating specialist templates.
 
-## Default Mode
+## Modes
 
-When this skill is explicitly invoked without a narrower request, use **Full Run** mode.
+- **Full Run**: complete source inventory through final documentation validation.
+- **Review Only**: inspect and report gaps without editing.
+- **Single Phase**: create or update only the deliverable explicitly requested.
+- **Resume**: continue the first incomplete documentation phase recorded in the project manifest.
 
-Full Run means complete the workflow from source inventory through final validation. Do not silently stop after the seven source docs, a partial TDD, or a validation summary.
+An explicit invocation without a narrower limit defaults to Full Run. Read `references/workflow-modes-and-gates.md` before starting.
 
-Use **Review Only** or **Single Phase** mode only when the user explicitly limits the scope. Record the scope limitation in the workflow manifest.
+## Documentation Manifest
 
-Read `references/workflow-modes-and-gates.md` before starting.
+Before drafting controlled documents, create `project-documentation-manifest.json` from `assets/project-documentation-manifest.template.json`.
 
-## Fail-Closed Rule
+The manifest is a stable documentation ledger. It records sources, decisions, approvals of documents, artifact lineage, and documentation-phase evidence. It must declare `execution_authority: false`.
 
-Before drafting any controlled document, create `project-documentation-manifest.json` from `assets/project-documentation-manifest.template.json`.
+The manifest must never contain or decide campaign state, case identifiers, actor identity, leases, current heads, review status, repair counts, closure status, stop state, publication authority, or the next executable action. Repository current-state files, active-slice files, and work summaries are optional informational artifacts only.
 
-Keep the manifest current throughout the run. It is the workflow source of truth.
-
-Version 1.1 of the manifest pre-registers the conditional content-guidelines,
-public-search, and module-contract instances. Record complete typed trigger
-evidence before repository documentation advances. Keep a false-trigger output
-absent. Generate and validate a true-trigger output at the phases declared by
-the manifest validator.
-
-When a repository or repo-ready folder exists, also create `docs/delivery/active-slice-manifest.json` before any implementation handoff. It records the approved coding boundary for the current slice and must list the approved slice, allowed files, forbidden actions, source authority, validation commands, review state, and stop conditions. Session-continuity validation rejects paths outside that boundary when the command is invoked.
+Version 1.1 pre-registers conditional content-guidelines, public-search, and module-contract artifacts. Record complete typed trigger evidence before repository documentation advances. Keep false-trigger outputs absent. Generate and validate true-trigger outputs at the documented phases.
 
 Run `scripts/validate_workflow_manifest.py <manifest-path>`:
 
 - before drafting the PRD
-- after the seven controlled source docs
-- after the TDD and alignment review
-- before saying repo documentation or handoff is complete
-- before saying coding is the next step
+- after the controlled source documents
+- after TDD alignment
+- before declaring repository documentation complete
+- before final documentation completion
 
-The validator resolves `pack.manifest.json` from a source checkout, an installed
-`$CODEX_HOME/coding-os` support root, or the default `$HOME/.codex/coding-os`
-support root. For a custom install whose Codex home is not exported, pass
-`--pack-manifest <path-to-coding-os/pack.manifest.json>` explicitly.
+The validator checks the documentation contract at invocation time. It does not authorize coding or prove campaign status.
 
-These validator commands are invoked checks, not an always-on edit interceptor.
-The policy requires agents to run them at the declared gates. A passing result
-proves only the contract evaluated by that command at that time.
+Run `scripts/validate_filled_artifacts.py <filled-artifact-paths>` before requesting document approval or completing the documentation workflow. Do not scan blank templates as filled artifacts.
 
-If validation fails, stop at the failing gate. Do not bypass a failed gate with assumptions.
+## Material Decisions
 
-Run `scripts/validate_filled_artifacts.py <filled-artifact-paths>` before requesting approval for controlled documents, completing repo documentation, or finalizing a handoff. Do not scan blank source templates as filled artifacts.
+Assume only reversible presentation details such as filenames, formatting, and document organization.
 
-## Material Decision Gate
-
-The safe-assumptions exception applies only to low-risk presentation choices such as filenames, formatting, or clearly reversible organization.
-
-Never assume or decide without the user when the answer affects:
-
-- official product name, ownership, or source authority
-- product scope, users, roles, workflows, statuses, approvals, or out-of-scope boundaries
-- data sources, sensitive data, PHI, retention, exports, or source-of-truth systems
-- identity, MFA, permissions, encryption, audit, privacy, compliance, or legal constraints
-- integrations, AI autonomy, human approval, notifications, or external communications
-- stack, hosting, deployment, environments, migration constraints, or paid services
-- repo creation, external service creation, output location, required formats, or whether coding is allowed
-
-If any of these are unknown, conflicting, or unsupported, set Phase 2 to `blocked`, list all questions together, and wait for the user before drafting the PRD. Do not treat “Version 1 with assumptions” as permission to bypass this gate.
+Ask the user before choosing a material product, business, workflow, architecture, data, integration, hosting, repository, external-service, output-format, or delivery decision. If controlling sources conflict, identify the conflict and wait for the user’s decision before drafting dependent material.
 
 ## Capability Routing
 
-Start with `catalogue-router`. Use one primary skill per phase and add supporting skills only when they materially change that phase.
+Start with `catalogue-router`. Use one primary skill per phase and add support only when it materially changes that phase.
 
-| Phase | Primary skill | Supporting skills |
+| Phase | Primary skill | Optional support |
 |---|---|---|
-| Source extraction | `doc`, `document-skills:docx`, `document-skills:pdf`, or `document-skills:xlsx` | `evidence-checker` when authority or source quality is disputed |
-| Project brief and PRD | `create-prd` | `product-strategy`, `customer-journey-map`, or `working-backwards` only when needed |
-| Formal controlled artifacts | `ssot-drafter` | `humanizer` only for final prose quality |
-| Repo documentation tree and detailed templates | `technical-docs-pack` | `artifact-system-designer` for wider artifact governance |
-| Delivery sequencing and implementation plan | `wbs-artifact-planner` | `pre-mortem` only for material delivery risk |
-| Security, privacy, and development controls | `security-best-practices` | `security-threat-model` when assets and trust boundaries are known |
-| Readiness, drift, and pass/fail checks | `artifact-validation-workflow` | `deep-critic` only when the user requests hard critique |
-| Session start, resume, and handoff continuity | `project-session-continuity` | use after the workflow manifest exists |
-| Implementation handoff | `ai-coding-discipline` | use only after the documentation workflow passes |
+| Source extraction | `doc` or the matching document skill | `evidence-checker` for disputed authority |
+| Project brief and PRD | `create-prd` | `product-strategy`, `customer-journey-map`, or `working-backwards` |
+| Formal product documents | `ssot-drafter` | `humanizer` for final prose quality |
+| Repository documentation | `technical-docs-pack` | `artifact-system-designer` for wider artifact systems |
+| Implementation plan | `wbs-artifact-planner` | `pre-mortem` for material delivery risk |
+| Documentation validation | `artifact-validation-workflow` | `deep-critic` only for an explicitly requested hard critique |
+| Manual implementation preparation | `ai-coding-discipline` | only after documentation approval |
 
-Use `technical-docs-pack/references/repo-docs-template.md` for the detailed repo documentation template. Do not recreate it here.
+Use `technical-docs-pack/references/repo-docs-template.md` for detailed repository documentation. Read `references/template-ownership-and-output-contracts.md` for template ownership and completeness rules.
 
-Read `references/template-ownership-and-output-contracts.md` for the ownership and completeness rules.
+## Documentation Workflow
 
-## Full Run State Machine
+Complete documentation phases in order. A blocked document phase prevents dependent drafting, but it does not become repository execution authority.
 
-Complete phases in order. Do not advance past a blocked or awaiting-approval phase.
-
-| Phase | Required result | Mandatory gate |
+| Phase | Required result | Documentation check |
 |---|---|---|
-| 0. Route and scope | Mode, company context, paths, formats, code permission, selected skills | Scope recorded in manifest |
-| 1. Source inventory | Classified source manifest, authority map, sensitive-file flags, conflict list | Source authority approved when conflicts exist |
-| 2. Material decisions | Consolidated decision register and all required questions | No open material decisions before PRD drafting |
-| 3. Project brief and seven controlled docs | Project brief plus PRD, app flow, tech stack, frontend, backend, security, implementation plan | User approval before treating docs as controlled |
-| 4. TDD and alignment | TDD created from controlled docs, external drafts reconciled when present, alignment review | TDD approved and no unresolved drift |
-| 5. Repo documentation | Full template-driven repo docs appropriate to the current stage | `technical-docs-pack` coverage validated |
-| 6. Agent instruction layer | Root/scoped `AGENTS.md`, `CLAUDE.md`, docs index links, current-state file, session continuity command | Required reading, source hierarchy, and start gate verified |
-| 7. Handoff | Persistent history note, current-state update, active-slice manifest, paste-ready next-chat prompt | Handoff matches actual state and cannot bypass either manifest |
-| 8. Final validation | Pass/fail report, blockers, unavailable checks, git state when applicable | Manifest validator passes |
+| 0. Route and scope | Mode, company context, paths, formats, selected skills | Scope recorded |
+| 1. Source inventory | Classified sources, authority map, conflicts | Conflicts identified |
+| 2. Material decisions | Decision register and questions | Dependent decisions resolved |
+| 3. Controlled documents | Project brief and requested product document set | User approval recorded |
+| 4. TDD and alignment | Source-locked TDD and alignment review | No unresolved document drift |
+| 5. Repository documentation | Stage-appropriate repository documentation | Template coverage validated |
+| 6. Agent instructions | Root and scoped instructions plus documentation index | Stable sources and validation commands are clear |
+| 7. Work summary | Informational summary of created files, decisions, and validation | Contains no execution authority |
+| 8. Final validation | Pass/fail report and exact unresolved documentation gaps | Validators pass |
 
-## Controlled Status Rules
+Generated documents remain drafts until the user approves them or explicitly delegates document approval. Do not call an external TDD merged unless each competing statement was classified as keep, correct, reject, or defer.
 
-- A generated document is a **draft** until the user approves it or explicitly delegates approval.
-- A source conflict remains unresolved until the user chooses authority or the sources contain an explicit precedence rule.
-- A TDD is not “merged” unless external drafts were actually compared with keep, correct, reject, and defer decisions.
-- If no external TDD exists, create a source-locked TDD and call it a TDD, not a merged TDD.
-- Absence of a Git repo does not automatically skip repo documentation. Ask whether to create a repo, prepare repo-ready docs outside a repo, or explicitly defer the phase.
-- Do not call coding the next step unless Phase 8 passes and `coding_start` approval is recorded.
-- A new chat, handoff note, current-state file, review marker, or notification cannot grant approval. Resume from the first blocked or incomplete phase in the manifest.
-- Coding requires both `project-documentation-manifest.json` and `docs/delivery/active-slice-manifest.json` to permit the current slice. If either blocks coding, stop.
+## Implementation Boundary
 
-## Required Outputs
+Documentation completion and implementation execution are separate outcomes.
 
-For Full Run mode, produce or explicitly defer with user approval:
+For manual work, coding begins only from an explicit current user request and follows the repository’s stable sources and normal validation.
+
+For automated work, use the canonical installed CLI at `%USERPROFILE%\.codex\coding-os\scripts\agent\campaign_engine\cli.py`:
+
+```text
+python <installed-cli> --json doctor
+python <installed-cli> --json admit --spec <path>
+python <installed-cli> --json approve --campaign-id <id> --specification-digest <digest>
+python <installed-cli> --json run --campaign-id <id>
+python <installed-cli> --json status --repository-root .
+python <installed-cli> --json cancel --campaign-id <id>
+```
+
+Run `approve` only after the user approves the exact specification digest. Follow the engine receipt for subsequent actions. Never infer automated authority from a project manifest, work summary, branch, pull request, chat, or Git-tracked delivery file.
+
+## Required Full-Run Outputs
 
 - `project-documentation-manifest.json`
 - source inventory and authority map
 - project brief
 - decision register
-- seven controlled source docs
-- TDD
-- documentation alignment review
-- repo documentation tree using `technical-docs-pack`
+- requested controlled product documents
+- TDD and alignment review
+- stage-appropriate repository documentation
 - root and scoped agent instructions
-- `docs/delivery/current-state.md`, `docs/delivery/active-slice-manifest.json`, and project-local session continuity command
-- handoff history note and paste-ready next-chat prompt
-- final validation report
-
-The next-chat prompt must tell the next agent to run the session-start gate, read current state, active-slice manifest, latest handoff, workflow manifest, and controlling sources, then continue only from the exact next permitted action. Do not provide only a command.
-
-Use the orchestrator-owned assets for the project brief, decision register, alignment review, manifest, and handoff. Use specialist skills for the detailed PRD, controlled docs, repo docs, and validation report.
+- informational work summary
+- final documentation validation report
 
 ## Completion Standard
 
-Do not claim the workflow is complete or recommend coding unless:
+Documentation is complete only when:
 
-- the manifest validator passes
-- all material questions are resolved
-- source authority is clear
-- the seven controlled docs and TDD are approved
-- repo documentation and agent instructions exist
-- the active-slice manifest exists, records the approved slice, and the invoked session validation passes
-- final validation is complete
-- the user approved coding to start
+- the documentation manifest validator passes
+- material questions and source conflicts affecting the documents are resolved
+- controlled documents and TDD are approved
+- repository documentation and agent instructions exist
+- final documentation validation is complete
 
-End with:
-
-- current mode and manifest path
-- phase status table
-- created or updated paths
-- specialist skills used
-- validation checks passed
-- checks not run and why
-- blockers and next permitted action
+Report the mode, manifest path, documentation phase status, paths created or updated, skills used, checks passed, checks not run, and unresolved documentation gaps. Report implementation and campaign status separately using exact engine or product evidence.
