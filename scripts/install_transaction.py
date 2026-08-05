@@ -76,6 +76,35 @@ AGENTS_LEGACY_LINE = (
     "and review-fix trains are disabled. A human may deliberately start one bounded implementation or review "
     "session, but no session may automatically spawn, authorize, or chain another session."
 )
+AGENTS_LEGACY_BLOCK_START = (
+    "- Instruction: Task primacy and anti-loop rule. The user's requested outcome is the controlling task."
+)
+AGENTS_LEGACY_BLOCK_SENTINEL = (
+    "- Instruction: The user's style bans apply to normal assistant-generated prose only."
+)
+AGENTS_LEGACY_BLOCK_NORMALIZED_SIZE = 6093
+AGENTS_LEGACY_BLOCK_NORMALIZED_SHA256 = (
+    "da753c1149c555778d7b4cba6bdb870640bbb484281cb6b0f9f46a1b02a66cd6"
+)
+AGENTS_LEGACY_AUTHORITY_LINE = (
+    "- Global `AGENTS.md` owns instruction precedence, permission boundaries, task primacy, mandatory exclusions, "
+    "and the managed case-policy block."
+)
+AGENTS_CAMPAIGN_AUTHORITY_LINE = (
+    "- Global `AGENTS.md` owns instruction precedence, permission boundaries, task primacy, mandatory exclusions, "
+    "and the managed campaign-policy bootstrap."
+)
+AGENTS_LEGACY_ROUTING_START = "## Codex Coding OS routing"
+AGENTS_LEGACY_ROUTING_SENTINEL = "## Universal generic workspace"
+AGENTS_LEGACY_ROUTING_NORMALIZED_SIZE = 1040
+AGENTS_LEGACY_ROUTING_NORMALIZED_SHA256 = (
+    "7a583b1d396451457e6d8d3ac8159cba2fae5994bee7350a1b2d849ee8db238b"
+)
+AGENTS_CAMPAIGN_ROUTING_POINTER = (
+    "## Codex Coding OS routing\n"
+    "- The installed campaign-engine managed block controls managed campaign lifecycle routing. For manual work "
+    "outside a managed campaign, use explicit user instructions and current repository and Git evidence.\n\n"
+)
 RULES_START = "# BEGIN CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS"
 RULES_END = "# END CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS"
 RETIRED_RULES_START = "# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
@@ -570,6 +599,8 @@ def _replace_line_or_marker(
     end: str,
     label: str,
     retired_markers: Sequence[tuple[str, str]] = (),
+    first_migration: Callable[[bytes, bytes], bytes] | None = None,
+    append_when_legacy_missing: bool = False,
 ) -> bytes:
     _strict_utf8(existing, label)
     replacement = _trim_policy_source(replacement, label, start, end)
@@ -578,6 +609,7 @@ def _replace_line_or_marker(
     start_count = existing.count(start_bytes)
     end_count = existing.count(end_bytes)
     legacy = legacy_line.encode("utf-8")
+    active_match: tuple[bytes, bytes] | None = None
     if start_count or end_count:
         if start_count != 1 or end_count != 1:
             raise PolicyMigrationError(f"{label} has a missing, duplicate, or partial managed marker block")
@@ -585,8 +617,7 @@ def _replace_line_or_marker(
         finish_start = existing.find(end_bytes)
         if finish_start < begin:
             raise PolicyMigrationError(f"{label} managed marker order is invalid")
-        finish = finish_start + len(end_bytes)
-        return existing[:begin] + replacement + existing[finish:]
+        active_match = (start_bytes, end_bytes)
     retired_matches: list[tuple[bytes, bytes]] = []
     for retired_start, retired_end in retired_markers:
         retired_start_bytes = retired_start.encode("utf-8")
@@ -601,6 +632,14 @@ def _replace_line_or_marker(
             retired_matches.append((retired_start_bytes, retired_end_bytes))
     if len(retired_matches) > 1:
         raise PolicyMigrationError(f"{label} contains multiple retired managed marker blocks")
+    if active_match is not None and retired_matches:
+        raise PolicyMigrationError(f"{label} contains active and retired managed marker blocks")
+    if active_match is not None:
+        active_start_bytes, active_end_bytes = active_match
+        begin = existing.find(active_start_bytes)
+        finish_start = existing.find(active_end_bytes)
+        finish = finish_start + len(active_end_bytes)
+        return existing[:begin] + replacement + existing[finish:]
     if retired_matches:
         retired_start_bytes, retired_end_bytes = retired_matches[0]
         begin = existing.find(retired_start_bytes)
@@ -609,7 +648,17 @@ def _replace_line_or_marker(
             raise PolicyMigrationError(f"{label} retired managed marker order is invalid")
         finish = finish_start + len(retired_end_bytes)
         return existing[:begin] + replacement + existing[finish:]
-    if existing.count(legacy) != 1:
+    legacy_count = existing.count(legacy)
+    if legacy_count == 0:
+        if first_migration is not None:
+            return first_migration(existing, replacement)
+        if append_when_legacy_missing:
+            separator = (
+                b"" if not existing or existing.endswith((b"\n", b"\r")) else b"\n"
+            )
+            return existing + separator + replacement
+        raise PolicyMigrationError(f"{label} first migration requires exactly one byte-exact legacy line")
+    if legacy_count != 1:
         raise PolicyMigrationError(f"{label} first migration requires exactly one byte-exact legacy line")
     begin = existing.find(legacy)
     before_ok = begin == 0 or existing[begin - 1 : begin] in {b"\n", b"\r"}
@@ -618,6 +667,97 @@ def _replace_line_or_marker(
     if not before_ok or not after_ok:
         raise PolicyMigrationError(f"{label} legacy text is not an exact complete line")
     return existing[:begin] + replacement + existing[after_index:]
+
+
+def _verified_legacy_slice(
+    existing: bytes,
+    *,
+    start: str,
+    sentinel: str,
+    normalized_size: int,
+    normalized_sha256: str,
+    label: str,
+) -> tuple[int, int]:
+    start_bytes = start.encode("utf-8")
+    sentinel_bytes = sentinel.encode("utf-8")
+    if existing.count(start_bytes) != 1 or existing.count(sentinel_bytes) != 1:
+        raise PolicyMigrationError(f"{label} has a missing, duplicate, or partial known legacy section")
+    begin = existing.find(start_bytes)
+    finish = existing.find(sentinel_bytes)
+    if finish <= begin:
+        raise PolicyMigrationError(f"{label} known legacy section order is invalid")
+    before_ok = begin == 0 or existing[begin - 1 : begin] == b"\n"
+    legacy_slice = existing[begin:finish]
+    if not before_ok or not legacy_slice.endswith(b"\n"):
+        raise PolicyMigrationError(f"{label} known legacy section boundaries are not complete lines")
+    normalized = legacy_slice.replace(b"\r\n", b"\n")
+    if len(normalized) != normalized_size or hashlib.sha256(normalized).hexdigest() != normalized_sha256:
+        raise PolicyMigrationError(f"{label} known legacy section digest does not match the approved layout")
+    return begin, finish
+
+
+def _exact_line_span(existing: bytes, line: str, label: str) -> tuple[int, int]:
+    line_bytes = line.encode("utf-8")
+    if existing.count(line_bytes) != 1:
+        raise PolicyMigrationError(f"{label} requires exactly one byte-exact known legacy authority line")
+    begin = existing.find(line_bytes)
+    finish = begin + len(line_bytes)
+    before_ok = begin == 0 or existing[begin - 1 : begin] == b"\n"
+    after_ok = (
+        finish == len(existing)
+        or existing[finish : finish + 1] == b"\n"
+        or existing[finish : finish + 2] == b"\r\n"
+    )
+    if not before_ok or not after_ok:
+        raise PolicyMigrationError(f"{label} known legacy authority text is not an exact complete line")
+    return begin, finish
+
+
+def _migrate_known_agents_layout(existing: bytes, replacement: bytes) -> bytes:
+    lifecycle_span = _verified_legacy_slice(
+        existing,
+        start=AGENTS_LEGACY_BLOCK_START,
+        sentinel=AGENTS_LEGACY_BLOCK_SENTINEL,
+        normalized_size=AGENTS_LEGACY_BLOCK_NORMALIZED_SIZE,
+        normalized_sha256=AGENTS_LEGACY_BLOCK_NORMALIZED_SHA256,
+        label="AGENTS.md lifecycle block",
+    )
+    routing_span = _verified_legacy_slice(
+        existing,
+        start=AGENTS_LEGACY_ROUTING_START,
+        sentinel=AGENTS_LEGACY_ROUTING_SENTINEL,
+        normalized_size=AGENTS_LEGACY_ROUTING_NORMALIZED_SIZE,
+        normalized_sha256=AGENTS_LEGACY_ROUTING_NORMALIZED_SHA256,
+        label="AGENTS.md routing block",
+    )
+    authority_span = _exact_line_span(existing, AGENTS_LEGACY_AUTHORITY_LINE, "AGENTS.md")
+    lifecycle_slice = existing[lifecycle_span[0] : lifecycle_span[1]]
+    lifecycle_newline = b"\r\n" if lifecycle_slice.endswith(b"\r\n") else b"\n"
+    replacements = sorted(
+        (
+            (lifecycle_span[0], lifecycle_span[1], replacement + lifecycle_newline),
+            (
+                authority_span[0],
+                authority_span[1],
+                AGENTS_CAMPAIGN_AUTHORITY_LINE.encode("utf-8"),
+            ),
+            (
+                routing_span[0],
+                routing_span[1],
+                AGENTS_CAMPAIGN_ROUTING_POINTER.encode("utf-8"),
+            ),
+        )
+    )
+    if any(left[1] > right[0] for left, right in zip(replacements, replacements[1:])):
+        raise PolicyMigrationError("AGENTS.md known legacy migration spans overlap")
+    output = bytearray()
+    cursor = 0
+    for begin, finish, new_bytes in replacements:
+        output.extend(existing[cursor:begin])
+        output.extend(new_bytes)
+        cursor = finish
+    output.extend(existing[cursor:])
+    return bytes(output)
 
 
 def _remove_exact_marker(existing: bytes, start: str, end: str, label: str) -> bytes:
@@ -642,6 +782,7 @@ def migrate_agents_bytes(existing: bytes, policy_source: bytes) -> bytes:
         end=AGENTS_END,
         label="AGENTS.md",
         retired_markers=((RETIRED_AGENTS_START, RETIRED_AGENTS_END),),
+        first_migration=_migrate_known_agents_layout,
     )
 
 
@@ -654,6 +795,7 @@ def migrate_rules_bytes(existing: bytes, policy_source: bytes) -> bytes:
         end=RULES_END,
         label="default.rules",
         retired_markers=((RETIRED_RULES_START, RETIRED_RULES_END),),
+        append_when_legacy_missing=True,
     )
 
 

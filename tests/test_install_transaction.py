@@ -48,6 +48,7 @@ prefix_rule(
     justification = "Campaign publication uses the transactional outbox.",
 )
 # END CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS"""
+REAL_AGENTS_FIXTURE = REPO_ROOT / "tests/fixtures/install/global-agents-real-layout-lf.md"
 
 
 def hook_command(name: str) -> dict[str, object]:
@@ -396,6 +397,15 @@ def archive_legacy_root(root, *, state_root, store=None):
         (self.codex / "rules/default.rules").write_bytes(rules)
         return agents, rules
 
+    def prepare_real_layout_policy(self) -> tuple[bytes, bytes]:
+        agents = REAL_AGENTS_FIXTURE.read_bytes()
+        rules = b'prefix_rule(pattern=["git", "status"], decision="allow")\r\n'
+        self.codex.mkdir(parents=True, exist_ok=True)
+        (self.codex / "rules").mkdir(parents=True, exist_ok=True)
+        (self.codex / "AGENTS.md").write_bytes(agents)
+        (self.codex / "rules/default.rules").write_bytes(rules)
+        return agents, rules
+
     def prepare_legacy_overlap_v2(
         self,
         *,
@@ -545,6 +555,118 @@ class PolicyMigrationTests(unittest.TestCase):
             b"x\r\n" + RULES_POLICY.encode() + b"\ny",
         )
 
+    def test_real_installed_agents_layout_migrates_exact_sections_for_lf_and_crlf(self) -> None:
+        fixture = REAL_AGENTS_FIXTURE.read_bytes()
+        lifecycle_start = it.AGENTS_LEGACY_BLOCK_START.encode()
+        lifecycle_sentinel = it.AGENTS_LEGACY_BLOCK_SENTINEL.encode()
+        routing_start = it.AGENTS_LEGACY_ROUTING_START.encode()
+        routing_sentinel = it.AGENTS_LEGACY_ROUTING_SENTINEL.encode()
+        lifecycle = fixture[fixture.index(lifecycle_start) : fixture.index(lifecycle_sentinel)]
+        routing = fixture[fixture.index(routing_start) : fixture.index(routing_sentinel)]
+        self.assertEqual(len(lifecycle), it.AGENTS_LEGACY_BLOCK_NORMALIZED_SIZE)
+        self.assertEqual(
+            hashlib.sha256(lifecycle).hexdigest(),
+            it.AGENTS_LEGACY_BLOCK_NORMALIZED_SHA256,
+        )
+        self.assertEqual(len(routing), it.AGENTS_LEGACY_ROUTING_NORMALIZED_SIZE)
+        self.assertEqual(
+            hashlib.sha256(routing).hexdigest(),
+            it.AGENTS_LEGACY_ROUTING_NORMALIZED_SHA256,
+        )
+
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                existing = fixture if newline == b"\n" else fixture.replace(b"\n", b"\r\n")
+                raw_lifecycle = existing[existing.index(lifecycle_start) : existing.index(lifecycle_sentinel)]
+                raw_routing = existing[existing.index(routing_start) : existing.index(routing_sentinel)]
+                lifecycle_newline = b"\r\n" if raw_lifecycle.endswith(b"\r\n") else b"\n"
+                expected = existing.replace(
+                    raw_lifecycle,
+                    AGENTS_POLICY.encode() + lifecycle_newline,
+                    1,
+                )
+                expected = expected.replace(
+                    it.AGENTS_LEGACY_AUTHORITY_LINE.encode(),
+                    it.AGENTS_CAMPAIGN_AUTHORITY_LINE.encode(),
+                    1,
+                )
+                expected = expected.replace(
+                    raw_routing,
+                    it.AGENTS_CAMPAIGN_ROUTING_POINTER.encode(),
+                    1,
+                )
+
+                migrated = it.migrate_agents_bytes(existing, (AGENTS_POLICY + "\n").encode())
+
+                self.assertEqual(migrated, expected)
+                self.assertEqual(migrated.count(it.AGENTS_START.encode()), 1)
+                self.assertIn(
+                    AGENTS_POLICY.encode() + lifecycle_newline + lifecycle_sentinel,
+                    migrated,
+                )
+                self.assertIn(lifecycle_sentinel, migrated)
+                self.assertIn(routing_sentinel, migrated)
+                self.assertNotIn(lifecycle_start, migrated)
+                self.assertNotIn(it.AGENTS_LEGACY_AUTHORITY_LINE.encode(), migrated)
+                self.assertNotIn(b"codex-coding-os-master", migrated)
+                self.assertNotIn(b"workflow manifest", migrated)
+                self.assertNotIn(b"session_continuity.py start", migrated)
+
+    def test_real_installed_agents_layout_rejects_altered_partial_and_duplicate_sections(self) -> None:
+        fixture = REAL_AGENTS_FIXTURE.read_bytes()
+        cases = {
+            "altered lifecycle": fixture.replace(
+                b"support-failure fingerprint", b"support failure fingerprint", 1
+            ),
+            "partial lifecycle": fixture.replace(
+                it.AGENTS_LEGACY_BLOCK_SENTINEL.encode(), b"partial sentinel", 1
+            ),
+            "duplicate lifecycle": fixture.replace(
+                it.AGENTS_LEGACY_BLOCK_SENTINEL.encode(),
+                it.AGENTS_LEGACY_BLOCK_START.encode() + b"\n" + it.AGENTS_LEGACY_BLOCK_SENTINEL.encode(),
+                1,
+            ),
+            "altered routing": fixture.replace(b"workflow manifest first", b"workflow manifest now", 1),
+            "partial routing": fixture.replace(
+                it.AGENTS_LEGACY_ROUTING_SENTINEL.encode(), b"## Partial sentinel", 1
+            ),
+            "duplicate routing": fixture.replace(
+                it.AGENTS_LEGACY_ROUTING_SENTINEL.encode(),
+                it.AGENTS_LEGACY_ROUTING_START.encode()
+                + b"\n"
+                + it.AGENTS_LEGACY_ROUTING_SENTINEL.encode(),
+                1,
+            ),
+            "altered authority": fixture.replace(
+                b"managed case-policy block.", b"managed old-policy block.", 1
+            ),
+            "duplicate authority": fixture.replace(
+                it.AGENTS_LEGACY_AUTHORITY_LINE.encode(),
+                it.AGENTS_LEGACY_AUTHORITY_LINE.encode()
+                + b"\n"
+                + it.AGENTS_LEGACY_AUTHORITY_LINE.encode(),
+                1,
+            ),
+        }
+        for label, existing in cases.items():
+            with self.subTest(label=label), self.assertRaises(it.PolicyMigrationError):
+                it.migrate_agents_bytes(existing, AGENTS_POLICY.encode())
+
+    def test_markerless_rules_append_once_and_preserve_lf_and_crlf_bytes(self) -> None:
+        values = (
+            b'prefix_rule(pattern=["git", "status"], decision="allow")\n',
+            b'prefix_rule(pattern=["git", "status"], decision="allow")\r\n',
+            b'prefix_rule(pattern=["git", "status"], decision="allow")',
+            b"",
+        )
+        for existing in values:
+            with self.subTest(existing=existing):
+                separator = b"" if not existing or existing.endswith((b"\n", b"\r")) else b"\n"
+                migrated = it.migrate_rules_bytes(existing, (RULES_POLICY + "\n").encode())
+                self.assertEqual(migrated, existing + separator + RULES_POLICY.encode())
+                self.assertTrue(migrated.startswith(existing))
+                self.assertEqual(migrated.count(it.RULES_START.encode()), 1)
+
     def test_missing_duplicate_partial_and_invalid_utf8_fail_closed(self) -> None:
         bad_values = [
             b"no legacy or marker",
@@ -556,9 +678,16 @@ class PolicyMigrationTests(unittest.TestCase):
             with self.subTest(value=value[:20]), self.assertRaises(it.PolicyMigrationError):
                 it.migrate_agents_bytes(value, AGENTS_POLICY.encode())
         rules_bad = [
-            b"no merge rule",
             (RULES_LEGACY + "\n" + RULES_LEGACY).encode(),
             b"# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY",
+            b"# BEGIN CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS\npartial",
+            (RULES_POLICY + "\n" + RULES_POLICY).encode(),
+            (
+                RULES_POLICY
+                + "\n# BEGIN CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY\n"
+                + RULES_LEGACY
+                + "\n# END CODEX CODING OS MANAGED: GH PR MERGE AUTHORITY"
+            ).encode(),
         ]
         for value in rules_bad:
             with self.subTest(value=value[:20]), self.assertRaises(it.PolicyMigrationError):
@@ -1216,6 +1345,42 @@ class InstallTransactionTests(unittest.TestCase):
                 it._tree_hash(env.codex / "hooks/campaign-engine"),
             )
             it._verify_split_payload_layout(manifest, env.skills, env.codex / "coding-os")
+
+    def test_policy_sync_migrates_real_layout_and_appends_markerless_rules(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            original_agents, original_rules = env.prepare_real_layout_policy()
+
+            result = it.install(env.policy_options())
+
+            self.assertEqual(result["status"], "committed")
+            agents = (env.codex / "AGENTS.md").read_bytes()
+            rules = (env.codex / "rules/default.rules").read_bytes()
+            self.assertTrue(agents.startswith(b"# Global Codex Rules\npreserved-prefix\n"))
+            self.assertTrue(agents.endswith(b"## Universal generic workspace\npreserved-suffix\n"))
+            self.assertEqual(agents.count(it.AGENTS_START.encode()), 1)
+            self.assertNotIn(it.AGENTS_LEGACY_BLOCK_START.encode(), agents)
+            self.assertNotIn(it.AGENTS_LEGACY_AUTHORITY_LINE.encode(), agents)
+            self.assertNotIn(b"codex-coding-os-master", agents)
+            self.assertEqual(rules, original_rules + RULES_POLICY.encode())
+            self.assertEqual(rules[: len(original_rules)], original_rules)
+            self.assertNotEqual(agents, original_agents)
+
+    def test_policy_sync_rejects_altered_real_layout_before_live_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            original_agents, original_rules = env.prepare_real_layout_policy()
+            altered_agents = original_agents.replace(
+                b"support-failure fingerprint", b"support failure fingerprint", 1
+            )
+            (env.codex / "AGENTS.md").write_bytes(altered_agents)
+
+            with self.assertRaisesRegex(it.PolicyMigrationError, "digest"):
+                it.install(env.policy_options())
+
+            self.assertEqual((env.codex / "AGENTS.md").read_bytes(), altered_agents)
+            self.assertEqual((env.codex / "rules/default.rules").read_bytes(), original_rules)
+            self.assertFalse((env.codex / ".coding-os-install/current.json").exists())
 
     def test_campaign_publication_authority_binds_epochs_node_and_candidate_head(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "a7ab8ba34b264d38f9df1c0858f5adb8d54c122a5b4375a8879a7aeb15498163",
+  "aggregate_sha256": "fff24ed04fa23cf9f202148c4082ba771057cc42a69b9b17f1a21365691aeff5",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2488,8 +2488,8 @@
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "c7c6b3296b9ea19c15f656eb63a7d74c33bb74b96ecad924e8030befe1c4a370",
-      "size": 171122
+      "sha256": "16630cd1a2d2a39d79a2572e2b43bc1d24dac37014046901fc2f54c41ed77852",
+      "size": 177481
     },
     {
       "path": "scripts/json-schema-validation.ps1",
@@ -2732,6 +2732,11 @@
       "size": 186
     },
     {
+      "path": "tests/fixtures/install/global-agents-real-layout-lf.md",
+      "sha256": "d6b3e9409a80dea3e80f8e60bf4f0fe727f35c65ef15d748e2c7e49f09fce7ea",
+      "size": 7490
+    },
+    {
       "path": "tests/fixtures/native-host-capability-live-proof.json",
       "sha256": "260ea7abc6cfdc49d354b244ce94eb424f0d98ac154e8e2d608ac14c537f466a",
       "size": 2973
@@ -2813,8 +2818,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "426d9786bbcd937128c05973bf38bf4038ce8be9787125873851b0efa4eac340",
-      "size": 100176
+      "sha256": "4784d53a39fdf1196b573b7d5a8f76f2e2d699fd88580e7760b5e2a247fd9ba1",
+      "size": 109004
     },
     {
       "path": "tests/test_project_artifact_instances.py",
