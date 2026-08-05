@@ -13,8 +13,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
-from scripts.agent.campaign_engine import admission, cli
+from scripts.agent.campaign_engine import admission, cli, runtime_bootstrap
 from scripts.agent.campaign_engine.model import BudgetToken, CampaignSpec
 from scripts.agent.campaign_engine.store import CampaignStore
 from scripts.agent.campaign_engine.runtime_bootstrap import runtime_layout
@@ -38,6 +39,30 @@ def git(root: Path, *args: str) -> str:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class RuntimeBootstrapTests(unittest.TestCase):
+    def test_posix_account_profile_lookup_failures_use_bootstrap_error(self) -> None:
+        for failure in (
+            KeyError("missing account"),
+            OSError("account database unavailable"),
+            AttributeError("malformed account record"),
+        ):
+            fake_pwd = mock.Mock()
+            fake_pwd.getpwuid.side_effect = failure
+            with (
+                self.subTest(failure=type(failure).__name__),
+                mock.patch.object(runtime_bootstrap.os, "name", "posix"),
+                mock.patch.object(runtime_bootstrap.os, "getuid", return_value=1000, create=True),
+                mock.patch.dict(sys.modules, {"pwd": fake_pwd}),
+                self.assertRaises(runtime_bootstrap.RuntimeBootstrapError) as raised,
+            ):
+                runtime_bootstrap.trusted_account_profile()
+            self.assertEqual(
+                str(raised.exception),
+                "operating-system account profile is unavailable",
+            )
+            self.assertIs(raised.exception.__cause__, failure)
 
 
 class CampaignCliTests(unittest.TestCase):
@@ -353,6 +378,46 @@ class CampaignCliTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, cli.EXIT_FAILED)
         self.assertIn("differs from its pin", denied["message"])
+
+    def test_run_without_external_effects_yields_after_publication_prepared(self) -> None:
+        self.admit()
+        step_calls: list[str] = []
+        test_case = self
+
+        class NoExternalEffectsSupervisor:
+            def __init__(self, store: CampaignStore, *, effect_driver=None) -> None:
+                del store
+                test_case.assertIsNone(effect_driver)
+
+            def step(self, campaign_id: str):
+                step_calls.append(campaign_id)
+                if len(step_calls) > 1:
+                    raise AssertionError("run attempted to execute the prepared publication")
+                return cli.SupervisorDecision(
+                    campaign_id,
+                    1,
+                    "DRAFT",
+                    "PUBLICATION_PREPARED",
+                    "node-1",
+                    details={"operation_id": "publish-operation", "effect_kind": "PUSH"},
+                )
+
+        with mock.patch.object(
+            cli, "DeterministicSupervisor", NoExternalEffectsSupervisor
+        ):
+            exit_code, yielded = self.run_cli(
+                "run",
+                "--campaign-id",
+                "cli-campaign",
+                "--no-external-effects",
+            )
+
+        self.assertEqual(exit_code, 0, yielded)
+        self.assertEqual(step_calls, ["cli-campaign"])
+        self.assertEqual(
+            [decision["action"] for decision in yielded["decisions"]],
+            ["PUBLICATION_PREPARED"],
+        )
 
     def test_cancel_remains_available_on_canonical_db_during_runtime_drift(self) -> None:
         self.admit()

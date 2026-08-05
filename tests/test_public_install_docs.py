@@ -48,6 +48,31 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         ):
             self.assertIn(field, self.public_docs)
 
+    def test_public_installers_reject_noncanonical_codex_home(self) -> None:
+        self.assertIn("account profile's `.codex` directory", self.public_docs)
+        self.assertIn(
+            "CodexHome must equal the canonical operating-system account-profile path",
+            self.install_ps1,
+        )
+        self.assertIn(
+            "GetFolderPath([Environment+SpecialFolder]::UserProfile)",
+            self.install_ps1,
+        )
+        self.assertIn("pwd.getpwuid(os.getuid()).pw_dir", self.install_sh)
+        self.assertIn(
+            "--codex-home must equal the canonical operating-system account-profile path",
+            self.install_sh,
+        )
+        self.assertIn(
+            "SkillsRoot must equal the canonical CodexHome skills path",
+            self.install_ps1,
+        )
+        self.assertIn(
+            "--skills-root must equal the canonical Codex home skills path",
+            self.install_sh,
+        )
+        self.assertIn("any other skills root is rejected", self.public_docs)
+
     def test_public_docs_point_to_external_campaign_state_and_campaign_hook(self) -> None:
         self.assertIn("coding-os-state", self.public_docs)
         self.assertIn("campaigns.sqlite3", self.public_docs)

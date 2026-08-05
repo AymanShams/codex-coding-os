@@ -347,6 +347,8 @@ def command_run(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 decisions.append(closure.to_dict())
                 continue
+            if action == "PUBLICATION_PREPARED" and args.no_external_effects:
+                break
             if action in {"PUBLICATION_PREPARED", "PUBLICATION_CONFIRMED"}:
                 continue
             if decision.wait_event or action in {"YIELD", "TERMINAL"}:

@@ -6,12 +6,26 @@ $ProfileRoot = Join-Path $TestRoot "profile"
 $CodexHome = Join-Path $ProfileRoot ".codex"
 $SkillsRoot = Join-Path $CodexHome "skills"
 $InstallScript = Join-Path $RepoRoot "scripts\install.ps1"
-$UninstallScript = Join-Path $RepoRoot "scripts\uninstall.ps1"
+$Engine = Join-Path $RepoRoot "scripts\install_transaction.py"
 $Bundle = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot "install-bundle.manifest.json") | ConvertFrom-Json
 $BundleHash = [string]$Bundle.aggregate_sha256
 $SourceCommit = (& git -C $RepoRoot rev-parse HEAD).Trim()
 $Python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $Python) { $Python = Get-Command py -ErrorAction Stop }
+
+function Invoke-Transaction {
+  param([Parameter(Mandatory = $true)][string[]]$TransactionArguments)
+
+  $Arguments = @("-B", $Engine, "--json") + $TransactionArguments
+  if ($Python.Name -eq "py.exe" -or $Python.Name -eq "py") {
+    & $Python.Source -3 @Arguments
+  } else {
+    & $Python.Source @Arguments
+  }
+  if ($LASTEXITCODE -ne 0) {
+    throw "Transactional engine failed with exit code $LASTEXITCODE."
+  }
+}
 
 try {
   New-Item -ItemType Directory -Force -Path $SkillsRoot, $CodexHome | Out-Null
@@ -30,8 +44,37 @@ try {
     $Preserved[$Path] = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
   }
 
-  & $InstallScript -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ExpectedSourceCommit $SourceCommit -ArchiveMode -Confirm:$false
-  if (-not $?) { throw "Transactional install failed." }
+  $Rejected = $false
+  try {
+    & $InstallScript -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ExpectedSourceCommit $SourceCommit -ArchiveMode -Confirm:$false
+  } catch {
+    if ($_.Exception.Message -notlike "*canonical operating-system account-profile path*") {
+      throw
+    }
+    $Rejected = $true
+  }
+  if (-not $Rejected) { throw "Public PowerShell installer accepted a noncanonical CodexHome." }
+
+  $SkillsRejected = $false
+  try {
+    & $InstallScript -SkillsRoot $SkillsRoot -ExpectedBundleSha256 $BundleHash -ExpectedSourceCommit $SourceCommit -ArchiveMode -Confirm:$false
+  } catch {
+    if ($_.Exception.Message -notlike "*canonical CodexHome skills path*") {
+      throw
+    }
+    $SkillsRejected = $true
+  }
+  if (-not $SkillsRejected) { throw "Public PowerShell installer accepted a noncanonical SkillsRoot." }
+
+  Invoke-Transaction -TransactionArguments @(
+    "install",
+    "--source-root", $RepoRoot,
+    "--skills-root", $SkillsRoot,
+    "--codex-home", $CodexHome,
+    "--expected-bundle-sha256", $BundleHash,
+    "--expected-source-commit", $SourceCommit,
+    "--archive-mode"
+  )
 
   $ManifestPath = Join-Path $CodexHome "coding-os\install-manifest.json"
   $CurrentPath = Join-Path $CodexHome ".coding-os-install\current.json"
@@ -74,8 +117,15 @@ raise SystemExit(cli.main(["--json", "doctor"], injected_runtime=runtime_layout(
   if (-not $Doctor.ok -or $Doctor.integrity.status -ne "ok") { throw "Installed campaign-engine doctor returned invalid evidence." }
 
   $PointerBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $CurrentPath).Hash
-  & $InstallScript -CodexHome $CodexHome -ExpectedBundleSha256 $BundleHash -ExpectedSourceCommit $SourceCommit -ArchiveMode -Confirm:$false
-  if (-not $?) { throw "Transactional idempotent reinstall failed." }
+  Invoke-Transaction -TransactionArguments @(
+    "install",
+    "--source-root", $RepoRoot,
+    "--skills-root", $SkillsRoot,
+    "--codex-home", $CodexHome,
+    "--expected-bundle-sha256", $BundleHash,
+    "--expected-source-commit", $SourceCommit,
+    "--archive-mode"
+  )
   if ((Get-FileHash -Algorithm SHA256 -LiteralPath $CurrentPath).Hash -ne $PointerBefore) { throw "Idempotent reinstall changed current.json." }
 
   foreach ($Path in $Preserved.Keys) {
@@ -84,8 +134,11 @@ raise SystemExit(cli.main(["--json", "doctor"], injected_runtime=runtime_layout(
     }
   }
 
-  & $UninstallScript -CodexHome $CodexHome -Confirm:$false
-  if (-not $?) { throw "Transactional uninstall failed." }
+  Invoke-Transaction -TransactionArguments @(
+    "uninstall",
+    "--skills-root", $SkillsRoot,
+    "--codex-home", $CodexHome
+  )
   if (Test-Path (Join-Path $CodexHome "coding-os")) { throw "Managed support root remained after uninstall." }
   if (Test-Path (Join-Path $SkillsRoot "codex-coding-os-master")) { throw "Managed skill remained after uninstall." }
   if (Test-Path (Join-Path $CodexHome "hooks\campaign-engine")) { throw "Managed campaign hook remained after uninstall." }

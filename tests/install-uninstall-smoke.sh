@@ -19,6 +19,22 @@ source_commit="$(git -C "$repo_root" rev-parse HEAD)"
 cleanup() { rm -rf "$test_root"; }
 trap cleanup EXIT
 
+install_synthetic_runtime() {
+  "$python_cmd" -B "$repo_root/scripts/install_transaction.py" --json install \
+    --source-root "$repo_root" \
+    --skills-root "$skills_root" \
+    --codex-home "$codex_home" \
+    --expected-bundle-sha256 "$bundle_hash" \
+    --expected-source-commit "$source_commit" \
+    --archive-mode
+}
+
+uninstall_synthetic_runtime() {
+  "$python_cmd" -B "$repo_root/scripts/install_transaction.py" --json uninstall \
+    --skills-root "$skills_root" \
+    --codex-home "$codex_home"
+}
+
 mkdir -p "$skills_root/unmanaged" "$codex_home/case-state" "$codex_home/plugins"
 printf 'preserved-config' > "$codex_home/config.toml"
 printf 'preserved-case' > "$codex_home/case-state/case.json"
@@ -26,7 +42,27 @@ printf 'preserved-plugin' > "$codex_home/plugins/plugin.txt"
 printf 'preserved-skill' > "$skills_root/unmanaged/SKILL.md"
 preserved_before="$(sha256sum "$codex_home/config.toml" "$codex_home/case-state/case.json" "$codex_home/plugins/plugin.txt" "$skills_root/unmanaged/SKILL.md")"
 
-HOME="$profile_root" CODEX_HOME= SKILLS_ROOT= bash "$repo_root/scripts/install.sh" --expected-bundle-sha256 "$bundle_hash" --expected-source-commit "$source_commit" --archive-mode
+rejection_output="$test_root/noncanonical-install.txt"
+if HOME="$profile_root" CODEX_HOME= SKILLS_ROOT= bash "$repo_root/scripts/install.sh" \
+  --expected-bundle-sha256 "$bundle_hash" \
+  --expected-source-commit "$source_commit" \
+  --archive-mode >"$rejection_output" 2>&1; then
+  echo "Public Bash installer accepted a noncanonical CodexHome" >&2
+  exit 1
+fi
+grep -F "canonical operating-system account-profile path" "$rejection_output" >/dev/null
+
+skills_rejection_output="$test_root/noncanonical-skills-install.txt"
+if CODEX_HOME= SKILLS_ROOT="$skills_root" bash "$repo_root/scripts/install.sh" \
+  --expected-bundle-sha256 "$bundle_hash" \
+  --expected-source-commit "$source_commit" \
+  --archive-mode >"$skills_rejection_output" 2>&1; then
+  echo "Public Bash installer accepted a noncanonical SkillsRoot" >&2
+  exit 1
+fi
+grep -F "canonical Codex home skills path" "$skills_rejection_output" >/dev/null
+
+install_synthetic_runtime
 "$python_cmd" - "$codex_home/coding-os/install-manifest.json" "$codex_home/.coding-os-install/current.json" "$bundle_hash" "$source_commit" <<'PY'
 import json, pathlib, sys
 manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
@@ -62,11 +98,11 @@ PY
 "$python_cmd" -c 'import json,sys; value=json.load(sys.stdin); assert value["ok"] and value["integrity"]["status"] == "ok"' <<<"$doctor_output"
 
 pointer_before="$(sha256sum "$codex_home/.coding-os-install/current.json")"
-HOME="$profile_root" CODEX_HOME= SKILLS_ROOT= bash "$repo_root/scripts/install.sh" --expected-bundle-sha256 "$bundle_hash" --expected-source-commit "$source_commit" --archive-mode
+install_synthetic_runtime
 test "$(sha256sum "$codex_home/.coding-os-install/current.json")" = "$pointer_before"
 test "$(sha256sum "$codex_home/config.toml" "$codex_home/case-state/case.json" "$codex_home/plugins/plugin.txt" "$skills_root/unmanaged/SKILL.md")" = "$preserved_before"
 
-HOME="$profile_root" CODEX_HOME= SKILLS_ROOT= bash "$repo_root/scripts/uninstall.sh"
+uninstall_synthetic_runtime
 test ! -e "$codex_home/coding-os"
 test ! -e "$skills_root/codex-coding-os-master"
 test ! -e "$codex_home/hooks/campaign-engine"

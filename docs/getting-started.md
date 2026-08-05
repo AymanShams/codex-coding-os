@@ -17,11 +17,15 @@ The install transaction verifies the bundle, atomically promotes managed files,
 installs the campaign hook, initializes the external store, and records the six
 runtime-pin fields.
 
-The default layout is `%USERPROFILE%\.codex` for `CodexHome` and
-`%USERPROFILE%\.codex\skills` for `SkillsRoot`. Clean first installs and v3
-reinstalls or uninstalls need no overlap or migration option. Pass
-`-LegacyOverlapMigration` only when upgrading an existing strict v2 install in
-that exact nested layout. All other overlapping root layouts remain invalid.
+`CodexHome` must be the operating-system account profile's `.codex` directory,
+`%USERPROFILE%\.codex` on Windows. The public installers reject a command-line
+or environment override that resolves elsewhere because the runtime bootstrap
+uses that canonical account-profile path. `SkillsRoot` must be
+`%USERPROFILE%\.codex\skills`, and any other skills root is rejected. Clean
+first installs and v3 reinstalls or uninstalls need no overlap or migration
+option. Pass `-LegacyOverlapMigration` only when upgrading an existing strict
+v2 install in that exact nested layout. All other overlapping root layouts
+remain invalid.
 
 The complete `runtime_pin` records source commit, bundle digest, install
 transaction, protocol version, schema compatibility, and host capability probe

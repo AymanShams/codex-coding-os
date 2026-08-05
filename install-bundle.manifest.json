@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "b94b92a6f0510801bcd99118af8a5aa26a7a2790c2beabaecf8fb4c6b7fd37cc",
+  "aggregate_sha256": "a7ab8ba34b264d38f9df1c0858f5adb8d54c122a5b4375a8879a7aeb15498163",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2183,8 +2183,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "3304fe4876e97d50cb12424b71bf158c031d5181f2b9f5659d627422df5f42c7",
-      "size": 9463
+      "sha256": "98885ff5fd11a54a08b33f4666918c0eea0217f84b4cad6e5acc62456c63e951",
+      "size": 9716
     },
     {
       "path": "SECURITY.md",
@@ -2273,8 +2273,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "f1cf50ae1c0d20d81d0d45b0b7ce2009f07484eeb7e8ec1cbfd93c50831bf4c1",
-      "size": 2833
+      "sha256": "8d8b2d8a811c6165d6d494a6818bca50d902db46d33bf3528026cf207c7fca0f",
+      "size": 3089
     },
     {
       "path": "docs/license-strategy.md",
@@ -2398,8 +2398,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/cli.py",
-      "sha256": "2bec8002a8a8a713978e0524adb887734a374a7b7cdabdcbbd9ecfe14893f0e6",
-      "size": 25382
+      "sha256": "12703c6119305bc85c7436edfdf86f86002648e5d8069362c75ad6da5dfe4bb5",
+      "size": 25482
     },
     {
       "path": "scripts/agent/campaign_engine/ed25519.py",
@@ -2438,8 +2438,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/runtime_bootstrap.py",
-      "sha256": "5d92e178a89b5ad7b58524cef573cfa4636d1524c0b6ca52f319a2fcb245f4c5",
-      "size": 18047
+      "sha256": "a74b6789439e3b9273d612b3a4f969d6aea57b41dcd6b3e81cbb41bd0c0e9afd",
+      "size": 18253
     },
     {
       "path": "scripts/agent/campaign_engine/store.py",
@@ -2478,13 +2478,13 @@
     },
     {
       "path": "scripts/install.ps1",
-      "sha256": "0a640b904e364ce136b45e034556ae9340294365699e835628c029070d1b9f4e",
-      "size": 3606
+      "sha256": "484cbe02ffc275da127ffdd859ce7d8832d0e2133f84ea38c7e04c97cf331d1c",
+      "size": 5097
     },
     {
       "path": "scripts/install.sh",
-      "sha256": "a240713248b4f43f35b226c1e637875253bf446a829e950ff1bfab35cfe018f1",
-      "size": 4349
+      "sha256": "f908c88ae993367e6e14d0102d55cdef94c9e761b753e29f3f9aca6da163ca12",
+      "size": 5637
     },
     {
       "path": "scripts/install_transaction.py",
@@ -2748,13 +2748,13 @@
     },
     {
       "path": "tests/install-uninstall-smoke.ps1",
-      "sha256": "fae8c0ba696c8015aabb00d82533aa535716be9d8acd0f5a78deaae38ecc2536",
-      "size": 6900
+      "sha256": "1abe8a3db31de92c7ffcfb96fbb6e2833da9c6faec3bb73284873b0439d2bc95",
+      "size": 8317
     },
     {
       "path": "tests/install-uninstall-smoke.sh",
-      "sha256": "64eaa91f7fa1bb618612507486a30ff6c1e671ab2c91cee8d4d06ac8bebe3ceb",
-      "size": 4435
+      "sha256": "86d9662a278b67144303812f61761a958b7d02493b0680416eae081c16acb80c",
+      "size": 5493
     },
     {
       "path": "tests/json-schema-validation-smoke.ps1",
@@ -2763,8 +2763,8 @@
     },
     {
       "path": "tests/test_campaign_cli.py",
-      "sha256": "1b44a2ac3e9bb5601b9b401bba4d61187a0e99ba444ca1913da2b45e04a8caaf",
-      "size": 19641
+      "sha256": "ae3b96e12ba5c0d14f71f3be5339a36d567866e6205c1a2b3c3bf1c8547fab58",
+      "size": 22267
     },
     {
       "path": "tests/test_campaign_formal_conformance.py",
@@ -2813,8 +2813,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "1fb0a2d243bb7955392e9a4d9e9419b724dde5b75f339543a1089c3d8ad62eee",
-      "size": 99939
+      "sha256": "426d9786bbcd937128c05973bf38bf4038ce8be9787125873851b0efa4eac340",
+      "size": 100176
     },
     {
       "path": "tests/test_project_artifact_instances.py",
@@ -2823,8 +2823,8 @@
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "4552f669849bc1e862bbbb5d27d4162dba68f306d87d8c291b8c7853adfa1864",
-      "size": 4700
+      "sha256": "5da172af60d7ff9160c319bdae7900d363c520ab2c22a870b38fd52f2a3f8103",
+      "size": 5723
     },
     {
       "path": "tests/test_source_repository_profile.py",

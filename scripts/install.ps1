@@ -25,7 +25,40 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Engine = Join-Path $RepoRoot "scripts\install_transaction.py"
+function Get-ComparableInstallPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $Resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+  return ([System.IO.Path]::GetFullPath($Resolved)).TrimEnd(
+    [char[]]@(
+      [System.IO.Path]::DirectorySeparatorChar,
+      [System.IO.Path]::AltDirectorySeparatorChar
+    )
+  )
+}
+
+$AccountProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+if ([string]::IsNullOrWhiteSpace($AccountProfile)) {
+  throw "The operating-system account profile is unavailable."
+}
+$CanonicalCodexHome = Join-Path $AccountProfile ".codex"
+$RequestedCodexHome = Get-ComparableInstallPath $CodexHome
+$CanonicalCodexHome = Get-ComparableInstallPath $CanonicalCodexHome
+$PathComparison = if ([System.IO.Path]::DirectorySeparatorChar -eq [char]92) {
+  [StringComparison]::OrdinalIgnoreCase
+} else {
+  [StringComparison]::Ordinal
+}
+if (-not [string]::Equals($RequestedCodexHome, $CanonicalCodexHome, $PathComparison)) {
+  throw "CodexHome must equal the canonical operating-system account-profile path: $CanonicalCodexHome"
+}
 if (-not $SkillsRoot) { $SkillsRoot = Join-Path $CodexHome "skills" }
+$CanonicalSkillsRoot = Join-Path $CanonicalCodexHome "skills"
+$RequestedSkillsRoot = Get-ComparableInstallPath $SkillsRoot
+$CanonicalSkillsRoot = Get-ComparableInstallPath $CanonicalSkillsRoot
+if (-not [string]::Equals($RequestedSkillsRoot, $CanonicalSkillsRoot, $PathComparison)) {
+  throw "SkillsRoot must equal the canonical CodexHome skills path: $CanonicalSkillsRoot"
+}
 
 if ($InstallExternalSkills -or $AllowUnpinnedExternalSkills) {
   throw "Optional external skills are not enabled in the transactional public package. Install only a separately reviewed pinned bundle."

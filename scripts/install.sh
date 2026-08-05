@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
-skills_root="${SKILLS_ROOT:-$codex_home/skills}"
+skills_root="${SKILLS_ROOT:-}"
 expected_bundle=""
 expected_commit=""
 policy_authority_source=""
@@ -26,8 +26,8 @@ usage() {
 Usage: ./scripts/install.sh --expected-bundle-sha256 HASH --expected-source-commit COMMIT [options]
 
 Options:
-  --skills-root PATH
-  --codex-home PATH
+  --skills-root PATH  Must equal the canonical Codex home skills directory
+  --codex-home PATH  Must equal the OS account profile's .codex directory
   --install-universal-policy
   --universal-bundle-id IDENTIFIER
   --refresh-capability-index
@@ -71,6 +71,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+[[ -n "$skills_root" ]] || skills_root="$codex_home/skills"
 [[ -n "$expected_bundle" ]] || { echo "--expected-bundle-sha256 is required" >&2; exit 2; }
 [[ -n "$expected_commit" ]] || { echo "--expected-source-commit is required" >&2; exit 2; }
 if [[ -n "${PYTHON:-}" ]]; then
@@ -79,6 +80,42 @@ else
   command -v python3 >/dev/null 2>&1 && python_cmd=python3 || python_cmd=python
 fi
 command -v "$python_cmd" >/dev/null 2>&1 || { echo "Python 3 is required" >&2; exit 2; }
+if ! canonical_codex_home="$("$python_cmd" -B -c '
+import os
+import pwd
+
+try:
+    profile = pwd.getpwuid(os.getuid()).pw_dir
+except (KeyError, OSError, AttributeError):
+    raise SystemExit(1)
+if not profile:
+    raise SystemExit(1)
+print(os.path.normpath(os.path.abspath(os.path.join(profile, ".codex"))))
+')"; then
+  echo "The operating-system account profile is unavailable" >&2
+  exit 2
+fi
+requested_codex_home="$("$python_cmd" -B -c '
+import os
+import sys
+
+print(os.path.normpath(os.path.abspath(os.path.expanduser(sys.argv[1]))))
+' "$codex_home")"
+if [[ "$requested_codex_home" != "$canonical_codex_home" ]]; then
+  echo "--codex-home must equal the canonical operating-system account-profile path: $canonical_codex_home" >&2
+  exit 2
+fi
+canonical_skills_root="$canonical_codex_home/skills"
+requested_skills_root="$("$python_cmd" -B -c '
+import os
+import sys
+
+print(os.path.normpath(os.path.abspath(os.path.expanduser(sys.argv[1]))))
+' "$skills_root")"
+if [[ "$requested_skills_root" != "$canonical_skills_root" ]]; then
+  echo "--skills-root must equal the canonical Codex home skills path: $canonical_skills_root" >&2
+  exit 2
+fi
 args=(
   -B "$repo_root/scripts/install_transaction.py" --json install
   --source-root "$repo_root" --skills-root "$skills_root" --codex-home "$codex_home"

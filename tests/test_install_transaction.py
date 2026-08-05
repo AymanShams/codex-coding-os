@@ -1546,8 +1546,16 @@ class CanonicalNestedLayoutTests(unittest.TestCase):
         for source in (install_ps, uninstall_ps):
             self.assertIn('$SkillsRoot = Join-Path $CodexHome "skills"', source)
             self.assertNotIn(".agents\\skills", source)
+        self.assertIn('skills_root="${SKILLS_ROOT:-}"', install_sh)
+        self.assertIn(
+            '[[ -n "$skills_root" ]] || skills_root="$codex_home/skills"',
+            install_sh,
+        )
+        self.assertIn(
+            'skills_root="${SKILLS_ROOT:-$codex_home/skills}"',
+            uninstall_sh,
+        )
         for source in (install_sh, uninstall_sh):
-            self.assertIn('skills_root="${SKILLS_ROOT:-$codex_home/skills}"', source)
             self.assertNotIn(".agents/skills", source)
 
     def test_clean_canonical_nested_install_reinstall_and_uninstall_need_no_migration_flag(self) -> None:

@@ -64,13 +64,17 @@ $BundleDigest = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).
 
 The transactional installer verifies the bundle, promotes the support tree and
 managed skills, installs the campaign hook, initializes the SQLite store, and
-records the runtime pin. The default `CodexHome` is `%USERPROFILE%\.codex` and
-the default `SkillsRoot` is its `skills` directory. A clean first install and
-v3 reinstall or uninstall use this canonical nested layout without a migration
-flag. Only an existing strict v2 install at that layout requires
+records the runtime pin. `CodexHome` must be the operating-system account
+profile's `.codex` directory, `%USERPROFILE%\.codex` on Windows. The public
+installers reject a command-line or environment override that resolves
+elsewhere because the runtime bootstrap uses that canonical account-profile
+path. `SkillsRoot` must be its `skills` directory, and the public installers
+also reject any other skills root. A clean first install and v3 reinstall or
+uninstall use this canonical nested layout without a
+migration flag. Only an existing strict v2 install at that layout requires
 `-LegacyOverlapMigration`, which preserves its migration evidence. Other
 overlapping root layouts are rejected. Use the installer help for explicit
-source, Codex home, skill root, and legacy archive options:
+source and legacy archive options:
 
 ```powershell
 .\scripts\install.ps1 -Help

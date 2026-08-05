@@ -147,7 +147,12 @@ def trusted_account_profile() -> Path:
     else:
         import pwd
 
-        raw = pwd.getpwuid(os.getuid()).pw_dir
+        try:
+            raw = pwd.getpwuid(os.getuid()).pw_dir
+        except (KeyError, OSError, AttributeError) as exc:
+            raise RuntimeBootstrapError(
+                "operating-system account profile is unavailable"
+            ) from exc
     if not raw:
         raise RuntimeBootstrapError("operating-system account profile is unavailable")
     return _direct_path(Path(raw), "operating-system account profile", must_exist=True)
