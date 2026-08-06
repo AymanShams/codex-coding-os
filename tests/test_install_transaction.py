@@ -294,7 +294,6 @@ def archive_legacy_root(root, *, state_root, store=None):
                 "pack.manifest.json",
                 "install-bundle.manifest.json",
             ],
-            "vendor_retired_skills": [],
             "bundled_skills": [
                 {"name": "alpha", "category": "synthetic", "required": True, "source": "local"}
             ],
@@ -439,13 +438,6 @@ def archive_legacy_root(root, *, state_root, store=None):
 class BundleContractTests(unittest.TestCase):
     def test_transaction_protocol_module_exists(self) -> None:
         self.assertEqual(it.TRANSACTION_PROTOCOL, "ccos-install-transaction-v1")
-
-    def test_real_pack_declares_doc_vendor_retired_without_deleting_source(self) -> None:
-        pack = json.loads((REPO_ROOT / "pack.manifest.json").read_text(encoding="utf-8"))
-        bundled = {record["name"] for record in pack["bundled_skills"]}
-        self.assertEqual(pack["vendor_retired_skills"], ["doc"])
-        self.assertNotIn("doc", bundled)
-        self.assertTrue((REPO_ROOT / ".agents/skills/doc/SKILL.md").is_file())
 
     def test_bundle_manifest_uses_relative_paths_and_exact_aggregate(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -2238,111 +2230,6 @@ class UninstallTransactionTests(unittest.TestCase):
 
     def test_preserve_mode_rejects_policy_parent_reparse_component(self) -> None:
         self._assert_preserve_mode_rejects_policy_link("rules")
-
-    def test_vendor_retired_skill_can_be_already_absent_during_upgrade(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
-            env = SyntheticEnvironment(Path(raw))
-            write_text(
-                env.source / ".agents/skills/doc/SKILL.md",
-                "---\nname: doc\ndescription: retired synthetic skill\n---\n",
-            )
-            env.pack["bundled_skills"].append(
-                {
-                    "name": "doc",
-                    "category": "synthetic",
-                    "required": True,
-                    "source": "local",
-                }
-            )
-            write_text(
-                env.source / "pack.manifest.json",
-                json.dumps(env.pack, indent=2) + "\n",
-            )
-            env.bundle = it.build_bundle_manifest(env.source)
-            env.bundle_hash = env.bundle["aggregate_sha256"]
-            it.install(env.archive_options())
-            self.assertTrue((env.skills / "doc/SKILL.md").is_file())
-
-            shutil.rmtree(env.skills / "doc")
-            write_text(env.skills / "unmanaged/SKILL.md", "unmanaged\n")
-            env.pack["bundled_skills"] = [
-                record
-                for record in env.pack["bundled_skills"]
-                if record["name"] != "doc"
-            ]
-            env.pack["vendor_retired_skills"] = ["doc"]
-            write_text(
-                env.source / "pack.manifest.json",
-                json.dumps(env.pack, indent=2) + "\n",
-            )
-            env.bundle = it.build_bundle_manifest(env.source)
-            env.bundle_hash = env.bundle["aggregate_sha256"]
-
-            result = it.install(env.archive_options())
-
-            self.assertEqual(result["status"], "committed")
-            self.assertFalse((env.skills / "doc").exists())
-            self.assertTrue((env.source / ".agents/skills/doc/SKILL.md").is_file())
-            self.assertEqual(
-                (env.skills / "unmanaged/SKILL.md").read_text(encoding="utf-8"),
-                "unmanaged\n",
-            )
-            manifest = json.loads(
-                (env.codex / "coding-os/install-manifest.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertNotIn(
-                "doc",
-                {record["name"] for record in manifest["targets"]["managed_skills"]},
-            )
-
-    def test_vendor_retired_skill_is_removed_during_upgrade_when_present(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
-            env = SyntheticEnvironment(Path(raw))
-            write_text(
-                env.source / ".agents/skills/doc/SKILL.md",
-                "---\nname: doc\ndescription: retired synthetic skill\n---\n",
-            )
-            env.pack["bundled_skills"].append(
-                {
-                    "name": "doc",
-                    "category": "synthetic",
-                    "required": True,
-                    "source": "local",
-                }
-            )
-            write_text(
-                env.source / "pack.manifest.json",
-                json.dumps(env.pack, indent=2) + "\n",
-            )
-            env.bundle = it.build_bundle_manifest(env.source)
-            env.bundle_hash = env.bundle["aggregate_sha256"]
-            it.install(env.archive_options())
-            self.assertTrue((env.skills / "doc/SKILL.md").is_file())
-            write_text(env.skills / "unmanaged/SKILL.md", "unmanaged\n")
-
-            env.pack["bundled_skills"] = [
-                record
-                for record in env.pack["bundled_skills"]
-                if record["name"] != "doc"
-            ]
-            env.pack["vendor_retired_skills"] = ["doc"]
-            write_text(
-                env.source / "pack.manifest.json",
-                json.dumps(env.pack, indent=2) + "\n",
-            )
-            env.bundle = it.build_bundle_manifest(env.source)
-            env.bundle_hash = env.bundle["aggregate_sha256"]
-
-            result = it.install(env.archive_options())
-
-            self.assertEqual(result["status"], "committed")
-            self.assertFalse((env.skills / "doc").exists())
-            self.assertEqual(
-                (env.skills / "unmanaged/SKILL.md").read_text(encoding="utf-8"),
-                "unmanaged\n",
-            )
 
     def test_policy_install_then_explicit_removal_removes_only_managed_policy_blocks(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:

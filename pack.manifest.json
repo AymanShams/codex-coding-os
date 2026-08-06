@@ -527,9 +527,6 @@
     "case-state.schema.json",
     "validation-evidence.schema.json"
   ],
-  "vendor_retired_skills": [
-    "doc"
-  ],
   "bundled_skills": [
     { "name": "ai-coding-discipline", "category": "coding-discipline", "required": true, "source": "local" },
     { "name": "artifact-system-designer", "category": "documentation", "required": true, "source": "local" },
@@ -546,6 +543,7 @@
     { "name": "customer-journey-map", "category": "product-docs", "required": true, "source": "local" },
     { "name": "deep-critic", "category": "critique", "required": true, "source": "local" },
     { "name": "defensive-security-checklist", "category": "security", "required": true, "source": "local" },
+    { "name": "doc", "category": "document-intake", "required": true, "source": "local-or-open-source" },
     { "name": "evidence-checker", "category": "verification", "required": true, "source": "local" },
     { "name": "external-skill-overlay-pack", "category": "external-overlays", "required": true, "source": "local" },
     { "name": "grill-me", "category": "planning-review", "required": true, "source": "local" },

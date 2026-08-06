@@ -79,10 +79,6 @@ README_INVENTORY_COUNT_PATTERN = re.compile(
     r"support\s+items?|templates?|documentation\s+files?|test\s+files?|install\s+bundle\s+entries?)\b"
 )
 
-CAPABILITY_CATALOGUE_PATH = Path(
-    ".agents/skills/catalogue-router/references/capability-catalogue.md"
-)
-
 
 def _nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
@@ -358,68 +354,6 @@ def validate_readme_freshness(repo_root: Path) -> list[str]:
     return errors
 
 
-def _markdown_h2_section(text: str, heading: str) -> str | None:
-    match = re.search(
-        rf"(?ms)^## {re.escape(heading)}\s*$\n(.*?)(?=^##\s|\Z)",
-        text,
-    )
-    return match.group(1) if match is not None else None
-
-
-def validate_capability_catalogue(
-    repo_root: Path, manifest: dict[str, Any]
-) -> list[str]:
-    catalogue_path = repo_root / CAPABILITY_CATALOGUE_PATH
-    try:
-        catalogue = catalogue_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return [f"capability catalogue is missing: {CAPABILITY_CATALOGUE_PATH.as_posix()}"]
-
-    bundled = manifest.get("bundled_skills")
-    if not isinstance(bundled, list) or any(
-        not isinstance(record, dict) or not _nonempty_string(record.get("name"))
-        for record in bundled
-    ):
-        return ["pack.manifest.json bundled_skills must contain named skill records"]
-    bundled_names = [str(record["name"]) for record in bundled]
-
-    inventory = _markdown_h2_section(catalogue, "Bundled Full Local Skills")
-    if inventory is None:
-        return ["capability catalogue is missing Bundled Full Local Skills"]
-    catalogue_names = re.findall(r"(?m)^- `([^`\r\n]+)`\s*$", inventory)
-    errors: list[str] = []
-    if catalogue_names != bundled_names:
-        errors.append(
-            "capability catalogue Bundled Full Local Skills must exactly match "
-            "pack.manifest.json bundled_skills names"
-        )
-
-    retired = manifest.get("vendor_retired_skills", [])
-    if not isinstance(retired, list) or any(not _nonempty_string(name) for name in retired):
-        errors.append("pack.manifest.json vendor_retired_skills must contain skill names")
-        return errors
-    retired_names = {str(name).casefold() for name in retired}
-
-    router = _markdown_h2_section(catalogue, "Fast Router")
-    if router is None:
-        errors.append("capability catalogue is missing Fast Router")
-        return errors
-    for line in router.splitlines():
-        if not line.startswith("|") or re.match(r"^\|\s*-", line):
-            continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) < 4 or cells[0] == "Task":
-            continue
-        routed = re.findall(r"`([^`]+)`", " ".join(cells[2:4]))
-        for skill_name in routed:
-            if skill_name.casefold() in retired_names:
-                errors.append(
-                    "capability catalogue routes vendor-retired skill as primary or "
-                    f"support: {skill_name}"
-                )
-    return errors
-
-
 def validate_repository(repo_root: Path) -> list[str]:
     repo_root = repo_root.resolve()
     manifest_path = repo_root / "pack.manifest.json"
@@ -431,11 +365,7 @@ def validate_repository(repo_root: Path) -> list[str]:
         return [f"pack.manifest.json is invalid JSON: {exc}"]
     if not isinstance(manifest, dict):
         return ["pack.manifest.json must contain an object"]
-    return (
-        validate_artifact_definitions(repo_root, manifest)
-        + validate_readme_freshness(repo_root)
-        + validate_capability_catalogue(repo_root, manifest)
-    )
+    return validate_artifact_definitions(repo_root, manifest) + validate_readme_freshness(repo_root)
 
 
 def main() -> int:

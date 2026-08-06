@@ -1,10 +1,10 @@
 # Full skill inventory
 
-This pack bundles full local skill directories for the Codex Coding OS workflow. Vendor-retired source retained in the repository is labeled explicitly and is not installed.
+This pack bundles full local skill directories for the Codex Coding OS workflow.
 
 The machine-readable source of truth for validation is `pack.manifest.json`.
 
-## Bundled and vendor-retired skill sources
+## Bundled skills
 
 | Skill | Treatment | Notes |
 |---|---|---|
@@ -26,7 +26,7 @@ The machine-readable source of truth for validation is `pack.manifest.json`.
 | `ssot-auditor` | Full local skill | Controlled artifact review |
 | `process-docs` | Full local skill | Lightweight process and runbook docs |
 | `support-docs` | Full local skill | Support and help documentation |
-| `doc` | Vendor-retired source only | Retained for source history; omitted from the installed Coding OS bundle |
+| `doc` | Full local skill | DOCX intake and creation |
 | `pdf` | Full local skill | PDF intake |
 | `evidence-checker` | Full portable local skill | Source-quality and factual verification |
 | `deep-critic` | Full local skill | Skeptical critique and full 12-step source-backed critique workflow |

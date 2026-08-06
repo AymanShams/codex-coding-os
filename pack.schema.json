@@ -101,7 +101,6 @@
     "artifact_definitions",
     "required_files",
     "support_items",
-    "vendor_retired_skills",
     "bundled_skills",
     "release_safety",
     "installation"
@@ -229,10 +228,6 @@
         "minLength": 1
       },
       "uniqueItems": true
-    },
-    "vendor_retired_skills": {
-      "type": "array",
-      "const": ["doc"]
     },
     "bundled_skills": {
       "type": "array",

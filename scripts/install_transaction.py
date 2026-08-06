@@ -453,25 +453,6 @@ def _load_pack(root: Path) -> dict[str, Any]:
         raise BundleError("pack bundle manifest path must be install-bundle.manifest.json")
     if installation.get("external_skills_staged") is not False:
         raise BundleError("this public package must declare external_skills_staged=false")
-    vendor_retired = pack.get("vendor_retired_skills")
-    if not isinstance(vendor_retired, list) or any(
-        not isinstance(name, str) or not name or "/" in name or "\\" in name
-        for name in vendor_retired
-    ):
-        raise BundleError("vendor_retired_skills must be a list of one-segment skill names")
-    _validate_casefold_collisions(vendor_retired, "vendor-retired skill name")
-    bundled_names = {
-        str(record.get("name", "")).casefold()
-        for record in pack.get("bundled_skills", [])
-        if isinstance(record, dict)
-    }
-    overlap = sorted(
-        name for name in vendor_retired if name.casefold() in bundled_names
-    )
-    if overlap:
-        raise BundleError(
-            f"vendor-retired skill must not remain bundled: {overlap[0]}"
-        )
     hook = installation.get("campaign_hook")
     if not isinstance(hook, dict) or set(hook) != {"source", "target"}:
         raise BundleError("installation.campaign_hook must declare only source and target")
