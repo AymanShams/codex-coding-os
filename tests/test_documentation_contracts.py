@@ -98,7 +98,7 @@ class DocumentationContractTests(unittest.TestCase):
         (self.repo / "mirror.md").write_text("drifted\n", encoding="utf-8")
         self.assertTrue(any("exact mirror differs" in error for error in self.errors()))
 
-    def test_intentional_variant_requires_reason(self) -> None:
+    def test_intentional_variant_requires_reason_case(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         manifest["artifact_definitions"][2].pop("variant_reason")
         self.assertTrue(any("must declare variant_reason" in error for error in self.errors(manifest)))

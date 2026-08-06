@@ -117,13 +117,19 @@ codex mcp list
 
 Codex rules templates live in `.codex/rules/`.
 
-They are not installed automatically because rules affect command approval behavior outside the sandbox. Review `docs/codex-rules.md`, copy the rules into a user or trusted project rules layer, and restart Codex.
+The universal campaign block is installed only through the transactional
+installer with an explicit policy authority source and reference. The
+transaction preserves every byte outside its managed markers. Do not replace a
+complete user rules file by copying the template. See `docs/codex-rules.md`.
 
 ## Hooks policy
 
-Hooks are not enabled by default in this pack.
+The campaign hook is installed transactionally with the engine. It is a narrow
+enforcement and state-location client and does not own lifecycle state. Other
+optional hooks remain disabled unless separately reviewed and enabled.
 
-Use hooks only after checking current Codex hook behavior and reviewing the hook source.
+Use additional hooks only after checking current Codex hook behavior and
+reviewing the hook source.
 
 Recommended hook uses:
 
@@ -132,9 +138,9 @@ Recommended hook uses:
 3. Run secret-pattern scans before commit.
 4. Run frontend QA checks after UI changes.
 5. Reapply external skill overlays after optional external skill installation.
-6. Use the installed campaign hook for a read-only pointer to
-   `coding-os-state/campaigns.sqlite3`. The hook does not own lifecycle state or
-   grant write authority.
+6. Use the installed campaign hook to enforce decisions delegated to the
+   campaign engine and to locate `coding-os-state/campaigns.sqlite3`. The hook
+   owns no lifecycle state or independent authority.
 7. Add advisory capability-routing hints with
    `hooks/capability-router/user_prompt_skill_router.py` after source review.
    This reduces noisy skill/plugin suggestions but does not choose the final

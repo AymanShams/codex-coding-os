@@ -8,24 +8,37 @@ This pack includes an optional rules template at:
 
 ## Install options
 
-### User-level rules
+### User-level managed rules
 
-Use this when you want the rules to affect every Codex project for the current user:
+Install the universal campaign rules through the transactional installer. It
+replaces only the marked Coding OS block and preserves unrelated rules bytes:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "$HOME\.codex\rules"
-Copy-Item -LiteralPath ".\.codex\rules\default.rules" -Destination "$HOME\.codex\rules\default.rules" -Force
+$SourceCommit = git rev-parse HEAD
+$BundleDigest = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
+.\scripts\install.ps1 `
+  -ExpectedSourceCommit $SourceCommit `
+  -ExpectedBundleSha256 $BundleDigest `
+  -InstallUniversalPolicy `
+  -PolicyAuthoritySource explicit-user-approval `
+  -PolicyAuthorityReference "approved-universal-policy-installation"
 ```
 
-Restart Codex after copying the file.
+Do not overwrite the complete user rules file with `Copy-Item`. Restart Codex or
+open a fresh task after the transaction so the installed rules are reloaded.
 
 ### Project-level rules
 
-Use this when you want a project to carry its own command policy:
+Project-local rules are not managed by the universal installer. Use them only
+when the trusted project intentionally carries a separate command policy:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path ".\.codex\rules"
-Copy-Item -LiteralPath "<path-to-this-pack>\.codex\rules\default.rules" -Destination ".\.codex\rules\default.rules" -Force
+$Target = ".\.codex\rules\default.rules"
+if (Test-Path -LiteralPath $Target) {
+  throw "Project rules already exist. Review and merge the intended rules instead of overwriting them."
+}
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Target)
+Copy-Item -LiteralPath "<path-to-this-pack>\.codex\rules\default.rules" -Destination $Target
 ```
 
 Project-local rules load only when the project `.codex/` layer is trusted.

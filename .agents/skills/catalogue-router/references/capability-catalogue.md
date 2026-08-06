@@ -8,7 +8,7 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 |---|---|---|---|---|---|
 | Raw idea to PRD | Discovery / Drafting | `new-project-documentation-system` | `create-prd`, `working-backwards` | `deep-critic`, `pre-mortem` | User asks for hard critique, launch risk, or source-backed validation |
 | New project setup | Discovery / Planning | `new-project-documentation-system` | `technical-docs-pack`, `wbs-artifact-planner` | `security-threat-model` | Repo, stack, auth, database, or deployment scope is known |
-| Project session start, resume, or handoff | Coordination | `project-session-continuity` | `new-project-documentation-system` when the documentation manifest exists | implementation skills | Current state conflicts with controlling sources or the manifest blocks coding |
+| Project session start, resume, or handoff | Coordination | `project-session-continuity` | `new-project-documentation-system` when stable project documentation exists | implementation skills | The requested work conflicts with stable product sources or exact Git evidence |
 | Full repo docs | Documentation | `technical-docs-pack` | `artifact-system-designer`, `ssot-drafter` | `deep-critic`, `pre-mortem` | Docs must become release-gated or source-locked |
 | AI-assisted coding discipline | Execution | `ai-coding-discipline` | `improve-codebase-architecture` | `deep-critic`, `pre-mortem` | Task is high-risk, shared, production-facing, or architecturally unclear |
 | Capability mining from prior chats | Analysis | `chat-export-capability-miner` | `catalogue-router`, `external-skill-overlay-pack` | `product-strategy` | Extracted capabilities affect install, publishing, or security policy |
@@ -59,6 +59,7 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 - `chat-export-capability-miner`
 - `cli-creator`
 - `code-review-graph`
+- `codex-coding-os-master`
 - `codex-design-artifacts`
 - `composition-patterns`
 - `create-prd`
@@ -68,6 +69,7 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 - `defensive-security-checklist`
 - `doc`
 - `evidence-checker`
+- `external-skill-overlay-pack`
 - `grill-me`
 - `grill-with-docs`
 - `humanizer`

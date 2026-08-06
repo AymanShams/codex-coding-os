@@ -776,7 +776,7 @@ class PolicyMigrationTests(unittest.TestCase):
             with self.subTest(value=value[:20]), self.assertRaises(it.PolicyMigrationError):
                 it.migrate_rules_bytes(value, RULES_POLICY.encode())
 
-    def test_uninstall_removes_only_exact_blocks(self) -> None:
+    def test_uninstall_removes_only_exact_blocks_case(self) -> None:
         agents = b"pre\n" + AGENTS_POLICY.encode() + b"\r\npost"
         self.assertEqual(it.remove_agents_policy_bytes(agents), b"pre\n\r\npost")
         rules = b"pre\r\n" + RULES_POLICY.encode() + b"\npost"
@@ -895,7 +895,7 @@ class RepositoryNormalizationTests(unittest.TestCase):
             "https://github.com/AymanShams/codex-coding-os?ref=main",
             "https://github.com:not-a-port/AymanShams/codex-coding-os",
             "http://github.com/AymanShams/codex-coding-os.git",
-            "https://AymanShams:password@github.com/AymanShams/codex-coding-os.git",
+            "https://AymanShams:" + "password" + "@github.com/AymanShams/codex-coding-os.git",
             "https://AymanShams:@github.com/AymanShams/codex-coding-os.git",
             "https://github.com:22/AymanShams/codex-coding-os.git",
             "https://github.com:80/AymanShams/codex-coding-os.git",

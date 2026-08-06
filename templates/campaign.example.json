@@ -1,0 +1,117 @@
+{
+  "campaign_id": "replace-with-stable-campaign-id",
+  "specification_revision": 1,
+  "authority_epoch": 1,
+  "cancellation_epoch": 0,
+  "mode": "MANUAL",
+  "objective": "Replace this sentence with the exact bounded outcome.",
+  "objective_kind": "PRODUCT_CODE",
+  "repository_remote": "https://github.com/example/project.git",
+  "git_root": "C:/absolute/path/to/project",
+  "worktree": "C:/absolute/path/to/project",
+  "branch": "codex/example-campaign",
+  "base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "allowed_paths": [
+    "src/**",
+    "tests/**"
+  ],
+  "nodes": [
+    {
+      "node_id": "implementation",
+      "objective": "Implement and verify the exact bounded outcome.",
+      "dependencies": [],
+      "allowed_paths": [
+        "src/**",
+        "tests/**"
+      ],
+      "validation_command_ids": [
+        "unit-tests"
+      ],
+      "deadline_utc": "2099-12-31T23:59:59Z"
+    }
+  ],
+  "required_validation_commands": [
+    {
+      "command_id": "unit-tests",
+      "executable": "python",
+      "arguments": [
+        "-B",
+        "-m",
+        "unittest"
+      ],
+      "working_directory": "C:/absolute/path/to/project",
+      "environment_allowlist": [
+        "PATH",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP"
+      ],
+      "timeout_seconds": 300,
+      "output_limit_bytes": 1000000,
+      "expected_worktree_condition": "CLEAN",
+      "required_exit_code": 0
+    }
+  ],
+  "required_review_cohort": [
+    "reviewer-1",
+    "reviewer-2"
+  ],
+  "publication_authority": {
+    "authorized_by": "replace-with-authority-source",
+    "human_authorization": {
+      "algorithm": "ED25519",
+      "public_key_base64": "3g/Xn9rSdMiJ/OihjQY1432/N2i2U7k4zPWWOV+NOYk="
+    },
+    "automated": false,
+    "repository": "example/project",
+    "base_branch": "main",
+    "allowed_effects": [
+      "PUSH",
+      "CREATE_PULL_REQUEST",
+      "UPSERT_COMMENT",
+      "MERGE"
+    ],
+    "required_effects": [
+      "PUSH",
+      "CREATE_PULL_REQUEST",
+      "MERGE"
+    ],
+    "required_hosted_checks": [],
+    "effect_payloads": {
+      "CREATE_PULL_REQUEST": {
+        "title": "Replace with the exact pull request title",
+        "body": "Replace with the reviewed pull request summary and validation evidence."
+      }
+    }
+  },
+  "attempt_budgets": [
+    { "token": "CHILD_CREATION", "limit": 2 },
+    { "token": "CHILD_START", "limit": 2 },
+    { "token": "VALIDATION_EXECUTION", "limit": 2 },
+    { "token": "REVIEW_DISPATCH", "limit": 2 },
+    { "token": "REPAIR_DISPATCH", "limit": 2 },
+    { "token": "CLOSURE_DISPATCH", "limit": 2 },
+    { "token": "HOSTED_CHECK_WAKEUP", "limit": 2 },
+    { "token": "TRANSPORT_RETRY", "limit": 2 },
+    { "token": "RECONCILIATION", "limit": 2 },
+    { "token": "PUSH", "limit": 2 },
+    { "token": "PULL_REQUEST_CREATION", "limit": 2 },
+    { "token": "COMMENT", "limit": 2 },
+    { "token": "MERGE", "limit": 2 },
+    { "token": "REJECTED_ATTEMPT", "limit": 2 },
+    { "token": "NO_OP_ATTEMPT", "limit": 2 }
+  ],
+  "stop_conditions": [
+    "budget exhausted",
+    "deadline exceeded",
+    "STOP"
+  ],
+  "installed_source_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "installed_bundle_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "install_transaction": "replace-with-installed-transaction-id",
+  "protocol_version": "ccos-campaign-v1",
+  "schema_compatibility": "campaign-store-v1",
+  "host_capability_probe_version": "native-bind-before-turn-scoped-tools-v3",
+  "autonomous_rank": 30,
+  "deadline_utc": "2099-12-31T23:59:59Z"
+}

@@ -5,7 +5,7 @@ Read `AGENTS.md` and the repository's stable product sources.
 For automated work, use only the installed campaign executable:
 
 ```powershell
-python "$env:USERPROFILE\.codex\coding-os\scripts\agent\campaign_engine\cli.py" status --repository-root . --json
+python -B "$env:USERPROFILE\.codex\coding-os\scripts\agent\campaign_engine\cli.py" --json status --repository-root .
 ```
 
 The external SQLite campaign store is the sole lifecycle authority. Bind every
