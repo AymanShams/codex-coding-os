@@ -126,13 +126,34 @@ if (Test-Path $LocalExclusionPath) {
   }
 }
 
+$CandidateHead = $null
+if ($ScanGitHistory) {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    $Errors += "git is required for an exact candidate history scan."
+  } else {
+    $CandidateHead = (& git -C $RepoRoot rev-parse HEAD 2>$null).Trim()
+    if ($LASTEXITCODE -ne 0 -or $CandidateHead -notmatch '^[0-9a-f]{40}$') {
+      $Errors += "history scan could not resolve one exact candidate HEAD."
+      $CandidateHead = $null
+    }
+    $CandidateStatus = @(& git -C $RepoRoot status --porcelain --untracked-files=all 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+      $Errors += "history scan could not verify the candidate working tree."
+    } elseif ($CandidateStatus.Count -gt 0) {
+      $Errors += "history scan requires a clean committed candidate working tree."
+    }
+  }
+}
+
 if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
   if ($ScanGitHistory) {
-    & gitleaks detect --source $RepoRoot --redact --verbose
+    if ($CandidateHead) {
+      & gitleaks detect --source $RepoRoot --log-opts=$CandidateHead --redact --verbose
+    }
   } else {
     & gitleaks detect --source $RepoRoot --no-git --redact --verbose
   }
-  if ($LASTEXITCODE -ne 0) {
+  if ((-not $ScanGitHistory -or $CandidateHead) -and $LASTEXITCODE -ne 0) {
     $Errors += "gitleaks reported findings."
   }
 } elseif ($RequireExternalScanners) {
@@ -142,20 +163,61 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
 }
 
 if (Get-Command trufflehog -ErrorAction SilentlyContinue) {
-  if ($ScanGitHistory) {
-    $RemoteUrl = (& git -C $RepoRoot remote get-url origin 2>$null)
-    if ($RemoteUrl -match "^https://") {
-      Write-Output "TruffleHog history scan target: origin remote"
-      & trufflehog git $RemoteUrl --no-update --fail
-    } else {
-      $RepoUri = (Resolve-Path -LiteralPath $RepoRoot).Path -replace "\\", "/"
-      & trufflehog git "file:///$RepoUri" --no-update --fail
+  $Python = Get-Command python -ErrorAction SilentlyContinue
+  $TruffleHogGate = Join-Path $RepoRoot "scripts\trufflehog_result_gate.py"
+  if (-not $Python) {
+    $Errors += "python is required for redacted TruffleHog result evaluation."
+  } elseif (-not (Test-Path -LiteralPath $TruffleHogGate -PathType Leaf)) {
+    $Errors += "TruffleHog result gate is missing: $TruffleHogGate"
+  } elseif ($ScanGitHistory) {
+    if ($CandidateHead) {
+      Write-Output "TruffleHog history scan target: exact local candidate ancestry"
+      $AbsoluteUri = ([System.Uri](Resolve-Path -LiteralPath $RepoRoot).Path).AbsoluteUri
+      if ([IO.Path]::DirectorySeparatorChar -eq [char]92) {
+        $HistoryTarget = $AbsoluteUri -replace '^file:///', 'file://'
+      } else {
+        $HistoryTarget = $AbsoluteUri
+      }
+      $AllowlistPath = Join-Path $RepoRoot "scripts\release-safety-trufflehog-allowlist.json"
+      $TruffleHogOutput = @(
+        & trufflehog git $HistoryTarget --no-update --json --no-color `
+          --log-level=-1 --fail-on-scan-errors --branch=$CandidateHead `
+          --concurrency=1 2>&1
+      )
+      $TruffleHogExit = $LASTEXITCODE
+      if ($TruffleHogExit -ne 0) {
+        $Errors += "trufflehog history scan failed with exit code $TruffleHogExit."
+      } else {
+        $GateOutput = @(
+          $TruffleHogOutput | & python -B $TruffleHogGate `
+            --mode history --allowlist $AllowlistPath `
+            --candidate-head $CandidateHead
+        )
+        $GateExit = $LASTEXITCODE
+        $GateOutput | ForEach-Object { Write-Output $_ }
+        if ($GateExit -ne 0) {
+          $Errors += "trufflehog history result gate rejected the scan."
+        }
+      }
     }
   } else {
-    & trufflehog filesystem --no-update --fail $RepoRoot
-  }
-  if ($LASTEXITCODE -ne 0) {
-    $Errors += "trufflehog reported findings."
+    $TruffleHogOutput = @(
+      & trufflehog filesystem --no-update --json --no-color `
+        --log-level=-1 --fail-on-scan-errors $RepoRoot 2>&1
+    )
+    $TruffleHogExit = $LASTEXITCODE
+    if ($TruffleHogExit -ne 0) {
+      $Errors += "trufflehog current-source scan failed with exit code $TruffleHogExit."
+    } else {
+      $GateOutput = @(
+        $TruffleHogOutput | & python -B $TruffleHogGate --mode current
+      )
+      $GateExit = $LASTEXITCODE
+      $GateOutput | ForEach-Object { Write-Output $_ }
+      if ($GateExit -ne 0) {
+        $Errors += "trufflehog current-source result gate rejected the scan."
+      }
+    }
   }
 } elseif ($RequireExternalScanners) {
   $Errors += "trufflehog is required but not installed."
@@ -165,6 +227,17 @@ if (Get-Command trufflehog -ErrorAction SilentlyContinue) {
 
 if ($ScanGitHistory -and -not (Test-Path (Join-Path $RepoRoot ".git"))) {
   $Warnings += "Git history scan requested, but .git was not found under the repository root."
+}
+
+if ($CandidateHead) {
+  $FinalHead = (& git -C $RepoRoot rev-parse HEAD 2>$null).Trim()
+  $FinalStatus = @(& git -C $RepoRoot status --porcelain --untracked-files=all 2>$null)
+  if ($LASTEXITCODE -ne 0 -or $FinalHead -ne $CandidateHead) {
+    $Errors += "candidate HEAD changed during the history scan."
+  }
+  if ($FinalStatus.Count -gt 0) {
+    $Errors += "candidate working tree changed during the history scan."
+  }
 }
 
 if ($Warnings.Count -gt 0) {

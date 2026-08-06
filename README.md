@@ -53,13 +53,19 @@ available so STOP cannot be blocked by a damaged runtime.
 
 ## Install
 
-From an exact clean source commit:
+For the complete installation, including managed universal policy, use an exact
+clean tagged Git checkout:
 
 ```powershell
-$SourceCommit = git rev-parse HEAD
-.\scripts\package.ps1
+$SourceCommit = (git rev-parse HEAD).Trim()
 $BundleDigest = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
-.\scripts\install.ps1 -ExpectedSourceCommit $SourceCommit -ExpectedBundleSha256 $BundleDigest
+.\scripts\install.ps1 `
+  -ExpectedSourceCommit $SourceCommit `
+  -ExpectedBundleSha256 $BundleDigest `
+  -InstallUniversalPolicy `
+  -RefreshCapabilityIndex `
+  -PolicyAuthoritySource explicit-user-approval `
+  -PolicyAuthorityReference "approved-tagged-installation"
 ```
 
 The transactional installer verifies the bundle, promotes the support tree and
@@ -73,21 +79,37 @@ also reject any other skills root. A clean first install and v3 reinstall or
 uninstall use this canonical nested layout without a
 migration flag. Only an existing strict v2 install at that layout requires
 `-LegacyOverlapMigration`, which preserves its migration evidence. Other
-overlapping root layouts are rejected. Use the installer help for explicit
+overlapping root layouts are rejected. Use PowerShell help for the complete
 source and legacy archive options:
 
 ```powershell
-.\scripts\install.ps1 -Help
+Get-Help .\scripts\install.ps1 -Full
 ```
+
+The published ZIP contains no `.git` directory. Verify its SHA-256 sidecar and
+use `-ArchiveMode` with the exact 40-character release commit recorded in the
+release notes. Archive mode installs the engine but preserves universal policy
+and cannot install or remove it. Use the tagged Git checkout when universal
+policy must be changed. [Getting Started](docs/getting-started.md) contains both
+command paths.
 
 Linux and macOS use:
 
 ```bash
 source_commit="$(git rev-parse HEAD)"
-./scripts/package.sh
-bundle_digest="$(python -c 'import json; print(json.load(open("install-bundle.manifest.json"))["aggregate_sha256"])')"
-./scripts/install.sh --expected-source-commit "$source_commit" --expected-bundle-sha256 "$bundle_digest"
+bundle_digest="$(python3 -c 'import json; print(json.load(open("install-bundle.manifest.json"))["aggregate_sha256"])')"
+./scripts/install.sh \
+  --expected-source-commit "$source_commit" \
+  --expected-bundle-sha256 "$bundle_digest" \
+  --install-universal-policy \
+  --refresh-capability-index \
+  --policy-authority-source explicit-user-approval \
+  --policy-authority-reference approved-tagged-installation
 ```
+
+The release bundle manifest is committed with the exact source. Packaging a
+new release is a maintainer operation performed with `scripts/package.ps1` on
+a clean reviewed commit.
 
 Universal policy handling is tri-state. Omitting both policy action flags
 preserves a previously managed global `AGENTS.md` and `default.rules` unchanged.
@@ -105,14 +127,14 @@ Use the installed executable:
 
 ```powershell
 $Engine = "$env:USERPROFILE\.codex\coding-os\scripts\agent\campaign_engine\cli.py"
-python $Engine --json doctor
-python $Engine --json admit --spec .\campaign.json
-python $Engine --json approve --campaign-id <id> --specification-digest <digest>
-python $Engine --json run --campaign-id <id>
-python $Engine --json status --campaign-id <id>
-python $Engine --json cancel --campaign-id <id>
-python $Engine --json reconcile --operation-id <operation-id>
-python $Engine --json legacy inspect --source "$env:USERPROFILE\.codex\case-state"
+python -B $Engine --json doctor
+python -B $Engine --json admit --spec .\campaign.json
+python -B $Engine --json approve --campaign-id <id> --specification-digest <digest>
+python -B $Engine --json run --campaign-id <id>
+python -B $Engine --json status --campaign-id <id>
+python -B $Engine --json cancel --campaign-id <id>
+python -B $Engine --json reconcile --operation-id <operation-id>
+python -B $Engine --json legacy inspect --source "$env:USERPROFILE\.codex\case-state"
 ```
 
 `run` advances until a named external event or terminal result. It does not
@@ -168,7 +190,7 @@ invalidates leases, interrupts owned workers and process trees, prevents new
 effects, rejects late results, reconciles uncertain effects, and ends the
 campaign in `CANCELLED`. Restart recovery never resumes a cancelled campaign.
 
-## Legacy retirement
+## Legacy engine retirement
 
 `scripts/agent/case_state.py` is a permanent command stub. Every former mutation
 returns `LEGACY_ENGINE_RETIRED` with exit code 78. The new engine never imports
@@ -177,6 +199,26 @@ or calls the retired engine.
 Legacy state is copied into a verified read-only archive. Unresolved cases are
 classified `LEGACY_ARCHIVED_UNRESOLVED`. Historical records are never activated
 inside the new store and never translated into a new outcome.
+
+Version 1.0 retired the former case registration and transition commands,
+controller and broker lifecycle authority, actor-binding authority, review and
+repair generation, session-state gates, current-state equality, active-slice
+permission, handoff authority, path-only classification, anti-loop lifecycle
+authority, and direct installed mutation rules.
+
+Those paths were retired because they could form several competing authorities.
+Stale repository or session metadata could disagree with the real Git head,
+worker identity, review evidence, or external effect and then falsely stop work,
+falsely permit work, or create another support cycle. The replacement puts every
+lifecycle transition in one pure reducer, every volatile decision in one
+external SQLite store, and every publication mutation behind one durable,
+reconcilable outbox.
+
+The denial stub is not a compatibility engine or fallback. What remains is
+deliberately narrow: read-only legacy evidence, stable product specifications,
+and exact-file replacement verification owned by the new engine. See
+[Legacy Case Engine Retirement](docs/case-state-contract.md) for the complete
+boundary and [Getting Started](docs/getting-started.md) for the 0.x upgrade.
 
 ## Repository adapters
 
@@ -219,6 +261,7 @@ fixture.
 ## Source map
 
 - [Campaign engine contract](docs/campaign-engine.md)
+- [Legacy case engine retirement](docs/case-state-contract.md)
 - [Getting started](docs/getting-started.md)
 - [Review doctrine](docs/review-doctrine.md)
 - [System scope](docs/system-scope.md)

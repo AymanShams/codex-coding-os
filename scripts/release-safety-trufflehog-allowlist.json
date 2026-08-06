@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "scope": "immutable-git-history-only",
+  "entries": [
+    {
+      "detector": "Lob",
+      "path": "tests/test_case_proposal_action_grant.py",
+      "commit": "14410369d488e1e4347fdac94f79abc8a0aebf54",
+      "expected_verified": true,
+      "raw_sha256": "505d188d73930c3a10a4f794e219520fc282797b5ccdc8dca2deaca7e32ad472",
+      "reason": "A historical Python unittest identifier is exactly 40 word characters beginning with test_, which matches the Lob test-key pattern. It is source code, not a credential."
+    },
+    {
+      "detector": "Lob",
+      "path": "tests/test_documentation_contracts.py",
+      "commit": "faa4cff0d71b51d71ac1d8385e88e05d1d4fe6ba",
+      "expected_verified": true,
+      "raw_sha256": "e399b4f19937d2dc68c79dea9c08f8b21d1aa51f577e5daa732169dce5d0dffd",
+      "reason": "A historical Python unittest identifier is exactly 40 word characters beginning with test_, which matches the Lob test-key pattern. It is source code, not a credential."
+    },
+    {
+      "detector": "Lob",
+      "path": "tests/test_campaign_tlc_runner.py",
+      "commit": "3caf927185cb2aca4ebb76b2593d9812c949df6e",
+      "expected_verified": true,
+      "raw_sha256": "35a7b156bc213964f1db0de2d4b41c4beac72f61d5759d9cf669ba825fc5f6a6",
+      "reason": "A historical Python unittest identifier is exactly 40 word characters beginning with test_, which matches the Lob test-key pattern. It is source code, not a credential."
+    },
+    {
+      "detector": "Lob",
+      "path": "tests/test_install_transaction.py",
+      "commit": "2b4acc9911355b07a036b3c24f9abe9b58be31ee",
+      "expected_verified": true,
+      "raw_sha256": "0abaca617f14e2f7111b392cd60eaf619c7181558b540b722515e66497ddac77",
+      "reason": "A historical Python unittest identifier is exactly 40 word characters beginning with test_, which matches the Lob test-key pattern. It is source code, not a credential."
+    },
+    {
+      "detector": "URI",
+      "path": "tests/test_install_transaction.py",
+      "commit": "2f53de2cdee97fc8a5f13bee8ab69ff076d73e52",
+      "expected_verified": false,
+      "raw_sha256": "0ce2d012a0dcb3f4ae73ec8c0022590e1e439d06990fdb88dfafb8295dc196e1",
+      "reason": "A historical malformed-remote rejection fixture used the literal word password in an embedded-credential URL. It is an unverified synthetic test value, not a credential."
+    }
+  ]
+}

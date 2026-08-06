@@ -20,6 +20,8 @@ jobs:
       - name: Validate pack and source contracts
         shell: pwsh
         run: ./scripts/validate-pack.ps1
+      - name: Test redacted secret-scanner result gate
+        run: python -B -m unittest tests.test_trufflehog_result_gate -v
       - name: Validate JSON Schema support
         shell: pwsh
         run: ./tests/json-schema-validation-smoke.ps1

@@ -4,16 +4,17 @@
 - Decision owners: Human run-envelope authority and Codex Coding OS maintainers
 - Scope: Canonical review receipts, terminal quarantine, and one exact existing-file replacement primitive
 
-This record is retained as historical design evidence only. None of its case,
-controller, supervisor, broker, grant, or lifecycle components are installed or
-callable. The campaign reducer, SQLite store, native host, and exact-file effect
-driver replace the design completely.
+This record is retained as historical design evidence only. None of its former
+case lifecycle, controller, supervisor, broker, or grant implementations are
+installed or callable. The callable `case_state.py` tombstone is only a
+deterministic `LEGACY_ENGINE_RETIRED` denial stub. The campaign reducer, SQLite
+store, native host, and exact-file effect driver replace the design completely.
 
-ADR 0002 previously replaced this ADR's App Server identity, actor, thread, turn, and
-supervisor-HMAC authorization design. Existing `ccos-runtime-action-grant-v1`
-records remain readable only for bounded terminal recovery. New v1 grant
-issuance is disabled. The reviewer-receipt and terminal-quarantine decisions in
-this ADR remain current.
+ADR 0002 previously replaced this ADR's App Server identity, actor, thread,
+turn, and supervisor-HMAC authorization design. That replacement sequence is
+also historical. No grant issuance, recovery, reviewer-receipt,
+terminal-quarantine, or lifecycle decision in this ADR remains current
+authority.
 
 ## Context
 

@@ -4,7 +4,7 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-08-04
+## [1.0.0] - 2026-08-06
 
 ### Added
 
@@ -17,6 +17,10 @@ All notable package changes are recorded here. The authoritative package release
 - Added thin repository adapters and separate CI signals for product quality,
   product tests, product acceptance, requested documentation, Coding OS adapter,
   and pull request metadata.
+- Added a pinned, fork-based mutation gate for the lifecycle reducer with
+  explicit equivalent-mutant receipts and zero unexpected survivors.
+- Added exact installed-runtime, live native-host, repository admission,
+  restart-recovery, and disposable-repository acceptance proofs.
 
 ### Fixed
 
@@ -25,6 +29,12 @@ All notable package changes are recorded here. The authoritative package release
   budget receipts.
 - Preserved exact-file replacement verification inside one narrow campaign
   effect driver without retaining a second lifecycle authority.
+- Restored the complete managed `doc` skill, corrected universal-policy
+  preservation, removed exact direct allows for retired commands, and closed
+  repository-adapter documentation-validator blind spots.
+- Made strict public-release scanning distinguish a short, exact set of
+  reviewed historical test-fixture false positives without weakening current
+  source scanning or using broad path exclusions.
 
 ### Changed
 
@@ -36,8 +46,25 @@ All notable package changes are recorded here. The authoritative package release
   informational only.
 - Replaced the installer, managed rules, campaign hook, repository templates,
   and core coding skills so they call only the campaign engine.
+- Replaced fragmented Git and session lifecycle authority because stale case,
+  current-state, active-slice, handoff, actor, and review records could disagree
+  with the actual repository and produce false stops, false permissions, or
+  repeated support work.
+
+### Removed
+
+- Removed legacy lifecycle mutation and authorization from the case engine,
+  controller, broker, session, active-slice, handoff, path-only, and anti-loop
+  paths. Only the deterministic denial stub, verified read-only archive reader,
+  and narrow exact-file effect driver remain.
+- Removed fallback, compatibility, shadow, parallel lifecycle-engine, and
+  dual-mode lifecycle execution. Former lifecycle commands return
+  `LEGACY_ENGINE_RETIRED` instead of invoking an older authority.
 
 ## [0.10.0] - 2026-07-29
+
+This was an unpublished internal milestone. No `v0.10.0` public tag or GitHub
+release was created.
 
 ### Added
 

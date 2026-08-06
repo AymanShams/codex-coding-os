@@ -10,6 +10,12 @@ broker, and lifecycle authority is retired. The proven exact-file replacement
 verification semantics now live exclusively in
 `scripts/agent/campaign_engine/effects.py` as a narrow effect driver.
 
+All present-tense implementation, trust-boundary, compatibility, recovery, and
+acceptance statements below describe the superseded 0.x design. They are
+non-operative in version 1.0. In particular, no old grant can recover, write,
+authorize, or mutate lifecycle state. Legacy material is available only through
+the read-only archive, and stale command calls reach the denial stub.
+
 ## Context
 
 Live App Server feasibility did not establish a dependable parent-to-broker

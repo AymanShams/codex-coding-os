@@ -76,7 +76,7 @@ class CampaignTlcRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.TlcRunnerError, "exited with code 1"):
             self._run_with_result(1, runner.TLC_SUCCESS_MARKER.encode())
 
-    def test_missing_success_marker_fails_closed(self) -> None:
+    def test_missing_success_marker_fails_closed_case(self) -> None:
         with self.assertRaisesRegex(runner.TlcRunnerError, "success marker"):
             self._run_with_result(0, b"TLC finished without a proof receipt")
 

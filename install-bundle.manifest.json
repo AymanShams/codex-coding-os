@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "1364ea69fdb86737dca6c57752f2f8e839734d5335b39afc6db627dc5b9d4b22",
+  "aggregate_sha256": "7e3ee9201a51ac68c871667f6040a7ee429d5876aaf7c52ebd247270e6d75d7a",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -38,8 +38,8 @@
     },
     {
       "path": ".agents/skills/catalogue-router/references/capability-catalogue.md",
-      "sha256": "360abc8e88df2cbb8e63a8890db93f1ea3f0b7f23f45b1f461c1481bd0f6c03a",
-      "size": 10056
+      "sha256": "9fd3c58dfaf59be9de18166a7ca42fee8adeba173fdfebf7c429923e06918d4f",
+      "size": 10117
     },
     {
       "path": ".agents/skills/catalogue-router/scripts/query-catalogue.ps1",
@@ -2153,13 +2153,13 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "615ee81fc6e7e624d62884b0de5df0c7e2ef79bab92d3df1dfd5e6f95c975ec5",
-      "size": 4529
+      "sha256": "9301daf06815d8c793e4e97c27c610e3da16f5c5dd17413f61f489565a946815",
+      "size": 4656
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "d77c1b51eff93f79a4301ea73e1f96e3fb6768021763755306d2fbf8550e019e",
-      "size": 17158
+      "sha256": "8b2291f5c55066ecfcc66e07e4cc097d0df40ac5d723300ea525af134f28354c",
+      "size": 18706
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2183,8 +2183,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "e5cf3af0ee8f9881c7db84d51e6a89aef8179358d53e172e432805aaa55c8a37",
-      "size": 9976
+      "sha256": "f41e8f53230beed336e761cdc0a5c8ed117ad5ffda8a43fb879365047df2bd88",
+      "size": 12290
     },
     {
       "path": "SECURITY.md",
@@ -2228,13 +2228,13 @@
     },
     {
       "path": "docs/architecture/adr/0001-brokered-runtime-action-boundary.md",
-      "sha256": "99cb78666ef07ba5594e8ede36248fcc073378c00982d2c42d357b5424abb5e2",
-      "size": 8483
+      "sha256": "ce6ebbd7d6a32430974ae0c6070863728b54a443bf57f43b1c181cdd06e8659a",
+      "size": 8551
     },
     {
       "path": "docs/architecture/adr/0002-artifact-authorized-one-shot-action.md",
-      "sha256": "788f167546bb063bc750b2a8af30e448589e580668474d4897d4d5f2bf96326d",
-      "size": 8361
+      "sha256": "ffd6ad53d23185bbb58850bd355c101a275fbabb80eea0b62442462e42181a35",
+      "size": 8742
     },
     {
       "path": "docs/architecture/adr/0003-campaign-engine-bounded-correction-exceptions.md",
@@ -2243,23 +2243,23 @@
     },
     {
       "path": "docs/campaign-engine.md",
-      "sha256": "714cd72fba1bbd52ec5ee16db04b639607fc0b9b299fae544c43e5d57ec5d30a",
-      "size": 3261
+      "sha256": "88334d90bb7902efbe952b85dac287dc279d3320bd40173fa387acc654633a04",
+      "size": 3699
     },
     {
       "path": "docs/case-state-contract.md",
-      "sha256": "0c3cc447b5945e3a5f97ce34dd094a45dfaf05c78e9b79190303d8dd64617d1c",
-      "size": 604
+      "sha256": "8cfcb4e12aa87d3b821e2a5b7e70821238ac44977662fcade078fbc514712aac",
+      "size": 2479
     },
     {
       "path": "docs/codex-plugins-mcps-hooks.md",
-      "sha256": "1a2dfccd5af5ad96a91b44098e14d25c25e046d755595c0f294c59e79b65b205",
-      "size": 7047
+      "sha256": "69a9cf121ebf6a1e65203061d5f737a1aa4637b240d4c54acec6c1d0220572fd",
+      "size": 7361
     },
     {
       "path": "docs/codex-rules.md",
-      "sha256": "731b7338a6914178e122b2adae15c553f0c828bdce7aa2465341abd69487f5bd",
-      "size": 1829
+      "sha256": "525f98692445bc9543f8368f1b0d518dd6629630fea0a0386448333d0dbab592",
+      "size": 2491
     },
     {
       "path": "docs/component-classification.md",
@@ -2278,8 +2278,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "bfa289b03f8c5fd32d6a1cceea773a3fa8f27122379efe944cdbd510cd06dbdd",
-      "size": 3422
+      "sha256": "eb7c2861cc31e7fd5a55c543a5da88eb0a0f0710715c093dc1a68ea9c6d11f7e",
+      "size": 7359
     },
     {
       "path": "docs/license-strategy.md",
@@ -2308,8 +2308,8 @@
     },
     {
       "path": "docs/publishing-checklist.md",
-      "sha256": "970df9d8d2c706c2d1efc76794818ba51fa71dfb679880da8e0386d1342d448c",
-      "size": 3577
+      "sha256": "99008cc4cc6b28d6110ee8ae510d4246c7a61574830537401f102341ef6b341f",
+      "size": 5776
     },
     {
       "path": "docs/review-doctrine.md",
@@ -2373,8 +2373,8 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "a913dc951e39ed6c8a1b86877d91ae6ff588dd4c611b027fa7071457b1773320",
-      "size": 26731
+      "sha256": "14f04bd962879c1f06b54048f5a8987abb971d73e73149ab3e31d13541187810",
+      "size": 27332
     },
     {
       "path": "pack.schema.json",
@@ -2513,8 +2513,13 @@
     },
     {
       "path": "scripts/release-safety-scan.ps1",
-      "sha256": "2ceb586286e82ce8617f052869be2c4edd022dd1164ff3a060bebfc8ab57f85c",
-      "size": 7212
+      "sha256": "57bf5d8c0004e40cf23ddabd3d89b393783cf06191884388d7133635a75d22ac",
+      "size": 10317
+    },
+    {
+      "path": "scripts/release-safety-trufflehog-allowlist.json",
+      "sha256": "79765f20ade02cbf617bd8372a0c7bed7342ad2d997307d99fddda3047e3440f",
+      "size": 2384
     },
     {
       "path": "scripts/run_campaign_tlc.py",
@@ -2525,6 +2530,11 @@
       "path": "scripts/run_reducer_mutation_gate.py",
       "sha256": "ed74f1522b40d3c90f685ccb97d4d0c867f34f5fc39881f0dabb3f53af992947",
       "size": 6626
+    },
+    {
+      "path": "scripts/trufflehog_result_gate.py",
+      "sha256": "1601b52699f0318b6a6e0475ee5d29678066b8fa2a3c00dbf0af8b009f479e3c",
+      "size": 8636
     },
     {
       "path": "scripts/uninstall.ps1",
@@ -2553,8 +2563,8 @@
     },
     {
       "path": "templates/CLAUDE.md",
-      "sha256": "1f90270c3603b4193db08986a180bc7cdc16525e948f3cdbcbf329180a24500e",
-      "size": 903
+      "sha256": "d29cee3c6df160dbc15e7ac98a29b07168720d7dc5c0717c1cc98201566ecce9",
+      "size": 906
     },
     {
       "path": "templates/adr.md",
@@ -2570,6 +2580,11 @@
       "path": "templates/backend-structure.md",
       "sha256": "fd86a163128703ba8a8edb5affe81ee5c1806f083098eea8ad9498003c380813",
       "size": 1021
+    },
+    {
+      "path": "templates/campaign.example.json",
+      "sha256": "1713236a65c0ab1b56f72134b8281ab4d089910372d8d364ebbf3688545a519b",
+      "size": 3547
     },
     {
       "path": "templates/first-codex-prompt.md",
@@ -2823,18 +2838,18 @@
     },
     {
       "path": "tests/test_campaign_tlc_runner.py",
-      "sha256": "707f5b20df278f52214262642375d6b835b243a945db5f04acb4cf358fd8af01",
-      "size": 3357
+      "sha256": "8ebde401707d2e6268e9dd48e2f78f896d76eef72c07f27b91bf46ac54734691",
+      "size": 3362
     },
     {
       "path": "tests/test_documentation_contracts.py",
-      "sha256": "454387eb4aa7ee28045f4b8dc99bfcc2e900ecf9b2f0e9b4c3c83cac2f456e98",
-      "size": 10386
+      "sha256": "a3362d0f0f7b53a22f55c4cae06978cc267d21df64386bb6bfbbdcb7a0de90dc",
+      "size": 10391
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "4382df5ab521a659acda38e02b84aad026cc9455a503a5ddfeb1379f0719bd38",
-      "size": 118767
+      "sha256": "da6284ec410cba2d452c2bb6c58399a9884f5e8978fadae31048627b04f7f5a3",
+      "size": 118782
     },
     {
       "path": "tests/test_project_artifact_instances.py",
@@ -2843,8 +2858,8 @@
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "d652ba6da749641a33e610ea41be8d3282c161bbebaaa3bded2697fbcb9f70ec",
-      "size": 6625
+      "sha256": "cc81d0cee89dcfb6a23937afc63722992ce5faa68622f4dc5419aa3776226ded",
+      "size": 18700
     },
     {
       "path": "tests/test_reducer_mutation_gate.py",
@@ -2855,6 +2870,11 @@
       "path": "tests/test_source_repository_profile.py",
       "sha256": "cac592ed5a4f463d3c297d34aeeaf0ba1b6eb6512a1bc670841a43220155c271",
       "size": 4757
+    },
+    {
+      "path": "tests/test_trufflehog_result_gate.py",
+      "sha256": "b8cec51c187879b8c4a1d6677c8c83e3a9837b7c8888f770116628c794298dff",
+      "size": 6340
     },
     {
       "path": "tests/test_validation_evidence.py",

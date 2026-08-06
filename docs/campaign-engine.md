@@ -71,3 +71,10 @@ by itself.
 The former case engine is not a fallback and has no mutation surface. Its public
 commands return `LEGACY_ENGINE_RETIRED`. `legacy.py` can only inspect and archive
 old records as read-only evidence.
+
+The replacement removed competing lifecycle authorities because Git state,
+session metadata, handoffs, caller roles, hooks, and runtime commands could
+disagree or become stale. The single reducer and external store prevent those
+sources from independently stopping, approving, reviewing, repairing, or
+publishing work. See [Legacy Case Engine Retirement](case-state-contract.md) for
+the retired surfaces and preserved evidence boundary.
