@@ -652,6 +652,89 @@ class PolicyMigrationTests(unittest.TestCase):
             with self.subTest(label=label), self.assertRaises(it.PolicyMigrationError):
                 it.migrate_agents_bytes(existing, AGENTS_POLICY.encode())
 
+    def test_markerless_campaign_layout_restores_policy_for_lf_and_crlf(self) -> None:
+        markerless = (
+            "intro\n"
+            + it.AGENTS_CAMPAIGN_AUTHORITY_LINE
+            + "\nother\n"
+            + it.AGENTS_CAMPAIGN_ROUTING_POINTER
+            + it.AGENTS_LEGACY_ROUTING_SENTINEL
+            + "\nend\n"
+        ).encode()
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                existing = markerless if newline == b"\n" else markerless.replace(b"\n", b"\r\n")
+                routing_start = existing.index(it.AGENTS_LEGACY_ROUTING_START.encode())
+                migrated = it.migrate_agents_bytes(existing, AGENTS_POLICY.encode())
+                expected = (
+                    existing[:routing_start]
+                    + AGENTS_POLICY.encode()
+                    + newline
+                    + existing[routing_start:]
+                )
+                self.assertEqual(migrated, expected)
+                self.assertEqual(migrated.count(it.AGENTS_START.encode()), 1)
+
+    def test_markerless_campaign_layout_rejects_modified_routing(self) -> None:
+        existing = (
+            it.AGENTS_CAMPAIGN_AUTHORITY_LINE
+            + "\n"
+            + it.AGENTS_CAMPAIGN_ROUTING_POINTER.replace(
+                "explicit user instructions", "caller instructions"
+            )
+            + it.AGENTS_LEGACY_ROUTING_SENTINEL
+            + "\n"
+        ).encode()
+        with self.assertRaisesRegex(it.PolicyMigrationError, "approved layout"):
+            it.migrate_agents_bytes(existing, AGENTS_POLICY.encode())
+
+    def test_rules_migration_removes_only_exact_installed_case_state_allows(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            codex_home = Path(raw) / "codex-home"
+            retired = str(
+                (codex_home / "coding-os/scripts/agent/case_state.py").resolve(
+                    strict=False
+                )
+            )
+            other = str(
+                (codex_home / "other/scripts/agent/case_state.py").resolve(
+                    strict=False
+                )
+            )
+
+            def rule(command: list[str], decision: str = "allow") -> bytes:
+                return (
+                    "prefix_rule(pattern="
+                    + json.dumps(command, separators=(",", ":"))
+                    + f', decision="{decision}")\r\n'
+                ).encode()
+
+            retained = (
+                rule(["python", other, "--help"])
+                + rule(["py", retired, "--help"])
+                + rule(["python", retired, "--help"], "prompt")
+                + b'prefix_rule(pattern=["git", "status"], decision="allow")\n'
+            )
+            existing = (
+                rule(["python", retired, "--help"])
+                + retained
+                + rule(
+                    [
+                        "corepack",
+                        "pnpm",
+                        "run",
+                        "agent:case-state",
+                        "--",
+                        "--help",
+                    ]
+                )
+                + rule(["python", retired, "--json", "show"])
+            )
+            migrated = it.migrate_rules_bytes(
+                existing, RULES_POLICY.encode(), codex_home
+            )
+            self.assertEqual(migrated, retained + RULES_POLICY.encode())
+
     def test_markerless_rules_append_once_and_preserve_lf_and_crlf_bytes(self) -> None:
         values = (
             b'prefix_rule(pattern=["git", "status"], decision="allow")\n',
@@ -2039,7 +2122,116 @@ class UninstallTransactionTests(unittest.TestCase):
 
             self.assertFalse(hooks_path.exists())
 
-    def test_policy_install_then_opt_out_reinstall_removes_only_managed_policy_blocks(self) -> None:
+    def test_default_reinstall_preserves_managed_policy_bytes_and_authority(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            it.install(env.policy_options())
+            agents_path = env.codex / "AGENTS.md"
+            rules_path = env.codex / "rules/default.rules"
+            agents_path.write_bytes(agents_path.read_bytes() + b"user-agents-setting\n")
+            rules_path.write_bytes(rules_path.read_bytes() + b"user-rule-setting\n")
+            expected_agents = agents_path.read_bytes()
+            expected_rules = rules_path.read_bytes()
+            prior_manifest = json.loads(
+                (env.codex / "coding-os/install-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            write_text(env.source / "payload/doc.txt", "payload-v2\n")
+            env.bundle = it.build_bundle_manifest(env.source)
+            env.bundle_hash = env.bundle["aggregate_sha256"]
+            run_git(env.source, "add", ".")
+            run_git(env.source, "commit", "-q", "-m", "synthetic bundle v2")
+            env.commit = run_git(env.source, "rev-parse", "HEAD")
+            options = env.policy_options(
+                install_universal_policy=False,
+                policy_authority_source=None,
+                policy_authority_reference=None,
+            )
+
+            result = it.install(options)
+
+            self.assertEqual(result["status"], "committed")
+            self.assertEqual(agents_path.read_bytes(), expected_agents)
+            self.assertEqual(rules_path.read_bytes(), expected_rules)
+            manifest = json.loads(
+                (env.codex / "coding-os/install-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(manifest["authority"], prior_manifest["authority"])
+            self.assertEqual(
+                manifest["targets"]["global_agents"],
+                prior_manifest["targets"]["global_agents"],
+            )
+            self.assertEqual(
+                manifest["targets"]["default_rules"],
+                prior_manifest["targets"]["default_rules"],
+            )
+
+    def _assert_preserve_mode_rejects_policy_link(
+        self, blocked_relative_path: str
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            it.install(env.policy_options())
+            agents_path = env.codex / "AGENTS.md"
+            rules_path = env.codex / "rules/default.rules"
+            expected_agents = agents_path.read_bytes()
+            expected_rules = rules_path.read_bytes()
+            blocked = (env.codex / blocked_relative_path).absolute()
+            original_link_check = it._is_link_or_reparse
+            original_read_bytes = Path.read_bytes
+            policy_paths = {agents_path.absolute(), rules_path.absolute()}
+
+            def simulated_link_or_reparse(path: Path) -> bool:
+                return path.absolute() == blocked or original_link_check(path)
+
+            def reject_policy_read_before_link_check(path: Path) -> bytes:
+                if path.absolute() in policy_paths:
+                    raise AssertionError(
+                        f"managed policy was read before link rejection: {path}"
+                    )
+                return original_read_bytes(path)
+
+            preserve = env.policy_options(
+                install_universal_policy=False,
+                policy_authority_source=None,
+                policy_authority_reference=None,
+            )
+            with (
+                mock.patch.object(
+                    it,
+                    "_is_link_or_reparse",
+                    side_effect=simulated_link_or_reparse,
+                ),
+                mock.patch.object(
+                    Path,
+                    "read_bytes",
+                    new=reject_policy_read_before_link_check,
+                ),
+                self.assertRaisesRegex(
+                    it.TransactionError,
+                    "links and reparse points are not allowed",
+                ),
+            ):
+                it.install(preserve)
+
+            self.assertEqual(agents_path.read_bytes(), expected_agents)
+            self.assertEqual(rules_path.read_bytes(), expected_rules)
+
+    def test_preserve_mode_rejects_linked_managed_policy_targets(self) -> None:
+        for blocked_relative_path in ("AGENTS.md", "rules/default.rules"):
+            with self.subTest(target=blocked_relative_path):
+                self._assert_preserve_mode_rejects_policy_link(blocked_relative_path)
+
+    def test_preserve_mode_rejects_policy_parent_reparse_component(self) -> None:
+        self._assert_preserve_mode_rejects_policy_link("rules")
+
+    def test_policy_install_then_explicit_removal_removes_only_managed_policy_blocks(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw), git_source=True)
             original_agents, original_rules = env.prepare_legacy_policy()
@@ -2062,6 +2254,7 @@ class UninstallTransactionTests(unittest.TestCase):
 
             opt_out = env.policy_options(
                 install_universal_policy=False,
+                remove_universal_policy=True,
                 policy_authority_source=None,
                 policy_authority_reference=None,
             )
@@ -2083,6 +2276,37 @@ class UninstallTransactionTests(unittest.TestCase):
             self.assertEqual(agents_path.read_bytes(), expected_agents)
             self.assertEqual(rules_path.read_bytes(), expected_rules)
             self.assertEqual(preserved, {path: sha(path) for path in preserved})
+
+    def test_explicit_policy_reinstall_accepts_exact_markerless_campaign_layout(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_real_layout_policy()
+            it.install(env.policy_options())
+            it.install(
+                env.policy_options(
+                    install_universal_policy=False,
+                    remove_universal_policy=True,
+                    policy_authority_source=None,
+                    policy_authority_reference=None,
+                )
+            )
+            agents_path = env.codex / "AGENTS.md"
+            markerless = agents_path.read_bytes()
+            self.assertNotIn(it.AGENTS_START.encode(), markerless)
+            self.assertEqual(
+                markerless.count(it.AGENTS_CAMPAIGN_AUTHORITY_LINE.encode()), 1
+            )
+            self.assertIn(it.AGENTS_CAMPAIGN_ROUTING_POINTER.encode(), markerless)
+
+            result = it.install(env.policy_options())
+
+            self.assertEqual(result["status"], "committed")
+            restored = agents_path.read_bytes()
+            self.assertEqual(restored.count(it.AGENTS_START.encode()), 1)
+            self.assertEqual(
+                restored.replace(AGENTS_POLICY.encode() + b"\n", b"", 1),
+                markerless,
+            )
 
     def test_uninstall_removes_recorded_targets_and_markers_only(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:

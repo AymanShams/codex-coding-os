@@ -1,6 +1,7 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
 param(
   [switch]$InstallUniversalPolicy,
+  [switch]$RemoveUniversalPolicy,
   [string]$UniversalBundleId = "campaign-engine-policy-v1",
   [switch]$RefreshCapabilityIndex,
   [string]$CodexHome = "$HOME\.codex",
@@ -63,6 +64,9 @@ if (-not [string]::Equals($RequestedSkillsRoot, $CanonicalSkillsRoot, $PathCompa
 if ($InstallExternalSkills -or $AllowUnpinnedExternalSkills) {
   throw "Optional external skills are not enabled in the transactional public package. Install only a separately reviewed pinned bundle."
 }
+if ($InstallUniversalPolicy -and $RemoveUniversalPolicy) {
+  throw "InstallUniversalPolicy and RemoveUniversalPolicy are mutually exclusive."
+}
 if (-not (Test-Path -LiteralPath $Engine -PathType Leaf)) {
   throw "Transactional install engine is missing: $Engine"
 }
@@ -84,6 +88,7 @@ $Arguments = @(
 )
 $Arguments += @("--expected-source-commit", $ExpectedSourceCommit)
 if ($InstallUniversalPolicy) { $Arguments += "--install-universal-policy" }
+if ($RemoveUniversalPolicy) { $Arguments += "--remove-universal-policy" }
 if ($RefreshCapabilityIndex) { $Arguments += "--refresh-capability-index" }
 if ($PolicyAuthoritySource) { $Arguments += @("--policy-authority-source", $PolicyAuthoritySource) }
 if ($PolicyAuthorityReference) { $Arguments += @("--policy-authority-reference", $PolicyAuthorityReference) }

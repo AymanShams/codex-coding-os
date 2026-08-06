@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "fff24ed04fa23cf9f202148c4082ba771057cc42a69b9b17f1a21365691aeff5",
+  "aggregate_sha256": "1364ea69fdb86737dca6c57752f2f8e839734d5335b39afc6db627dc5b9d4b22",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2153,8 +2153,8 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "a06fbd5adb344960ad53970fafb32a8224105c782b2db28c516f0bcde58d9829",
-      "size": 4158
+      "sha256": "615ee81fc6e7e624d62884b0de5df0c7e2ef79bab92d3df1dfd5e6f95c975ec5",
+      "size": 4529
     },
     {
       "path": "CHANGELOG.md",
@@ -2183,8 +2183,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "98885ff5fd11a54a08b33f4666918c0eea0217f84b4cad6e5acc62456c63e951",
-      "size": 9716
+      "sha256": "e5cf3af0ee8f9881c7db84d51e6a89aef8179358d53e172e432805aaa55c8a37",
+      "size": 9976
     },
     {
       "path": "SECURITY.md",
@@ -2237,6 +2237,11 @@
       "size": 8361
     },
     {
+      "path": "docs/architecture/adr/0003-campaign-engine-bounded-correction-exceptions.md",
+      "sha256": "9074374370e9ead44c0f8268e7ea154258101eb33c57a0d4330f0268ad0a4909",
+      "size": 5047
+    },
+    {
       "path": "docs/campaign-engine.md",
       "sha256": "714cd72fba1bbd52ec5ee16db04b639607fc0b9b299fae544c43e5d57ec5d30a",
       "size": 3261
@@ -2273,8 +2278,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "8d8b2d8a811c6165d6d494a6818bca50d902db46d33bf3528026cf207c7fca0f",
-      "size": 3089
+      "sha256": "bfa289b03f8c5fd32d6a1cceea773a3fa8f27122379efe944cdbd510cd06dbdd",
+      "size": 3422
     },
     {
       "path": "docs/license-strategy.md",
@@ -2368,8 +2373,8 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "bc0419ea19f11abf869c9a22fdfd384a50dee7d2960a03a1bd3a7791921874c0",
-      "size": 26517
+      "sha256": "a913dc951e39ed6c8a1b86877d91ae6ff588dd4c611b027fa7071457b1773320",
+      "size": 26731
     },
     {
       "path": "pack.schema.json",
@@ -2380,6 +2385,11 @@
       "path": "patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md",
       "sha256": "d57aa58a2c189ba5548f2bab2514f08a7d88848b1c0f16456568f8027d9bdcd2",
       "size": 1113
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "7aae40f449c469f7cca112b97984df6cab682c11f3ed1aeedfb94cc5e9d6c4fa",
+      "size": 357
     },
     {
       "path": "scripts/agent/campaign_engine/__init__.py",
@@ -2478,18 +2488,18 @@
     },
     {
       "path": "scripts/install.ps1",
-      "sha256": "484cbe02ffc275da127ffdd859ce7d8832d0e2133f84ea38c7e04c97cf331d1c",
-      "size": 5097
+      "sha256": "c5b0fd3a5fead2a61f2de386b2487c7f7f5c5c257448c1cdefef8782de851701",
+      "size": 5349
     },
     {
       "path": "scripts/install.sh",
-      "sha256": "f908c88ae993367e6e14d0102d55cdef94c9e761b753e29f3f9aca6da163ca12",
-      "size": 5637
+      "sha256": "f7fa8e096fc7905c73a0574418d66893f47cb447a9b8e49e77d4b700d8335eb1",
+      "size": 5974
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "16630cd1a2d2a39d79a2572e2b43bc1d24dac37014046901fc2f54c41ed77852",
-      "size": 177481
+      "sha256": "e8da131fcb164bab10af380cee3fdf5abcfd66cc7112d51d24c2475eed1b8083",
+      "size": 185793
     },
     {
       "path": "scripts/json-schema-validation.ps1",
@@ -2510,6 +2520,11 @@
       "path": "scripts/run_campaign_tlc.py",
       "sha256": "66a3b730952bd9b37e631d8b84f424c10929de909d5e82194548154944fec0d5",
       "size": 6827
+    },
+    {
+      "path": "scripts/run_reducer_mutation_gate.py",
+      "sha256": "ed74f1522b40d3c90f685ccb97d4d0c867f34f5fc39881f0dabb3f53af992947",
+      "size": 6626
     },
     {
       "path": "scripts/uninstall.ps1",
@@ -2788,8 +2803,8 @@
     },
     {
       "path": "tests/test_campaign_model_reducer.py",
-      "sha256": "56861b984c12ec3e66d259a715f2915cbca85f50550ee1731440b761447f2050",
-      "size": 29747
+      "sha256": "eac45a64f922fe2731d28d5426d773b2a9d7861e49fe0476d0727dff131cf503",
+      "size": 37458
     },
     {
       "path": "tests/test_campaign_runtime_components.py",
@@ -2818,8 +2833,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "4784d53a39fdf1196b573b7d5a8f76f2e2d699fd88580e7760b5e2a247fd9ba1",
-      "size": 109004
+      "sha256": "4382df5ab521a659acda38e02b84aad026cc9455a503a5ddfeb1379f0719bd38",
+      "size": 118767
     },
     {
       "path": "tests/test_project_artifact_instances.py",
@@ -2828,8 +2843,13 @@
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "5da172af60d7ff9160c319bdae7900d363c520ab2c22a870b38fd52f2a3f8103",
-      "size": 5723
+      "sha256": "d652ba6da749641a33e610ea41be8d3282c161bbebaaa3bded2697fbcb9f70ec",
+      "size": 6625
+    },
+    {
+      "path": "tests/test_reducer_mutation_gate.py",
+      "sha256": "2af5f2ab81cd0ea84a084e8c1bd5e30c4445180ef985c2adbb7798ed992563e6",
+      "size": 3618
     },
     {
       "path": "tests/test_source_repository_profile.py",

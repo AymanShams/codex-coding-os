@@ -15,6 +15,7 @@ publication_cancellation_epoch=""
 archive_legacy_state=0
 legacy_state_root=""
 install_policy=0
+remove_policy=0
 universal_bundle_id="campaign-engine-policy-v1"
 refresh=0
 legacy_overlap_migration=0
@@ -29,6 +30,7 @@ Options:
   --skills-root PATH  Must equal the canonical Codex home skills directory
   --codex-home PATH  Must equal the OS account profile's .codex directory
   --install-universal-policy
+  --remove-universal-policy
   --universal-bundle-id IDENTIFIER
   --refresh-capability-index
   --policy-authority-source explicit-user-approval|campaign-publication-authority
@@ -53,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --expected-bundle-sha256) expected_bundle="$2"; shift 2 ;;
     --expected-source-commit) expected_commit="$2"; shift 2 ;;
     --install-universal-policy) install_policy=1; shift ;;
+    --remove-universal-policy) remove_policy=1; shift ;;
     --universal-bundle-id) universal_bundle_id="$2"; shift 2 ;;
     --refresh-capability-index) refresh=1; shift ;;
     --policy-authority-source) policy_authority_source="$2"; shift 2 ;;
@@ -74,6 +77,10 @@ done
 [[ -n "$skills_root" ]] || skills_root="$codex_home/skills"
 [[ -n "$expected_bundle" ]] || { echo "--expected-bundle-sha256 is required" >&2; exit 2; }
 [[ -n "$expected_commit" ]] || { echo "--expected-source-commit is required" >&2; exit 2; }
+if [[ "$install_policy" -eq 1 && "$remove_policy" -eq 1 ]]; then
+  echo "--install-universal-policy and --remove-universal-policy are mutually exclusive" >&2
+  exit 2
+fi
 if [[ -n "${PYTHON:-}" ]]; then
   python_cmd="$PYTHON"
 else
@@ -123,6 +130,7 @@ args=(
 )
 args+=(--expected-source-commit "$expected_commit")
 [[ "$install_policy" -eq 0 ]] || args+=(--install-universal-policy)
+[[ "$remove_policy" -eq 0 ]] || args+=(--remove-universal-policy)
 [[ "$refresh" -eq 0 ]] || args+=(--refresh-capability-index)
 [[ -z "$policy_authority_source" ]] || args+=(--policy-authority-source "$policy_authority_source")
 [[ -z "$policy_authority_reference" ]] || args+=(--policy-authority-reference "$policy_authority_reference")

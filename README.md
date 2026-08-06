@@ -89,12 +89,15 @@ bundle_digest="$(python -c 'import json; print(json.load(open("install-bundle.ma
 ./scripts/install.sh --expected-source-commit "$source_commit" --expected-bundle-sha256 "$bundle_digest"
 ```
 
-Universal policy installation is an explicit installer action. It requires
-`-InstallUniversalPolicy` with a policy authority source and reference. A
-campaign publication authority additionally binds the campaign ID, node ID,
-authority epoch, cancellation epoch, exact candidate source commit, and the
-`EXACT_FILE_REPLACE` effect. Legacy archival is separately opt-in and keeps the
-source bytes unchanged.
+Universal policy handling is tri-state. Omitting both policy action flags
+preserves a previously managed global `AGENTS.md` and `default.rules` unchanged.
+Explicit removal uses `-RemoveUniversalPolicy` on PowerShell or
+`--remove-universal-policy` on Linux and macOS. Explicit installation uses
+`-InstallUniversalPolicy` or `--install-universal-policy` together with a policy
+authority source and reference. A campaign publication authority additionally
+binds the campaign ID, node ID, authority epoch, cancellation epoch, exact
+candidate source commit, and the `EXACT_FILE_REPLACE` effect. Legacy archival is
+separately opt-in and keeps the source bytes unchanged.
 
 ## Public commands
 

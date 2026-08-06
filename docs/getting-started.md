@@ -34,9 +34,14 @@ field.
 
 Use `-ArchiveLegacyState` only when the unchanged legacy source at
 `$env:USERPROFILE\.codex\case-state` should be ingested as read-only evidence.
-Use `-InstallUniversalPolicy` only with an explicit authority source and
-reference. Campaign publication authority also requires the exact campaign ID,
-node ID, authority epoch, cancellation epoch, and candidate source commit.
+Universal policy handling is tri-state. Omitting both policy action flags
+preserves a previously managed global `AGENTS.md` and `default.rules` unchanged.
+Explicit removal uses `-RemoveUniversalPolicy` on PowerShell or
+`--remove-universal-policy` on Linux and macOS. Explicit installation uses
+`-InstallUniversalPolicy` or `--install-universal-policy` together with an
+explicit policy authority source and reference. Campaign publication authority
+also requires the exact campaign ID, node ID, authority epoch, cancellation
+epoch, and candidate source commit.
 
 ## Verify the installed runtime
 

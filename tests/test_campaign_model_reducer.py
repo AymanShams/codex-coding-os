@@ -14,6 +14,7 @@ from scripts.agent.campaign_engine import (
     ActorRole,
     AuthorityError,
     BudgetError,
+    BudgetReceipt,
     BudgetToken,
     CampaignMode,
     CampaignSnapshot,
@@ -609,6 +610,206 @@ class CampaignReducerTests(unittest.TestCase):
                 actor_id="worker-1",
                 fencing_epoch=2,
             )
+
+    def test_fencing_helper_enforces_lease_owner_epoch_and_exact_errors(self) -> None:
+        events, snapshot = running_snapshot(mode="AUTOMATED")
+        node = snapshot.node("node-1")
+        no_lease = events.make(
+            snapshot,
+            EventType.START_IMPLEMENTATION,
+            node_id="node-1",
+            actor_id="worker-1",
+            fencing_epoch=1,
+        )
+        with self.assertRaises(FencingError) as raised:
+            reducer_module._check_fence(snapshot, no_lease, node)
+        self.assertEqual(
+            str(raised.exception),
+            "automated node action requires an active actor lease",
+        )
+
+        leased = replace(node, lease_actor_id="worker-1", fencing_epoch=3)
+        leased_snapshot = replace(snapshot, nodes=(leased,))
+        wrong_actor = events.make(
+            leased_snapshot,
+            EventType.START_IMPLEMENTATION,
+            node_id="node-1",
+            actor_id="worker-2",
+            fencing_epoch=3,
+        )
+        with self.assertRaises(FencingError) as raised:
+            reducer_module._check_fence(leased_snapshot, wrong_actor, leased)
+        self.assertEqual(
+            str(raised.exception),
+            "event actor does not own the active node lease",
+        )
+
+        stale_epoch = events.make(
+            leased_snapshot,
+            EventType.START_IMPLEMENTATION,
+            node_id="node-1",
+            actor_id="worker-1",
+            fencing_epoch=2,
+        )
+        with self.assertRaises(FencingError) as raised:
+            reducer_module._check_fence(leased_snapshot, stale_epoch, leased)
+        self.assertEqual(
+            str(raised.exception),
+            "event fencing epoch is stale or absent",
+        )
+
+    def test_budget_helper_guards_boundaries_and_exact_errors(self) -> None:
+        _, snapshot = running_snapshot(mode="AUTOMATED", budget_limit=2)
+        token = BudgetToken.NO_OP_ATTEMPT
+        duplicate = replace(
+            snapshot,
+            budget_receipts=(BudgetReceipt("already-used", token, snapshot.revision),),
+        )
+        with self.assertRaises(BudgetError) as raised:
+            reducer_module._consume_budget(duplicate, token, "already-used")
+        self.assertEqual(
+            str(raised.exception),
+            "budget request identifier was already consumed",
+        )
+
+        rank_zero = replace(snapshot, autonomous_rank_remaining=0)
+        with self.assertRaises(BudgetError) as raised:
+            reducer_module._consume_budget(rank_zero, token, "rank-zero")
+        self.assertEqual(
+            str(raised.exception),
+            "autonomous-operation rank is exhausted",
+        )
+        rank_one = replace(snapshot, autonomous_rank_remaining=1)
+        consumed = reducer_module._consume_budget(rank_one, token, "rank-one")
+        self.assertEqual(consumed.autonomous_rank_remaining, 0)
+
+        exhausted_balances = tuple(
+            replace(balance, consumed=balance.limit)
+            if balance.token is token
+            else balance
+            for balance in snapshot.budgets
+        )
+        exhausted = replace(snapshot, budgets=exhausted_balances)
+        with self.assertRaises(BudgetError) as raised:
+            reducer_module._consume_budget(exhausted, token, "token-exhausted")
+        self.assertEqual(
+            str(raised.exception),
+            f"attempt budget is exhausted: {token.value}",
+        )
+
+        undeclared = replace(
+            snapshot,
+            budgets=tuple(
+                balance for balance in snapshot.budgets if balance.token is not token
+            ),
+        )
+        with self.assertRaises(BudgetError) as raised:
+            reducer_module._consume_budget(undeclared, token, "token-undeclared")
+        self.assertEqual(
+            str(raised.exception),
+            f"attempt budget is not declared: {token.value}",
+        )
+
+    def test_budget_helper_accepts_unrelated_receipt_and_records_next_revision(self) -> None:
+        _, snapshot = running_snapshot(mode="AUTOMATED", budget_limit=2)
+        token = BudgetToken.NO_OP_ATTEMPT
+        prior = BudgetReceipt("prior-request", token, snapshot.revision)
+        with_prior = replace(snapshot, budget_receipts=(prior,))
+
+        consumed = reducer_module._consume_budget(
+            with_prior, token, "fresh-request"
+        )
+
+        self.assertEqual(
+            [receipt.request_id for receipt in consumed.budget_receipts],
+            ["prior-request", "fresh-request"],
+        )
+        self.assertEqual(
+            consumed.budget_receipts[-1].revision,
+            snapshot.revision + 1,
+        )
+
+    def test_automated_budget_token_error_is_exact(self) -> None:
+        events, snapshot = running_snapshot(mode="AUTOMATED")
+        event = events.make(
+            snapshot,
+            EventType.START_IMPLEMENTATION,
+            node_id="node-1",
+            payload={"budget_token": BudgetToken.REPAIR_DISPATCH.value},
+        )
+        with self.assertRaises(BudgetError) as raised:
+            reducer_module._consume_automated(
+                snapshot, event, BudgetToken.CHILD_START
+            )
+        self.assertEqual(
+            str(raised.exception),
+            "START_IMPLEMENTATION requires budget token CHILD_START",
+        )
+
+    def test_finish_revision_enforces_spec_rank_receipt_and_error_contracts(self) -> None:
+        _, snapshot = running_snapshot(mode="AUTOMATED", budget_limit=2)
+        equal_spec = CampaignSpec.from_dict(snapshot.spec.to_dict())
+        self.assertIsNot(equal_spec, snapshot.spec)
+        equal_snapshot = replace(snapshot, spec=equal_spec)
+        finished, effects = reducer_module._finish_revision(
+            snapshot, equal_snapshot, ()
+        )
+        self.assertEqual(finished.revision, snapshot.revision + 1)
+        self.assertEqual(effects, ())
+
+        changed_spec = replace(
+            snapshot.spec,
+            objective=snapshot.spec.objective + " changed",
+        )
+        with self.assertRaises(TransitionError) as raised:
+            reducer_module._finish_revision(
+                snapshot, replace(snapshot, spec=changed_spec), ()
+            )
+        self.assertEqual(
+            str(raised.exception),
+            "approved campaign specification is immutable",
+        )
+
+        with self.assertRaises(TransitionError) as raised:
+            reducer_module._finish_revision(
+                snapshot,
+                replace(
+                    snapshot,
+                    autonomous_rank_remaining=(
+                        snapshot.autonomous_rank_remaining + 1
+                    ),
+                ),
+                (),
+            )
+        self.assertEqual(
+            str(raised.exception),
+            "autonomous-operation rank may never increase",
+        )
+
+        existing_receipt = BudgetReceipt(
+            "existing-receipt", BudgetToken.NO_OP_ATTEMPT, snapshot.revision
+        )
+        with_receipt = replace(
+            snapshot, budget_receipts=(existing_receipt,)
+        )
+        finished, _ = reducer_module._finish_revision(
+            with_receipt, with_receipt, ()
+        )
+        self.assertEqual(finished.revision, snapshot.revision + 1)
+
+        new_receipt = BudgetReceipt(
+            "new-receipt", BudgetToken.NO_OP_ATTEMPT, snapshot.revision + 1
+        )
+        with self.assertRaises(TransitionError) as raised:
+            reducer_module._finish_revision(
+                snapshot,
+                replace(snapshot, budget_receipts=(new_receipt,)),
+                (),
+            )
+        self.assertEqual(
+            str(raised.exception),
+            "each autonomous operation must consume exactly one rank and budget token",
+        )
 
     def test_budget_and_rank_strictly_decrease_and_never_replenish(self) -> None:
         events, snapshot = running_snapshot(mode="AUTOMATED", budget_limit=1)
