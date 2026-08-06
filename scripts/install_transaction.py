@@ -3259,6 +3259,8 @@ def _preflight_policy_sources(
             return
         agents = codex_home / "AGENTS.md"
         rules = codex_home / "rules" / "default.rules"
+        _assert_no_link_components(agents, codex_home)
+        _assert_no_link_components(rules, codex_home)
         if not agents.is_file() or not rules.is_file():
             raise OwnershipError("previously managed universal policy target is unavailable")
         targets = previous["targets"]

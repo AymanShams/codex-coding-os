@@ -48,6 +48,22 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         ):
             self.assertIn(field, self.public_docs)
 
+    def test_each_public_install_doc_explains_policy_tri_state(self) -> None:
+        for label, document in (
+            ("README.md", self.readme),
+            ("docs/getting-started.md", self.getting_started),
+        ):
+            with self.subTest(document=label):
+                normalized = " ".join(document.split())
+                self.assertIn("tri-state", normalized)
+                self.assertIn("Omitting both policy action flags", normalized)
+                self.assertIn("preserves a previously managed", normalized)
+                self.assertIn("-RemoveUniversalPolicy", normalized)
+                self.assertIn("--remove-universal-policy", normalized)
+                self.assertIn("-InstallUniversalPolicy", normalized)
+                self.assertIn("--install-universal-policy", normalized)
+                self.assertIn("policy authority source and reference", normalized)
+
     def test_public_installers_reject_noncanonical_codex_home(self) -> None:
         self.assertIn("account profile's `.codex` directory", self.public_docs)
         self.assertIn(

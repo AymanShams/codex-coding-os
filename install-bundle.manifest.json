@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "a1b25fab950c200b6141335c0f3767873a4ec3e41a8b711dcf94129aa7fd9009",
+  "aggregate_sha256": "9e500a47ceab72fbb29775959a5edb78e81c5131f64adb3443b776ff437c661d",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -38,8 +38,8 @@
     },
     {
       "path": ".agents/skills/catalogue-router/references/capability-catalogue.md",
-      "sha256": "360abc8e88df2cbb8e63a8890db93f1ea3f0b7f23f45b1f461c1481bd0f6c03a",
-      "size": 10056
+      "sha256": "b3182ed3f01ccdfdf882be0102a38d379183a1540e767e566df1cc5ca008c680",
+      "size": 10092
     },
     {
       "path": ".agents/skills/catalogue-router/scripts/query-catalogue.ps1",
@@ -2153,8 +2153,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "98885ff5fd11a54a08b33f4666918c0eea0217f84b4cad6e5acc62456c63e951",
-      "size": 9716
+      "sha256": "e5cf3af0ee8f9881c7db84d51e6a89aef8179358d53e172e432805aaa55c8a37",
+      "size": 9976
     },
     {
       "path": "SECURITY.md",
@@ -2248,8 +2248,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "8d8b2d8a811c6165d6d494a6818bca50d902db46d33bf3528026cf207c7fca0f",
-      "size": 3089
+      "sha256": "bfa289b03f8c5fd32d6a1cceea773a3fa8f27122379efe944cdbd510cd06dbdd",
+      "size": 3422
     },
     {
       "path": "docs/license-strategy.md",
@@ -2468,8 +2468,8 @@
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "1da6e06bfacc09b9e886f1b680dbc614c8f5d1e8ce4b9d02883b5440cb8e996a",
-      "size": 186477
+      "sha256": "155608075990c0129533a28ce3738c014ca9799a0b74a7d0c2dde1589b944ff0",
+      "size": 186586
     },
     {
       "path": "scripts/json-schema-validation.ps1",
@@ -2518,8 +2518,8 @@
     },
     {
       "path": "scripts/validate_documentation_contracts.py",
-      "sha256": "4844ed923d2cb81c0cacc8f289f8bb07b33628a4936fdcb307ac2f20c270b823",
-      "size": 16675
+      "sha256": "0dd9bf1e509add08c0285bf5168584fbf62aaa5bca6bd4355f6ab2bcd145426e",
+      "size": 19429
     },
     {
       "path": "templates/CLAUDE.md",
@@ -2798,13 +2798,13 @@
     },
     {
       "path": "tests/test_documentation_contracts.py",
-      "sha256": "454387eb4aa7ee28045f4b8dc99bfcc2e900ecf9b2f0e9b4c3c83cac2f456e98",
-      "size": 10386
+      "sha256": "b0500e90bad16c53d0b1e841174a69218fa6e8f900ceb53f2f7a04dba484ad8c",
+      "size": 12619
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "753ae07aa9d7047b238f63e94a7ed8f24cf6a1cff2a0d5ff991c17f4ae40017a",
-      "size": 120925
+      "sha256": "4c8fe8a37300c7dc6d336a780ad6bd6afe96f8c60d20a88e6fa5d654f8e4d7d7",
+      "size": 123576
     },
     {
       "path": "tests/test_project_artifact_instances.py",
@@ -2813,8 +2813,8 @@
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "5da172af60d7ff9160c319bdae7900d363c520ab2c22a870b38fd52f2a3f8103",
-      "size": 5723
+      "sha256": "d652ba6da749641a33e610ea41be8d3282c161bbebaaa3bded2697fbcb9f70ec",
+      "size": 6625
     },
     {
       "path": "tests/test_reducer_mutation_gate.py",

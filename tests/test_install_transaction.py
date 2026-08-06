@@ -2179,6 +2179,66 @@ class UninstallTransactionTests(unittest.TestCase):
                 prior_manifest["targets"]["default_rules"],
             )
 
+    def _assert_preserve_mode_rejects_policy_link(
+        self, blocked_relative_path: str
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            env.prepare_legacy_policy()
+            it.install(env.policy_options())
+            agents_path = env.codex / "AGENTS.md"
+            rules_path = env.codex / "rules/default.rules"
+            expected_agents = agents_path.read_bytes()
+            expected_rules = rules_path.read_bytes()
+            blocked = (env.codex / blocked_relative_path).absolute()
+            original_link_check = it._is_link_or_reparse
+            original_read_bytes = Path.read_bytes
+            policy_paths = {agents_path.absolute(), rules_path.absolute()}
+
+            def simulated_link_or_reparse(path: Path) -> bool:
+                return path.absolute() == blocked or original_link_check(path)
+
+            def reject_policy_read_before_link_check(path: Path) -> bytes:
+                if path.absolute() in policy_paths:
+                    raise AssertionError(
+                        f"managed policy was read before link rejection: {path}"
+                    )
+                return original_read_bytes(path)
+
+            preserve = env.policy_options(
+                install_universal_policy=False,
+                policy_authority_source=None,
+                policy_authority_reference=None,
+            )
+            with (
+                mock.patch.object(
+                    it,
+                    "_is_link_or_reparse",
+                    side_effect=simulated_link_or_reparse,
+                ),
+                mock.patch.object(
+                    Path,
+                    "read_bytes",
+                    new=reject_policy_read_before_link_check,
+                ),
+                self.assertRaisesRegex(
+                    it.TransactionError,
+                    "links and reparse points are not allowed",
+                ),
+            ):
+                it.install(preserve)
+
+            self.assertEqual(agents_path.read_bytes(), expected_agents)
+            self.assertEqual(rules_path.read_bytes(), expected_rules)
+
+    def test_preserve_mode_rejects_linked_managed_policy_targets(self) -> None:
+        for blocked_relative_path in ("AGENTS.md", "rules/default.rules"):
+            with self.subTest(target=blocked_relative_path):
+                self._assert_preserve_mode_rejects_policy_link(blocked_relative_path)
+
+    def test_preserve_mode_rejects_policy_parent_reparse_component(self) -> None:
+        self._assert_preserve_mode_rejects_policy_link("rules")
+
     def test_vendor_retired_skill_can_be_already_absent_during_upgrade(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))

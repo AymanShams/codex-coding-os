@@ -33,7 +33,7 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 | Source-backed critique | Review / Validation | `evidence-checker` | `deep-critic` | `grill-me`, `pre-mortem` | Source quality is weak, claims conflict, or recency matters |
 | Delivery sequencing | Planning | `wbs-artifact-planner` | `pre-mortem`, `artifact-validation-workflow` | `deep-critic` | Dependencies, risks, or acceptance gates are unclear |
 | Process or runbook docs | Documentation | `process-docs` | `support-docs`, `ssot-drafter` | `humanizer` | It becomes a controlled SOP or audit artifact |
-| DOCX or PDF source intake | Source Intake | `doc`, `pdf` | `new-project-documentation-system`, `technical-docs-pack` | `humanizer` | Extracted source becomes canonical project documentation |
+| PDF source intake | Source Intake | `pdf` | `new-project-documentation-system`, `technical-docs-pack` | `humanizer` | Extracted source becomes canonical project documentation |
 
 ## Conflict Control
 
@@ -59,6 +59,7 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 - `chat-export-capability-miner`
 - `cli-creator`
 - `code-review-graph`
+- `codex-coding-os-master`
 - `codex-design-artifacts`
 - `composition-patterns`
 - `create-prd`
@@ -66,8 +67,8 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 - `customer-journey-map`
 - `deep-critic`
 - `defensive-security-checklist`
-- `doc`
 - `evidence-checker`
+- `external-skill-overlay-pack`
 - `grill-me`
 - `grill-with-docs`
 - `humanizer`

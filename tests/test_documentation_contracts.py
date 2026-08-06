@@ -59,8 +59,19 @@ class DocumentationContractTests(unittest.TestCase):
             "Use pack.manifest.json and install-bundle.manifest.json.\n",
             encoding="utf-8",
         )
+        self.catalogue_path = (
+            self.repo
+            / ".agents"
+            / "skills"
+            / "catalogue-router"
+            / "references"
+            / "capability-catalogue.md"
+        )
+        self.write_catalogue()
         self.manifest = {
             "required_files": ["canonical.md", "mirror.md", "variant.md"],
+            "vendor_retired_skills": [],
+            "bundled_skills": [{"name": "fixture-skill"}],
             "artifact_definitions": [
                 artifact("canonical", "canonical.md", "canonical", "authoritative"),
                 artifact(
@@ -80,6 +91,28 @@ class DocumentationContractTests(unittest.TestCase):
                 ),
             ],
         }
+
+    def write_catalogue(
+        self,
+        *,
+        primary: str = "fixture-skill",
+        support: str = "",
+        bundled: tuple[str, ...] = ("fixture-skill",),
+    ) -> None:
+        support_cell = f"`{support}`" if support else "none"
+        inventory = "\n".join(f"- `{name}`" for name in bundled)
+        self.catalogue_path.parent.mkdir(parents=True, exist_ok=True)
+        self.catalogue_path.write_text(
+            "# Fixture Capability Catalogue\n\n"
+            "## Fast Router\n\n"
+            "| Task | Mode | Primary skill | Supporting skills |\n"
+            "|---|---|---|---|\n"
+            f"| Fixture | Test | `{primary}` | {support_cell} |\n\n"
+            "## Bundled Full Local Skills\n\n"
+            f"{inventory}\n\n"
+            "## External Reference Repositories\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -174,6 +207,31 @@ class DocumentationContractTests(unittest.TestCase):
                 )
                 self.assertTrue(
                     any("inventory count in package inventory prose" in error for error in self.errors())
+                )
+
+    def test_catalogue_bundled_skills_must_exactly_match_manifest(self) -> None:
+        self.write_catalogue(bundled=("fixture-skill", "unexpected-skill"))
+        self.assertTrue(
+            any(
+                "Bundled Full Local Skills must exactly match" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_catalogue_rejects_vendor_retired_primary_and_support_routes(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["vendor_retired_skills"] = ["retired-skill"]
+        for primary, support in (
+            ("retired-skill", ""),
+            ("fixture-skill", "retired-skill"),
+        ):
+            with self.subTest(primary=primary, support=support):
+                self.write_catalogue(primary=primary, support=support)
+                self.assertTrue(
+                    any(
+                        "routes vendor-retired skill as primary or support" in error
+                        for error in self.errors(manifest)
+                    )
                 )
 
     def test_live_repository_contract_passes(self) -> None:
