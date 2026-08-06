@@ -19,6 +19,12 @@ Record the replacement rollout's historical sequencing deviations as explicit, n
 
 This record documents authority for the bounded correction. It is not lifecycle state, publication authority, or permission for any later correction cycle.
 
+## Post-Closure Exception
+
+After the first bounded repair and closure review, exact-head GitHub review identified two remaining defects: `LEHETA-POSTCLOSURE-001`, a negation false positive in the Leheta retired-authority validator, and `HEALPATH-POSTCLOSURE-001`, contradictory SP-SLICE-007 merge status in the HealPath documentation index and traceability matrix. On 2026-08-06, Ayman Shams explicitly authorized one additional bounded repair limited to those two identifiers, followed by one exact-head closure check, merge, installation, doctor, and both repository admission probes.
+
+This is a non-precedential exception to the original one-repair limit. It does not authorize another implementation generation, another finding set, or any repair outside the two named defects.
+
 ## Historical Exceptions
 
 The following deviations are accepted as historical facts only:
@@ -64,4 +70,4 @@ Acceptance requires all of the following on the final exact heads:
 
 ## Outcome
 
-The historical deviations are accepted as bounded exceptions. They do not waive current tests, review, installation proof, or exact-head acceptance, and they do not authorize a successor engine or a second repair cycle.
+The historical deviations and the explicitly authorized post-closure repair are accepted as bounded exceptions. They do not waive current tests, review, installation proof, or exact-head acceptance, and they do not authorize a successor engine or any further repair cycle.
