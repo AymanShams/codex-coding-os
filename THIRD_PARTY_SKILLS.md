@@ -31,7 +31,9 @@ The bundled skills are full local skill folders, including references, assets, a
 | QA and browser work | `playwright` |
 | Security | `security-best-practices`, `security-threat-model`, `security-ownership-map` |
 | Platform and repo tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli` |
-| Local document intake | `doc`, `pdf` |
+| Local document intake | `pdf` |
+
+The repository retains the local `doc` source for history, but `doc` is vendor-retired and is not part of the installed Coding OS bundle.
 
 ## External source manifest
 

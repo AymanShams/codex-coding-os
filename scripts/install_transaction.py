@@ -175,6 +175,7 @@ class InstallOptions:
     expected_bundle_sha256: str
     expected_source_commit: str | None = None
     install_universal_policy: bool = False
+    remove_universal_policy: bool = False
     universal_bundle_id: str = UNIVERSAL_BUNDLE_ID
     refresh_capability_index: bool = False
     policy_authority_source: str | None = None
@@ -196,6 +197,18 @@ class UninstallOptions:
     codex_home: Path | str
     legacy_overlap_migration: bool = False
     dry_run: bool = False
+
+
+def _universal_policy_mode(options: InstallOptions) -> str:
+    if options.install_universal_policy and options.remove_universal_policy:
+        raise AuthorityError(
+            "--install-universal-policy and --remove-universal-policy are mutually exclusive"
+        )
+    if options.install_universal_policy:
+        return "install"
+    if options.remove_universal_policy:
+        return "remove"
+    return "preserve"
 
 
 def utc_now() -> str:
@@ -440,6 +453,25 @@ def _load_pack(root: Path) -> dict[str, Any]:
         raise BundleError("pack bundle manifest path must be install-bundle.manifest.json")
     if installation.get("external_skills_staged") is not False:
         raise BundleError("this public package must declare external_skills_staged=false")
+    vendor_retired = pack.get("vendor_retired_skills")
+    if not isinstance(vendor_retired, list) or any(
+        not isinstance(name, str) or not name or "/" in name or "\\" in name
+        for name in vendor_retired
+    ):
+        raise BundleError("vendor_retired_skills must be a list of one-segment skill names")
+    _validate_casefold_collisions(vendor_retired, "vendor-retired skill name")
+    bundled_names = {
+        str(record.get("name", "")).casefold()
+        for record in pack.get("bundled_skills", [])
+        if isinstance(record, dict)
+    }
+    overlap = sorted(
+        name for name in vendor_retired if name.casefold() in bundled_names
+    )
+    if overlap:
+        raise BundleError(
+            f"vendor-retired skill must not remain bundled: {overlap[0]}"
+        )
     hook = installation.get("campaign_hook")
     if not isinstance(hook, dict) or set(hook) != {"source", "target"}:
         raise BundleError("installation.campaign_hook must declare only source and target")
@@ -713,7 +745,54 @@ def _exact_line_span(existing: bytes, line: str, label: str) -> tuple[int, int]:
     return begin, finish
 
 
+def _migrate_markerless_campaign_agents_layout(
+    existing: bytes,
+    replacement: bytes,
+) -> bytes | None:
+    """Restore the managed block after an explicit prior policy removal.
+
+    A policy opt-out removes only the marker block. The campaign authority line
+    and compact routing pointer are stable global instructions, so their exact
+    markerless layout is sufficient evidence for a later explicit reinstall.
+    Any mixed legacy/current or modified routing layout still fails closed.
+    """
+
+    forbidden = (
+        AGENTS_LEGACY_BLOCK_START,
+        AGENTS_LEGACY_AUTHORITY_LINE,
+        RETIRED_AGENTS_START,
+        RETIRED_AGENTS_END,
+    )
+    if any(value.encode("utf-8") in existing for value in forbidden):
+        return None
+    authority = AGENTS_CAMPAIGN_AUTHORITY_LINE.encode("utf-8")
+    routing_start = AGENTS_LEGACY_ROUTING_START.encode("utf-8")
+    routing_sentinel = AGENTS_LEGACY_ROUTING_SENTINEL.encode("utf-8")
+    if existing.count(authority) != 1:
+        return None
+    if existing.count(routing_start) != 1 or existing.count(routing_sentinel) != 1:
+        return None
+    authority_span = _exact_line_span(existing, AGENTS_CAMPAIGN_AUTHORITY_LINE, "AGENTS.md")
+    begin = existing.find(routing_start)
+    finish = existing.find(routing_sentinel)
+    if finish <= begin:
+        raise PolicyMigrationError("AGENTS.md markerless campaign routing order is invalid")
+    if begin > 0 and existing[begin - 1 : begin] != b"\n":
+        raise PolicyMigrationError("AGENTS.md markerless campaign routing is not a complete section")
+    routing = existing[begin:finish]
+    normalized = routing.replace(b"\r\n", b"\n")
+    if normalized != AGENTS_CAMPAIGN_ROUTING_POINTER.encode("utf-8"):
+        raise PolicyMigrationError("AGENTS.md markerless campaign routing does not match the approved layout")
+    if authority_span[0] >= begin and authority_span[0] < finish:
+        raise PolicyMigrationError("AGENTS.md campaign authority line overlaps the routing section")
+    newline = b"\r\n" if b"\r\n" in routing else b"\n"
+    return existing[:begin] + replacement + newline + existing[begin:]
+
+
 def _migrate_known_agents_layout(existing: bytes, replacement: bytes) -> bytes:
+    markerless = _migrate_markerless_campaign_agents_layout(existing, replacement)
+    if markerless is not None:
+        return markerless
     lifecycle_span = _verified_legacy_slice(
         existing,
         start=AGENTS_LEGACY_BLOCK_START,
@@ -786,9 +865,71 @@ def migrate_agents_bytes(existing: bytes, policy_source: bytes) -> bytes:
     )
 
 
-def migrate_rules_bytes(existing: bytes, policy_source: bytes) -> bytes:
+def _command_path_key(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", value).replace("\\", "/")
+    normalized = re.sub(r"/+", "/", normalized).rstrip("/")
+    return normalized.casefold()
+
+
+def _remove_retired_case_state_command_rules(
+    existing: bytes,
+    codex_home: Path | str,
+) -> bytes:
+    """Remove only exact one-line allows for the installed legacy tombstone."""
+
+    _strict_utf8(existing, "default.rules")
+    target = Path(codex_home).expanduser().resolve(strict=False) / "coding-os" / "scripts" / "agent" / "case_state.py"
+    target_key = _command_path_key(str(target))
+    retained: list[bytes] = []
+    pattern = re.compile(
+        r'^prefix_rule\(pattern=(\[[^\r\n]*\]), decision="allow"\)$'
+    )
+    for raw_line in existing.splitlines(keepends=True):
+        line = raw_line.rstrip(b"\r\n").decode("utf-8")
+        match = pattern.fullmatch(line)
+        remove = False
+        if match is not None:
+            try:
+                command = json.loads(match.group(1))
+            except json.JSONDecodeError:
+                command = None
+            remove = (
+                isinstance(command, list)
+                and (
+                    (
+                        len(command) >= 2
+                        and command[0] == "python"
+                        and isinstance(command[1], str)
+                        and _command_path_key(command[1]) == target_key
+                    )
+                    or command
+                    == [
+                        "corepack",
+                        "pnpm",
+                        "run",
+                        "agent:case-state",
+                        "--",
+                        "--help",
+                    ]
+                )
+            )
+        if not remove:
+            retained.append(raw_line)
+    return b"".join(retained)
+
+
+def migrate_rules_bytes(
+    existing: bytes,
+    policy_source: bytes,
+    codex_home: Path | str | None = None,
+) -> bytes:
+    migrated_input = (
+        _remove_retired_case_state_command_rules(existing, codex_home)
+        if codex_home is not None
+        else existing
+    )
     return _replace_line_or_marker(
-        existing,
+        migrated_input,
         policy_source,
         legacy_line=RULES_LEGACY_LINE,
         start=RULES_START,
@@ -818,6 +959,21 @@ def _remove_recorded_policy_bytes(
     if markers not in allowed_markers:
         raise OwnershipError(f"{label} recorded managed markers are not recognized")
     return _remove_exact_marker(existing, markers[0], markers[1], label)
+
+
+def _validate_recorded_policy_bytes(
+    existing: bytes,
+    record: dict[str, Any],
+    *,
+    allowed_markers: Sequence[tuple[str, str]],
+    label: str,
+) -> None:
+    _remove_recorded_policy_bytes(
+        existing,
+        record,
+        allowed_markers=allowed_markers,
+        label=label,
+    )
 
 
 @contextlib.contextmanager
@@ -1525,8 +1681,8 @@ def _verify_source(options: InstallOptions, source_root: Path, bundle: BundleInf
     if not COMMIT_RE.fullmatch(expected_commit):
         raise SourceVerificationError("ExpectedSourceCommit must be one full 40-character lowercase Git commit")
     if options.archive_mode:
-        if options.install_universal_policy:
-            raise AuthorityError("archive mode cannot synchronize universal policy")
+        if _universal_policy_mode(options) != "preserve":
+            raise AuthorityError("archive mode cannot modify universal policy")
         return {
             "kind": "archive",
             "repo_root": str(source_root),
@@ -1678,8 +1834,10 @@ def _check_universal_authority(
     options: InstallOptions,
     source: dict[str, Any],
     bundle: BundleInfo,
+    previous: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     bundle_id = _validated_universal_bundle_id(options.universal_bundle_id)
+    policy_mode = _universal_policy_mode(options)
     authority_inputs = (
         options.policy_authority_source,
         options.policy_authority_reference,
@@ -1688,11 +1846,26 @@ def _check_universal_authority(
         options.publication_authority_epoch,
         options.publication_cancellation_epoch,
     )
-    if not options.install_universal_policy:
+    if policy_mode != "install":
         if any(value is not None for value in authority_inputs):
             raise AuthorityError(
                 "policy authority inputs require --install-universal-policy"
             )
+        if policy_mode == "preserve" and previous is not None:
+            managed = _previous_managed_policy_targets(
+                previous, Path(options.codex_home).expanduser().resolve(strict=False)
+            )
+            if any(managed):
+                if managed != (True, True):
+                    raise OwnershipError(
+                        "previous universal policy ownership must manage both policy targets"
+                    )
+                previous_authority = previous.get("authority")
+                if not isinstance(previous_authority, dict):
+                    raise OwnershipError(
+                        "previous managed universal policy authority is unavailable"
+                    )
+                return dict(previous_authority)
         return {
             "source": None,
             "reference": None,
@@ -2331,7 +2504,12 @@ def _stage_bundle(
     staged_agents: Path | None = None
     staged_rules: Path | None = None
     previous_agents_managed, previous_rules_managed = _previous_managed_policy_targets(previous, codex_home)
-    if options.install_universal_policy:
+    policy_mode = _universal_policy_mode(options)
+    if previous_agents_managed != previous_rules_managed:
+        raise OwnershipError(
+            "previous universal policy ownership must manage both policy targets"
+        )
+    if policy_mode == "install":
         if not global_agents_path.is_file() or not default_rules_path.is_file():
             raise PolicyMigrationError("universal policy migration requires existing AGENTS.md and default.rules")
         _assert_no_link_components(global_agents_path, codex_home)
@@ -2342,7 +2520,7 @@ def _stage_bundle(
         agents_before = global_agents_path.read_bytes()
         rules_before = default_rules_path.read_bytes()
         agents_after = migrate_agents_bytes(agents_before, agents_source)
-        rules_after = migrate_rules_bytes(rules_before, rules_source)
+        rules_after = migrate_rules_bytes(rules_before, rules_source, codex_home)
         staged_agents = policy_stage / "AGENTS.md"
         staged_rules = policy_stage / "rules" / "default.rules"
         _atomic_write_bytes(staged_agents, agents_after)
@@ -2363,7 +2541,7 @@ def _stage_bundle(
             "marker_start": RULES_START,
             "marker_end": RULES_END,
         }
-    else:
+    elif policy_mode == "remove":
         if previous_agents_managed:
             if not global_agents_path.is_file() or _is_link_or_reparse(global_agents_path):
                 raise OwnershipError("previously managed AGENTS.md is unavailable for opt-out removal")
@@ -2398,6 +2576,11 @@ def _stage_bundle(
                     label="default.rules",
                 ),
             )
+    elif previous_agents_managed:
+        if previous is None:
+            raise OwnershipError("previous managed universal policy manifest is unavailable")
+        global_target = dict(previous["targets"]["global_agents"])
+        rules_target = dict(previous["targets"]["default_rules"])
 
     generated_paths = {str(record["path"]) for record in generated_records}
     generated_paths.update({"install-manifest.json", "install-manifest.txt"})
@@ -2565,9 +2748,12 @@ def _is_idempotent(
         )
     except TransactionError:
         return False
-    if options.install_universal_policy and prior_authority != authority:
+    policy_mode = _universal_policy_mode(options)
+    if policy_mode in {"install", "preserve"} and prior_authority != authority:
         return False
-    if not options.install_universal_policy and any(_previous_managed_policy_targets(previous, codex_home)):
+    if policy_mode == "remove" and any(
+        _previous_managed_policy_targets(previous, codex_home)
+    ):
         return False
     targets = previous.get("targets")
     if not isinstance(targets, dict):
@@ -2602,7 +2788,7 @@ def _is_idempotent(
         != staged["hooks_config_target"]["installed_sha256"]
     ):
         return False
-    if options.install_universal_policy:
+    if policy_mode == "install":
         if staged["staged_agents"] is None or staged["staged_rules"] is None:
             return False
         if _sha_file(codex_home / "AGENTS.md") != _sha_file(staged["staged_agents"]):
@@ -3053,8 +3239,47 @@ def _json_bytes(value: dict[str, Any]) -> bytes:
     return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
-def _preflight_policy_sources(options: InstallOptions, source_root: Path, pack: dict[str, Any], codex_home: Path) -> None:
-    if not options.install_universal_policy:
+def _preflight_policy_sources(
+    options: InstallOptions,
+    source_root: Path,
+    pack: dict[str, Any],
+    codex_home: Path,
+    previous: dict[str, Any] | None,
+) -> None:
+    policy_mode = _universal_policy_mode(options)
+    previous_agents_managed, previous_rules_managed = _previous_managed_policy_targets(
+        previous, codex_home
+    )
+    if previous_agents_managed != previous_rules_managed:
+        raise OwnershipError(
+            "previous universal policy ownership must manage both policy targets"
+        )
+    if policy_mode != "install":
+        if not previous_agents_managed:
+            return
+        agents = codex_home / "AGENTS.md"
+        rules = codex_home / "rules" / "default.rules"
+        if not agents.is_file() or not rules.is_file():
+            raise OwnershipError("previously managed universal policy target is unavailable")
+        targets = previous["targets"]
+        _validate_recorded_policy_bytes(
+            agents.read_bytes(),
+            targets["global_agents"],
+            allowed_markers=(
+                (AGENTS_START, AGENTS_END),
+                (RETIRED_AGENTS_START, RETIRED_AGENTS_END),
+            ),
+            label="AGENTS.md",
+        )
+        _validate_recorded_policy_bytes(
+            rules.read_bytes(),
+            targets["default_rules"],
+            allowed_markers=(
+                (RULES_START, RULES_END),
+                (RETIRED_RULES_START, RETIRED_RULES_END),
+            ),
+            label="default.rules",
+        )
         return
     policies = pack["installation"]["universal_policy_sources"]
     agents_source = _safe_repo_path(source_root, str(policies["global_agents"])).read_bytes()
@@ -3064,7 +3289,7 @@ def _preflight_policy_sources(options: InstallOptions, source_root: Path, pack: 
     if not agents.is_file() or not rules.is_file():
         raise PolicyMigrationError("universal policy migration requires existing AGENTS.md and default.rules")
     migrate_agents_bytes(agents.read_bytes(), agents_source)
-    migrate_rules_bytes(rules.read_bytes(), rules_source)
+    migrate_rules_bytes(rules.read_bytes(), rules_source, codex_home)
 
 
 def _previous_managed_policy_targets(previous: dict[str, Any] | None, codex_home: Path) -> tuple[bool, bool]:
@@ -3218,7 +3443,7 @@ def _install_preflight(
     _preflight_campaign_hook(pack, previous, source_root, codex_home)
     _prepare_install_hooks_configuration(previous, codex_home)
     _legacy_archive_source(options, codex_home)
-    _preflight_policy_sources(options, source_root, pack, codex_home)
+    _preflight_policy_sources(options, source_root, pack, codex_home, previous)
     config = codex_home / "config.toml"
     if config.exists():
         _assert_no_link_components(config, codex_home)
@@ -3236,10 +3461,12 @@ def _dry_run_install(options: InstallOptions, source_root: Path, skills_root: Pa
                 pending.append(path)
         if pending:
             raise RecoveryError("dry run refuses to bypass pending recovery state")
-    _install_preflight(options, source_root, skills_root, codex_home)
+    previous, _, _, _ = _install_preflight(
+        options, source_root, skills_root, codex_home
+    )
     bundle = verify_bundle(source_root, options.expected_bundle_sha256)
     source = _verify_source(options, source_root, bundle)
-    authority = _check_universal_authority(options, source, bundle)
+    authority = _check_universal_authority(options, source, bundle, previous)
     return {
         "status": "dry_run",
         "operation": "install",
@@ -3324,7 +3551,7 @@ def install(options: InstallOptions) -> dict[str, Any]:
             legacy_inspection = _inspect_legacy_archive_source(
                 source_root, legacy_state_root
             )
-            authority = _check_universal_authority(options, source, bundle)
+            authority = _check_universal_authority(options, source, bundle, previous)
             journal.data["bundle_sha256"] = bundle.aggregate_sha256
             journal.data["source_commit"] = source.get("git_commit")
             journal.save()
@@ -3825,7 +4052,9 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--codex-home", required=True)
     install_parser.add_argument("--expected-bundle-sha256", required=True)
     install_parser.add_argument("--expected-source-commit", required=True)
-    install_parser.add_argument("--install-universal-policy", action="store_true")
+    policy_action = install_parser.add_mutually_exclusive_group()
+    policy_action.add_argument("--install-universal-policy", action="store_true")
+    policy_action.add_argument("--remove-universal-policy", action="store_true")
     install_parser.add_argument("--universal-bundle-id", default=UNIVERSAL_BUNDLE_ID)
     install_parser.add_argument("--refresh-capability-index", action="store_true")
     install_parser.add_argument(
@@ -3877,6 +4106,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 expected_bundle_sha256=args.expected_bundle_sha256,
                 expected_source_commit=args.expected_source_commit,
                 install_universal_policy=args.install_universal_policy,
+                remove_universal_policy=args.remove_universal_policy,
                 universal_bundle_id=args.universal_bundle_id,
                 refresh_capability_index=args.refresh_capability_index,
                 policy_authority_source=args.policy_authority_source,

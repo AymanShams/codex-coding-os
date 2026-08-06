@@ -34,6 +34,12 @@ jobs:
         uses: actions/checkout@v6
       - name: Test campaign model and reducer
         run: python -B -m unittest tests.test_campaign_model_reducer -v
+      - name: Test reducer mutation-gate receipt evaluation
+        run: python -B -m unittest tests.test_reducer_mutation_gate -v
+      - name: Install pinned fork-based mutation runner
+        run: python -m pip install mutmut==3.7.0
+      - name: Reject surviving critical reducer mutations
+        run: python -B scripts/run_reducer_mutation_gate.py --max-children 2
       - name: Check reducer-to-formal lifecycle conformance
         run: python -B -m unittest tests.test_campaign_formal_conformance -v
       - name: Test pinned TLC runner

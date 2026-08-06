@@ -1,0 +1,9 @@
+[tool.mutmut]
+source_paths = ["scripts/agent/campaign_engine"]
+only_mutate = ["scripts/agent/campaign_engine/reducer.py"]
+pytest_add_cli_args = ["-q", "--disable-warnings"]
+pytest_add_cli_args_test_selection = ["tests/test_campaign_model_reducer.py"]
+timeout_multiplier = 8.0
+timeout_constant = 1.0
+use_setproctitle = false
+use_git_change_detection = false

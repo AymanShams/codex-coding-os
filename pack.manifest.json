@@ -374,6 +374,7 @@
     ".github/ISSUE_TEMPLATE/workflow-critique.yml",
     ".github/ISSUE_TEMPLATE/security-safety-concern.yml",
     "pack.schema.json",
+    "pyproject.toml",
     "case-state.schema.json",
     "validation-evidence.schema.json",
     "install-bundle.manifest.json",
@@ -396,6 +397,7 @@
     "docs/campaign-engine.md",
     "docs/architecture/adr/0001-brokered-runtime-action-boundary.md",
     "docs/architecture/adr/0002-artifact-authorized-one-shot-action.md",
+    "docs/architecture/adr/0003-campaign-engine-bounded-correction-exceptions.md",
     "docs/skill-quality-standard.md",
     "docs/full-skill-inventory.md",
     "docs/pack-design.md",
@@ -450,6 +452,7 @@
     "scripts/agent/campaign_engine/legacy.py",
     "scripts/agent/campaign_engine/cli.py",
     "scripts/agent/validation_evidence.py",
+    "scripts/run_reducer_mutation_gate.py",
     "scripts/install_transaction.py",
     "scripts/install.ps1",
     "scripts/install.sh",
@@ -474,6 +477,7 @@
     "tests/json-schema-validation-smoke.ps1",
     "tests/fixtures/pack.manifest.invalid-schema.json",
     "tests/test_campaign_model_reducer.py",
+    "tests/test_reducer_mutation_gate.py",
     "tests/test_campaign_store.py",
     "tests/test_campaign_runtime_components.py",
     "tests/fixtures/incidents/index.json",
@@ -519,8 +523,12 @@
     "CONTRIBUTING.md",
     "NOTICE.md",
     "pack.schema.json",
+    "pyproject.toml",
     "case-state.schema.json",
     "validation-evidence.schema.json"
+  ],
+  "vendor_retired_skills": [
+    "doc"
   ],
   "bundled_skills": [
     { "name": "ai-coding-discipline", "category": "coding-discipline", "required": true, "source": "local" },
@@ -538,7 +546,6 @@
     { "name": "customer-journey-map", "category": "product-docs", "required": true, "source": "local" },
     { "name": "deep-critic", "category": "critique", "required": true, "source": "local" },
     { "name": "defensive-security-checklist", "category": "security", "required": true, "source": "local" },
-    { "name": "doc", "category": "document-intake", "required": true, "source": "local-or-open-source" },
     { "name": "evidence-checker", "category": "verification", "required": true, "source": "local" },
     { "name": "external-skill-overlay-pack", "category": "external-overlays", "required": true, "source": "local" },
     { "name": "grill-me", "category": "planning-review", "required": true, "source": "local" },

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "fff24ed04fa23cf9f202148c4082ba771057cc42a69b9b17f1a21365691aeff5",
+  "aggregate_sha256": "a1b25fab950c200b6141335c0f3767873a4ec3e41a8b711dcf94129aa7fd9009",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -220,36 +220,6 @@
       "path": ".agents/skills/defensive-security-checklist/references/defensive-checklist-taxonomy.md",
       "sha256": "1d81e472515eed349c94205fba81ed89bfc44da84d91d3a6a60d0c7887050da0",
       "size": 8267
-    },
-    {
-      "path": ".agents/skills/doc/LICENSE.txt",
-      "sha256": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9",
-      "size": 10776
-    },
-    {
-      "path": ".agents/skills/doc/SKILL.md",
-      "sha256": "d1dadbac66b13b3ad5c6f534914eabe56e45c776cbb932ef319d50bfb2511d7f",
-      "size": 3626
-    },
-    {
-      "path": ".agents/skills/doc/agents/openai.yaml",
-      "sha256": "b77d452b23dfa0bef7788728317254f07bddcd5f2be1d6678d5c3cf754b833ae",
-      "size": 271
-    },
-    {
-      "path": ".agents/skills/doc/assets/doc-small.svg",
-      "sha256": "bd5415fbbfe72c66c1527411d61625731fdd2f75b25d1542510b6ddef699ebe0",
-      "size": 1678
-    },
-    {
-      "path": ".agents/skills/doc/assets/doc.png",
-      "sha256": "7eadf1088e5062f681dba6596173a1df13bbfbcddd8a8a9bb78fd2071947dcf8",
-      "size": 1211
-    },
-    {
-      "path": ".agents/skills/doc/scripts/render_docx.py",
-      "sha256": "52b3c3158913ebcad2ada7b8193970b70453239e255054aa2d60c1683af08751",
-      "size": 9700
     },
     {
       "path": ".agents/skills/evidence-checker/SKILL.md",
@@ -2153,8 +2123,8 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "a06fbd5adb344960ad53970fafb32a8224105c782b2db28c516f0bcde58d9829",
-      "size": 4158
+      "sha256": "615ee81fc6e7e624d62884b0de5df0c7e2ef79bab92d3df1dfd5e6f95c975ec5",
+      "size": 4529
     },
     {
       "path": "CHANGELOG.md",
@@ -2193,8 +2163,8 @@
     },
     {
       "path": "THIRD_PARTY_SKILLS.md",
-      "sha256": "4d678678f2283951eed4bcec1c288b83fc615ce15caccd829bb53e4dd0f3bf87",
-      "size": 8574
+      "sha256": "f1de329cae980a5c9fc751d5af09f7993486a9b89d6f90ecc9081911c87c1949",
+      "size": 8706
     },
     {
       "path": "capability-index/canonical-registry.sample.csv",
@@ -2237,6 +2207,11 @@
       "size": 8361
     },
     {
+      "path": "docs/architecture/adr/0003-campaign-engine-bounded-correction-exceptions.md",
+      "sha256": "804864cdc1a729df0a0affc97249cc0229d43b6d17a23c3ec6fab6884c6e432b",
+      "size": 5321
+    },
+    {
       "path": "docs/campaign-engine.md",
       "sha256": "714cd72fba1bbd52ec5ee16db04b639607fc0b9b299fae544c43e5d57ec5d30a",
       "size": 3261
@@ -2268,8 +2243,8 @@
     },
     {
       "path": "docs/full-skill-inventory.md",
-      "sha256": "174ce3964cc3556ff695fc6344280ab372d26ac60ddf38809dbdda2da2187a35",
-      "size": 5049
+      "sha256": "19c204fe0c0b59f64b4d0ce5b28fff4d449b6d1bfe165bd79f538b92ca30bcf0",
+      "size": 5226
     },
     {
       "path": "docs/getting-started.md",
@@ -2368,18 +2343,23 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "bc0419ea19f11abf869c9a22fdfd384a50dee7d2960a03a1bd3a7791921874c0",
-      "size": 26517
+      "sha256": "52bf50c572e762db25ae3690f5444de9b27566b483c9288f24dc563d11e45936",
+      "size": 26669
     },
     {
       "path": "pack.schema.json",
-      "sha256": "b94f676c6df53adac2e997b06b261584e8bfdcbfc0a0afb1f92b1a959a529551",
-      "size": 8645
+      "sha256": "dc20d38fb2d615705a38ecced007044919b361aab6be5f1f5146b393826c62b7",
+      "size": 8758
     },
     {
       "path": "patches/external-skills/forrestchang-andrej-karpathy-skills/CODING_OS_OVERLAY.md",
       "sha256": "d57aa58a2c189ba5548f2bab2514f08a7d88848b1c0f16456568f8027d9bdcd2",
       "size": 1113
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "7aae40f449c469f7cca112b97984df6cab682c11f3ed1aeedfb94cc5e9d6c4fa",
+      "size": 357
     },
     {
       "path": "scripts/agent/campaign_engine/__init__.py",
@@ -2478,18 +2458,18 @@
     },
     {
       "path": "scripts/install.ps1",
-      "sha256": "484cbe02ffc275da127ffdd859ce7d8832d0e2133f84ea38c7e04c97cf331d1c",
-      "size": 5097
+      "sha256": "c5b0fd3a5fead2a61f2de386b2487c7f7f5c5c257448c1cdefef8782de851701",
+      "size": 5349
     },
     {
       "path": "scripts/install.sh",
-      "sha256": "f908c88ae993367e6e14d0102d55cdef94c9e761b753e29f3f9aca6da163ca12",
-      "size": 5637
+      "sha256": "f7fa8e096fc7905c73a0574418d66893f47cb447a9b8e49e77d4b700d8335eb1",
+      "size": 5974
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "16630cd1a2d2a39d79a2572e2b43bc1d24dac37014046901fc2f54c41ed77852",
-      "size": 177481
+      "sha256": "1da6e06bfacc09b9e886f1b680dbc614c8f5d1e8ce4b9d02883b5440cb8e996a",
+      "size": 186477
     },
     {
       "path": "scripts/json-schema-validation.ps1",
@@ -2510,6 +2490,11 @@
       "path": "scripts/run_campaign_tlc.py",
       "sha256": "66a3b730952bd9b37e631d8b84f424c10929de909d5e82194548154944fec0d5",
       "size": 6827
+    },
+    {
+      "path": "scripts/run_reducer_mutation_gate.py",
+      "sha256": "ed74f1522b40d3c90f685ccb97d4d0c867f34f5fc39881f0dabb3f53af992947",
+      "size": 6626
     },
     {
       "path": "scripts/uninstall.ps1",
@@ -2788,8 +2773,8 @@
     },
     {
       "path": "tests/test_campaign_model_reducer.py",
-      "sha256": "56861b984c12ec3e66d259a715f2915cbca85f50550ee1731440b761447f2050",
-      "size": 29747
+      "sha256": "eac45a64f922fe2731d28d5426d773b2a9d7861e49fe0476d0727dff131cf503",
+      "size": 37458
     },
     {
       "path": "tests/test_campaign_runtime_components.py",
@@ -2818,8 +2803,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "4784d53a39fdf1196b573b7d5a8f76f2e2d699fd88580e7760b5e2a247fd9ba1",
-      "size": 109004
+      "sha256": "753ae07aa9d7047b238f63e94a7ed8f24cf6a1cff2a0d5ff991c17f4ae40017a",
+      "size": 120925
     },
     {
       "path": "tests/test_project_artifact_instances.py",
@@ -2830,6 +2815,11 @@
       "path": "tests/test_public_install_docs.py",
       "sha256": "5da172af60d7ff9160c319bdae7900d363c520ab2c22a870b38fd52f2a3f8103",
       "size": 5723
+    },
+    {
+      "path": "tests/test_reducer_mutation_gate.py",
+      "sha256": "2af5f2ab81cd0ea84a084e8c1bd5e30c4445180ef985c2adbb7798ed992563e6",
+      "size": 3618
     },
     {
       "path": "tests/test_source_repository_profile.py",
