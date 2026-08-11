@@ -4,6 +4,41 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-11
+
+### Added
+
+- Added a dormant, public-safe reference port of the canonical manifest and
+  policy router, including schemas, provenance, external project-scope
+  profiles, exact task-input binding, dependency fallbacks, and SQLite v2
+  issuance contracts.
+- Added deterministic routing for all 13 Codex Security skills and explicit
+  composition for Supabase, Neon Postgres, generic PostgreSQL, and frontend
+  security boundaries.
+- Added the provider-neutral `postgres-security-best-practices` skill with
+  focused guidance for roles, ownership, grants, row-level security, views,
+  privileged functions, and regression tests.
+- Added cross-platform router, plugin-boundary, local-skill parity, provider,
+  fallback, and negative-intent tests.
+
+### Changed
+
+- Updated `catalogue-router` to query the installed canonical CLI with complete
+  task input, execution disposition, worker eligibility, source, memory, and
+  project fields while treating its Markdown catalogue as evidence only.
+- Recorded Codex Security, Supabase, and Neon Postgres as Codex-managed
+  third-party plugins without bundling their skill bodies, connector state,
+  MCP runtime, credentials, or receipts.
+- Made equivalent diff and standard security fallbacks distinct from the
+  non-equivalent deep-scan and live-provider fallbacks.
+- Added package, installer, documentation, and CI boundaries that keep routing
+  reference source in the release archive but outside installed Codex state.
+
+### Removed
+
+- Removed the retired repository capability hook, its installer refresh flags,
+  and the historical capability index from the installed support payload.
+
 ## [1.0.0] - 2026-08-06
 
 ### Added

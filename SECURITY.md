@@ -29,3 +29,14 @@ Security reports are most useful when they affect:
 This repository is a workflow and tooling pack. Vulnerabilities in applications
 built with the pack should be reported to those application owners unless the issue
 comes from a bundled file in this repository.
+
+## Capability boundary
+
+Codex Security, Supabase, and Neon Postgres are Codex-managed third-party
+plugins. Their skills, connectors, MCP runtime, credentials, and receipts are
+not bundled here. The router under `capability-routing/` is dormant reference
+source and is not activated by the installer.
+
+See `docs/security-capability-operating-model.md` for the 13-skill Codex
+Security map, repository-owned security skills, provider composition, fallback
+limits, and live-validation requirements.

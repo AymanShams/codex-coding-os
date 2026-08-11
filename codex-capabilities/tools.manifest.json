@@ -1,5 +1,6 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "last_reviewed": "2026-08-11",
   "policy": "This repo documents coding-related tools and MCP servers. Install tools only when the project needs them and after reviewing trust, permissions, and credentials.",
   "local_tools": [
     {
@@ -33,7 +34,49 @@
       "use": "Codebase graph creation, codebase Q&A, diffs, onboarding guides, and file or flow explanations"
     }
   ],
+  "plugin_app_connectors": [
+    {
+      "name": "supabase",
+      "plugin_id": "supabase@openai-curated-remote",
+      "plugin_version": "1.0.0",
+      "required_by_plugin": true,
+      "repo_bundled": false,
+      "access": [
+        "read",
+        "write"
+      ],
+      "use": "Supabase project, SQL, migration, auth, storage, branch, and database operations",
+      "state_owner": "Codex plugin system"
+    },
+    {
+      "name": "neon-postgres",
+      "plugin_id": "neon-postgres@openai-curated-remote",
+      "plugin_version": "1.0.0",
+      "required_by_plugin": true,
+      "repo_bundled": false,
+      "access": [
+        "read",
+        "write"
+      ],
+      "use": "Neon project, branch, database, SQL, and migration operations",
+      "state_owner": "Codex plugin system"
+    }
+  ],
   "mcp_servers": [
+    {
+      "name": "codex-security",
+      "priority": "required-for-codex-security-deep-scans",
+      "managed_by": "codex-security@openai-curated-remote 0.1.18",
+      "repo_bundled": false,
+      "use": "Durable Codex Security deep-scan orchestration, independent repeated discovery, semantic reduction, and scan lifecycle receipts",
+      "required_for": [
+        "codex-security:deep-security-scan"
+      ],
+      "fallback": {
+        "equivalence": "non_equivalent",
+        "action": "Return to Codex and disclose that deep-scan fidelity and durable lifecycle receipts were not reproduced"
+      }
+    },
     {
       "name": "context7",
       "priority": "recommended",
@@ -65,9 +108,12 @@
       "use": "n8n workflow validation, node lookup, and workflow template search"
     },
     {
-      "name": "supabase",
-      "priority": "optional-for-supabase-projects",
-      "use": "Supabase docs, account, database, functions, branching, storage, and development operations"
+      "name": "neon",
+      "priority": "optional-for-neon-projects",
+      "managed_by": "separate project configuration",
+      "repo_bundled": false,
+      "use": "Optional Neon MCP surface when a project needs capabilities beyond the required Neon Postgres plugin app connector",
+      "fallback": "Use the required Neon Postgres plugin app connector or remain read-only when no authorized write integration is available"
     },
     {
       "name": "vercel",

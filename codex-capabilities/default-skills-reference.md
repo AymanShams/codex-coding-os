@@ -43,26 +43,44 @@ Install these when the project uses the matching platform or workflow:
 
 1. Vercel
 2. Supabase
-3. Chrome
-4. Computer Use
-5. Cloudflare
-6. Build iOS Apps
-7. Test Android Apps
-8. Documents
-9. Document Skills
-10. Spreadsheets
-11. Presentations
-12. Data Analytics
-13. Build Web Data Visualization
-14. Product Design
-15. Understand Anything
-16. Cloudflare
+3. Neon Postgres
+4. Chrome
+5. Computer Use
+6. Cloudflare
+7. Build iOS Apps
+8. Test Android Apps
+9. Documents
+10. Document Skills
+11. Spreadsheets
+12. Presentations
+13. Data Analytics
+14. Build Web Data Visualization
+15. Product Design
+16. Understand Anything
+
+## Security capability boundary
+
+Codex Security contributes 13 managed skills covering diff, standard, and deep
+scans plus discovery, threat modeling, triage, validation, attack paths, fixes,
+hardening, policy definition, vulnerability reports, and approved finding
+tracking. This repository records those capabilities but does not copy them.
+
+Supabase and Neon Postgres also remain plugin-managed. Install only the provider
+used by the project. Generic PostgreSQL work uses the bundled
+`postgres-security-best-practices` skill without assuming a provider connector.
+
+See [Security Capability Operating Model](../docs/security-capability-operating-model.md)
+for the exact skill map and fallback rules.
 
 ## Why managed capabilities stay managed
 
 Do not copy Codex-managed plugin installation files into this repo.
 
 Plugin-managed skills can change with Codex releases, rely on connector permissions, or call MCP servers and app integrations. Installing them through Codex keeps the capability boundary clear.
+
+The source under `capability-routing/` is also not an installer for these
+capabilities. It is dormant repository reference source. The public installer
+does not register it or replace universal routing state.
 
 ## Activation steps
 

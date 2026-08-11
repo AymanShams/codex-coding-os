@@ -9,7 +9,10 @@
 | Admission | `campaign_engine/admission.py` | Verifies exact source, worktree, scope, and installed runtime |
 | Interface | `campaign_engine/cli.py`, thin hooks and repository adapters | Transports requests and results without adding lifecycle logic |
 | Legacy evidence | `campaign_engine/legacy.py`, `case_state.py` retirement stub | Read-only archive access and deterministic command denial |
+| Routing reference | `capability-routing/` | Non-live source and policy evidence, excluded from installation and activation |
+| Catalogue evidence | `capability-index/` | Historical schema and sample data, excluded from installation and routing authority |
 | Knowledge | Skills, templates, and documentation | Guidance only, never lifecycle authority |
 
 Only the reducer decides transitions. Only the SQLite store persists current
 lifecycle state. Every other component is a bounded client or effect executor.
+The routing reference cannot become live authority through the pack installer.

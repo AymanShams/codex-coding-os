@@ -15,7 +15,6 @@ $BundleDigest = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).
   -ExpectedSourceCommit $SourceCommit `
   -ExpectedBundleSha256 $BundleDigest `
   -InstallUniversalPolicy `
-  -RefreshCapabilityIndex `
   -PolicyAuthoritySource explicit-user-approval `
   -PolicyAuthorityReference "approved-tagged-installation"
 ```
@@ -58,7 +57,7 @@ SHA-256 sidecar, read the exact full release commit from the GitHub release
 notes, and use archive mode:
 
 ```powershell
-$ZipPath = (Resolve-Path .\codex-coding-os-v1.0.0.zip).Path
+$ZipPath = (Resolve-Path .\codex-coding-os-v1.1.0.zip).Path
 $ExpectedZipSha = ((Get-Content "$ZipPath.sha256").Split()[0]).ToLowerInvariant()
 $ActualZipSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $ZipPath).Hash.ToLowerInvariant()
 if ($ActualZipSha -ne $ExpectedZipSha) { throw "Release ZIP digest mismatch." }
@@ -68,7 +67,7 @@ New-Item -ItemType Directory -Path $ArchiveRoot | Out-Null
 Expand-Archive -LiteralPath $ZipPath -DestinationPath $ArchiveRoot
 Set-Location $ArchiveRoot
 
-$ReleaseCommit = "<full 40-character commit from the v1.0.0 release notes>"
+$ReleaseCommit = "<full 40-character commit from the v1.1.0 release notes>"
 $BundleDigest = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
 .\scripts\install.ps1 `
   -ArchiveMode `
@@ -82,19 +81,17 @@ verified tagged Git checkout for `-InstallUniversalPolicy` or
 
 ## Upgrade from a 0.x installation
 
-Use the version 1.0 source commit and its committed bundle digest. The following
-PowerShell command installs the managed universal policy, refreshes the
-installed capability index, and archives legacy state only when the legacy
-directory exists:
+Use the current version 1.x source commit and its committed bundle digest. The following
+PowerShell command installs the managed universal policy and archives legacy
+state only when the legacy directory exists:
 
 ```powershell
 $InstallArgs = @{
   ExpectedSourceCommit = (git rev-parse HEAD).Trim()
   ExpectedBundleSha256 = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
   InstallUniversalPolicy = $true
-  RefreshCapabilityIndex = $true
   PolicyAuthoritySource = "explicit-user-approval"
-  PolicyAuthorityReference = "approved-v1.0-installation"
+  PolicyAuthorityReference = "approved-v1.1-installation"
 }
 $LegacyRoot = "$env:USERPROFILE\.codex\case-state"
 if (Test-Path -LiteralPath $LegacyRoot -PathType Container) {
@@ -115,6 +112,23 @@ skills so the task reloads the installed policy and capability catalogue. An
 already-running task, or a task rooted in a deliberately preserved older Git
 branch, can continue to display older task-scoped text without reactivating the
 retired engine.
+
+## Enable security plugins
+
+The repository installer does not install or copy Codex-managed plugins. After
+the Coding OS install completes:
+
+1. Open Codex Plugins.
+2. Install Codex Security.
+3. Install Supabase only for a Supabase project.
+4. Install Neon Postgres only for a Neon project.
+5. Connect only the provider used by the current project.
+6. Restart Codex and open a new task.
+
+Use [Security Capability Operating Model](security-capability-operating-model.md)
+to select among all 13 Codex Security skills and compose frontend, Supabase,
+Neon, or generic PostgreSQL work correctly. The dormant router source in this
+repository is not activated by installation.
 
 ## Verify the installed runtime
 

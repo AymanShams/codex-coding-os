@@ -1,12 +1,15 @@
 {
   "$schema": "pack.schema.json",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "package_name": "codex-coding-os",
   "display_name": "Codex Coding OS",
   "release_status": "public-release",
   "source_of_truth": {
     "bundled_skill_inventory": "docs/full-skill-inventory.md",
     "third_party_sources": "THIRD_PARTY_SKILLS.md",
+    "capability_routing_policy": "capability-routing/routing-policy.yaml",
+    "capability_routing_provenance": "capability-routing/provenance.json",
+    "security_capability_operating_model": "docs/security-capability-operating-model.md",
     "external_source_data": "external-skills/manifest.json",
     "plugin_and_mcp_guidance": "docs/codex-plugins-mcps-hooks.md",
     "codex_rules_guidance": "docs/codex-rules.md",
@@ -499,12 +502,6 @@
     "tests/test_validation_evidence.py",
     "capability-index/canonical-registry.schema.json",
     "capability-index/canonical-registry.sample.csv",
-    "hooks/capability-router/README.md",
-    "hooks/capability-router/_hook_io.py",
-    "hooks/capability-router/capability_index.py",
-    "hooks/capability-router/capability_index_cli.py",
-    "hooks/capability-router/user_prompt_skill_router.py",
-    "hooks/capability-router/test_capability_router.py",
     "universal/AGENTS.automation-case-policy.md",
     "universal/rules/gh-pr-merge-authority.rules"
   ],
@@ -512,9 +509,7 @@
     "templates",
     "docs",
     "codex-capabilities",
-    "capability-index",
     "external-skills",
-    "hooks",
     "patches",
     "scripts",
     ".codex",
@@ -563,6 +558,7 @@
     { "name": "project-session-continuity", "category": "coordination", "required": true, "source": "local" },
     { "name": "pdf", "category": "document-intake", "required": true, "source": "local-or-open-source" },
     { "name": "playwright", "category": "qa", "required": true, "source": "local-or-open-source" },
+    { "name": "postgres-security-best-practices", "category": "security", "required": true, "source": "local" },
     { "name": "pre-mortem", "category": "planning-review", "required": true, "source": "local" },
     { "name": "process-docs", "category": "documentation", "required": true, "source": "local" },
     { "name": "product-strategy", "category": "product-docs", "required": true, "source": "local" },
@@ -646,7 +642,6 @@
       "source": "hooks/campaign-engine",
       "target": "hooks/campaign-engine"
     },
-    "capability_refresh_cli": "hooks/capability-router/capability_index_cli.py",
     "external_skills_staged": false
   }
 }

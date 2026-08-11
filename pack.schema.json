@@ -288,7 +288,6 @@
         "runtime_files",
         "universal_policy_sources",
         "campaign_hook",
-        "capability_refresh_cli",
         "external_skills_staged"
       ],
       "properties": {
@@ -320,7 +319,6 @@
             "target": { "const": "hooks/campaign-engine" }
           }
         },
-        "capability_refresh_cli": { "type": "string", "minLength": 1 },
         "external_skills_staged": { "type": "boolean", "const": false }
       }
     }

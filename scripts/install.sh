@@ -17,7 +17,6 @@ legacy_state_root=""
 install_policy=0
 remove_policy=0
 universal_bundle_id="campaign-engine-policy-v1"
-refresh=0
 legacy_overlap_migration=0
 archive_mode=0
 dry_run=0
@@ -32,7 +31,6 @@ Options:
   --install-universal-policy
   --remove-universal-policy
   --universal-bundle-id IDENTIFIER
-  --refresh-capability-index
   --policy-authority-source explicit-user-approval|campaign-publication-authority
   --policy-authority-reference TEXT
   --publication-campaign-id IDENTIFIER
@@ -57,7 +55,6 @@ while [[ $# -gt 0 ]]; do
     --install-universal-policy) install_policy=1; shift ;;
     --remove-universal-policy) remove_policy=1; shift ;;
     --universal-bundle-id) universal_bundle_id="$2"; shift 2 ;;
-    --refresh-capability-index) refresh=1; shift ;;
     --policy-authority-source) policy_authority_source="$2"; shift 2 ;;
     --policy-authority-reference) policy_authority_reference="$2"; shift 2 ;;
     --publication-campaign-id) publication_campaign_id="$2"; shift 2 ;;
@@ -131,7 +128,6 @@ args=(
 args+=(--expected-source-commit "$expected_commit")
 [[ "$install_policy" -eq 0 ]] || args+=(--install-universal-policy)
 [[ "$remove_policy" -eq 0 ]] || args+=(--remove-universal-policy)
-[[ "$refresh" -eq 0 ]] || args+=(--refresh-capability-index)
 [[ -z "$policy_authority_source" ]] || args+=(--policy-authority-source "$policy_authority_source")
 [[ -z "$policy_authority_reference" ]] || args+=(--policy-authority-reference "$policy_authority_reference")
 [[ -z "$publication_campaign_id" ]] || args+=(--publication-campaign-id "$publication_campaign_id")

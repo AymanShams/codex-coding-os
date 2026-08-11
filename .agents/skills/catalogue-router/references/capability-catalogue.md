@@ -20,6 +20,7 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 | React Native work | Implementation | `react-native-skills` | `react-best-practices`, `playwright` | `composition-patterns` | Shared component architecture or web parity is required |
 | Frontend QA | Verification | `playwright` | `react-best-practices` | `humanizer` | Visual polish, accessibility, or design acceptance is failing |
 | Security defaults | Security Review | `security-best-practices` | `defensive-security-checklist` | `security-threat-model` | Assets, trust boundaries, or data flows are known |
+| PostgreSQL security boundaries | Security Review | `postgres-security-best-practices` | `security-best-practices` | provider-specific skills | The task depends on Supabase or Neon project behavior rather than provider-neutral PostgreSQL |
 | Defensive security checklist | Security Review | `defensive-security-checklist` | `security-best-practices`, `codex-security:*` | `security-threat-model` | Threat model scope is concrete enough to map abuse cases |
 | AppSec threat model | Security Review | `security-threat-model` | `security-best-practices`, `artifact-validation-workflow` | `deep-critic` | Findings need remediation planning or release gating |
 | Security ownership from git history | Security Analysis | `security-ownership-map` | `code-review-graph` | `security-threat-model` | Ownership hotspots map to real assets or incidents |
@@ -79,6 +80,7 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 - `pdf`
 - `playwright`
 - `pre-mortem`
+- `postgres-security-best-practices`
 - `process-docs`
 - `product-strategy`
 - `quality-improvement-problem-solving`
@@ -114,7 +116,7 @@ These are reference or optional install sources, not bundled source code unless 
 | `addyosmani/agent-skills` | Reference only. Mine checklist ideas selectively. Do not install as a second active coding methodology. |
 | `rohunj/claude-build-workflow` | Reference only. Mine workflow patterns only. |
 | `davila7/claude-code-templates` | Reference only. Mine templates only when a specific project needs them. |
-| `supabase/agent-skills` | Reference only. Prefer Codex Supabase plugin and MCP when available. |
+| `supabase/agent-skills` | Reference only. Prefer the Codex-managed Supabase plugin and app connector when available. |
 | `openai/openai-agents-python` | App architecture reference for Python agent applications. Do not install as a Codex skill. |
 
 ## Candidate Backlog

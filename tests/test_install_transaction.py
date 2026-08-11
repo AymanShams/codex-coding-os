@@ -274,10 +274,6 @@ def archive_legacy_root(root, *, state_root, store=None):
     return Result("legacy-" + value[:24], str(destination), value, replayed)
 """,
         )
-        write_text(
-            self.source / "scripts/fake_refresh.py",
-            "import os, sys\nsys.exit(int(os.environ.get('CCOS_SYNTHETIC_REFRESH_EXIT', '0')))\n",
-        )
         write_text(self.source / "hooks/campaign-engine/campaign_hook.py", "# synthetic campaign hook\n")
         write_text(self.source / "universal/AGENTS.automation-case-policy.md", AGENTS_POLICY + "\n")
         write_text(self.source / "universal/rules/gh-pr-merge-authority.rules", RULES_POLICY + "\n")
@@ -288,7 +284,6 @@ def archive_legacy_root(root, *, state_root, store=None):
                 "payload",
                 "scripts/install_transaction.py",
                 "scripts/agent/campaign_engine",
-                "scripts/fake_refresh.py",
                 "hooks/campaign-engine",
                 "universal",
                 "pack.manifest.json",
@@ -305,7 +300,6 @@ def archive_legacy_root(root, *, state_root, store=None):
                 "runtime_files": [
                     "scripts/install_transaction.py",
                     "scripts/agent/campaign_engine",
-                    "scripts/fake_refresh.py",
                     "hooks/campaign-engine",
                 ],
                 "campaign_hook": {
@@ -316,7 +310,6 @@ def archive_legacy_root(root, *, state_root, store=None):
                     "global_agents": "universal/AGENTS.automation-case-policy.md",
                     "default_rules": "universal/rules/gh-pr-merge-authority.rules",
                 },
-                "capability_refresh_cli": "scripts/fake_refresh.py",
                 "external_skills_staged": False,
             },
         }
@@ -443,6 +436,7 @@ class BundleContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
             manifest = json.loads((env.source / "install-bundle.manifest.json").read_text(encoding="utf-8"))
+            first_manifest_bytes = (env.source / "install-bundle.manifest.json").read_bytes()
             self.assertEqual(manifest["protocol"], "CCOS-INSTALL-BUNDLE-v1")
             self.assertNotIn("install-bundle.manifest.json", [entry["path"] for entry in manifest["entries"]])
             self.assertTrue(all(not Path(entry["path"]).is_absolute() for entry in manifest["entries"]))
@@ -458,6 +452,63 @@ class BundleContractTests(unittest.TestCase):
             self.assertEqual(manifest["aggregate_sha256"], digest.hexdigest())
             verified = it.verify_bundle(env.source, env.bundle_hash)
             self.assertEqual(verified.aggregate_sha256, env.bundle_hash)
+            rebuilt = it.build_bundle_manifest(env.source)
+            self.assertEqual(manifest, rebuilt)
+            self.assertEqual(
+                first_manifest_bytes,
+                (env.source / "install-bundle.manifest.json").read_bytes(),
+            )
+
+    def test_bundle_rejects_all_codex_managed_plugin_skill_directories(self) -> None:
+        expected = {
+            "attack-path-analysis",
+            "deep-security-scan",
+            "define-security-policy",
+            "finding-discovery",
+            "fix-finding",
+            "propose-security-hardening",
+            "security-diff-scan",
+            "security-scan",
+            "threat-model",
+            "track-findings",
+            "triage-finding",
+            "validation",
+            "vulnerability-writeup",
+            "supabase",
+            "supabase-postgres-best-practices",
+            "neon-postgres",
+            "neon-postgres-egress-optimizer",
+        }
+        self.assertEqual(expected, it.CODEX_MANAGED_PLUGIN_SKILL_DIRECTORIES)
+        self.assertEqual(
+            {name.casefold() for name in expected},
+            it.CODEX_MANAGED_PLUGIN_SKILL_DIRECTORY_KEYS,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            candidate_names = [*sorted(expected), *(name.upper() for name in sorted(expected))]
+            for name in candidate_names:
+                with self.subTest(skill=name):
+                    env.pack["bundled_skills"].append(
+                        {
+                            "name": name,
+                            "category": "third-party-plugin",
+                            "required": True,
+                            "source": "third-party-codex-managed",
+                        }
+                    )
+                    write_text(env.source / f".agents/skills/{name}/SKILL.md", "---\nname: blocked\n---\n")
+                    write_text(
+                        env.source / "pack.manifest.json",
+                        json.dumps(env.pack, indent=2) + "\n",
+                    )
+                    with self.assertRaisesRegex(
+                        it.BundleError,
+                        "Codex-managed plugin skill bodies cannot be bundled",
+                    ):
+                        it.build_bundle_manifest(env.source)
+                    env.pack["bundled_skills"].pop()
 
     def test_bundle_requires_the_single_campaign_hook_contract(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
@@ -1556,20 +1607,66 @@ class InstallTransactionTests(unittest.TestCase):
             self.assertEqual((env.codex / "AGENTS.md").read_text(), "no legacy")
             self.assertFalse((env.codex / "coding-os").exists())
 
-    def test_capability_refresh_failure_rolls_back_all_live_targets(self) -> None:
+    def test_retired_capability_router_install_paths_are_rejected(self) -> None:
+        self.assertFalse(any((REPO_ROOT / "hooks/capability-router").glob("**/*")))
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))
-            it.install(env.archive_options())
-            old_skill = sha(env.skills / "alpha/SKILL.md")
-            old_support = (env.codex / "coding-os/payload/doc.txt").read_bytes()
-            write_text(env.source / "payload/doc.txt", "payload-v2\n")
-            env.bundle = it.build_bundle_manifest(env.source)
-            env.bundle_hash = env.bundle["aggregate_sha256"]
-            with mock.patch.dict(os.environ, {"CCOS_SYNTHETIC_REFRESH_EXIT": "7"}):
-                with self.assertRaises(it.TransactionError):
-                    it.install(env.archive_options(refresh_capability_index=True))
-            self.assertEqual(sha(env.skills / "alpha/SKILL.md"), old_skill)
-            self.assertEqual((env.codex / "coding-os/payload/doc.txt").read_bytes(), old_support)
+            write_text(
+                env.source / "capability-routing/reference-runtime/router.py",
+                "# non-live reference source\n",
+            )
+            bundle = it.build_bundle_manifest(env.source)
+            self.assertNotIn(
+                "capability-routing/reference-runtime/router.py",
+                {entry["path"] for entry in bundle["entries"]},
+            )
+            for forbidden in (
+                "hooks",
+                "hooks/capability-router/capability_index.py",
+                "capability-index",
+                "capability-routing/reference-runtime",
+                "Hooks",
+                "Hooks/Capability-Router/capability_index.py",
+                "Capability-Index",
+                "Capability-Routing/reference-runtime",
+            ):
+                with self.subTest(path=forbidden):
+                    env.pack["support_items"].append(forbidden)
+                    write_text(
+                        env.source / "pack.manifest.json",
+                        json.dumps(env.pack, indent=2) + "\n",
+                    )
+                    with self.assertRaisesRegex(
+                        it.BundleError,
+                        "routing reference source cannot be installed",
+                    ):
+                        it.build_bundle_manifest(env.source)
+                    env.pack["support_items"].pop()
+
+            env.pack["installation"]["capability_refresh_cli"] = "retired.py"
+            write_text(
+                env.source / "pack.manifest.json",
+                json.dumps(env.pack, indent=2) + "\n",
+            )
+            with self.assertRaisesRegex(
+                it.BundleError,
+                "installation.capability_refresh_cli is retired",
+            ):
+                it.build_bundle_manifest(env.source)
+
+        parser = it.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "install",
+                    "--source-root", "source",
+                    "--skills-root", "skills",
+                    "--codex-home", "codex",
+                    "--expected-bundle-sha256", "0" * 64,
+                    "--expected-source-commit", "0" * 40,
+                    "--refresh-capability-index",
+                ]
+            )
 
     def test_faults_before_pointer_roll_back_and_pointer_fault_retains_new_bundle(self) -> None:
         precommit_phases = [

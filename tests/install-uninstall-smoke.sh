@@ -15,6 +15,32 @@ else
 fi
 bundle_hash="$("$python_cmd" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["aggregate_sha256"])' "$repo_root/install-bundle.manifest.json")"
 source_commit="$(git -C "$repo_root" rev-parse HEAD)"
+repository_security_skills=(
+  defensive-security-checklist
+  postgres-security-best-practices
+  security-best-practices
+  security-ownership-map
+  security-threat-model
+)
+codex_managed_plugin_skill_directories=(
+  attack-path-analysis
+  deep-security-scan
+  define-security-policy
+  finding-discovery
+  fix-finding
+  propose-security-hardening
+  security-diff-scan
+  security-scan
+  threat-model
+  track-findings
+  triage-finding
+  validation
+  vulnerability-writeup
+  supabase
+  supabase-postgres-best-practices
+  neon-postgres
+  neon-postgres-egress-optimizer
+)
 
 cleanup() { rm -rf "$test_root"; }
 trap cleanup EXIT
@@ -82,6 +108,21 @@ assert pathlib.Path(manifest["targets"]["skills_root"]).resolve() == pathlib.Pat
 assert "legacy_overlap_migration" not in manifest
 PY
 test -f "$skills_root/codex-coding-os-master/SKILL.md"
+for skill_name in "${repository_security_skills[@]}"; do
+  test -f "$skills_root/$skill_name/SKILL.md"
+done
+for skill_name in "${codex_managed_plugin_skill_directories[@]}"; do
+  test ! -e "$skills_root/$skill_name"
+  test ! -e "$skills_root/${skill_name^^}"
+done
+test ! -e "$codex_home/coding-os/capability-routing"
+test ! -e "$codex_home/coding-os/capability-index"
+test ! -e "$codex_home/coding-os/hooks/capability-router"
+test ! -e "$codex_home/hooks/capability-router"
+test ! -e "$codex_home/coding-os/Capability-Routing"
+test ! -e "$codex_home/coding-os/Capability-Index"
+test ! -e "$codex_home/coding-os/Hooks/Capability-Router"
+test ! -e "$codex_home/Hooks/Capability-Router"
 test -f "$codex_home/hooks/campaign-engine/campaign_hook.py"
 test -f "$codex_home/coding-os-state/campaigns.sqlite3"
 
@@ -105,6 +146,9 @@ test "$(sha256sum "$codex_home/config.toml" "$codex_home/case-state/case.json" "
 uninstall_synthetic_runtime
 test ! -e "$codex_home/coding-os"
 test ! -e "$skills_root/codex-coding-os-master"
+for skill_name in "${repository_security_skills[@]}"; do
+  test ! -e "$skills_root/$skill_name"
+done
 test ! -e "$codex_home/hooks/campaign-engine"
 test -f "$codex_home/coding-os-state/campaigns.sqlite3"
 test "$(sha256sum "$codex_home/config.toml" "$codex_home/case-state/case.json" "$codex_home/plugins/plugin.txt" "$skills_root/unmanaged/SKILL.md")" = "$preserved_before"

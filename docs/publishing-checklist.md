@@ -20,7 +20,13 @@
 - Confirm `pack.manifest.json#version` is valid semantic versioning and has a matching `CHANGELOG.md` entry.
 - For an engine replacement release, confirm the README, campaign contract, retirement contract, and release notes agree on what was retired, why it was retired, and what read-only evidence remains.
 - Confirm former lifecycle commands return `LEGACY_ENGINE_RETIRED` and no release rule directly allows them.
+- Stage every reviewed new pack-owned file before rebuilding. The bundle builder rejects untracked pack-owned paths.
 - Rebuild `install-bundle.manifest.json` after the final bundled change with `python -B .\scripts\install_transaction.py --json build-bundle --repo-root .`.
+- Rebuild `install-bundle.manifest.json` a second time without source changes and confirm its bytes are identical.
+- Stage the regenerated `install-bundle.manifest.json` before committing the reviewed release state.
+- Run `python -B -m unittest tests.test_repository_capability_router tests.test_capability_manifest_recovery tests.test_catalogue_router_wrapper tests.test_security_capability_routing tests.test_local_security_skill_parity tests.test_plugin_manifest_boundaries -v`.
+- Confirm every `capability-routing/` reference file is present in the source archive and absent from the install-bundle entries and installed Codex targets.
+- Confirm the five repository-owned security skills are installed and the Codex Security, Supabase, and Neon Postgres plugin skill bodies are absent from the archive's managed-skill inventory and installed targets.
 - Commit the reviewed release state and confirm tracked Git files match `HEAD` before packaging.
 - Run `.\scripts\validate-pack.ps1 -RequireExternalScanners` after installing `gitleaks` and `trufflehog`.
 - Run `python -B .\tests\test_documentation_contracts.py`.
@@ -34,9 +40,14 @@
   $Version = (Get-Content -Raw .\pack.manifest.json | ConvertFrom-Json).version
   $AssetName = "codex-coding-os-v$Version.zip"
   $ReleaseAsset = Join-Path (Split-Path -Parent (Resolve-Path .).Path) $AssetName
+  $RepeatAsset = Join-Path (Split-Path -Parent (Resolve-Path .).Path) "repeat-$AssetName"
   $SidecarPath = "$ReleaseAsset.sha256"
   .\scripts\package.ps1 -OutputPath $ReleaseAsset
+  .\scripts\package.ps1 -OutputPath $RepeatAsset
   $ZipSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $ReleaseAsset).Hash.ToLowerInvariant()
+  $RepeatZipSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RepeatAsset).Hash.ToLowerInvariant()
+  if ($RepeatZipSha256 -ne $ZipSha256) { throw "Repeated release ZIP digest mismatch." }
+  Remove-Item -LiteralPath $RepeatAsset -Force
   $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   [IO.File]::WriteAllText($SidecarPath, "$ZipSha256  $AssetName`n", $Utf8NoBom)
   $RecordedSha256 = ((Get-Content -Raw -LiteralPath $SidecarPath).Split()[0]).ToLowerInvariant()

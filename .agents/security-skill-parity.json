@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "record_role": "parity_evidence_not_routing_authority",
+  "captured_on": "2026-08-11",
+  "hash_algorithm": "sha256(relative_path + NUL + lowercase_file_sha256 + LF), paths sorted by ordinal code point",
+  "universal_source_root": "${CODEX_HOME}/skills",
+  "repository_root": ".agents/skills",
+  "exact_mirrors": [
+    {
+      "name": "security-best-practices",
+      "relationship": "exact_mirror",
+      "source_path": "security-best-practices",
+      "repository_path": ".agents/skills/security-best-practices",
+      "file_count": 13,
+      "tree_sha256": "daeb63c1f13a093b42c24dd796c7fe116d0759cbd129f8861d32c34cef458192"
+    },
+    {
+      "name": "security-threat-model",
+      "relationship": "exact_mirror",
+      "source_path": "security-threat-model",
+      "repository_path": ".agents/skills/security-threat-model",
+      "file_count": 5,
+      "tree_sha256": "6fa30ebbe0569c1c185d0d1b2e731d1683cb1c112f7b26675cdc191aceeeee12"
+    },
+    {
+      "name": "defensive-security-checklist",
+      "relationship": "exact_mirror",
+      "source_path": "defensive-security-checklist",
+      "repository_path": ".agents/skills/defensive-security-checklist",
+      "file_count": 4,
+      "tree_sha256": "5b77bbf296ed76aaaf209d6176c86773e8586ad12d9f251ff2d52a6bf195ea83",
+      "required_paths": [
+        "references/conditional-surface-overlays.md"
+      ]
+    },
+    {
+      "name": "security-ownership-map",
+      "relationship": "exact_mirror",
+      "source_path": "security-ownership-map",
+      "repository_path": ".agents/skills/security-ownership-map",
+      "file_count": 8,
+      "tree_sha256": "bd4e65a29c209980e7f164f85936801ff0b5b588241c29ba3a8eb026b09ad4e1"
+    }
+  ],
+  "repository_authored": [
+    {
+      "name": "postgres-security-best-practices",
+      "relationship": "repository_authored_provider_neutral",
+      "repository_path": ".agents/skills/postgres-security-best-practices",
+      "file_count": 8,
+      "tree_sha256": "052fd88195f6cf9e84820baeaf82ee406c4f4ab8cd94207384af2ed98291eefd",
+      "required_paths": [
+        "SKILL.md",
+        "agents/openai.yaml",
+        "references/grants-and-default-privileges.md",
+        "references/roles-and-ownership.md",
+        "references/row-level-security.md",
+        "references/security-definer-functions.md",
+        "references/security-regression-testing.md",
+        "references/views-and-security-invoker.md"
+      ]
+    }
+  ]
+}

@@ -53,6 +53,30 @@ RUNTIME_PIN_FIELDS = (
 )
 BUNDLE_DOMAIN = b"CCOS-INSTALL-BUNDLE-v1\0"
 TREE_DOMAIN = b"CCOS-TREE-v1\0"
+CODEX_MANAGED_PLUGIN_SKILL_DIRECTORIES = frozenset(
+    {
+        "attack-path-analysis",
+        "deep-security-scan",
+        "define-security-policy",
+        "finding-discovery",
+        "fix-finding",
+        "propose-security-hardening",
+        "security-diff-scan",
+        "security-scan",
+        "threat-model",
+        "track-findings",
+        "triage-finding",
+        "validation",
+        "vulnerability-writeup",
+        "supabase",
+        "supabase-postgres-best-practices",
+        "neon-postgres",
+        "neon-postgres-egress-optimizer",
+    }
+)
+CODEX_MANAGED_PLUGIN_SKILL_DIRECTORY_KEYS = frozenset(
+    name.casefold() for name in CODEX_MANAGED_PLUGIN_SKILL_DIRECTORIES
+)
 MANIFEST_VERSION = 3
 JOURNAL_VERSION = 1
 PHASES = (
@@ -177,7 +201,6 @@ class InstallOptions:
     install_universal_policy: bool = False
     remove_universal_policy: bool = False
     universal_bundle_id: str = UNIVERSAL_BUNDLE_ID
-    refresh_capability_index: bool = False
     policy_authority_source: str | None = None
     policy_authority_reference: str | None = None
     publication_campaign_id: str | None = None
@@ -453,6 +476,8 @@ def _load_pack(root: Path) -> dict[str, Any]:
         raise BundleError("pack bundle manifest path must be install-bundle.manifest.json")
     if installation.get("external_skills_staged") is not False:
         raise BundleError("this public package must declare external_skills_staged=false")
+    if "capability_refresh_cli" in installation:
+        raise BundleError("installation.capability_refresh_cli is retired")
     hook = installation.get("campaign_hook")
     if not isinstance(hook, dict) or set(hook) != {"source", "target"}:
         raise BundleError("installation.campaign_hook must declare only source and target")
@@ -476,16 +501,34 @@ def _inventory_paths(root: Path, pack: dict[str, Any]) -> list[str]:
         name = _normalize_relative(skill["name"])
         if "/" in name:
             raise BundleError(f"bundled skill name must be one path segment: {name}")
+        if name.casefold() in CODEX_MANAGED_PLUGIN_SKILL_DIRECTORY_KEYS:
+            raise BundleError(
+                f"Codex-managed plugin skill bodies cannot be bundled: {name}"
+            )
         skill_names.append(name)
         declared.append(f"{skill_root}/{name}")
     _validate_casefold_collisions(skill_names, "managed skill name")
     support_items = pack.get("support_items")
     if not isinstance(support_items, list) or not support_items:
         raise BundleError("support_items must be a non-empty list")
-    declared.extend(str(value) for value in support_items)
     runtime_files = installation.get("runtime_files")
     if not isinstance(runtime_files, list) or not runtime_files:
         raise BundleError("installation.runtime_files must be a non-empty list")
+    install_declared = [*support_items, *runtime_files]
+    retired_router_prefix = "/".join(("hooks", "capability-router")) + "/"
+    for item in install_declared:
+        normalized = _normalize_relative(str(item))
+        normalized_key = normalized.casefold()
+        if (
+            normalized_key in {"hooks", "capability-index", "capability-routing"}
+            or normalized_key.startswith(retired_router_prefix)
+            or normalized_key.startswith("capability-index/")
+            or normalized_key.startswith("capability-routing/")
+        ):
+            raise BundleError(
+                f"routing reference source cannot be installed as support payload: {normalized}"
+            )
+    declared.extend(str(value) for value in support_items)
     declared.extend(str(value) for value in runtime_files)
     campaign_hook = installation.get("campaign_hook")
     if isinstance(campaign_hook, dict):
@@ -2446,37 +2489,6 @@ def _stage_bundle(
     _atomic_write_bytes(staged_hooks_config, hooks_config_bytes)
 
     generated_records: list[dict[str, Any]] = []
-    before_refresh = {entry["path"]: entry for entry in _tree_entries(support_stage)}
-    if options.refresh_capability_index:
-        relative_cli = _normalize_relative(str(installation.get("capability_refresh_cli", "")))
-        cli = support_stage.joinpath(*PurePosixPath(relative_cli).parts)
-        if not cli.is_file():
-            raise TransactionError(f"capability refresh CLI was not staged: {relative_cli}")
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "CODEX_HOME": str(codex_stage_home),
-                "AGENTS_HOME": str(skill_stage_root.parent),
-                "CODEX_CODING_OS_ROOT": str(support_stage),
-            }
-        )
-        completed = subprocess.run(
-            [sys.executable, "-B", str(cli), "--refresh"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=environment,
-            check=False,
-        )
-        if completed.returncode != 0:
-            raise TransactionError(f"capability refresh failed in the staged bundle: {(completed.stderr or completed.stdout).strip()}")
-        after_refresh = {entry["path"]: entry for entry in _tree_entries(support_stage)}
-        for path, prior in before_refresh.items():
-            if after_refresh.get(path) != prior:
-                raise TransactionError(f"capability refresh modified immutable staged payload: {path}")
-        for path, record in after_refresh.items():
-            if path not in before_refresh:
-                generated_records.append(record)
 
     global_agents_path = codex_home / "AGENTS.md"
     default_rules_path = codex_home / "rules" / "default.rules"
@@ -2707,7 +2719,7 @@ def _is_idempotent(
     skills_root: Path,
     codex_home: Path,
 ) -> bool:
-    if previous is None or previous.get("manifest_version") != 3 or options.refresh_capability_index:
+    if previous is None or previous.get("manifest_version") != 3:
         return False
     if previous.get("legacy_overlap_migration") != staged.get("legacy_overlap_migration"):
         return False
@@ -4039,7 +4051,6 @@ def build_parser() -> argparse.ArgumentParser:
     policy_action.add_argument("--install-universal-policy", action="store_true")
     policy_action.add_argument("--remove-universal-policy", action="store_true")
     install_parser.add_argument("--universal-bundle-id", default=UNIVERSAL_BUNDLE_ID)
-    install_parser.add_argument("--refresh-capability-index", action="store_true")
     install_parser.add_argument(
         "--policy-authority-source",
         choices=("explicit-user-approval", "campaign-publication-authority"),
@@ -4091,7 +4102,6 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 install_universal_policy=args.install_universal_policy,
                 remove_universal_policy=args.remove_universal_policy,
                 universal_bundle_id=args.universal_bundle_id,
-                refresh_capability_index=args.refresh_capability_index,
                 policy_authority_source=args.policy_authority_source,
                 policy_authority_reference=args.policy_authority_reference,
                 publication_campaign_id=args.publication_campaign_id,

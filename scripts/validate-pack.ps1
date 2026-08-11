@@ -58,6 +58,31 @@ if (-not (Test-Path -LiteralPath $SchemaValidationHelper -PathType Leaf)) {
   foreach ($SchemaValidationError in $SchemaValidationErrors) {
     $Errors += "pack.manifest.json schema validation failed: $SchemaValidationError"
   }
+
+  $RoutingContracts = @(
+    @{
+      Json = Join-Path $RepoRoot "capability-routing\routing-policy.yaml"
+      Schema = Join-Path $RepoRoot "capability-routing\routing-policy.schema.json"
+      Name = "routing policy"
+    },
+    @{
+      Json = Join-Path $RepoRoot "capability-routing\project-scope-map.example.json"
+      Schema = Join-Path $RepoRoot "capability-routing\project-scope-map.schema.json"
+      Name = "project scope map example"
+    }
+  )
+  foreach ($Contract in $RoutingContracts) {
+    if (-not (Test-Path -LiteralPath $Contract.Json -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $Contract.Schema -PathType Leaf)) {
+      $Errors += "Missing capability routing contract: $($Contract.Name)"
+      continue
+    }
+    foreach ($ContractError in @(
+      Get-JsonSchemaValidationErrors -JsonPath $Contract.Json -SchemaPath $Contract.Schema
+    )) {
+      $Errors += "$($Contract.Name) schema validation failed: $ContractError"
+    }
+  }
 }
 
 $VersionFile = Join-Path $RepoRoot "VERSION"
@@ -97,6 +122,19 @@ if (-not (Test-Path $DocumentationContractValidator -PathType Leaf)) {
   if ($LASTEXITCODE -ne 0) {
     $Errors += "Documentation contract validation failed."
   }
+}
+
+$CapabilityContractTests = @(
+  "tests.test_repository_capability_router",
+  "tests.test_capability_manifest_recovery",
+  "tests.test_catalogue_router_wrapper",
+  "tests.test_security_capability_routing",
+  "tests.test_local_security_skill_parity",
+  "tests.test_plugin_manifest_boundaries"
+)
+& python -B -m unittest @CapabilityContractTests
+if ($LASTEXITCODE -ne 0) {
+  $Errors += "Canonical router and security capability contract tests failed."
 }
 
 foreach ($Path in $Manifest.support_items) {

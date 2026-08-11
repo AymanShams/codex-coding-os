@@ -25,9 +25,18 @@ jobs:
       - name: Validate JSON Schema support
         shell: pwsh
         run: ./tests/json-schema-validation-smoke.ps1
-      - name: Build release package
+      - name: Build deterministic release package
         shell: pwsh
-        run: ./scripts/package.ps1 -OutputPath "$env:RUNNER_TEMP/codex-coding-os.zip"
+        run: |
+          $First = "$env:RUNNER_TEMP/codex-coding-os-first.zip"
+          $Second = "$env:RUNNER_TEMP/codex-coding-os-second.zip"
+          ./scripts/package.ps1 -OutputPath $First
+          ./scripts/package.ps1 -OutputPath $Second
+          $FirstHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $First).Hash
+          $SecondHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Second).Hash
+          if ($FirstHash -ne $SecondHash) {
+            throw "Repeated release archives are not deterministic."
+          }
 
   product-tests:
     runs-on: ubuntu-latest
@@ -78,6 +87,16 @@ jobs:
         uses: actions/checkout@v6
       - name: Test transactional install contract
         run: python -B tests/test_install_transaction.py
+      - name: Test canonical router and security capability contracts
+        run: >-
+          python -B -m unittest
+          tests.test_repository_capability_router
+          tests.test_capability_manifest_recovery
+          tests.test_catalogue_router_wrapper
+          tests.test_security_capability_routing
+          tests.test_local_security_skill_parity
+          tests.test_plugin_manifest_boundaries
+          -v
       - name: Smoke test Windows install and uninstall
         if: runner.os == 'Windows'
         shell: pwsh

@@ -8,6 +8,23 @@ Do not bulk-install external skill packs into the default Coding OS. Review the 
 
 External skill packs can introduce license drift, duplicate instructions, unexpected tool behavior, and maintenance risk.
 
+## Codex plugins use a different path
+
+Do not use this external Git installer for Codex Security, Supabase, or Neon
+Postgres. Those plugins are installed and updated through Codex, and their
+skills remain coupled to Codex-managed MCP or app-connector state.
+
+| Plugin | Treatment |
+|---|---|
+| Codex Security | Install through Codex. Do not copy its 13 skills into this repository |
+| Supabase | Install through Codex for Supabase projects. Keep its provider connector outside repository state |
+| Neon Postgres | Install through Codex for Neon projects. Use the bundled provider-neutral PostgreSQL skill for generic database guidance |
+
+`external-skills/manifest.json` tracks reviewed Git sources. It is not a plugin
+installer or plugin lockfile. See
+[`security-capability-operating-model.md`](security-capability-operating-model.md)
+for the plugin and fallback boundaries.
+
 ## External sources
 
 | Source | Link | Treatment |

@@ -290,10 +290,20 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         self.assertIn("Archive mode preserves universal policy", self.getting_started)
         self.assertIn("cannot install or remove it", self.getting_started)
 
-    def test_upgrade_archival_is_conditional_and_refreshes_capabilities(self) -> None:
+    def test_upgrade_archival_is_conditional_and_router_refresh_is_retired(self) -> None:
         self.assertIn("Test-Path -LiteralPath $LegacyRoot -PathType Container", self.getting_started)
-        self.assertIn("RefreshCapabilityIndex = $true", self.getting_started)
         self.assertNotIn("-ArchiveLegacyState `", self.getting_started)
+        for source in (
+            self.public_docs,
+            self.install_ps1,
+            self.install_sh,
+            self.transaction,
+            self.hooks_doc,
+            json.dumps(self.pack_manifest, sort_keys=True),
+        ):
+            self.assertNotIn("refresh-capability-index", source.lower())
+            self.assertNotIn("RefreshCapabilityIndex", source)
+            self.assertNotIn("hooks/capability-router", source.replace("\\", "/"))
 
     def test_campaign_example_is_complete_and_model_valid(self) -> None:
         raw = json.loads(self.campaign_example)

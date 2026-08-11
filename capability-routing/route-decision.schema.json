@@ -1,0 +1,730 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codex-coding-os/route-decision.schema.json",
+  "title": "Unified Catalogue Route Decision",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "rule_id",
+    "scenario",
+    "execution_owner",
+    "model",
+    "reasoning_effort",
+    "support_workers",
+    "local_execution",
+    "execution_disposition",
+    "execution_request_id",
+    "skills",
+    "capability_fallbacks",
+    "reason_codes",
+    "deadline_seconds",
+    "fallback",
+    "requires",
+    "authority_limit",
+    "evidence_ids",
+    "manifest_snapshot",
+    "decision_snapshot",
+    "task_text_sha256",
+    "task_input_sha256",
+    "task_input_mode",
+    "issuance",
+    "task_fingerprint",
+    "decision_id",
+    "decision_digest",
+    "primary",
+    "supports"
+  ],
+  "properties": {
+    "schema_version": { "const": "2.0" },
+    "rule_id": { "type": "string" },
+    "scenario": { "type": "string", "minLength": 1 },
+    "execution_owner": { "const": "codex_parent" },
+    "model": { "const": "gpt-5.6-sol" },
+    "reasoning_effort": {
+      "enum": ["low", "medium", "high", "xhigh", "max", "ultra"]
+    },
+    "support_workers": {
+      "type": "array",
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/worker" }
+    },
+    "local_execution": { "$ref": "#/$defs/local_execution" },
+    "execution_disposition": { "$ref": "#/$defs/execution_disposition" },
+    "execution_request_id": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9._:-]{1,160}$"
+    },
+    "skills": {
+      "type": "object",
+      "required": ["primary", "supports"],
+      "properties": {
+        "primary": {
+          "oneOf": [{ "$ref": "#/$defs/capability" }, { "type": "null" }]
+        },
+        "supports": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/capability" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "capability_fallbacks": {
+      "type": "array",
+      "maxItems": 1,
+      "items": { "$ref": "#/$defs/capability_fallback" }
+    },
+    "reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" }
+    },
+    "deadline_seconds": { "type": "integer", "minimum": 1, "maximum": 7200 },
+    "fallback": {
+      "type": "object",
+      "required": ["on_unavailable", "on_timeout", "on_error", "automatic_retry"],
+      "properties": {
+        "on_unavailable": { "const": "return_to_codex" },
+        "on_timeout": { "const": "return_to_codex" },
+        "on_error": { "const": "return_to_codex" },
+        "automatic_retry": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "requires": { "type": "array", "items": { "type": "string" } },
+    "authority_limit": { "type": "string", "minLength": 1 },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "manifest_snapshot": { "type": "string" },
+    "decision_snapshot": { "type": "string" },
+    "task_text_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 of the exact bounded task text encoded as UTF-8 after CRLF-to-LF, remaining-CR-to-LF, and leading/trailing Unicode whitespace stripping. Internal characters, whitespace, case, and Unicode are preserved."
+    },
+    "task_input_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 of the full task_input JSON object serialized with ensure_ascii=false, sorted keys, compact separators, no NaN values, and UTF-8 encoding. JSON string values are not normalized."
+    },
+    "task_input_mode": {
+      "enum": ["complete", "conservative_instruction_only"]
+    },
+    "issuance": { "$ref": "#/$defs/issuance" },
+    "task_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "decision_id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "decision_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "primary": {
+      "oneOf": [{ "$ref": "#/$defs/capability" }, { "type": "null" }]
+    },
+    "supports": {
+      "type": "array",
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/capability" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "execution_disposition": {
+            "properties": { "mode": { "const": "codex_only" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["execution_disposition"]
+      },
+      "then": {
+        "properties": {
+          "support_workers": { "maxItems": 0 },
+          "local_execution": {
+            "properties": {
+              "worker_roles": { "maxItems": 0 },
+              "recipe_id": {
+                "enum": ["runtime_status", "memory_recall", "source_lookup", "retrieval_bundle", "literal_extraction", null]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "support_workers": {
+            "contains": {
+              "properties": {
+                "execution_owner": { "const": "codex_child" },
+                "role": { "const": "independent_challenger" }
+              },
+              "required": ["execution_owner", "role"]
+            }
+          }
+        },
+        "required": ["support_workers"]
+      },
+      "then": {
+        "properties": {
+          "execution_disposition": {
+            "properties": {
+              "mode": { "const": "worker_support" },
+              "eligible_worker_families": { "contains": { "const": "antigravity" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "support_workers": {
+            "contains": {
+              "properties": {
+                "execution_owner": { "const": "codex_child" },
+                "role": { "const": "read_heavy" }
+              },
+              "required": ["execution_owner", "role"]
+            }
+          }
+        },
+        "required": ["support_workers"]
+      },
+      "then": {
+        "properties": {
+          "execution_disposition": {
+            "properties": {
+              "mode": { "const": "worker_support" },
+              "eligible_worker_families": { "contains": { "const": "terra" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "support_workers": {
+            "contains": {
+              "properties": { "execution_owner": { "const": "local_agent_stack" } },
+              "required": ["execution_owner"]
+            }
+          }
+        },
+        "required": ["support_workers"]
+      },
+      "then": {
+        "properties": {
+          "execution_disposition": {
+            "properties": {
+              "mode": { "const": "worker_support" },
+              "eligible_worker_families": { "contains": { "const": "local_agent_stack" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "issuance": {
+            "properties": { "status": { "const": "failed" } },
+            "required": ["status"]
+          }
+        },
+        "required": ["issuance"]
+      },
+      "then": {
+        "properties": {
+          "support_workers": { "maxItems": 0 },
+          "local_execution": {
+            "properties": { "admitted": { "const": false } }
+          },
+          "issuance": {
+            "properties": {
+              "failure_code": { "const": "ROUTE_REGISTRY_UNAVAILABLE" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "issuance": {
+            "properties": { "failure_code": { "not": { "type": "null" } } },
+            "required": ["failure_code"]
+          }
+        },
+        "required": ["issuance"]
+      },
+      "then": {
+        "properties": {
+          "support_workers": { "maxItems": 0 },
+          "local_execution": {
+            "properties": { "admitted": { "const": false } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "anyOf": [
+          { "properties": { "support_workers": { "minItems": 1 } }, "required": ["support_workers"] },
+          {
+            "properties": {
+              "local_execution": {
+                "properties": { "admitted": { "const": true } },
+                "required": ["admitted"]
+              }
+            },
+            "required": ["local_execution"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "task_input_mode": { "const": "complete" },
+          "execution_request_id": { "type": "string" },
+          "issuance": {
+            "properties": {
+              "status": { "const": "registered" },
+              "worker_execution_requested": { "const": true },
+              "failure_code": { "type": "null" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "issuance": {
+            "properties": { "worker_execution_requested": { "const": false } },
+            "required": ["worker_execution_requested"]
+          }
+        },
+        "required": ["issuance"]
+      },
+      "then": {
+        "properties": { "execution_request_id": { "type": "null" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task_input_mode": { "const": "conservative_instruction_only" },
+          "issuance": {
+            "properties": { "worker_execution_requested": { "const": true } },
+            "required": ["worker_execution_requested"]
+          }
+        },
+        "required": ["task_input_mode", "issuance"]
+      },
+      "then": {
+        "properties": {
+          "support_workers": { "maxItems": 0 },
+          "local_execution": {
+            "properties": { "admitted": { "const": false } }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "issuance": {
+      "type": "object",
+      "required": [
+        "status",
+        "registry_schema_version",
+        "worker_execution_requested",
+        "failure_code"
+      ],
+      "properties": {
+        "status": { "enum": ["registered", "failed"] },
+        "registry_schema_version": { "const": 2 },
+        "worker_execution_requested": { "type": "boolean" },
+        "failure_code": {
+          "type": ["string", "null"],
+          "enum": [
+            "TASK_INPUT_REQUIRED",
+            "TASK_INPUT_INSTRUCTION_MISMATCH",
+            "TASK_INPUT_FIELDS_INCOMPLETE",
+            "EXECUTION_DISPOSITION_REQUIRED",
+            "EXECUTION_DISPOSITION_INVALID",
+            "EXECUTION_DISPOSITION_MISMATCH",
+            "EXECUTION_REQUEST_ID_REQUIRED",
+            "WORKER_ELIGIBILITY_REQUIRED",
+            "LOCAL_OPERATION_ELIGIBILITY_REQUIRED",
+            "WORKER_TASK_GATE_TUPLE_INVALID",
+            "LOCAL_TASK_GATE_TUPLE_INVALID",
+            "ANTIGRAVITY_BINDINGS_INVALID",
+            "PROJECT_CWD_CONFLICT",
+            "SOURCE_SCOPE_UNAUTHORIZED",
+            "ROUTE_REGISTRY_UNAVAILABLE",
+            null
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "required": ["id", "kind", "name", "state", "provider", "version", "source_path", "sha256", "families", "description"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "state": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "minLength": 1 },
+        "provider": { "type": "string" },
+        "version": { "type": "string" },
+        "source_path": { "type": "string" },
+        "sha256": { "type": "string" },
+        "families": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "execution_disposition": {
+      "type": "object",
+      "required": ["mode", "eligible_worker_families"],
+      "properties": {
+        "mode": { "enum": ["codex_only", "worker_support"] },
+        "eligible_worker_families": {
+          "type": "array",
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["local_agent_stack", "terra", "antigravity"] }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "codex_only" } }, "required": ["mode"] },
+          "then": { "properties": { "eligible_worker_families": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "worker_support" } }, "required": ["mode"] },
+          "then": { "properties": { "eligible_worker_families": { "minItems": 1, "maxItems": 1 } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "worker": {
+      "type": "object",
+      "required": [
+        "rule_id",
+        "execution_owner",
+        "role",
+        "model",
+        "reasoning_effort",
+        "deadline_seconds",
+        "required",
+        "reason_code"
+      ],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "execution_owner": {
+          "enum": ["codex_child", "local_agent_stack"]
+        },
+        "role": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning_effort": {
+          "type": ["string", "null"],
+          "enum": ["low", "medium", "high", "xhigh", "max", "ultra", null]
+        },
+        "deadline_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "required": { "type": "boolean" },
+        "reason_code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" }
+      },
+      "additionalProperties": false
+    },
+    "capability_fallback": {
+      "type": "object",
+      "required": [
+        "requested_capability",
+        "requested_capability_available",
+        "required_dependencies",
+        "unavailable_dependencies",
+        "chosen_fallback",
+        "selected_capability",
+        "equivalence",
+        "bounds",
+        "reason_code"
+      ],
+      "properties": {
+        "requested_capability": { "type": "string", "minLength": 1 },
+        "requested_capability_available": { "type": "boolean" },
+        "required_dependencies": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "unavailable_dependencies": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "chosen_fallback": { "type": "string", "minLength": 1 },
+        "selected_capability": { "type": ["string", "null"] },
+        "equivalence": { "enum": ["equivalent", "non_equivalent"] },
+        "bounds": {
+          "type": "object",
+          "required": ["max_passes", "deadline_seconds"],
+          "properties": {
+            "max_passes": { "type": "integer", "minimum": 1, "maximum": 4 },
+            "deadline_seconds": { "type": "integer", "minimum": 1, "maximum": 7200 }
+          },
+          "additionalProperties": false
+        },
+        "reason_code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "equivalence": { "const": "equivalent" } },
+            "required": ["equivalence"]
+          },
+          "then": {
+            "properties": {
+              "selected_capability": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "skill_ref": {
+      "type": "object",
+      "required": ["id", "source_path", "sha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "source_path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "local_execution": {
+      "type": "object",
+      "required": ["admitted", "recipe_id", "local_stack_purpose", "worker_roles", "project_id", "task_type", "source_need", "requested_source_scopes", "complexity", "exact_evidence", "task_input_requirements", "mutation_authorized", "persistence_intent", "local_stack_role", "skill_refs", "memory"],
+      "properties": {
+        "admitted": { "type": "boolean" },
+        "recipe_id": {
+          "type": ["string", "null"],
+          "enum": ["runtime_status", "memory_recall", "source_lookup", "retrieval_bundle", "literal_extraction", "fast_transform", "fast_then_critic", "coding_then_critic", "critic", null]
+        },
+        "local_stack_purpose": {
+          "type": ["string", "null"],
+          "enum": [
+            "bounded_classification_or_transformation",
+            "complex_multi_source_synthesis",
+            "focused_coding_assistance",
+            "explicit_challenge",
+            "runtime_status",
+            "prior_continuity",
+            "project_evidence_lookup",
+            "retrieval_bundle",
+            "literal_structured_extraction",
+            null
+          ]
+        },
+        "worker_roles": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "enum": ["fast", "coding", "critic"] }
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "task_type": {
+          "enum": ["answer", "transform", "recall", "research", "synthesize", "implement", "review", "extract", "status"]
+        },
+        "source_need": { "enum": ["none", "memory", "index", "both"] },
+        "requested_source_scopes": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          }
+        },
+        "complexity": { "enum": ["low", "medium", "high"] },
+        "exact_evidence": { "type": "boolean" },
+        "task_input_requirements": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["instruction", "execution_disposition", "execution_request_id", "query", "extraction_prompt_description", "extraction_examples", "exactly_one_of:literal_text|extraction_source_path"]
+          }
+        },
+        "mutation_authorized": { "const": false },
+        "persistence_intent": { "enum": ["none", "requested"] },
+        "local_stack_role": { "const": "support" },
+        "skill_refs": {
+          "type": "object",
+          "required": ["primary", "supports"],
+          "properties": {
+            "primary": {
+              "oneOf": [{ "$ref": "#/$defs/skill_ref" }, { "type": "null" }]
+            },
+            "supports": {
+              "type": "array",
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/skill_ref" }
+            }
+          },
+          "additionalProperties": false
+        },
+        "memory": {
+          "type": "object",
+          "required": ["mode", "scope", "capture_when"],
+          "properties": {
+            "mode": { "enum": ["none", "recall", "recall_and_capture"] },
+            "scope": {
+              "type": ["string", "null"],
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            "capture_when": { "const": "durable_task_outcome" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "admitted": { "const": false } }, "required": ["admitted"] },
+          "then": {
+            "properties": {
+              "recipe_id": { "type": "null" },
+              "local_stack_purpose": { "type": "null" },
+              "worker_roles": { "maxItems": 0 },
+              "source_need": { "const": "none" },
+              "requested_source_scopes": { "maxItems": 0 },
+              "exact_evidence": { "const": false },
+              "task_input_requirements": { "maxItems": 0 },
+              "memory": {
+                "properties": {
+                  "mode": { "const": "none" },
+                  "scope": { "type": "null" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "admitted": { "const": true } }, "required": ["admitted"] },
+          "then": {
+            "properties": {
+              "recipe_id": { "type": "string" },
+              "local_stack_purpose": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "memory": {
+                "properties": { "mode": { "enum": ["recall", "recall_and_capture"] } },
+                "required": ["mode"]
+              }
+            },
+            "required": ["memory"]
+          },
+          "then": {
+            "properties": {
+              "memory": {
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "memory": {
+                "properties": { "mode": { "const": "recall_and_capture" } },
+                "required": ["mode"]
+              }
+            },
+            "required": ["memory"]
+          },
+          "then": {
+            "properties": { "persistence_intent": { "const": "requested" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "memory": {
+                "properties": { "mode": { "enum": ["none", "recall"] } },
+                "required": ["mode"]
+              }
+            },
+            "required": ["memory"]
+          },
+          "then": {
+            "properties": { "persistence_intent": { "const": "none" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "memory": {
+                "properties": { "mode": { "const": "none" } },
+                "required": ["mode"]
+              }
+            },
+            "required": ["memory"]
+          },
+          "then": {
+            "properties": { "source_need": { "enum": ["none", "index"] } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "memory": {
+                "properties": { "mode": { "enum": ["recall", "recall_and_capture"] } },
+                "required": ["mode"]
+              }
+            },
+            "required": ["memory"]
+          },
+          "then": {
+            "properties": { "source_need": { "enum": ["memory", "both"] } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "source_need": { "enum": ["none", "memory"] } },
+            "required": ["source_need"]
+          },
+          "then": {
+            "properties": { "requested_source_scopes": { "maxItems": 0 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "source_need": { "enum": ["index", "both"] } },
+            "required": ["source_need"]
+          },
+          "then": {
+            "properties": { "requested_source_scopes": { "minItems": 1 } }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

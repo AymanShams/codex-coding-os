@@ -23,6 +23,7 @@ That keeps authentication, connector permissions, updates, and trust prompts in 
 | Codex Security plugin skills | Install plugin in Codex |
 | Vercel plugin skills | Install plugin in Codex |
 | Supabase plugin skills | Install plugin in Codex |
+| Neon Postgres plugin skills | Install plugin in Codex |
 | Computer Use plugin skills | Install plugin in Codex |
 | Browser plugin skills | Install plugin in Codex |
 | Chrome plugin skills | Install plugin in Codex |
@@ -49,9 +50,10 @@ Install these through Codex plugin browsing or workspace-approved plugin managem
 
 1. Vercel
 2. Supabase
-3. Chrome
-4. Computer Use
-5. Cloudflare
+3. Neon Postgres
+4. Chrome
+5. Computer Use
+6. Cloudflare
 
 ### App-type-specific
 
@@ -82,13 +84,18 @@ Install these through Codex plugin browsing or workspace-approved plugin managem
 | MCP | Priority | Use |
 |---|---|---|
 | `openaiDeveloperDocs` | Recommended for OpenAI work | Current OpenAI, Codex, Apps SDK, and Agents docs |
+| `codex-security` | Required for full Codex Security deep scans | Independent repeated discovery, semantic reduction, and durable deep-scan lifecycle receipts |
 | `context7` | Recommended | Current framework, SDK, and library docs |
 | `chrome-devtools` | Recommended for frontend debugging | Browser inspection, screenshots, runtime debugging |
 | `code-review-graph` | Optional for larger repos | Graph-backed dependency and impact analysis |
 | `node_repl` | Optional for browser automation | Persistent JavaScript runtime |
 | `n8n` | Optional for workflow automation | n8n node lookup, workflow validation, and template search |
-| `supabase` | Optional for Supabase projects | Supabase docs, account, database, functions, storage, and project operations |
+| `neon` | Optional for Neon projects | A separately configured Neon MCP surface beyond the required Neon Postgres plugin connector |
 | `vercel` | Optional for Vercel projects | Vercel docs, deployments, build logs, protected URLs, and project operations |
+
+Codex Security manages its own MCP dependency. Supabase and Neon Postgres manage
+their required app connectors through their plugins. Do not recreate those
+managed integrations as repository configuration.
 
 ## MCP setup steps
 
@@ -101,8 +108,28 @@ codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp
 codex mcp list
 ```
 
-4. Add `context7`, `chrome-devtools`, `code-review-graph`, `node_repl`, `n8n`, `supabase`, or `vercel` only when the project needs them.
+4. Add `context7`, `chrome-devtools`, `code-review-graph`, `node_repl`, `n8n`, `neon`, or `vercel` only when the project needs them.
 5. Restart Codex after changing MCP configuration.
+
+## Security and provider composition
+
+Codex Security version `0.1.18` contributes 13 managed skills. The repository
+records their names and integration boundaries but does not copy their source.
+Use [Security Capability Operating Model](security-capability-operating-model.md)
+for the complete skill-by-skill selection map.
+
+Supabase and Neon Postgres are separate provider plugins:
+
+| Provider | Install when | Primary connector | Security supports |
+|---|---|---|---|
+| Supabase | The project uses Supabase database, Auth, Storage, functions, migrations, or project operations | Codex-managed Supabase app connector | `supabase:supabase` and `supabase:supabase-postgres-best-practices` |
+| Neon Postgres | The project uses Neon projects, branches, databases, Data API, Auth, migrations, or egress analysis | Codex-managed Neon Postgres app connector | `neon-postgres:neon-postgres` and local `postgres-security-best-practices` |
+| Generic PostgreSQL | No supported provider plugin owns the database surface | None assumed | Local `postgres-security-best-practices` and `security-best-practices` |
+
+Do not select Supabase skills for Neon. Do not assume a generic PostgreSQL
+connection can reproduce Supabase or Neon project settings. Connector
+enablement permits an attempted live path but does not prove authentication,
+target identity, or a successful read.
 
 ## MCP policy
 
@@ -141,15 +168,10 @@ Recommended hook uses:
 6. Use the installed campaign hook to enforce decisions delegated to the
    campaign engine and to locate `coding-os-state/campaigns.sqlite3`. The hook
    owns no lifecycle state or independent authority.
-7. Add advisory capability-routing hints with
-   `hooks/capability-router/user_prompt_skill_router.py` after source review.
-   This reduces noisy skill/plugin suggestions but does not choose the final
-   capability or enable any plugin.
-8. Maintain local registry metadata with
-   `$CODEX_CAPABILITY_INDEX_DIR/canonical-registry.csv` or
-   `CODEX_CAPABILITY_REGISTRY`. The public sample registry is a schema example,
-   not a complete installed-state inventory.
-9. Dispatch implementation and review workers only through approved campaign
+7. Treat `capability-routing/` as dormant source and tests only. The public
+   installer does not register it as a hook, build a live manifest, or create a
+   route registry.
+8. Dispatch implementation and review workers only through approved campaign
    nodes. The engine binds each native task before its first turn.
 
 ## Hook safety rules
@@ -159,8 +181,9 @@ Recommended hook uses:
 - Do not run hooks that upload source files or sensitive integration settings.
 - Keep hooks local and auditable.
 - Prefer hooks that validate, scan, or report instead of hooks that mutate code.
-- Treat advisory prompt hooks as hints only. They should fail open and must not
-  replace the `catalogue-router` task gate.
+- Do not reactivate the retired repository capability hook. An active universal
+  router deployment requires a separate explicit decision outside this
+  repository.
 - Treat MCPs and source/data tools as evidence access. They do not become the
   primary skill owner just because a project or task needs their data.
 - Keep private project names, paths, registry rows, and local installed-state

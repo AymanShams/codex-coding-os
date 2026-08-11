@@ -29,9 +29,25 @@ The bundled skills are full local skill folders, including references, assets, a
 | Planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker` |
 | Coding discipline and architecture | `ai-coding-discipline`, `improve-codebase-architecture`, `react-best-practices`, `react-native-skills`, `composition-patterns`, `cli-creator` |
 | QA and browser work | `playwright` |
-| Security | `security-best-practices`, `security-threat-model`, `security-ownership-map` |
+| Security | `security-best-practices`, `security-threat-model`, `security-ownership-map`, `defensive-security-checklist`, `postgres-security-best-practices` |
 | Platform and repo tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli` |
 | Local document intake | `doc`, `pdf` |
+
+## Codex-managed plugins are not bundled
+
+The repository documents these plugins but does not vendor their skill source,
+MCP code, app connectors, caches, credentials, authentication state, or runtime
+receipts:
+
+| Plugin | Compatibility target | Repository treatment |
+|---|---|---|
+| Codex Security | `codex-security@openai-curated-remote` `0.1.18` | All 13 skills remain Codex-managed. See `docs/security-capability-operating-model.md` for the complete routing map |
+| Supabase | `supabase@openai-curated-remote` `1.0.0` | Provider skills and app connector remain Codex-managed |
+| Neon Postgres | `neon-postgres@openai-curated-remote` `1.0.0` | Provider skills and app connector remain Codex-managed. Generic PostgreSQL guidance is bundled separately |
+
+Install and update these plugins through Codex. Do not add them to
+`external-skills/manifest.json` or install them through the external Git skill
+script.
 
 ## External source manifest
 
@@ -57,7 +73,7 @@ Human install details live in:
 | Addy Osmani Agent Skills | https://github.com/addyosmani/agent-skills | Reference only | Mine checklist ideas selectively. The active coding discipline is already in bundled local skills and Superpowers references. |
 | Claude Build Workflow | https://github.com/rohunj/claude-build-workflow | Reference only | Mine workflow patterns only. Do not install wholesale into Codex. |
 | Claude Code Templates | https://github.com/davila7/claude-code-templates | Reference only | Mine templates selectively when a specific project needs them. |
-| Supabase Agent Skills | https://github.com/supabase/agent-skills | Reference only | Use as supporting reference for Supabase projects. Prefer the Supabase plugin and MCP when available. |
+| Supabase Agent Skills | https://github.com/supabase/agent-skills | Reference only | Use as supporting reference for Supabase projects. Prefer the Codex-managed Supabase plugin and app connector when available. |
 | OpenAI Agents Python | https://github.com/openai/openai-agents-python | Reference only | Use as an app-architecture reference when building Python agent applications. |
 
 ## Attribution policy
@@ -137,14 +153,17 @@ Use these if the user's Codex environment provides them:
 
 ## Optional plugin capabilities
 
-These are useful when available, but the pack must still work without them:
+The local pack remains usable without these plugins. Plugin-dependent deep-scan
+and live-provider behavior has non-equivalent gaps and must not be claimed when
+the required runtime is unavailable:
 
 | Capability | Use |
 |---|---|
 | Build Web Apps or Vercel skills | Next.js, React, deployment, UI, and browser verification |
 | GitHub skills | PRs, issues, CI, and code review |
-| Supabase skills | Database projects, migrations, SQL, and row-level security review |
-| Codex Security skills | Security scans, threat modeling, finding validation |
+| Supabase skills | Supabase projects, migrations, SQL, Auth, Storage, row-level security, and provider operations |
+| Neon Postgres skills | Neon projects, branches, SQL, migrations, Data API, Auth, and egress optimization |
+| Codex Security skills | Diff, standard, and deep scans plus finding discovery, triage, validation, attack paths, fixes, hardening, policy, reports, and approved tracking |
 | Browser or Playwright tools | Local frontend QA and screenshots |
 | Understand Anything | Codebase knowledge graphs, codebase Q&A, diffs, onboarding, and flow explanations |
 
