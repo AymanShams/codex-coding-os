@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "062eb14c0c715ee7ac365ff80b1f7b09f07cc6197bbb1009ecdc9eef99e52176",
+  "aggregate_sha256": "c6c5722fef52986de2b66f06537bb79ef0b117bcc289f023c8927deb2288891b",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2193,8 +2193,8 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "3f080ba7d4792339775bf315aeb5a5062cefabeedbbcb48d714a4f22f918b4f2",
-      "size": 5544
+      "sha256": "3da0697e26de085541c25841a3afd08be7436e4912e176b4eab50b19706a18fd",
+      "size": 5828
     },
     {
       "path": "CHANGELOG.md",
@@ -2802,6 +2802,11 @@
       "size": 2430
     },
     {
+      "path": "tests/requirements-capability-router.txt",
+      "sha256": "756cc9e506ae4ee1a6f6c0507088b5cfc0dc8ba350fb2d2d46f1ffa72033adb6",
+      "size": 19
+    },
+    {
       "path": "tests/test_campaign_cli.py",
       "sha256": "ae3b96e12ba5c0d14f71f3be5339a36d567866e6205c1a2b3c3bf1c8547fab58",
       "size": 22267
@@ -2868,8 +2873,8 @@
     },
     {
       "path": "tests/test_local_security_skill_parity.py",
-      "sha256": "bb6d5b9040c936f6f744515f3bad4df4262432ffc4d17a5ab260329385c29c3e",
-      "size": 5223
+      "sha256": "866c479d991b7a9b62294a97da1b562d9ebf76a43af95711fde155a2af6d38f9",
+      "size": 5881
     },
     {
       "path": "tests/test_plugin_manifest_boundaries.py",
@@ -2893,8 +2898,8 @@
     },
     {
       "path": "tests/test_repository_capability_router.py",
-      "sha256": "3550e9bd4a384f4a544230b4231265b3d3010a12c0af5142799b96648392687c",
-      "size": 51444
+      "sha256": "28d8b23f500ee8d7340d00d644f6c6f92f59a2db71b935645f578b13e7e2f179",
+      "size": 52018
     },
     {
       "path": "tests/test_security_capability_routing.py",

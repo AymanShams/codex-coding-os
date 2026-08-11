@@ -51,7 +51,7 @@
     "capability-routing/builder/build_canonical_capability_manifest.ps1": "4dd43400027535fbd69a605ace908450b81fdcf2f53d933a7b2df42fcf382cd1",
     "capability-routing/project-scope-map.example.json": "a98fee71ec1043e883fe5b75a10b33b6c3a9d380b1d53cd8d060442435848d64",
     "capability-routing/project-scope-map.schema.json": "326b7b506f64ce413539dbb099e7d3d5eed730b1c0804c9008a9d7eb921bcf32",
-    "capability-routing/README.md": "69e0516db8044c77e695ce873a55222684c6d4a6eb72298e70f2bef3add26b03",
+    "capability-routing/README.md": "77be5a2726410bec6b3e432ead605c7d327c9b81c2d137193219e874159b2dd8",
     "capability-routing/reference-runtime/_common.py": "cb7d0f9813e554f4c6c312289665d2688d31199593f8c1aab404f54717a82559",
     "capability-routing/reference-runtime/_hook_io.py": "6a4965f9c01c5d1a1b32b1cf94b1c57542674e0195b5e252805d5b0bfb251b15",
     "capability-routing/reference-runtime/capability_config_fingerprint.py": "492915e091f20595b30a131a1db75001696ffca5336456de97a7dd6db5c1b782",
@@ -63,7 +63,7 @@
     "capability-routing/route-decision.schema.json": "2c3401c6f4bef5bb74d2b96421216472a92d73de5c8df9b7454ecf77f58145a0",
     "capability-routing/routing-policy.schema.json": "82deba573f024e223cfe5d5633c32fb788355d3c03985b0bdfdf7f1b69a2daea",
     "capability-routing/routing-policy.yaml": "a47d1a234307885d6065e37d2a8775cf5ab906aac431e5039db2115d03be6732",
-    "tests/test_repository_capability_router.py": "3550e9bd4a384f4a544230b4231265b3d3010a12c0af5142799b96648392687c",
+    "tests/test_repository_capability_router.py": "28d8b23f500ee8d7340d00d644f6c6f92f59a2db71b935645f578b13e7e2f179",
     "tests/test_capability_manifest_recovery.py": "a50c6f6091dfe7d35684fb856604fa45c40c0ba884c49c99992888e5e5ce9f57",
     "tests/test_catalogue_router_wrapper.py": "90848c919497b65a0c3fa1ca65fc8f7129efa3feab43c3419eb678c610074d38",
     "tests/test_security_capability_routing.py": "c12fd15d2448c8ee3ebfbfef67d4713be5c2f31b779cb9f59a842d9d448e659d"

@@ -1227,6 +1227,19 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "reference-runtime", hooks.read_text("utf-8", errors="replace").lower()
             )
 
+    def test_ci_installs_the_exact_router_test_dependency(self) -> None:
+        requirements = (
+            REPO_ROOT / "tests" / "requirements-capability-router.txt"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(requirements, "jsonschema==4.26.0\n")
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "validate.yml"
+        ).read_text(encoding="utf-8")
+        install_command = (
+            "python -m pip install -r tests/requirements-capability-router.txt"
+        )
+        self.assertEqual(workflow.count(install_command), 2)
+
     def test_cli_accepts_stdin_and_environment_path_overrides_without_live_state(self) -> None:
         env = os.environ.copy()
         cli_root = self.root / "cli"

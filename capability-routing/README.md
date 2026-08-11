@@ -27,3 +27,7 @@ split-task reason instead of silently selecting the first ordered rule.
 Runtime state is intentionally excluded. This repository never ships `active-capabilities.json`, `route-decisions.sqlite3`, live authority receipts, plugin cache contents, authentication state, user configuration, or private project paths.
 
 Tests must bind all Codex home, manifest, policy, configuration, schema, registry, and project-map paths to temporary directories before importing or invoking the reference runtime.
+
+Repository contract tests install the exact dependency pinned in
+`tests/requirements-capability-router.txt`. The dormant runtime is not added to
+the installed package and does not add a runtime dependency to Coding OS.

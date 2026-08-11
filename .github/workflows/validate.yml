@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Install pinned capability-router test dependency
+        run: python -m pip install -r tests/requirements-capability-router.txt
       - name: Validate pack and source contracts
         shell: pwsh
         run: ./scripts/validate-pack.ps1
@@ -85,6 +87,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Install pinned capability-router test dependency
+        run: python -m pip install -r tests/requirements-capability-router.txt
       - name: Test transactional install contract
         run: python -B tests/test_install_transaction.py
       - name: Test canonical router and security capability contracts

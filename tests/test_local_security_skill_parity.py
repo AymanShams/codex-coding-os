@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -27,7 +28,9 @@ def tree_evidence(root: Path) -> tuple[int, str, tuple[str, ...]]:
     )
     digest = hashlib.sha256()
     for relative_path in files:
-        file_digest = hashlib.sha256((root / relative_path).read_bytes()).hexdigest()
+        source_bytes = (root / relative_path).read_bytes()
+        canonical_bytes = source_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        file_digest = hashlib.sha256(canonical_bytes).hexdigest()
         digest.update(relative_path.encode("utf-8"))
         digest.update(b"\0")
         digest.update(file_digest.encode("ascii"))
@@ -36,6 +39,17 @@ def tree_evidence(root: Path) -> tuple[int, str, tuple[str, ...]]:
 
 
 class LocalSecuritySkillParityTests(unittest.TestCase):
+    def test_tree_evidence_is_checkout_line_ending_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lf_root = root / "lf"
+            crlf_root = root / "crlf"
+            lf_root.mkdir()
+            crlf_root.mkdir()
+            (lf_root / "sample.md").write_bytes(b"alpha\nbeta\n")
+            (crlf_root / "sample.md").write_bytes(b"alpha\r\nbeta\r\n")
+            self.assertEqual(tree_evidence(lf_root), tree_evidence(crlf_root))
+
     def test_parity_record_is_narrow_and_portable(self) -> None:
         self.assertEqual("1.0", PARITY["schema_version"])
         self.assertEqual(

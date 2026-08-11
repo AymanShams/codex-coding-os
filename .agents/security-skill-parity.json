@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "record_role": "parity_evidence_not_routing_authority",
   "captured_on": "2026-08-11",
-  "hash_algorithm": "sha256(relative_path + NUL + lowercase_file_sha256 + LF), paths sorted by ordinal code point",
+  "hash_algorithm": "sha256(relative_path + NUL + lowercase_file_sha256(CRLF and CR normalized to LF) + LF), paths sorted by ordinal code point",
   "universal_source_root": "${CODEX_HOME}/skills",
   "repository_root": ".agents/skills",
   "exact_mirrors": [
@@ -48,7 +48,7 @@
       "relationship": "repository_authored_provider_neutral",
       "repository_path": ".agents/skills/postgres-security-best-practices",
       "file_count": 8,
-      "tree_sha256": "052fd88195f6cf9e84820baeaf82ee406c4f4ab8cd94207384af2ed98291eefd",
+      "tree_sha256": "004691a157ebc0b700ddc4dce61e05edd05eb1b1f6280e07b13fcda17f4978bd",
       "required_paths": [
         "SKILL.md",
         "agents/openai.yaml",
