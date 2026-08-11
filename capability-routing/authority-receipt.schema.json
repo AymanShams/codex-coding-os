@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.codex/capability-authority-receipt-v1.schema.json",
+  "title": "Capability Authority Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "config_projection_sha256",
+    "config_leaf_hashes",
+    "plugin_cache_inventory_sha256",
+    "plugin_cache_row_hashes",
+    "required_source_hashes",
+    "app_identity",
+    "snapshot_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "capability-authority-receipt-v1"
+    },
+    "config_projection_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "config_leaf_hashes": {
+      "$ref": "#/$defs/hashMap"
+    },
+    "plugin_cache_inventory_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "plugin_cache_row_hashes": {
+      "$ref": "#/$defs/hashMap"
+    },
+    "required_source_hashes": {
+      "$ref": "#/$defs/hashMap"
+    },
+    "app_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app_version",
+        "runtime_id",
+        "cli_id",
+        "trusted_browser_client_sha256",
+        "browser_client_sha256",
+        "runtime_executable_sha256",
+        "cli_executable_sha256",
+        "coherent"
+      ],
+      "properties": {
+        "app_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cli_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trusted_browser_client_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "browser_client_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtime_executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cli_executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "coherent": {
+          "const": true
+        }
+      }
+    },
+    "snapshot_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "hashMap": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/sha256"
+      }
+    }
+  }
+}

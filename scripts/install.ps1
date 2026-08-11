@@ -3,7 +3,6 @@ param(
   [switch]$InstallUniversalPolicy,
   [switch]$RemoveUniversalPolicy,
   [string]$UniversalBundleId = "campaign-engine-policy-v1",
-  [switch]$RefreshCapabilityIndex,
   [string]$CodexHome = "$HOME\.codex",
   [string]$SkillsRoot,
   [Parameter(Mandatory = $true)][string]$ExpectedBundleSha256,
@@ -89,7 +88,6 @@ $Arguments = @(
 $Arguments += @("--expected-source-commit", $ExpectedSourceCommit)
 if ($InstallUniversalPolicy) { $Arguments += "--install-universal-policy" }
 if ($RemoveUniversalPolicy) { $Arguments += "--remove-universal-policy" }
-if ($RefreshCapabilityIndex) { $Arguments += "--refresh-capability-index" }
 if ($PolicyAuthoritySource) { $Arguments += @("--policy-authority-source", $PolicyAuthoritySource) }
 if ($PolicyAuthorityReference) { $Arguments += @("--policy-authority-reference", $PolicyAuthorityReference) }
 if ($PublicationCampaignId) { $Arguments += @("--publication-campaign-id", $PublicationCampaignId) }

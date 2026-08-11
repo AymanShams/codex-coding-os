@@ -15,5 +15,7 @@ epochs, `CCOS_REPOSITORY_ROOT`, and `CCOS_HOOK_ACTION`. If any value is absent,
 the hook returns success without consulting state. With the complete tuple, it
 delegates the exact decision to `campaign_engine/cli.py authorize-action`.
 
-Pack validation and capability-routing hooks remain ordinary advisory or build
-tools. They do not own campaign state.
+No capability-routing hook is shipped or activated by this repository. The
+`capability-routing/` tree is reviewable source and release-archive evidence
+only. It is excluded from the installed support payload, and using any copy as
+the live universal router requires separate authorization outside this package.

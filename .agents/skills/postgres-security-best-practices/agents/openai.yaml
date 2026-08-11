@@ -1,0 +1,4 @@
+interface:
+  display_name: "PostgreSQL Security Best Practices"
+  short_description: "Secure PostgreSQL roles, privileges, RLS, and functions"
+  default_prompt: "Use $postgres-security-best-practices to review and harden this PostgreSQL schema."

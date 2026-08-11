@@ -63,7 +63,6 @@ $BundleDigest = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).
   -ExpectedSourceCommit $SourceCommit `
   -ExpectedBundleSha256 $BundleDigest `
   -InstallUniversalPolicy `
-  -RefreshCapabilityIndex `
   -PolicyAuthoritySource explicit-user-approval `
   -PolicyAuthorityReference "approved-tagged-installation"
 ```
@@ -102,7 +101,6 @@ bundle_digest="$(python3 -c 'import json; print(json.load(open("install-bundle.m
   --expected-source-commit "$source_commit" \
   --expected-bundle-sha256 "$bundle_digest" \
   --install-universal-policy \
-  --refresh-capability-index \
   --policy-authority-source explicit-user-approval \
   --policy-authority-reference approved-tagged-installation
 ```
@@ -155,6 +153,28 @@ binding to SQLite, and only then starts the first turn.
 
 Caller-declared roles, prompt text, process names, and lease-shaped strings are
 not authority by themselves.
+
+## Capability routing and security
+
+The canonical router candidate under `capability-routing/` is dormant repository
+source. The installer does not register it as a hook, build a live capability
+manifest, create a route registry, or change universal Codex routing state.
+
+Codex Security supplies 13 plugin-managed security workflows. Supabase and Neon
+Postgres supply their own provider skills and connectors. These third-party
+capabilities stay managed by Codex and are never copied into this repository.
+The repository bundles provider-neutral security guidance, including PostgreSQL
+roles, grants, row-level security, views, privileged functions, and regression
+tests.
+
+Secure-by-default guidance supports implementation that changes an actual auth,
+permission, secret, public-endpoint, database-access, or frontend security
+boundary. A Codex Security scan is selected only from explicit scan or finding
+intent and the real review surface.
+
+See [Security Capability Operating Model](docs/security-capability-operating-model.md)
+for the complete skill map, selection rules, provider composition, fallback
+limits, and retired-router migration.
 
 ## Validation and review
 
@@ -264,6 +284,7 @@ fixture.
 - [Legacy case engine retirement](docs/case-state-contract.md)
 - [Getting started](docs/getting-started.md)
 - [Review doctrine](docs/review-doctrine.md)
+- [Security capability operating model](docs/security-capability-operating-model.md)
 - [System scope](docs/system-scope.md)
 - [Full skill inventory](docs/full-skill-inventory.md)
 - [Publishing checklist](docs/publishing-checklist.md)

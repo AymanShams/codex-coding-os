@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codex-coding-os/active-capabilities.schema.json",
+  "title": "Universal Active Capability Snapshot",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "snapshot_id",
+    "freshness_status",
+    "source_hashes",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "snapshot_id": { "type": "string", "minLength": 1 },
+    "freshness_status": {
+      "type": "string",
+      "enum": ["fresh", "current", "live", "valid", "verified", "stale"]
+    },
+    "source_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[A-Fa-f0-9]{64}$"
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "state",
+          "provider",
+          "version",
+          "source_path",
+          "sha256",
+          "families"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "state": { "type": "string", "minLength": 1 },
+          "provider": { "type": "string" },
+          "version": { "type": "string" },
+          "source_path": { "type": "string" },
+          "sha256": {
+            "type": "string",
+            "pattern": "^$|^[A-Fa-f0-9]{64}$"
+          },
+          "families": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

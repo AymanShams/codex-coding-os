@@ -12,6 +12,32 @@ $BundleHash = [string]$Bundle.aggregate_sha256
 $SourceCommit = (& git -C $RepoRoot rev-parse HEAD).Trim()
 $Python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $Python) { $Python = Get-Command py -ErrorAction Stop }
+$RepositorySecuritySkills = @(
+  "defensive-security-checklist",
+  "postgres-security-best-practices",
+  "security-best-practices",
+  "security-ownership-map",
+  "security-threat-model"
+)
+$CodexManagedPluginSkillDirectories = @(
+  "attack-path-analysis",
+  "deep-security-scan",
+  "define-security-policy",
+  "finding-discovery",
+  "fix-finding",
+  "propose-security-hardening",
+  "security-diff-scan",
+  "security-scan",
+  "threat-model",
+  "track-findings",
+  "triage-finding",
+  "validation",
+  "vulnerability-writeup",
+  "supabase",
+  "supabase-postgres-best-practices",
+  "neon-postgres",
+  "neon-postgres-egress-optimizer"
+)
 
 function Invoke-Transaction {
   param([Parameter(Mandatory = $true)][string[]]$TransactionArguments)
@@ -93,6 +119,32 @@ try {
   if ($Manifest.PSObject.Properties.Name -contains "legacy_overlap_migration") { throw "Clean canonical install was misclassified as a legacy migration." }
   if ($Current.status -ne "committed") { throw "Current pointer was not committed." }
   if (-not (Test-Path (Join-Path $SkillsRoot "codex-coding-os-master\SKILL.md"))) { throw "Managed skill was not installed." }
+  foreach ($SkillName in $RepositorySecuritySkills) {
+    if (-not (Test-Path -LiteralPath (Join-Path $SkillsRoot "$SkillName\SKILL.md") -PathType Leaf)) {
+      throw "Repository security skill was not installed: $SkillName"
+    }
+  }
+  foreach ($SkillName in $CodexManagedPluginSkillDirectories) {
+    foreach ($CandidateName in @($SkillName, $SkillName.ToUpperInvariant())) {
+      if (Test-Path -LiteralPath (Join-Path $SkillsRoot $CandidateName)) {
+        throw "Codex-managed plugin skill body was installed: $CandidateName"
+      }
+    }
+  }
+  foreach ($ForbiddenPath in @(
+    (Join-Path $CodexHome "coding-os\capability-routing"),
+    (Join-Path $CodexHome "coding-os\capability-index"),
+    (Join-Path $CodexHome "coding-os\hooks\capability-router"),
+    (Join-Path $CodexHome "hooks\capability-router"),
+    (Join-Path $CodexHome "coding-os\Capability-Routing"),
+    (Join-Path $CodexHome "coding-os\Capability-Index"),
+    (Join-Path $CodexHome "coding-os\Hooks\Capability-Router"),
+    (Join-Path $CodexHome "Hooks\Capability-Router")
+  )) {
+    if (Test-Path -LiteralPath $ForbiddenPath) {
+      throw "Dormant or retired router source was installed: $ForbiddenPath"
+    }
+  }
   if (-not (Test-Path (Join-Path $CodexHome "hooks\campaign-engine\campaign_hook.py"))) { throw "Campaign hook was not installed." }
   if (-not (Test-Path (Join-Path $CodexHome "coding-os-state\campaigns.sqlite3"))) { throw "Campaign state store was not initialized." }
 
@@ -141,6 +193,11 @@ raise SystemExit(cli.main(["--json", "doctor"], injected_runtime=runtime_layout(
   )
   if (Test-Path (Join-Path $CodexHome "coding-os")) { throw "Managed support root remained after uninstall." }
   if (Test-Path (Join-Path $SkillsRoot "codex-coding-os-master")) { throw "Managed skill remained after uninstall." }
+  foreach ($SkillName in $RepositorySecuritySkills) {
+    if (Test-Path -LiteralPath (Join-Path $SkillsRoot $SkillName)) {
+      throw "Repository security skill remained after uninstall: $SkillName"
+    }
+  }
   if (Test-Path (Join-Path $CodexHome "hooks\campaign-engine")) { throw "Managed campaign hook remained after uninstall." }
   if (-not (Test-Path (Join-Path $CodexHome "coding-os-state\campaigns.sqlite3"))) { throw "Uninstall removed external campaign state." }
   foreach ($Path in $Preserved.Keys) {

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex-coding-os.local/schemas/project-scope-map.schema.json",
+  "title": "Codex Project Scope Map",
+  "type": "object",
+  "required": ["schema_version", "projects"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "projects": {
+      "type": "object",
+      "required": ["generic"],
+      "properties": {
+        "generic": {
+          "const": {
+            "roots": [],
+            "source_scopes": [],
+            "memory_scope": null
+          }
+        }
+      },
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,63}$": { "$ref": "#/$defs/project" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "project": {
+      "type": "object",
+      "required": ["roots", "source_scopes", "memory_scope"],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "source_scopes": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "memory_scope": {
+          "oneOf": [
+            { "$ref": "#/$defs/identifier" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

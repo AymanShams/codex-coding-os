@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
-  "last_reviewed": "2026-06-06",
+  "version": "1.2.0",
+  "last_reviewed": "2026-08-11",
   "policy": "Plugin-managed skills, connectors, and MCP servers are installed through Codex so authentication, updates, permissions, and provenance remain controlled by the plugin system.",
   "repo_bundled_policy": {
     "copied_directly": [
@@ -19,6 +19,13 @@
     ],
     "reason": "License permission alone is not enough. Plugin-managed skills can depend on account permissions, connector authentication, plugin updates, and Codex-managed provenance."
   },
+  "suppressed_managed_skills": [
+    {
+      "skill": "build-web-apps:supabase-postgres-best-practices",
+      "replacement": "supabase:supabase-postgres-best-practices",
+      "reason": "The current Build Web Apps plugin does not provide this skill. Supabase owns the current provider-specific Postgres guidance."
+    }
+  ],
   "default_codex_skills_reference": [
     {
       "name": "skill-installer",
@@ -56,8 +63,7 @@
         "build-web-apps:frontend-testing-debugging",
         "build-web-apps:react-best-practices",
         "build-web-apps:shadcn",
-        "build-web-apps:stripe-best-practices",
-        "build-web-apps:supabase-postgres-best-practices"
+        "build-web-apps:stripe-best-practices"
       ]
     },
     {
@@ -93,18 +99,124 @@
     },
     {
       "name": "Codex Security",
+      "plugin_id": "codex-security@openai-curated-remote",
+      "plugin_version": "0.1.18",
+      "management": "third-party-codex-managed",
+      "repo_bundled": false,
       "priority": "recommended",
       "purpose": "Security scans, diff scans, finding validation, and secure remediation workflows",
       "managed_skills": [
         "codex-security:attack-path-analysis",
         "codex-security:deep-security-scan",
+        "codex-security:define-security-policy",
         "codex-security:finding-discovery",
         "codex-security:fix-finding",
+        "codex-security:propose-security-hardening",
         "codex-security:security-diff-scan",
         "codex-security:security-scan",
         "codex-security:threat-model",
-        "codex-security:validation"
-      ]
+        "codex-security:track-findings",
+        "codex-security:triage-finding",
+        "codex-security:validation",
+        "codex-security:vulnerability-writeup"
+      ],
+      "mcp_dependency": {
+        "server": "codex-security",
+        "managed_by": "Codex Security plugin",
+        "required_for_live_workflows": [
+          "codex-security:deep-security-scan",
+          "codex-security:security-scan",
+          "codex-security:security-diff-scan"
+        ],
+        "non_equivalent_without": [
+          "codex-security:deep-security-scan"
+        ],
+        "credentials_and_state": "Codex-managed and never stored in this repository"
+      },
+      "capability_fallbacks": [
+        {
+          "skills": [
+            "codex-security:security-diff-scan"
+          ],
+          "when": "Codex Security MCP is unavailable",
+          "selected_capability": "skill:codex-security:security-diff-scan",
+          "supports": [],
+          "chosen_fallback": "workflow:codex-security-terminal-chat-diff",
+          "equivalence": "equivalent",
+          "max_passes": 1,
+          "deadline_seconds": 3600,
+          "reason_code": "SECURITY_DIFF_LOCAL_WORKFLOW_FALLBACK"
+        },
+        {
+          "skills": [
+            "codex-security:security-scan"
+          ],
+          "when": "Codex Security MCP is unavailable",
+          "selected_capability": "skill:codex-security:security-scan",
+          "supports": [],
+          "chosen_fallback": "workflow:codex-security-prompt-only-standard",
+          "equivalence": "equivalent",
+          "max_passes": 1,
+          "deadline_seconds": 3600,
+          "reason_code": "SECURITY_STANDARD_LOCAL_WORKFLOW_FALLBACK"
+        },
+        {
+          "skills": [
+            "codex-security:deep-security-scan"
+          ],
+          "when": "Codex Security MCP is unavailable",
+          "selected_capability": "skill:security-best-practices",
+          "supports": [
+            "skill:deep-critic",
+            "skill:evidence-checker"
+          ],
+          "chosen_fallback": "workflow:codex-parent-bounded-three-pass-repository-review",
+          "equivalence": "non_equivalent",
+          "not_reproduced": [
+            "independent repeated discovery",
+            "semantic candidate reduction",
+            "durable deep-scan lifecycle receipts"
+          ],
+          "max_passes": 3,
+          "deadline_seconds": 3600,
+          "reason_code": "DEEP_SCAN_NON_EQUIVALENT_CODEX_MULTIPASS_FALLBACK"
+        }
+      ],
+      "write_integrations": {
+        "skill": "codex-security:track-findings",
+        "apps": [
+          {
+            "name": "github",
+            "access": [
+              "read",
+              "write"
+            ],
+            "fallback": "Authenticated GitHub CLI only after the user approves the exact identity and destination"
+          },
+          {
+            "name": "linear",
+            "access": [
+              "read",
+              "write"
+            ],
+            "fallback": "none"
+          },
+          {
+            "name": "atlassian",
+            "access": [
+              "read",
+              "write"
+            ],
+            "fallback": "none"
+          }
+        ],
+        "required_gates": [
+          "validate the sealed finding source",
+          "show the exact destination payload",
+          "obtain explicit user approval before every external write",
+          "read back the created or updated record"
+        ]
+      }
     },
     {
       "name": "Superpowers",
@@ -183,12 +295,52 @@
     },
     {
       "name": "Supabase",
+      "plugin_id": "supabase@openai-curated-remote",
+      "plugin_version": "1.0.0",
+      "management": "third-party-codex-managed",
+      "repo_bundled": false,
       "priority": "recommended-for-supabase-projects",
       "purpose": "Database projects, SQL, migrations, auth, RLS, and Supabase project operations",
       "managed_skills": [
         "supabase:supabase",
         "supabase:supabase-postgres-best-practices"
-      ]
+      ],
+      "app_connector": {
+        "name": "supabase",
+        "required": true,
+        "access": [
+          "read",
+          "write"
+        ],
+        "auth_and_state": "Codex-managed and never stored in this repository"
+      }
+    },
+    {
+      "name": "Neon Postgres",
+      "plugin_id": "neon-postgres@openai-curated-remote",
+      "plugin_version": "1.0.0",
+      "management": "third-party-codex-managed",
+      "repo_bundled": false,
+      "priority": "recommended-for-neon-projects",
+      "purpose": "Neon Postgres projects, branches, databases, SQL, migrations, and egress optimization",
+      "managed_skills": [
+        "neon-postgres:neon-postgres",
+        "neon-postgres:neon-postgres-egress-optimizer"
+      ],
+      "app_connector": {
+        "name": "neon-postgres",
+        "required": true,
+        "access": [
+          "read",
+          "write"
+        ],
+        "auth_and_state": "Codex-managed and never stored in this repository"
+      },
+      "optional_mcp_guidance": {
+        "server": "neon",
+        "use": "Enable only when a project needs a separately configured Neon MCP surface beyond the required plugin app connector",
+        "fallback": "Use the required plugin app connector or stay read-only when no authorized write-capable integration is available"
+      }
     },
     {
       "name": "Chrome",
@@ -338,6 +490,13 @@
       "install_reference": "codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp"
     },
     {
+      "name": "codex-security",
+      "priority": "required-for-codex-security-deep-scans",
+      "purpose": "Plugin-managed deep-scan orchestration, semantic reduction, and durable scan lifecycle receipts",
+      "managed_by": "codex-security@openai-curated-remote 0.1.18",
+      "repo_bundled": false
+    },
+    {
       "name": "context7",
       "priority": "recommended",
       "purpose": "Current library, framework, SDK, API, CLI, and cloud-service documentation"
@@ -363,9 +522,11 @@
       "purpose": "n8n node discovery, node validation, workflow validation, and template search"
     },
     {
-      "name": "supabase",
-      "priority": "optional-for-supabase-projects",
-      "purpose": "Supabase docs, account, database, functions, branching, storage, and development operations"
+      "name": "neon",
+      "priority": "optional-for-neon-projects",
+      "purpose": "Optional separately configured Neon MCP surface beyond the required plugin app connector",
+      "managed_by": "separate project configuration",
+      "repo_bundled": false
     },
     {
       "name": "vercel",

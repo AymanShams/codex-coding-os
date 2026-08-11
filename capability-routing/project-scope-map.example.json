@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "projects": {
+    "generic": {
+      "roots": [],
+      "source_scopes": [],
+      "memory_scope": null
+    },
+    "sample_project": {
+      "roots": ["C:\\workspace\\sample-project"],
+      "source_scopes": ["sample_project"],
+      "memory_scope": "sample_project"
+    }
+  }
+}

@@ -15,6 +15,13 @@ identity, and project validation. For automated work, admit one immutable finite
 campaign specification, obtain explicit approval, and run only the engine
 command named in its receipt.
 
+For non-trivial manual work, use the installed `catalogue-router` to query the
+canonical manifest and ordered routing policy. Treat the resulting primary and
+supporting skills as workflow selection only. They do not widen mutation,
+provider-write, merge, publication, or universal-install authority. The
+repository `capability-routing/` tree is dormant reference source and must never
+be activated or copied into `CODEX_HOME` without separate authorization.
+
 Use these public commands:
 
 ```text

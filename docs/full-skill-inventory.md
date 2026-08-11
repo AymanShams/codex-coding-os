@@ -48,11 +48,29 @@ The machine-readable source of truth for validation is `pack.manifest.json`.
 | `security-threat-model` | Full local skill | AppSec threat models |
 | `security-ownership-map` | Full local skill | Ownership and security hotspot graph scripts |
 | `defensive-security-checklist` | Full local skill | Defensive checklists, hardening plans, supply-chain security, and agent/MCP safety |
+| `postgres-security-best-practices` | Full local skill | Provider-neutral PostgreSQL roles, ownership, grants, row-level security, views, privileged functions, and regression tests |
 | `crisis-command-center` | Full local skill | Incidents, outages, evidence logs, containment, recovery, and after-action reviews |
 | `vercel-optimize` | Full local skill | Vercel performance and cost optimization references and scripts |
 | `code-review-graph` | Full portable local skill | Graph-backed code review entrypoints |
 | `vexor-cli` | Full local skill | CLI helper guidance |
 | `external-skill-overlay-pack` | Pack master | External source handling and overlays |
+
+## Codex-managed security and provider skills
+
+These skills are routing dependencies, not bundled files. Codex owns their
+installation and updates. The machine-readable source is
+`codex-capabilities/plugins.manifest.json`.
+
+| Plugin | Managed skills |
+|---|---|
+| Codex Security | `attack-path-analysis`, `deep-security-scan`, `define-security-policy`, `finding-discovery`, `fix-finding`, `propose-security-hardening`, `security-diff-scan`, `security-scan`, `threat-model`, `track-findings`, `triage-finding`, `validation`, `vulnerability-writeup` |
+| Supabase | `supabase`, `supabase-postgres-best-practices` |
+| Neon Postgres | `neon-postgres`, `neon-postgres-egress-optimizer` |
+
+Use the fully qualified plugin prefix when routing, for example
+`codex-security:security-diff-scan`, `supabase:supabase`, or
+`neon-postgres:neon-postgres`. The complete selection and fallback rules are in
+`docs/security-capability-operating-model.md`.
 
 ## Removed from the earlier skeleton
 

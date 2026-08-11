@@ -12,3 +12,16 @@
 - Read before editing, keep scope exact, run the declared validation commands,
   and publish only the frozen reviewed head.
 - Legacy case commands are retired and must return `LEGACY_ENGINE_RETIRED`.
+- For an explicit security task, classify the surface before selecting a
+  capability. Use a diff scan for Git-backed changes, a standard scan for an
+  ordinary repository or path review, and a deep scan only when exhaustive or
+  multi-pass work is explicitly requested.
+- Use Supabase capabilities only for Supabase surfaces. Use Neon Postgres plus
+  provider-neutral PostgreSQL guidance for Neon. Use provider-neutral
+  PostgreSQL guidance when no provider plugin owns the database surface.
+- Keep client-side checks non-authoritative. Enforce protected actions,
+  authorization, secrets, and privileged database operations on a trusted
+  server or database boundary.
+- Do not copy plugin-managed skills or credentials into the repository. Do not
+  claim live provider verification unless a successful read proves the intended
+  project and current state.
