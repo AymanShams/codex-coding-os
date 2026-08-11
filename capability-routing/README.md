@@ -29,5 +29,5 @@ Runtime state is intentionally excluded. This repository never ships `active-cap
 Tests must bind all Codex home, manifest, policy, configuration, schema, registry, and project-map paths to temporary directories before importing or invoking the reference runtime.
 
 Repository contract tests install the exact dependency pinned in
-`tests/requirements-capability-router.txt`. The dormant runtime is not added to
+`capability-routing/requirements-test.txt`. The dormant runtime is not added to
 the installed package and does not add a runtime dependency to Coding OS.

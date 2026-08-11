@@ -1229,16 +1229,29 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
 
     def test_ci_installs_the_exact_router_test_dependency(self) -> None:
         requirements = (
-            REPO_ROOT / "tests" / "requirements-capability-router.txt"
+            REPO_ROOT / "capability-routing" / "requirements-test.txt"
         ).read_text(encoding="utf-8")
         self.assertEqual(requirements, "jsonschema==4.26.0\n")
         workflow = (
             REPO_ROOT / ".github" / "workflows" / "validate.yml"
         ).read_text(encoding="utf-8")
         install_command = (
-            "python -m pip install -r tests/requirements-capability-router.txt"
+            "python -m pip install -r capability-routing/requirements-test.txt"
         )
         self.assertEqual(workflow.count(install_command), 2)
+        install_bundle = json.loads(
+            (REPO_ROOT / "install-bundle.manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertNotIn(
+            "capability-routing/requirements-test.txt",
+            {entry["path"] for entry in install_bundle["entries"]},
+        )
+        package_script = (REPO_ROOT / "scripts" / "package.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            '"capability-routing/requirements-test.txt"', package_script
+        )
 
     def test_cli_accepts_stdin_and_environment_path_overrides_without_live_state(self) -> None:
         env = os.environ.copy()

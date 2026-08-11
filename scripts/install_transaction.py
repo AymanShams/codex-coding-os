@@ -422,6 +422,114 @@ def _reject_untracked_bundle_paths(root: Path, paths: Sequence[str]) -> None:
         )
 
 
+def _git_index_blob_fingerprints(
+    root: Path, paths: Sequence[str]
+) -> dict[str, tuple[int, str]]:
+    if not paths or not _is_git_worktree(root):
+        return {}
+    requested = {
+        _normalize_relative(path).encode("utf-8"): _normalize_relative(path)
+        for path in paths
+    }
+    completed = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--stage", "-z", "--"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise BundleError(
+            f"unable to read staged bundle sources from the Git index: {detail or completed.returncode}"
+        )
+
+    object_ids: dict[str, str] = {}
+    conflicted: set[str] = set()
+    for record in completed.stdout.split(b"\0"):
+        if not record:
+            continue
+        metadata, separator, raw_path = record.partition(b"\t")
+        relative = requested.get(raw_path)
+        if relative is None:
+            continue
+        fields = metadata.split()
+        if not separator or len(fields) != 3:
+            raise BundleError("Git returned malformed staged bundle source metadata")
+        _, raw_object_id, raw_stage = fields
+        if raw_stage != b"0":
+            conflicted.add(relative)
+            continue
+        try:
+            object_id = raw_object_id.decode("ascii")
+        except UnicodeDecodeError as error:
+            raise BundleError("Git returned a non-ASCII staged bundle object ID") from error
+        if len(object_id) not in {40, 64} or any(
+            character not in "0123456789abcdef" for character in object_id
+        ):
+            raise BundleError("Git returned an invalid staged bundle object ID")
+        if relative in object_ids:
+            raise BundleError(f"Git returned duplicate staged bundle metadata: {relative}")
+        object_ids[relative] = object_id
+
+    if conflicted:
+        raise BundleError(
+            "refusing to build a public bundle from unmerged Git index paths: "
+            + ", ".join(sorted(conflicted, key=lambda value: value.encode("utf-8")))
+        )
+    missing = sorted(set(paths).difference(object_ids), key=lambda value: value.encode("utf-8"))
+    if missing:
+        raise BundleError(
+            "refusing to build a public bundle without stage-0 Git index blobs: "
+            + ", ".join(missing)
+        )
+
+    unique_object_ids = sorted(set(object_ids.values()))
+    batch = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "--batch"],
+        input=b"".join(object_id.encode("ascii") + b"\n" for object_id in unique_object_ids),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if batch.returncode != 0:
+        detail = batch.stderr.decode("utf-8", errors="replace").strip()
+        raise BundleError(
+            f"unable to read staged bundle source blobs: {detail or batch.returncode}"
+        )
+
+    fingerprints_by_object: dict[str, tuple[int, str]] = {}
+    cursor = 0
+    for expected_object_id in unique_object_ids:
+        header_end = batch.stdout.find(b"\n", cursor)
+        if header_end < 0:
+            raise BundleError("Git returned a truncated staged bundle blob header")
+        header = batch.stdout[cursor:header_end].split()
+        if len(header) != 3:
+            raise BundleError("Git returned malformed staged bundle blob metadata")
+        raw_object_id, object_type, raw_size = header
+        try:
+            object_id = raw_object_id.decode("ascii")
+            size = int(raw_size.decode("ascii"))
+        except (UnicodeDecodeError, ValueError) as error:
+            raise BundleError("Git returned invalid staged bundle blob metadata") from error
+        if object_id != expected_object_id or object_type != b"blob" or size < 0:
+            raise BundleError("Git returned unexpected staged bundle blob metadata")
+        blob_start = header_end + 1
+        blob_end = blob_start + size
+        if blob_end >= len(batch.stdout) or batch.stdout[blob_end : blob_end + 1] != b"\n":
+            raise BundleError("Git returned a truncated staged bundle blob")
+        blob = batch.stdout[blob_start:blob_end]
+        fingerprints_by_object[object_id] = (size, hashlib.sha256(blob).hexdigest())
+        cursor = blob_end + 1
+    if cursor != len(batch.stdout):
+        raise BundleError("Git returned unexpected trailing staged bundle blob data")
+
+    return {
+        relative: fingerprints_by_object[object_id]
+        for relative, object_id in object_ids.items()
+    }
+
+
 def _enumerate_files(root: Path, relative: str) -> list[str]:
     normalized = _normalize_relative(relative)
     target = _safe_repo_path(root, normalized)
@@ -579,7 +687,19 @@ def build_bundle_manifest(repo_root: Path | str) -> dict[str, Any]:
     pack = _load_pack(root)
     paths = _inventory_paths(root, pack)
     _reject_untracked_bundle_paths(root, paths)
+    index_fingerprints = _git_index_blob_fingerprints(root, paths)
     entries = [_entry_for(root, relative) for relative in paths]
+    mismatched = [
+        entry["path"]
+        for entry in entries
+        if index_fingerprints
+        and (entry["size"], entry["sha256"]) != index_fingerprints[entry["path"]]
+    ]
+    if mismatched:
+        raise BundleError(
+            "refusing to build a public bundle when raw working bytes differ from staged Git index blobs: "
+            + ", ".join(mismatched)
+        )
     manifest = {
         "protocol": BUNDLE_PROTOCOL,
         "package": {"name": pack["package_name"], "version": pack["version"]},

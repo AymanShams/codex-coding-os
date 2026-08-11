@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "c6c5722fef52986de2b66f06537bb79ef0b117bcc289f023c8927deb2288891b",
+  "aggregate_sha256": "daf0db869856b27a49d0fe413f40fb95fbf466e4b781a8e1c0f0475da16af6eb",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -493,8 +493,8 @@
     },
     {
       "path": ".agents/skills/postgres-security-best-practices/agents/openai.yaml",
-      "sha256": "db5abfcc015d8384c24dc1d3d924e01a71285b0aab0487ce05b883711d550510",
-      "size": 250
+      "sha256": "35085ca68fb3bc3342d6239cd2ad9b6ac6eac8dc38830458cffd186147ec012c",
+      "size": 246
     },
     {
       "path": ".agents/skills/postgres-security-best-practices/references/grants-and-default-privileges.md",
@@ -2193,7 +2193,7 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "3da0697e26de085541c25841a3afd08be7436e4912e176b4eab50b19706a18fd",
+      "sha256": "317f59549203d68158e15284a250943982ebdcc15196c83baa1be37ced067e68",
       "size": 5828
     },
     {
@@ -2503,8 +2503,8 @@
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "b1a9cbd17ee4bc36636718edb4ca642a59c6d3650001215bd3aad198b6f85c09",
-      "size": 185717
+      "sha256": "db5a7f280e3e1ce57759dd83c0a775127d087c4a6df65e1bd31a8ce03a9de4e5",
+      "size": 190766
     },
     {
       "path": "scripts/json-schema-validation.ps1",
@@ -2513,8 +2513,8 @@
     },
     {
       "path": "scripts/package.ps1",
-      "sha256": "3b3dc91e58679eedd62691c04c63aadefbc97aae9402da8431ba600d142693c1",
-      "size": 9641
+      "sha256": "70c1be612b8c658a2248cd4346aaf6a0f9c6d9acced7172dd0b052799d2c85c5",
+      "size": 9687
     },
     {
       "path": "scripts/release-safety-scan.ps1",
@@ -2802,11 +2802,6 @@
       "size": 2430
     },
     {
-      "path": "tests/requirements-capability-router.txt",
-      "sha256": "756cc9e506ae4ee1a6f6c0507088b5cfc0dc8ba350fb2d2d46f1ffa72033adb6",
-      "size": 19
-    },
-    {
       "path": "tests/test_campaign_cli.py",
       "sha256": "ae3b96e12ba5c0d14f71f3be5339a36d567866e6205c1a2b3c3bf1c8547fab58",
       "size": 22267
@@ -2868,8 +2863,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "15c93e754c9118061b2a42aa13a3b36a4fbdf4cd52e002d6f75d0f7324876347",
-      "size": 122575
+      "sha256": "8b40171fdb3f60b2a153c4f0e2fbca9a686cc4ab139ca31edf0e1c15ff144bfe",
+      "size": 124296
     },
     {
       "path": "tests/test_local_security_skill_parity.py",
@@ -2898,8 +2893,8 @@
     },
     {
       "path": "tests/test_repository_capability_router.py",
-      "sha256": "28d8b23f500ee8d7340d00d644f6c6f92f59a2db71b935645f578b13e7e2f179",
-      "size": 52018
+      "sha256": "80ceea7c1ba2d00b5be4ca93a10da08ec28af043d5d15024ed6f3bfa45a1fc24",
+      "size": 52531
     },
     {
       "path": "tests/test_security_capability_routing.py",

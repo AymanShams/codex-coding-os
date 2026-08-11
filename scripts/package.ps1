@@ -10,6 +10,7 @@ $ManifestPath = Join-Path $RepoRoot "pack.manifest.json"
 $Validate = Join-Path $RepoRoot "scripts\validate-pack.ps1"
 $RequiredDormantRoutingFiles = @(
   "capability-routing/README.md",
+  "capability-routing/requirements-test.txt",
   "capability-routing/provenance.json",
   "capability-routing/active-capabilities.schema.json",
   "capability-routing/authority-receipt.schema.json",

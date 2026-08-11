@@ -584,6 +584,39 @@ class BundleContractTests(unittest.TestCase):
             with self.assertRaises(it.BundleError):
                 it.verify_bundle(env.source, env.bundle_hash)
 
+    def test_bundle_rejects_clean_status_when_working_bytes_differ_from_index_blob(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw), git_source=True)
+            run_git(env.source, "config", "core.autocrlf", "true")
+            write_text(env.source / ".gitattributes", "payload/doc.txt text\n")
+            run_git(env.source, "add", ".gitattributes", "payload/doc.txt")
+            run_git(env.source, "commit", "-q", "-m", "declare normalized text source")
+            tracked = env.source / "payload/doc.txt"
+            tracked.write_bytes(b"payload-v1\r\n")
+            run_git(env.source, "add", "payload/doc.txt")
+            index_blob = subprocess.run(
+                ["git", "-C", str(env.source), "show", ":payload/doc.txt"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ).stdout
+
+            self.assertEqual(index_blob, b"payload-v1\n")
+            self.assertEqual(tracked.read_bytes(), b"payload-v1\r\n")
+            self.assertEqual(run_git(env.source, "status", "--porcelain", "--", "payload/doc.txt"), "")
+            prior_manifest = (env.source / "install-bundle.manifest.json").read_bytes()
+
+            with self.assertRaisesRegex(
+                it.BundleError,
+                "raw working bytes differ from staged Git index blobs: payload/doc.txt",
+            ):
+                it.build_bundle_manifest(env.source)
+
+            self.assertEqual(
+                (env.source / "install-bundle.manifest.json").read_bytes(),
+                prior_manifest,
+            )
+
 
 class PolicyMigrationTests(unittest.TestCase):
     def test_first_migrations_preserve_all_outside_bytes_and_mixed_newlines(self) -> None:
@@ -2237,6 +2270,7 @@ class UninstallTransactionTests(unittest.TestCase):
             )
 
             write_text(env.source / "payload/doc.txt", "payload-v2\n")
+            run_git(env.source, "add", "payload/doc.txt")
             env.bundle = it.build_bundle_manifest(env.source)
             env.bundle_hash = env.bundle["aggregate_sha256"]
             run_git(env.source, "add", ".")
