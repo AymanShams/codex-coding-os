@@ -4,15 +4,16 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-08-12
+## [1.2.0] - 2026-08-13
 
 ### Added
 
 - Added content-bound manifest and policy authority hashes to every route
   decision and SQLite issuance receipt.
-- Added managed remote-plugin package identity, declared skill identity,
-  installation-origin, marketplace-enablement, and coherent version-replacement
-  evidence to automatic capability-manifest recovery.
+- Added remote-plugin package identity, declared skill identity, package-byte,
+  marketplace-enablement, and capability-surface evidence while keeping
+  automatic version-replacement recovery fail closed without detached,
+  authenticated installer attestation.
 - Added adversarial coverage for stale authority receipts, semantic routing
   collisions, plugin identity and origin changes, source-hash coverage, and
   marketplace alias precedence.
@@ -37,6 +38,8 @@ All notable package changes are recorded here. The authoritative package release
   Neon marketplace enablement, and unproven or changed installation origins.
 - Corrected attack-path plural handling and specialist precedence for explicit
   technical security reviews.
+- Prevented session-start recovery from trusting a pre-mutex manifest snapshot
+  when authority changes while it waits for the recovery lock.
 
 ## [1.1.0] - 2026-08-11
 

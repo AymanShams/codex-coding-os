@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "captured_at": "2026-08-12T16:44:31Z",
+  "captured_at": "2026-08-12T21:53:00Z",
   "source": "Fresh raw-disk Universal Codex capability-routing baseline audited before the v1.2.0 repository adaptations",
   "non_live": true,
   "deployment_requires_separate_authorization": true,
@@ -47,7 +47,7 @@
     ".agents/skills/catalogue-router/SKILL.md": "7183cf3b8c1ce5e5e702a68b84f54b02504fb9676afd410f461a801fe9f06519",
     ".agents/skills/catalogue-router/scripts/query-catalogue.ps1": "55af664dc457e021a319a1ccca5c3f0d275f1e1b30e0fa17a29c26efbee72599",
     "capability-routing/active-capabilities.schema.json": "05e714b3c846ed99eb5e4e505574691144080ff322fea07bdf1455c2d12b4538",
-    "capability-routing/authority-receipt.schema.json": "94cfb29dbd8c8298f58393e610d6b9f4e2411e6f1ffef7060c9c4d62e1f15b39",
+    "capability-routing/authority-receipt.schema.json": "b84d201dc50aee6f9d5a150d1393db7b7c2860ce1a87521f602947a968c146bd",
     "capability-routing/builder/build_canonical_capability_manifest.ps1": "5254be7b92ef85665f8e96307ce3a061dd694f17a47777ddf21e95af12e9f3bf",
     "capability-routing/project-scope-map.example.json": "a98fee71ec1043e883fe5b75a10b33b6c3a9d380b1d53cd8d060442435848d64",
     "capability-routing/project-scope-map.schema.json": "326b7b506f64ce413539dbb099e7d3d5eed730b1c0804c9008a9d7eb921bcf32",
@@ -58,14 +58,14 @@
     "capability-routing/reference-runtime/capability_config_fingerprint.py": "492915e091f20595b30a131a1db75001696ffca5336456de97a7dd6db5c1b782",
     "capability-routing/reference-runtime/capability_index.py": "7e2ffc03f9049bb804f08f1b4bb73900130c607dcd464c65bcf37a01f50f3df7",
     "capability-routing/reference-runtime/capability_index_cli.py": "a5cecd8c4ed79013add2392b554c50ff745753782ad697b54917c30ca32a81e3",
-    "capability-routing/reference-runtime/capability_index_session_start.py": "dab8721546ce8d8976a4fdcd7355c43776e6fc0abcfcc9d0fa7096d1ce4cf6bc",
-    "capability-routing/reference-runtime/capability_manifest_recovery.py": "6940a24f1313bd94a459c7eec513d2040d82a066cdbc954fd59bef9a57fbaa6a",
+    "capability-routing/reference-runtime/capability_index_session_start.py": "7eb27a23c6d7caac3a501a15292700667a2de340707fc1f25ad54edcdaa4c309",
+    "capability-routing/reference-runtime/capability_manifest_recovery.py": "7138d82c571e42dc241f730dbb07144d5e57bfd334ec2eaed512171f526b2130",
     "capability-routing/reference-runtime/user_prompt_skill_router.py": "1b30ecaa63a6d04be8c10178ad062e563390eaec1e9391f8749cc85b0a526a2f",
     "capability-routing/route-decision.schema.json": "17d0623ea640eda44471327989d7294cced787fe186dde6314ef7a420d488601",
     "capability-routing/routing-policy.schema.json": "58717fc8413219ee08eb78aef520b1f6f34c7e77f75e6521b4e8c3e8c9f0d914",
     "capability-routing/routing-policy.yaml": "6f0ea59e606ff289052ee89f0ed3d5d1c5068afcefb086fe4c02371bf87b90aa",
     "tests/test_repository_capability_router.py": "9fb63eedcbf3dd18a631b5a781cc7b91971f34d9e5006e1e249ecf0e6b8b7e36",
-    "tests/test_capability_manifest_recovery.py": "e686e1a9bb6511ddb32aa59ecb9d53d30550bc1a59f01d983b09d22eef07e61a",
+    "tests/test_capability_manifest_recovery.py": "884f0d128c38516dfd570ba9868b7cf959d8b16a11337e632ba0c870a3a64da4",
     "tests/test_catalogue_router_wrapper.py": "90848c919497b65a0c3fa1ca65fc8f7129efa3feab43c3419eb678c610074d38",
     "tests/test_security_capability_routing.py": "9e6d87f0bd34a7b5128405ab610f18b41d0648b998a41841aa66b43b2322b55c"
   },
@@ -78,7 +78,8 @@
     "ported the universal router tests into public-safe synthetic contract coverage",
     "adapted catalogue-router to resolve the deployment-owned CODEX_HOME instead of deriving it from the installed skill path",
     "upgraded route execution and registry receipts to content-bound authority schema 3 with exact current-authority verification",
-    "upgraded recovery receipts to schema 2 with manifest-backed plugin identity, managed-origin, capability-surface, and complete source-hash cohorts",
+    "upgraded recovery receipts to schema 2 with manifest-backed plugin identity, package-byte, capability-surface, and complete source-hash cohorts while denying automatic remote-plugin replacement without detached authenticated installer attestation",
+    "made session-start recovery reload authority inside the recovery mutex so pre-lock state remains audit evidence only",
     "bounded critique, technical security, PDF, strategy, pricing, operating-model, and situation intent gates with adversarial positive and negative cases"
   ]
 }

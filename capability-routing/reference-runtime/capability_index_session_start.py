@@ -18,7 +18,10 @@ def run_session_start(*, receipt_dir: Path | None = None) -> Path:
     before_state = load_active_capabilities(ACTIVE_CAPABILITIES_PATH)
     before_manifest_sha256 = _sha256_file(ACTIVE_CAPABILITIES_PATH)
     try:
-        result = attempt_recovery(current_state=before_state)
+        # The pre-lock state is audit evidence only. Recovery must reload the
+        # manifest after acquiring its mutex so an authority change between
+        # this snapshot and lock acquisition cannot be mistaken for freshness.
+        result = attempt_recovery()
     except Exception as exc:
         result = {
             "status": "error",

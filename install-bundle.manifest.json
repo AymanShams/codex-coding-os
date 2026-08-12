@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "df07dd404e1b468357e7842b75b4da5539bf7e1d64e05161096ef818bbc4649c",
+  "aggregate_sha256": "67d32829b2b491a66b0e7581a978b681c6e30bde5d8059acf6a4cd3ab5900de2",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2198,8 +2198,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "a93049a3ec7e118bbdc7842566c1d05207fd3adf562b7d769504f451248aab4b",
-      "size": 21955
+      "sha256": "8db81162823474cf601c020b4650060d9d12ad4249d73cd2fcae7b1cbf4bdb49",
+      "size": 22151
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2848,8 +2848,8 @@
     },
     {
       "path": "tests/test_capability_manifest_recovery.py",
-      "sha256": "e686e1a9bb6511ddb32aa59ecb9d53d30550bc1a59f01d983b09d22eef07e61a",
-      "size": 45576
+      "sha256": "884f0d128c38516dfd570ba9868b7cf959d8b16a11337e632ba0c870a3a64da4",
+      "size": 55966
     },
     {
       "path": "tests/test_catalogue_router_wrapper.py",

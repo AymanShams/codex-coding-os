@@ -94,13 +94,39 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "receipt_schema_version",
           "remote_plugin_id",
+          "marketplace",
+          "plugin_name",
+          "plugin_version",
+          "plugin_manifest_sha256",
+          "package_sha256",
           "install_receipt_sha256"
         ],
         "properties": {
+          "receipt_schema_version": {
+            "const": 2
+          },
           "remote_plugin_id": {
             "type": "string",
             "pattern": "^[-A-Za-z0-9._:~]{8,256}$"
+          },
+          "marketplace": {
+            "const": "openai-curated-remote"
+          },
+          "plugin_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "plugin_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "plugin_manifest_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "package_sha256": {
+            "$ref": "#/$defs/sha256"
           },
           "install_receipt_sha256": {
             "$ref": "#/$defs/sha256"

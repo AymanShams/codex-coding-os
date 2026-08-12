@@ -31,6 +31,7 @@ CURATED_PLUGIN_CONFIG_MARKETPLACE_ALIASES = (
     "openai-curated",
 )
 REMOTE_PLUGIN_INSTALL_RECEIPT = ".codex-remote-plugin-install.json"
+REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA = 2
 PLUGIN_INSTALL_STAGING_PREFIX = "plugin-install-"
 MUTEX_NAME = r"Local\OpenAI.Codex.CapabilityManifestRecovery.v1"
 RECOVERABLE_MISMATCHES = frozenset(
@@ -180,9 +181,25 @@ def _valid_plugin_package_origins(value: Any) -> bool:
         ):
             return False
         if not isinstance(origin, dict) or set(origin) != {
+            "receipt_schema_version",
             "remote_plugin_id",
+            "marketplace",
+            "plugin_name",
+            "plugin_version",
+            "plugin_manifest_sha256",
+            "package_sha256",
             "install_receipt_sha256",
         }:
+            return False
+        marketplace, plugin_name, plugin_version = normalized.split("/")
+        if (
+            origin.get("receipt_schema_version")
+            != REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA
+            or origin.get("marketplace") != marketplace
+            or not isinstance(origin.get("plugin_name"), str)
+            or origin["plugin_name"].casefold() != plugin_name
+            or origin.get("plugin_version") != plugin_version
+        ):
             return False
         remote_plugin_id = origin.get("remote_plugin_id")
         if (
@@ -190,9 +207,14 @@ def _valid_plugin_package_origins(value: Any) -> bool:
             or not re.fullmatch(r"[-A-Za-z0-9._:~]{8,256}", remote_plugin_id)
         ):
             return False
-        digest = origin.get("install_receipt_sha256")
-        if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
-            return False
+        for name in (
+            "plugin_manifest_sha256",
+            "package_sha256",
+            "install_receipt_sha256",
+        ):
+            digest = origin.get(name)
+            if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
+                return False
     return True
 
 
@@ -280,6 +302,16 @@ def _valid_receipt(receipt: Any) -> bool:
         return False
     if not set(receipt["plugin_package_origins"]).issubset(surface_packages):
         return False
+    for package, origin in receipt["plugin_package_origins"].items():
+        manifest = receipt["plugin_package_manifests"].get(package)
+        if (
+            not isinstance(manifest, dict)
+            or origin["plugin_name"] != manifest.get("name")
+            or origin["plugin_version"] != manifest.get("version")
+            or origin["plugin_manifest_sha256"].upper()
+            != str(manifest.get("manifest_sha256", "")).upper()
+        ):
+            return False
     if not _plugin_cache_rows_match_surfaces(
         receipt["plugin_cache_row_hashes"],
         receipt["plugin_capability_surfaces"],
@@ -491,7 +523,13 @@ def _plugin_is_enabled(config_leaf_hashes: dict[str, str], plugin_name: str) -> 
 def classify_enabled_plugin_version_replacement(
     previous: dict[str, Any], current: dict[str, Any]
 ) -> tuple[bool, str]:
-    """Accept one coherent, surface-preserving enabled curated-plugin upgrade."""
+    """Validate a curated-plugin replacement, but never self-authorize it.
+
+    Package-local receipts bind bytes for diagnostic evidence only. A writer
+    that can replace the plugin cache can also replace those receipts, so they
+    cannot establish managed origin. Automatic recovery stays fail closed until
+    a detached, authenticated installer attestation is available.
+    """
 
     if not _valid_receipt(previous):
         return False, "INVALID_BASELINE_AUTHORITY_RECEIPT"
@@ -550,7 +588,28 @@ def classify_enabled_plugin_version_replacement(
     new_origin = current_origins.get(new_package)
     if old_origin is None or new_origin is None:
         return False, "PLUGIN_ORIGIN_UNPROVEN"
-    if old_origin != new_origin:
+    if (
+        old_origin["receipt_schema_version"]
+        != REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA
+        or new_origin["receipt_schema_version"]
+        != REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA
+        or old_origin["marketplace"] != CURATED_PLUGIN_CACHE_MARKETPLACE
+        or new_origin["marketplace"] != CURATED_PLUGIN_CACHE_MARKETPLACE
+        or old_origin["plugin_name"] != old_manifest["name"]
+        or new_origin["plugin_name"] != new_manifest["name"]
+        or old_origin["plugin_version"] != old_manifest["version"]
+        or new_origin["plugin_version"] != new_manifest["version"]
+        or old_origin["plugin_manifest_sha256"].upper()
+        != old_manifest["manifest_sha256"].upper()
+        or new_origin["plugin_manifest_sha256"].upper()
+        != new_manifest["manifest_sha256"].upper()
+    ):
+        return False, "PLUGIN_ORIGIN_BINDING_MISMATCH"
+    if (
+        old_origin["remote_plugin_id"] != new_origin["remote_plugin_id"]
+        or old_origin["marketplace"] != new_origin["marketplace"]
+        or old_origin["plugin_name"] != new_origin["plugin_name"]
+    ):
         return False, "PLUGIN_ORIGIN_CHANGED"
 
     old_surface = {
@@ -615,7 +674,7 @@ def classify_enabled_plugin_version_replacement(
     required_suffixes = {"ROOT\t.", "FILE\t.codex-plugin/plugin.json"}
     if old_suffixes != new_suffixes or not required_suffixes.issubset(old_suffixes):
         return False, "PLUGIN_AUTHORITY_SHAPE_CHANGED"
-    return True, "RECOGNIZED_ENABLED_PLUGIN_VERSION_REPLACEMENT"
+    return False, "PLUGIN_ORIGIN_UNPROVEN"
 
 
 def classify_authority_update(
@@ -911,13 +970,53 @@ def _plugin_package_manifests(
     return result
 
 
+def _plugin_package_sha256(package_root: Path, cache_root: Path) -> str:
+    """Hash canonical path/content rows, excluding only the self-referential receipt."""
+
+    try:
+        resolved_cache_root = cache_root.resolve(strict=True)
+        resolved_package_root = package_root.resolve(strict=True)
+        if (
+            package_root.is_symlink()
+            or not resolved_cache_root.is_dir()
+            or not resolved_package_root.is_dir()
+            or not resolved_package_root.is_relative_to(resolved_cache_root)
+        ):
+            return ""
+        rows: list[dict[str, str]] = []
+        paths = sorted(
+            package_root.rglob("*"),
+            key=lambda path: path.relative_to(package_root).as_posix(),
+        )
+        for path in paths:
+            relative = path.relative_to(package_root).as_posix()
+            if relative == REMOTE_PLUGIN_INSTALL_RECEIPT:
+                continue
+            if path.is_symlink():
+                return ""
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                return ""
+            resolved_path = path.resolve(strict=True)
+            if not resolved_path.is_relative_to(resolved_package_root):
+                return ""
+            digest = _sha256_file(path)
+            if not digest:
+                return ""
+            rows.append({"path": relative, "sha256": digest})
+        return _sha256_text(_canonical_json(rows))
+    except (OSError, RuntimeError, ValueError):
+        return ""
+
+
 def _plugin_package_origins(
     codex_home: Path, packages: set[str]
-) -> dict[str, dict[str, str]]:
-    """Bind remote curated packages to the managed-install receipt when proven."""
+) -> dict[str, dict[str, Any]]:
+    """Project only package-level v2 managed-install evidence bound to exact bytes."""
 
     cache_root = codex_home / "plugins" / "cache"
-    result: dict[str, dict[str, str]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for package in sorted(packages):
         normalized = _normalized_plugin_package(package)
         if normalized is None or not normalized.startswith(
@@ -925,25 +1024,67 @@ def _plugin_package_origins(
         ):
             continue
         parts = normalized.split("/")
-        receipt_path = cache_root / parts[0] / parts[1] / REMOTE_PLUGIN_INSTALL_RECEIPT
-        if not receipt_path.is_file():
+        package_root = cache_root / Path(package)
+        receipt_path = package_root / REMOTE_PLUGIN_INSTALL_RECEIPT
+        # A legacy schema-v1 receipt may remain at the plugin-name root for
+        # discovery, but it never attests a particular version's package bytes.
+        if not receipt_path.is_file() or receipt_path.is_symlink():
             continue
         try:
+            resolved_package_root = package_root.resolve(strict=True)
+            resolved_receipt = receipt_path.resolve(strict=True)
+            if not resolved_receipt.is_relative_to(resolved_package_root):
+                continue
             receipt = _read_json_object(receipt_path)
         except RuntimeError:
             continue
         remote_plugin_id = receipt.get("remote_plugin_id")
-        digest = _sha256_file(receipt_path)
+        marketplace = receipt.get("marketplace")
+        plugin_name = receipt.get("plugin_name")
+        plugin_version = receipt.get("plugin_version")
+        supplied_manifest_digest = receipt.get("plugin_manifest_sha256")
+        supplied_package_digest = receipt.get("package_sha256")
+        manifest_path = package_root / ".codex-plugin" / "plugin.json"
+        try:
+            manifest = _read_json_object(manifest_path)
+        except RuntimeError:
+            continue
+        manifest_name = manifest.get("name")
+        manifest_version = manifest.get("version")
+        manifest_digest = _sha256_file(manifest_path)
+        package_digest = _plugin_package_sha256(package_root, cache_root)
+        receipt_digest = _sha256_file(receipt_path)
         if (
-            receipt.get("schema_version") != 1
+            receipt.get("schema_version") != REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA
             or not isinstance(remote_plugin_id, str)
             or not re.fullmatch(r"[-A-Za-z0-9._:~]{8,256}", remote_plugin_id)
-            or not digest
+            or marketplace != parts[0]
+            or not isinstance(plugin_name, str)
+            or plugin_name != manifest_name
+            or plugin_name.casefold() != parts[1]
+            or not isinstance(plugin_version, str)
+            or plugin_version != manifest_version
+            or plugin_version != parts[2]
+            or not isinstance(supplied_manifest_digest, str)
+            or not SHA256_PATTERN.fullmatch(supplied_manifest_digest)
+            or supplied_manifest_digest.upper() != manifest_digest.upper()
+            or not isinstance(supplied_package_digest, str)
+            or not SHA256_PATTERN.fullmatch(supplied_package_digest)
+            or supplied_package_digest.upper() != package_digest.upper()
+            or not manifest_digest
+            or not package_digest
+            or not receipt_digest
         ):
             continue
         result[package] = {
+            "receipt_schema_version": REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA,
             "remote_plugin_id": remote_plugin_id,
-            "install_receipt_sha256": digest,
+            "marketplace": marketplace,
+            "plugin_name": plugin_name,
+            "plugin_version": plugin_version,
+            "plugin_manifest_sha256": manifest_digest,
+            "package_sha256": package_digest,
+            "install_receipt_sha256": receipt_digest,
         }
     return result
 

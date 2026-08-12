@@ -117,6 +117,54 @@ def _boolean_leaf_hash(value: bool) -> str:
     )
 
 
+def _managed_origin(
+    package: str,
+    *,
+    manifest_sha256: str,
+    package_sha256: str,
+    install_receipt_sha256: str,
+    remote_plugin_id: str = "plugin_asdk_example_12345678",
+) -> dict[str, object]:
+    marketplace, plugin_name, plugin_version = package.split("/")
+    return {
+        "receipt_schema_version": 2,
+        "remote_plugin_id": remote_plugin_id,
+        "marketplace": marketplace,
+        "plugin_name": plugin_name,
+        "plugin_version": plugin_version,
+        "plugin_manifest_sha256": manifest_sha256,
+        "package_sha256": package_sha256,
+        "install_receipt_sha256": install_receipt_sha256,
+    }
+
+
+def _write_version_specific_install_receipt(
+    package: Path,
+    *,
+    overrides: dict[str, object] | None = None,
+) -> Path:
+    cache_root = package.parents[2]
+    marketplace, plugin_name, plugin_version = package.relative_to(cache_root).parts
+    manifest_path = package / ".codex-plugin" / "plugin.json"
+    payload: dict[str, object] = {
+        "schema_version": 2,
+        "remote_plugin_id": "plugins~Plugin_neon_12345678",
+        "marketplace": marketplace,
+        "plugin_name": plugin_name,
+        "plugin_version": plugin_version,
+        "plugin_manifest_sha256": recovery._sha256_file(manifest_path),
+        "package_sha256": recovery._plugin_package_sha256(package, cache_root),
+    }
+    if overrides:
+        payload.update(overrides)
+    receipt_path = package / recovery.REMOTE_PLUGIN_INSTALL_RECEIPT
+    receipt_path.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    return receipt_path
+
+
 def _curated_plugin_receipt(
     plugin_version: str,
     marker: str,
@@ -126,7 +174,7 @@ def _curated_plugin_receipt(
     extra_skill: str | None = None,
     config_marketplace: str = "openai-curated",
     remote_plugin_id: str = "plugin_asdk_example_12345678",
-    origin_digest: str = "6" * 64,
+    origin_digest: str | None = None,
 ) -> dict:
     receipt = _receipt("26.803.81509", "runtime-stable", "cli-stable", "A")
     config_key = f"/plugins/{plugin_name}@{config_marketplace}/enabled"
@@ -158,10 +206,13 @@ def _curated_plugin_receipt(
         "version": plugin_version,
         "manifest_sha256": marker * 64,
     }
-    receipt["plugin_package_origins"][package] = {
-        "remote_plugin_id": remote_plugin_id,
-        "install_receipt_sha256": origin_digest,
-    }
+    receipt["plugin_package_origins"][package] = _managed_origin(
+        package,
+        manifest_sha256=marker * 64,
+        package_sha256=marker * 64,
+        install_receipt_sha256=origin_digest or marker * 64,
+        remote_plugin_id=remote_plugin_id,
+    )
     receipt["snapshot_sha256"] = recovery.authority_snapshot_digest(receipt)
     return receipt
 
@@ -239,14 +290,26 @@ class RecoveryClassificationTests(unittest.TestCase):
         cases: list[tuple[str, tuple[dict, dict], str]] = []
         origin_previous = copy.deepcopy(previous)
         origin_current = copy.deepcopy(current)
-        origin_previous["plugin_package_origins"][package] = {
-            "remote_plugin_id": "plugins~Plugin_abcdefgh",
-            "install_receipt_sha256": "1" * 64,
-        }
-        origin_current["plugin_package_origins"][package] = {
-            "remote_plugin_id": "plugins~Plugin_ijklmnop",
-            "install_receipt_sha256": "2" * 64,
-        }
+        for receipt in (origin_previous, origin_current):
+            receipt["plugin_package_manifests"][package] = {
+                "name": "github",
+                "version": "1.0.0",
+                "manifest_sha256": "3" * 64,
+            }
+        origin_previous["plugin_package_origins"][package] = _managed_origin(
+            package,
+            manifest_sha256="3" * 64,
+            package_sha256="4" * 64,
+            install_receipt_sha256="1" * 64,
+            remote_plugin_id="plugins~Plugin_abcdefgh",
+        )
+        origin_current["plugin_package_origins"][package] = _managed_origin(
+            package,
+            manifest_sha256="3" * 64,
+            package_sha256="4" * 64,
+            install_receipt_sha256="2" * 64,
+            remote_plugin_id="plugins~Plugin_ijklmnop",
+        )
         cases.append(
             ("origin", (origin_previous, origin_current), "UNRELATED_PLUGIN_ORIGIN_DELTA")
         )
@@ -307,7 +370,7 @@ class RecoveryClassificationTests(unittest.TestCase):
         self.assertFalse(allowed)
         self.assertEqual(reason, "INVALID_CURRENT_AUTHORITY_RECEIPT")
 
-    def test_exact_enabled_curated_plugin_version_replacement_is_recognized(self) -> None:
+    def test_self_authored_plugin_receipts_never_authorize_replacement(self) -> None:
         previous = _curated_plugin_receipt("0.1.7", "B")
         current = _curated_plugin_receipt("0.1.8", "C")
 
@@ -315,8 +378,8 @@ class RecoveryClassificationTests(unittest.TestCase):
             previous, current
         )
 
-        self.assertTrue(allowed)
-        self.assertEqual(reason, "RECOGNIZED_ENABLED_PLUGIN_VERSION_REPLACEMENT")
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "PLUGIN_ORIGIN_UNPROVEN")
 
     def test_exact_remote_marketplace_enablement_is_preferred(self) -> None:
         previous = _curated_plugin_receipt(
@@ -336,8 +399,8 @@ class RecoveryClassificationTests(unittest.TestCase):
             previous, current
         )
 
-        self.assertTrue(allowed)
-        self.assertEqual(reason, "RECOGNIZED_ENABLED_PLUGIN_VERSION_REPLACEMENT")
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "PLUGIN_ORIGIN_UNPROVEN")
 
     def test_remote_false_overrides_enabled_legacy_alias(self) -> None:
         previous = _curated_plugin_receipt("0.1.7", "B")
@@ -354,14 +417,14 @@ class RecoveryClassificationTests(unittest.TestCase):
         self.assertFalse(allowed)
         self.assertEqual(reason, "PLUGIN_NOT_ENABLED")
 
-    def test_plugin_replacement_requires_proven_unchanged_origin(self) -> None:
+    def test_plugin_replacement_requires_proven_version_specific_origin(self) -> None:
         previous = _curated_plugin_receipt("0.1.7", "B")
         current = _curated_plugin_receipt("0.1.8", "C")
         unproven = copy.deepcopy(current)
         unproven["plugin_package_origins"] = {}
         unproven["snapshot_sha256"] = recovery.authority_snapshot_digest(unproven)
         changed = _curated_plugin_receipt(
-            "0.1.8", "D", origin_digest="5" * 64
+            "0.1.8", "D", remote_plugin_id="plugin_asdk_other_12345678"
         )
 
         self.assertEqual(
@@ -389,7 +452,7 @@ class RecoveryClassificationTests(unittest.TestCase):
         )
 
         self.assertFalse(allowed)
-        self.assertEqual(reason, "PLUGIN_MANIFEST_IDENTITY_MISMATCH")
+        self.assertEqual(reason, "INVALID_CURRENT_AUTHORITY_RECEIPT")
 
     def test_receipt_v1_and_missing_required_source_hashes_are_rejected(self) -> None:
         receipt_v1 = _receipt("26.803.41515", "runtime-old", "cli-old", "A")
@@ -678,7 +741,7 @@ class PluginCapabilitySurfaceTests(unittest.TestCase):
             ],
         )
 
-    def test_remote_package_manifest_and_managed_origin_are_bound(self) -> None:
+    def test_root_v1_receipt_never_authorizes_changed_package_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             codex_home = Path(temp_dir)
             plugin_root = (
@@ -688,35 +751,132 @@ class PluginCapabilitySurfaceTests(unittest.TestCase):
                 / "openai-curated-remote"
                 / "neon-postgres"
             )
-            package = plugin_root / "1.0.0"
+            root_receipt = plugin_root / recovery.REMOTE_PLUGIN_INSTALL_RECEIPT
+            root_receipt.parent.mkdir(parents=True)
+            root_receipt.write_text(
+                '{"schema_version":1,"remote_plugin_id":"plugins~Plugin_neon_12345678"}\n',
+                encoding="utf-8",
+            )
+            packages: set[str] = set()
+            for version, content in (("1.0.0", "trusted"), ("1.1.0", "changed")):
+                package = plugin_root / version
+                (package / ".codex-plugin").mkdir(parents=True)
+                (package / ".codex-plugin" / "plugin.json").write_text(
+                    json.dumps({"name": "neon-postgres", "version": version}) + "\n",
+                    encoding="utf-8",
+                )
+                (package / "payload.txt").write_text(content, encoding="utf-8")
+                packages.add(f"openai-curated-remote/neon-postgres/{version}")
+
+            origins = recovery._plugin_package_origins(codex_home, packages)
+            previous = _curated_plugin_receipt(
+                "1.0.0", "B", plugin_name="neon-postgres"
+            )
+            current = _curated_plugin_receipt(
+                "1.1.0", "C", plugin_name="neon-postgres"
+            )
+            previous["plugin_package_origins"] = {}
+            current["plugin_package_origins"] = {}
+            previous["snapshot_sha256"] = recovery.authority_snapshot_digest(previous)
+            current["snapshot_sha256"] = recovery.authority_snapshot_digest(current)
+            allowed, reason = recovery.classify_enabled_plugin_version_replacement(
+                previous, current
+            )
+
+        self.assertEqual(origins, {})
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "PLUGIN_ORIGIN_UNPROVEN")
+
+    def test_version_specific_v2_managed_origin_binds_exact_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            codex_home = Path(temp_dir)
+            package = (
+                codex_home
+                / "plugins"
+                / "cache"
+                / "openai-curated-remote"
+                / "neon-postgres"
+                / "1.0.0"
+            )
+            (package / ".codex-plugin").mkdir(parents=True)
+            manifest_path = package / ".codex-plugin" / "plugin.json"
+            manifest_path.write_text(
+                '{"name":"neon-postgres","version":"1.0.0"}\n',
+                encoding="utf-8",
+            )
+            (package / "payload.txt").write_text("package bytes", encoding="utf-8")
+            install_receipt = _write_version_specific_install_receipt(package)
+            install_receipt_sha256 = recovery._sha256_file(install_receipt)
+            package_key = "openai-curated-remote/neon-postgres/1.0.0"
+
+            manifests = recovery._plugin_package_manifests(codex_home, {package_key})
+            origins = recovery._plugin_package_origins(codex_home, {package_key})
+            manifest_sha256 = recovery._sha256_file(manifest_path)
+            package_sha256 = recovery._plugin_package_sha256(
+                package, package.parents[2]
+            )
+
+        self.assertEqual(manifests[package_key]["name"], "neon-postgres")
+        self.assertEqual(manifests[package_key]["version"], "1.0.0")
+        self.assertEqual(origins[package_key]["receipt_schema_version"], 2)
+        self.assertEqual(origins[package_key]["marketplace"], "openai-curated-remote")
+        self.assertEqual(origins[package_key]["plugin_name"], "neon-postgres")
+        self.assertEqual(origins[package_key]["plugin_version"], "1.0.0")
+        self.assertEqual(origins[package_key]["remote_plugin_id"], "plugins~Plugin_neon_12345678")
+        self.assertEqual(
+            origins[package_key]["plugin_manifest_sha256"], manifest_sha256
+        )
+        self.assertEqual(origins[package_key]["package_sha256"], package_sha256)
+        self.assertEqual(origins[package_key]["install_receipt_sha256"], install_receipt_sha256)
+
+    def test_version_specific_receipt_mismatches_and_later_byte_changes_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            codex_home = Path(temp_dir)
+            package = (
+                codex_home
+                / "plugins"
+                / "cache"
+                / "openai-curated-remote"
+                / "neon-postgres"
+                / "1.0.0"
+            )
             (package / ".codex-plugin").mkdir(parents=True)
             (package / ".codex-plugin" / "plugin.json").write_text(
                 '{"name":"neon-postgres","version":"1.0.0"}\n',
                 encoding="utf-8",
             )
-            install_receipt = plugin_root / ".codex-remote-plugin-install.json"
-            install_receipt.write_text(
-                '{"schema_version":1,"remote_plugin_id":"plugins~Plugin_neon_12345678"}\n',
-                encoding="utf-8",
-            )
-            install_receipt_sha256 = recovery._sha256_file(install_receipt)
+            payload_path = package / "payload.txt"
+            payload_path.write_text("trusted", encoding="utf-8")
             package_key = "openai-curated-remote/neon-postgres/1.0.0"
+            mismatches: dict[str, object] = {
+                "marketplace": "other-marketplace",
+                "plugin_name": "other-plugin",
+                "plugin_version": "9.9.9",
+                "plugin_manifest_sha256": "0" * 64,
+                "package_sha256": "1" * 64,
+            }
 
-            manifests = recovery._plugin_package_manifests(
+            for field, value in mismatches.items():
+                with self.subTest(field=field):
+                    _write_version_specific_install_receipt(
+                        package, overrides={field: value}
+                    )
+                    self.assertEqual(
+                        recovery._plugin_package_origins(codex_home, {package_key}),
+                        {},
+                    )
+
+            _write_version_specific_install_receipt(package)
+            self.assertIn(
+                package_key,
+                recovery._plugin_package_origins(codex_home, {package_key}),
+            )
+            payload_path.write_text("mutated after install", encoding="utf-8")
+            origins_after_mutation = recovery._plugin_package_origins(
                 codex_home, {package_key}
             )
-            origins = recovery._plugin_package_origins(codex_home, {package_key})
 
-        self.assertEqual(manifests[package_key]["name"], "neon-postgres")
-        self.assertEqual(manifests[package_key]["version"], "1.0.0")
-        self.assertEqual(
-            origins[package_key]["remote_plugin_id"],
-            "plugins~Plugin_neon_12345678",
-        )
-        self.assertEqual(
-            origins[package_key]["install_receipt_sha256"],
-            install_receipt_sha256,
-        )
+        self.assertEqual(origins_after_mutation, {})
 
     def test_remote_manifest_identity_must_match_cache_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -923,59 +1083,39 @@ class RecoveryAdmissionTests(unittest.TestCase):
         self.assertEqual(result["reason_code"], "RECOVERY_MUTEX_BUSY")
         builder.assert_not_called()
 
-    def test_enabled_plugin_replacement_uses_full_recovery_validation_path(self) -> None:
+    def test_enabled_plugin_replacement_cannot_enter_recovery_without_detached_attestation(self) -> None:
         previous = _curated_plugin_receipt("0.1.7", "B")
         current = _curated_plugin_receipt("0.1.8", "C")
+        builder = mock.Mock()
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest_path = Path(temp_dir) / "active-capabilities.json"
             manifest_path.write_text(
                 json.dumps({"authority_receipt": previous, "entries": []}),
                 encoding="utf-8",
             )
+            result = recovery.attempt_recovery(
+                manifest_path=manifest_path,
+                current_state={
+                    "freshness_status": "stale",
+                    "source_hashes_verified": False,
+                    "source_hash_mismatches": ["plugin-cache-inventory"],
+                },
+                snapshot_reader=lambda: current,
+                builder_runner=builder,
+                inventory_preparer=lambda _: None,
+                mutex_factory=recovery.null_mutex,
+                quiet_checker=lambda: True,
+                settle_seconds=0,
+                sleeper=lambda _: None,
+            )
 
-            def build_candidate(expected: str, target: Path) -> Path:
-                self.assertEqual(expected, current["snapshot_sha256"])
-                candidate = target.with_suffix(".candidate.json")
-                candidate.write_text(
-                    json.dumps({"authority_receipt": current, "entries": [{}]}),
-                    encoding="utf-8",
-                )
-                return candidate
-
-            fresh_state = {
-                "freshness_status": "fresh",
-                "source_hashes_verified": True,
-                "source_hash_mismatches": [],
-                "entries": [{}],
-            }
-            with mock.patch.object(
-                recovery.index, "load_active_capabilities", return_value=fresh_state
-            ):
-                result = recovery.attempt_recovery(
-                    manifest_path=manifest_path,
-                    current_state={
-                        "freshness_status": "stale",
-                        "source_hashes_verified": False,
-                        "source_hash_mismatches": ["plugin-cache-inventory"],
-                    },
-                    snapshot_reader=lambda: current,
-                    builder_runner=build_candidate,
-                    inventory_preparer=lambda _: None,
-                    mutex_factory=recovery.null_mutex,
-                    quiet_checker=lambda: True,
-                    settle_seconds=0,
-                    sleeper=lambda _: None,
-                )
-
-        self.assertEqual(result["status"], "rebuilt")
-        self.assertEqual(
-            result["reason_code"],
-            "RECOGNIZED_ENABLED_PLUGIN_VERSION_REPLACEMENT",
-        )
+        self.assertEqual(result["status"], "denied")
+        self.assertEqual(result["reason_code"], "PLUGIN_ORIGIN_UNPROVEN")
+        builder.assert_not_called()
 
     def test_postbuild_authority_requires_another_stable_two_read(self) -> None:
-        previous = _curated_plugin_receipt("0.1.7", "B")
-        current = _curated_plugin_receipt("0.1.8", "C")
+        previous = _receipt("26.803.41515", "runtime-old", "cli-old", "A")
+        current = _receipt("26.803.81509", "runtime-new", "cli-new", "B")
         changed = copy.deepcopy(current)
         changed["plugin_cache_row_hashes"][
             "FILE\topenai-curated-remote/gmail/0.1.8/.app.json"
@@ -1073,6 +1213,100 @@ class SessionStartReceiptTests(unittest.TestCase):
         self.assertFalse(temporary_files)
         self.assertNotIn("unbounded", payload)
         self.assertLess(len(json.dumps(payload)), 4096)
+        self.assertEqual(payload["reason_code"], "MANIFEST_ALREADY_FRESH")
+
+    def test_session_start_reloads_state_inside_mutex_after_prelock_change(self) -> None:
+        before = {
+            "freshness_status": "fresh",
+            "source_hashes_verified": True,
+            "source_hash_mismatches": [],
+        }
+        changed_under_mutex = {
+            "freshness_status": "stale",
+            "source_hashes_verified": False,
+            "source_hash_mismatches": ["unexpected-authority-change"],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = Path(temp_dir) / "active-capabilities.json"
+            manifest_path.write_text("{}\n", encoding="utf-8")
+            receipt_dir = Path(temp_dir) / "receipts"
+
+            def attempt_with_locked_reload(**kwargs):
+                return recovery.attempt_recovery(
+                    manifest_path=manifest_path,
+                    mutex_factory=recovery.null_mutex,
+                    **kwargs,
+                )
+
+            with (
+                mock.patch.object(session_start, "ACTIVE_CAPABILITIES_PATH", manifest_path),
+                mock.patch.object(
+                    session_start, "load_active_capabilities", return_value=before
+                ),
+                mock.patch.object(
+                    recovery.index,
+                    "load_active_capabilities",
+                    return_value=changed_under_mutex,
+                ) as locked_load,
+                mock.patch.object(
+                    session_start,
+                    "attempt_recovery",
+                    side_effect=attempt_with_locked_reload,
+                ) as recovery_attempt,
+                mock.patch.object(
+                    session_start, "ensure_index", return_value=changed_under_mutex
+                ),
+                mock.patch.object(session_start, "load_routing_policy", return_value={}),
+            ):
+                receipt_path = session_start.run_session_start(receipt_dir=receipt_dir)
+            payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+
+        recovery_attempt.assert_called_once_with()
+        locked_load.assert_called_once_with(manifest_path)
+        self.assertEqual(payload["status"], "denied")
+        self.assertEqual(payload["reason_code"], "UNRECOVERABLE_SOURCE_DRIFT")
+        self.assertNotEqual(payload["reason_code"], "MANIFEST_ALREADY_FRESH")
+
+    def test_session_start_preserves_no_change_fresh_noop(self) -> None:
+        fresh = {
+            "freshness_status": "fresh",
+            "source_hashes_verified": True,
+            "source_hash_mismatches": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = Path(temp_dir) / "active-capabilities.json"
+            manifest_path.write_text("{}\n", encoding="utf-8")
+            receipt_dir = Path(temp_dir) / "receipts"
+
+            def attempt_with_locked_reload(**kwargs):
+                return recovery.attempt_recovery(
+                    manifest_path=manifest_path,
+                    mutex_factory=recovery.null_mutex,
+                    **kwargs,
+                )
+
+            with (
+                mock.patch.object(session_start, "ACTIVE_CAPABILITIES_PATH", manifest_path),
+                mock.patch.object(
+                    session_start, "load_active_capabilities", return_value=fresh
+                ),
+                mock.patch.object(
+                    recovery.index, "load_active_capabilities", return_value=fresh
+                ) as locked_load,
+                mock.patch.object(
+                    session_start,
+                    "attempt_recovery",
+                    side_effect=attempt_with_locked_reload,
+                ) as recovery_attempt,
+                mock.patch.object(session_start, "ensure_index", return_value=fresh),
+                mock.patch.object(session_start, "load_routing_policy", return_value={}),
+            ):
+                receipt_path = session_start.run_session_start(receipt_dir=receipt_dir)
+            payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+
+        recovery_attempt.assert_called_once_with()
+        locked_load.assert_called_once_with(manifest_path)
+        self.assertEqual(payload["status"], "noop")
         self.assertEqual(payload["reason_code"], "MANIFEST_ALREADY_FRESH")
 
     def test_session_start_records_recovery_result_and_before_after_state(self) -> None:
