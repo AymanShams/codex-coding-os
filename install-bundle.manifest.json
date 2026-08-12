@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "daf0db869856b27a49d0fe413f40fb95fbf466e4b781a8e1c0f0475da16af6eb",
+  "aggregate_sha256": "a83d4a82c0906da7435285c8403aa95fc0e8d6ca66b807959e572a2247396e3c",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -33,8 +33,8 @@
     },
     {
       "path": ".agents/skills/catalogue-router/SKILL.md",
-      "sha256": "145e8f941ae1900226f90c5e6393fb4f8fc4b93288e96d02d6f9c80919a1e5bd",
-      "size": 15937
+      "sha256": "7183cf3b8c1ce5e5e702a68b84f54b02504fb9676afd410f461a801fe9f06519",
+      "size": 16116
     },
     {
       "path": ".agents/skills/catalogue-router/references/capability-catalogue.md",
@@ -2198,8 +2198,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "9d777e1c0ae501b0a30357b45094d34522b60be620c65ec740aa1118ace09247",
-      "size": 20360
+      "sha256": "a93049a3ec7e118bbdc7842566c1d05207fd3adf562b7d769504f451248aab4b",
+      "size": 21955
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2313,7 +2313,7 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "3e405560b1949189051836fcf1cefa93d5ba1ed6b1e75e8337fe1ca4ad6ad5d2",
+      "sha256": "102e9c715c3ef18131fd0c68f6769aa77a3291650b225cdc967344506b824bbb",
       "size": 7933
     },
     {
@@ -2343,8 +2343,8 @@
     },
     {
       "path": "docs/publishing-checklist.md",
-      "sha256": "7de1c9c35e3cba18eeb6370cfbffdf720df0378dcbdebe7abf6f79fba0cd704b",
-      "size": 7127
+      "sha256": "f635fde0f7ae9108aa5a394aedab92052d0e829e8433a315c0a0f58cf4cd2a17",
+      "size": 8089
     },
     {
       "path": "docs/review-doctrine.md",
@@ -2378,7 +2378,7 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "9679fdf16e4463e74f1cc48387146105714a81b677d96e535925c7cffa0ec753",
+      "sha256": "7b88e186846bd67762f88bb3c386d658fe8aaf4a7dbbaab84ad50a8855de3f50",
       "size": 27261
     },
     {
@@ -2848,8 +2848,8 @@
     },
     {
       "path": "tests/test_capability_manifest_recovery.py",
-      "sha256": "a50c6f6091dfe7d35684fb856604fa45c40c0ba884c49c99992888e5e5ce9f57",
-      "size": 6734
+      "sha256": "e686e1a9bb6511ddb32aa59ecb9d53d30550bc1a59f01d983b09d22eef07e61a",
+      "size": 45576
     },
     {
       "path": "tests/test_catalogue_router_wrapper.py",
@@ -2893,13 +2893,13 @@
     },
     {
       "path": "tests/test_repository_capability_router.py",
-      "sha256": "80ceea7c1ba2d00b5be4ca93a10da08ec28af043d5d15024ed6f3bfa45a1fc24",
-      "size": 52531
+      "sha256": "369eabb8b0c9c3da15383130754c3665ae75e6be7e66a09d6906af5d86ac2092",
+      "size": 77621
     },
     {
       "path": "tests/test_security_capability_routing.py",
-      "sha256": "c12fd15d2448c8ee3ebfbfef67d4713be5c2f31b779cb9f59a842d9d448e659d",
-      "size": 41621
+      "sha256": "8c3eb54db5e1fd460e9241a3cf7b526c924081695813dc82c021c23362e59db9",
+      "size": 45085
     },
     {
       "path": "tests/test_source_repository_profile.py",
@@ -2934,7 +2934,7 @@
   ],
   "package": {
     "name": "codex-coding-os",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "protocol": "CCOS-INSTALL-BUNDLE-v1"
 }

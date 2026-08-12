@@ -25,6 +25,10 @@
 - Rebuild `install-bundle.manifest.json` a second time without source changes and confirm its bytes are identical.
 - Stage the regenerated `install-bundle.manifest.json` before committing the reviewed release state.
 - Run `python -B -m unittest tests.test_repository_capability_router tests.test_capability_manifest_recovery tests.test_catalogue_router_wrapper tests.test_security_capability_routing tests.test_local_security_skill_parity tests.test_plugin_manifest_boundaries -v`.
+- Confirm route decisions use schema 3.0, the SQLite registry uses version 3, and a temporary v2 registry is atomically purged and replaced before the first v3 issuance.
+- Confirm every registered route carries 64-character `manifest_authority_sha256` and `policy_authority_sha256` values. Verify temporary-registry regressions return `manifest_mismatch`, `policy_mismatch`, and `authority_unavailable` for the three distinct current-authority failures.
+- Confirm capability authority receipts use `capability-authority-receipt-v2`, reject receipt v1 and missing `required_source_hashes`, and bind plugin manifest identity, declared skill identity, managed remote origin, and exact marketplace enablement.
+- Confirm manifest source hashes bind the session-start entrypoint, `_common.py`, `_hook_io.py`, recovery module, builder, routing and active-manifest schemas, project map and schema, route schema, policy, and every pre-existing required authority source.
 - Confirm every `capability-routing/` reference file is present in the source archive and absent from the install-bundle entries and installed Codex targets.
 - Confirm the five repository-owned security skills are installed and the Codex Security, Supabase, and Neon Postgres plugin skill bodies are absent from the archive's managed-skill inventory and installed targets.
 - Commit the reviewed release state and confirm tracked Git files match `HEAD` before packaging.

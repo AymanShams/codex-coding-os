@@ -16,7 +16,7 @@ import os
 import re
 import sqlite3
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -123,7 +123,7 @@ DEFAULT_MAX_SUPPORTS = 2
 ABSOLUTE_MAX_SUPPORTS = 2
 DEFAULT_MAX_WORKER_SUPPORTS = 2
 ABSOLUTE_MAX_WORKER_SUPPORTS = 2
-ROUTE_REGISTRY_SCHEMA_VERSION = 2
+ROUTE_REGISTRY_SCHEMA_VERSION = 3
 DEFAULT_ROUTE_TTL_SECONDS = 86400
 EXPIRED_ROUTE_AUDIT_RETENTION_SECONDS = 86400
 MAX_REGISTERED_ROUTES = 10000
@@ -146,6 +146,8 @@ ROUTE_REGISTRY_COLUMNS = (
     "schema_version",
     "manifest_snapshot",
     "decision_snapshot",
+    "manifest_authority_sha256",
+    "policy_authority_sha256",
     "issued_at",
     "expires_at",
 )
@@ -364,12 +366,17 @@ def _plugin_cache_inventory_rows(
             for plugin in marketplace.iterdir():
                 if not plugin.is_dir():
                     continue
+                if plugin.name.casefold().startswith("plugin-install-"):
+                    continue
                 for version in plugin.iterdir():
                     if not version.is_dir():
                         continue
                     resolved_version = version.resolve(strict=True)
                     if not resolved_version.is_relative_to(resolved_cache_root):
                         return None
+                    plugin_manifest = version / ".codex-plugin" / "plugin.json"
+                    if not plugin_manifest.is_file():
+                        continue
                     relative_root = version.relative_to(cache_root).as_posix().lower()
                     root_ticks = (
                         version.lstat().st_mtime_ns // 100 + _DOTNET_UNIX_EPOCH_TICKS
@@ -377,7 +384,7 @@ def _plugin_cache_inventory_rows(
                     rows.append(f"ROOT\t{relative_root}\t0\t{root_ticks}")
 
                     authority_files = [
-                        version / ".codex-plugin" / "plugin.json",
+                        plugin_manifest,
                         version / ".app.json",
                         version / ".mcp.json",
                     ]
@@ -435,6 +442,11 @@ def _source_hash_path(name: str) -> Path | None:
         "capability_manifest_recovery.py": CODEX_HOME
         / "hooks"
         / "capability_manifest_recovery.py",
+        "capability_index_session_start.py": CODEX_HOME
+        / "hooks"
+        / "capability_index_session_start.py",
+        "_common.py": CODEX_HOME / "hooks" / "_common.py",
+        "_hook_io.py": CODEX_HOME / "hooks" / "_hook_io.py",
         "capability-manifest-builder.ps1": CODEX_HOME
         / "capability-routing"
         / "builder"
@@ -456,6 +468,16 @@ def _source_hash_path(name: str) -> Path | None:
         / "dependency-readiness"
         / "README.md",
         "routing-policy.yaml": ROUTING_POLICY_PATH,
+        "routing-policy.schema.json": CODEX_HOME
+        / "capability-routing"
+        / "routing-policy.schema.json",
+        "active-capabilities.schema.json": CODEX_HOME
+        / "capability-routing"
+        / "active-capabilities.schema.json",
+        "project-scope-map.json": PROJECT_SCOPE_MAP_PATH,
+        "project-scope-map.schema.json": CODEX_HOME
+        / "capability-routing"
+        / "project-scope-map.schema.json",
         "route-decision.schema.json": CODEX_HOME
         / "capability-routing"
         / "route-decision.schema.json",
@@ -475,11 +497,18 @@ REQUIRED_MANIFEST_AUTHORITY_HASH_KEYS = frozenset(
         "capability_index_cli.py",
         "user_prompt_skill_router.py",
         "capability_manifest_recovery.py",
+        "capability_index_session_start.py",
+        "_common.py",
+        "_hook_io.py",
         "capability-manifest-builder.ps1",
         "authority-receipt.schema.json",
         "query-catalogue.ps1",
         "ensure-node-dependencies.ps1",
         "routing-policy.yaml",
+        "routing-policy.schema.json",
+        "active-capabilities.schema.json",
+        "project-scope-map.json",
+        "project-scope-map.schema.json",
         "route-decision.schema.json",
         "plugin-cache-inventory",
     }
@@ -579,15 +608,20 @@ def _entry_hash_current(entry: dict[str, Any]) -> bool:
         return False
 
 
-def _load_json_compatible_yaml(path: Path, label: str) -> dict[str, Any]:
-    """Load JSON or JSON-compatible YAML without a third-party YAML parser."""
+def _load_json_compatible_yaml_with_authority(
+    path: Path, label: str
+) -> tuple[dict[str, Any], str]:
+    """Load one authority source and hash the exact bytes that were parsed."""
 
     if not path.is_file():
-        return {}
+        return {}, ""
     try:
-        raw = path.read_text(encoding="utf-8-sig")
+        raw_bytes = path.read_bytes()
+        raw = raw_bytes.decode("utf-8-sig")
     except OSError as exc:
         raise CapabilityDataError(f"cannot read {label}: {path}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise CapabilityDataError(f"cannot decode {label}: {path}: {exc}") from exc
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -596,7 +630,37 @@ def _load_json_compatible_yaml(path: Path, label: str) -> dict[str, Any]:
         ) from exc
     if not isinstance(value, dict):
         raise CapabilityDataError(f"{label} root must be an object: {path}")
-    return value
+    return value, hashlib.sha256(raw_bytes).hexdigest()
+
+
+def _load_json_compatible_yaml(path: Path, label: str) -> dict[str, Any]:
+    """Load JSON or JSON-compatible YAML without a third-party YAML parser."""
+
+    return _load_json_compatible_yaml_with_authority(path, label)[0]
+
+
+def _authority_sha256(value: dict[str, Any]) -> str:
+    """Return an exact source hash or a deterministic synthetic-authority hash."""
+
+    if "authority_sha256" in value:
+        supplied = str(value.get("authority_sha256") or "").lower()
+        return supplied if SHA256_PATTERN.fullmatch(supplied) else ""
+    payload = {
+        key: item
+        for key, item in value.items()
+        if key not in {"source", "authority_sha256"}
+    }
+    try:
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError):
+        return ""
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _entry_state(raw: dict[str, Any]) -> str:
@@ -651,7 +715,9 @@ def _normalize_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
     source_path = path or ACTIVE_CAPABILITIES_PATH
-    data = _load_json_compatible_yaml(source_path, "active capability manifest")
+    data, authority_sha256 = _load_json_compatible_yaml_with_authority(
+        source_path, "active capability manifest"
+    )
     if not data:
         return {
             "schema_version": "",
@@ -661,6 +727,7 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
             "source_hashes": {},
             "source_hashes_verified": False,
             "source_hash_mismatches": ["manifest_missing"],
+            "authority_sha256": "",
             "entries": [],
             "summary": {
                 "total_entries": 0,
@@ -708,6 +775,7 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
         "source_hashes": data.get("source_hashes") if isinstance(data.get("source_hashes"), dict) else {},
         "source_hashes_verified": not source_hash_mismatches,
         "source_hash_mismatches": source_hash_mismatches,
+        "authority_sha256": authority_sha256,
         "entries": active_entries,
         "summary": {
             "total_entries": len(raw_entries),
@@ -982,7 +1050,9 @@ def _normalize_capability_aliases(value: object) -> dict[str, list[str]]:
 
 def load_routing_policy(path: Path | None = None) -> dict[str, Any]:
     source_path = path or ROUTING_POLICY_PATH
-    data = _load_json_compatible_yaml(source_path, "routing policy")
+    data, authority_sha256 = _load_json_compatible_yaml_with_authority(
+        source_path, "routing policy"
+    )
     if not data:
         return {
             "schema_version": "",
@@ -997,6 +1067,7 @@ def load_routing_policy(path: Path | None = None) -> dict[str, Any]:
             "live_dependency_controls": {},
             "capability_aliases": {},
             "explicit_overrides": [],
+            "authority_sha256": "",
             "source": str(source_path),
         }
 
@@ -1079,6 +1150,7 @@ def load_routing_policy(path: Path | None = None) -> dict[str, Any]:
         ),
         "rules": rules,
         "explicit_overrides": _normalize_overrides(data.get("explicit_overrides") or data.get("overrides")),
+        "authority_sha256": authority_sha256,
         "source": str(source_path),
     }
 
@@ -1096,7 +1168,7 @@ _NON_CODE_BUILD_OBJECT = (
     r"slide\s+deck|presentation|word\s+document|"
     r"document|spreadsheet|workbook|image|illustration|(?:100|hundred)[- ]day\s+plan|"
     r"report|memo|budget|communications?\s+plan|marketing\s+plan|hiring\s+plan|"
-    r"operating\s+review)"
+    r"operating\s+review|hypothesis\s+tree)"
 )
 _BUILD_IMPLEMENTATION_VERB = (
     rf"build(?!\s+(?:(?:a|an|the)\s+)?{_NON_CODE_BUILD_OBJECT}\b)"
@@ -1274,7 +1346,7 @@ def _clause_directive_polarity(
     if negative:
         return False
     affirmative_patterns = (
-        rf"^(?:(?:please|now|carefully|deeply)\s+)*{action_pattern}\b",
+        rf"^(?:(?:please|now|carefully|deeply|critically)\s+)*{action_pattern}\b",
         rf"^(?:can|could|would|will)\s+you\s+(?:please\s+)?{action_pattern}\b",
         rf"^(?:i|we)\s+(?:want|need|would\s+like|prefer)\s+"
         rf"(?:you\s+)?to\s+{action_pattern}\b",
@@ -1296,9 +1368,10 @@ _CRITIQUE_SPECIAL_POSITIVE = (
         r"[^.!?;]{0,160}\bchallenge\b"
     ),
     re.compile(r"^(?:please\s+)?be\s+critical\b"),
-    re.compile(r"^what\s+do\s+you\s+think\s+of\s+this\b"),
+    re.compile(r"^what\s+do\s+you\s+think\s+(?:of|about)\s+this\b"),
     re.compile(
-        r"^is\s+this\s+(?:proposal|analysis|recommendation|plan|strategy|argument)\b"
+        r"^is\s+(?:this|my|our|the)\s+"
+        r"(?:proposal|analysis|recommendation|plan|strategy|argument)\b"
         r"[^.!?;]{0,100}\b(?:good|correct|right|sound|strong|ready)\b"
     ),
     re.compile(
@@ -1338,6 +1411,76 @@ def _prompt_has_affirmative_critique_intent(prompt: str) -> bool:
     return polarity is True
 
 
+_DEEP_CRITIQUE_SEMANTIC_TARGET = re.compile(
+    r"\b(?:proposal|recommendation|analysis|plan|strategy|argument|decision|"
+    r"operating\s+model|business\s+case|forecast|model|workflow|report|memo|"
+    r"draft|document|policy|slide\s+deck|presentation|prd|concept)\b"
+)
+_DEEP_CRITIQUE_EVALUATION_CONTEXT = re.compile(
+    r"\b(?:good|correct|right|sound|strong|ready|accurate|accuracy|validity|credible|defensible|"
+    r"weak(?:ness|nesses)?|weak\s+assumptions?|assumptions?|flaws?|gaps?|"
+    r"failure\s+modes?|methodology|reasoning|logic|evidence\s+quality|"
+    r"decision\s+quality|what(?:'s|\s+is)\s+wrong|should\s+(?:we|i)\s+use)\b"
+)
+_NON_CRITIQUE_REVIEW_WORKFLOW = re.compile(
+    r"\breview\s+(?:the\s+)?(?:feedback|comments?|notes?)\b"
+    r"[^.!?;]{0,120}\bbefore\s+(?:applying|addressing|incorporating|making)\b|"
+    r"\breview\s+(?:the\s+)?exact\s+diff\b|"
+    r"\breview\s+(?:the\s+)?(?:workshop|meeting)\s+agenda\b|"
+    r"\breview\b[^.!?;]{0,80}\breport\b[^.!?;]{0,80}"
+    r"\bbefore\s+(?:(?:the|our|a)\s+)?meeting\b"
+)
+_TEXT_ONLY_REVIEW_CONTEXT = re.compile(
+    r"\b(?:summari[sz]e|read|extract|transcribe|rewrite|translate|proofread|"
+    r"grammar|spelling|punctuation|wording|capitalization|formatting|typos?|"
+    r"style\s+only|tone\s+only|"
+    r"key\s+points?|main\s+points?|list\s+(?:the\s+)?(?:changes?|differences?)|"
+    r"change\s+list)\b"
+)
+_DEEP_CRITIQUE_SEMANTIC_QUESTION = re.compile(
+    r"^(?:what\s+do\s+you\s+think\s+(?:of|about)|"
+    r"is\s+(?:this|my|our|the)\s+[^.!?;]{0,100}\b"
+    r"(?:good|correct|right|sound|strong|ready)\b|"
+    r"should\s+(?:we|i)\s+use\s+this|(?:please\s+)?be\s+critical\b)"
+)
+
+
+def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
+    """Require evaluative critique intent, not ordinary document handling."""
+
+    text = _normalized_unquoted_prompt(prompt)
+    if (
+        not text
+        or not _prompt_has_affirmative_critique_intent(prompt)
+        or (
+            _NON_CRITIQUE_REVIEW_WORKFLOW.search(text)
+            and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
+        )
+    ):
+        return False
+    if _DEEP_CRITIQUE_SEMANTIC_QUESTION.search(text):
+        return True
+    if _TEXT_ONLY_REVIEW_CONTEXT.search(text) and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(
+        text
+    ):
+        return False
+    if _prompt_has_affirmative_direct_action(
+        prompt,
+        r"(?:deep\s+critique|source[- ]backed\s+critique|critique|audit|challenge|"
+        r"validate|stress[- ]test|pressure[- ]test|poke\s+holes\s+in|"
+        r"find\s+flaws\s+in|tear\s+apart)",
+    ):
+        return True
+    return bool(
+        _DEEP_CRITIQUE_SEMANTIC_TARGET.search(text)
+        and _prompt_has_affirmative_direct_action(prompt, r"(?:review|compare)")
+        and (
+            _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
+            or not _TEXT_ONLY_REVIEW_CONTEXT.search(text)
+        )
+    )
+
+
 _SOURCE_SPECIAL_POSITIVE = (
     re.compile(r"^are\s+these\s+sources\s+strong\s+enough\b"),
     re.compile(
@@ -1368,6 +1511,11 @@ def _normalized_unquoted_prompt(prompt: str) -> str:
     ).strip()
 
 
+_SECURITY_TECHNICAL_SYSTEM = (
+    r"(?:application|app|service|system|architecture|repository|repo|codebase|"
+    r"api|frontend|backend|database|schema|data\s+flow|trust\s+boundary|"
+    r"tool|agent|react|browser|supabase|neon(?:\s+postgres)?|postgres(?:ql)?)"
+)
 _SECURITY_TECHNICAL_CONTEXT = re.compile(
     r"\b(?:auth(?:entication|orization)?|access\s+control|permissions?|privileges?|"
     r"secrets?|credentials?|api\s+keys?|tokens?|jwts?|login|sign[- ]in|sessions?|cookies?|rls|"
@@ -1375,9 +1523,44 @@ _SECURITY_TECHNICAL_CONTEXT = re.compile(
     r"security[- ](?:invoker|definer)|vulnerabilit(?:y|ies)|cve|exploit(?:ability)?|"
     r"attack\s+(?:path|surface)|threat\s+model|sql\s+injection|xss|csrf|ssrf|idor|"
     r"csp|cross[- ]site\s+scripting|privilege\s+escalation|data\s+exposure|"
-    r"security\s+(?:alerts?|advisors?|findings?|issues?|problems?|warnings?|boundary|regression|scan|audit|review|"
-    r"policy|baseline|hardening|checklist|best\s+practices))\b"
+    r"security\s+(?:configuration|settings?|posture|alerts?|advisors?|findings?|issues?|"
+    r"problems?|warnings?|boundary|regression|scan|audit|review|policy|baseline|"
+    r"hardening|checklist|best\s+practices))\b|"
+    rf"\b{_SECURITY_TECHNICAL_SYSTEM}\s+security\b|"
+    rf"\bsecurity\s+(?:of|for|in)\s+(?:(?:this|the|our|an?)\s+)?"
+    rf"{_SECURITY_TECHNICAL_SYSTEM}\b|"
+    rf"\bsecurity\b[^.!?;]{{0,100}}\b{_SECURITY_TECHNICAL_SYSTEM}\b|"
+    rf"\b{_SECURITY_TECHNICAL_SYSTEM}\b[^.!?;]{{0,80}}\bfor\s+security\b"
 )
+_NONTECHNICAL_SECURITY_CONTEXT = re.compile(
+    r"\b(?:social\s+security|job\s+security|security\s+of\s+(?:this|the|an?)\s+"
+    r"(?:investment|bond|building)|permissions?\s+in\s+(?:this|the|an?)\s+"
+    r"(?:hr|human\s+resources?)\s+process|security\s+policy\b[^.!?;]{0,80}"
+    r"\bbuilding\s+access)\b"
+)
+_AMBIGUOUS_SECURITY_TERM_CONTEXT = re.compile(
+    r"\b(?:permissions?|privileges?|credentials?|tokens?|login|sign[- ]in|"
+    r"sessions?|cookies?|grants?)\b"
+)
+_STRONG_SECURITY_TERM_CONTEXT = re.compile(
+    r"\b(?:security|auth(?:entication|orization)?|access\s+control|secrets?|"
+    r"api\s+keys?|jwts?|rls|row[- ]level\s+security|default\s+privileges|"
+    r"bypassrls|security[- ](?:invoker|definer)|vulnerabilit(?:y|ies)|cve|"
+    r"exploit(?:ability)?|attack\s+(?:path|surface)|threat\s+model|"
+    r"sql\s+injection|xss|csrf|ssrf|idor|csp|cross[- ]site\s+scripting|"
+    r"privilege\s+escalation|data\s+exposure)\b"
+)
+
+
+def _technical_security_context_is_bounded(text: str) -> bool:
+    if not _has_security_context(text) or _NONTECHNICAL_SECURITY_CONTEXT.search(text):
+        return False
+    if not _AMBIGUOUS_SECURITY_TERM_CONTEXT.search(text):
+        return True
+    return bool(
+        _STRONG_SECURITY_TERM_CONTEXT.search(text)
+        or re.search(rf"\b{_SECURITY_TECHNICAL_SYSTEM}\b", text)
+    )
 _SECURITY_FINDING_CONTEXT = re.compile(
     r"\b(?:security\s+(?:alerts?|advisors?|findings?|issues?|warnings?)|findings?|vulnerabilit(?:y|ies)|"
     r"cve|exploit|attack\s+path|misconfiguration|exposure|bypass|regression)\b"
@@ -1770,7 +1953,7 @@ _SECURITY_FINDING_OBJECT = (
     r"(?:security\s+(?:alerts?|advisors?|findings?|issues?|warnings?)|"
     r"vulnerabilit(?:y|ies)|findings?|cve|exploit|misconfiguration|exposure)"
 )
-_SECURITY_ATTACK_PATH_OBJECT = r"(?:attack[- ]path|reachability|exploitability)"
+_SECURITY_ATTACK_PATH_OBJECT = r"(?:attack[- ]paths?|reachability|exploitability)"
 _SECURITY_DISCOVERY_OBJECT = (
     r"(?:finding\s+discovery|vulnerabilit(?:y|ies)|security\s+(?:findings?|issues?))"
 )
@@ -1906,13 +2089,16 @@ def _prompt_has_finding_phase_intent(prompt: str, phase: str) -> bool:
     if phase == "hardening":
         context_present = _has_security_context(text)
     else:
-        context_present = _SECURITY_FINDING_CONTEXT.search(text) is not None
+        context_present = bool(
+            _SECURITY_FINDING_CONTEXT.search(text) is not None
+            and _has_security_context(text)
+        )
     if not context_present:
         return False
     phase_patterns = {
         "triage": (r"(?:triage|classify|prioritize|assess|review|check|investigate|analy[sz]e|inspect)", r"^(?:security\s+)?(?:alert|finding)\s+triage\b"),
         "validation": (r"(?:validate|verify|reproduce|confirm|disprove)", r"^(?:finding|vulnerability)\s+validation\b"),
-        "attack_path": (r"(?:analy[sz]e|map|trace|assess|test)", r"^(?:attack[- ]path|exploitability)\s+analysis\b"),
+        "attack_path": (r"(?:analy[sz]e|map|trace|assess|test)", r"^(?:attack[- ]paths?|exploitability)\s+analysis\b"),
         "discovery": (r"(?:discover|find|identify|search|hunt)", r"^(?:finding|vulnerability)\s+discovery\b"),
         "fix": (r"(?:fix|remediate|patch|resolve|repair|mitigate|implement|apply)", r"^(?:(?:implement|apply)\s+(?:the\s+)?(?:fix|remediation)|(?:fix|remediate)\s+(?:the\s+)?(?:finding|vulnerability))\b"),
         "hardening": (r"(?:propose|recommend|design|prepare)", r"^(?:security\s+)?hardening\s+(?:proposal|recommendations?)\b"),
@@ -1921,10 +2107,10 @@ def _prompt_has_finding_phase_intent(prompt: str, phase: str) -> bool:
     }
     action_pattern, telegraphic = phase_patterns[phase]
     if phase == "triage" and re.search(
-        r"\b(?:attack\s+path|reachability|exploitability)\b", text
+        r"\b(?:attack\s+paths?|reachability|exploitability)\b", text
     ):
         return False
-    if phase == "attack_path" and not re.search(r"\b(?:attack\s+path|reachability|exploitability)\b", text):
+    if phase == "attack_path" and not re.search(r"\b(?:attack\s+paths?|reachability|exploitability)\b", text):
         return False
     if phase == "tracking" and not _SECURITY_TRACKER_CONTEXT.search(text):
         return False
@@ -2113,7 +2299,7 @@ def _prompt_has_security_implementation_intent(prompt: str) -> bool:
         object_pattern=_SECURITY_IMPLEMENTATION_OBJECT,
     )
     return bool(
-        _has_security_context(text)
+        _technical_security_context_is_bounded(text)
         and mutation_requested
         and not _prompt_explicitly_excludes_implementation(text)
     )
@@ -2258,7 +2444,7 @@ def _prompt_has_defensive_checklist_intent(prompt: str) -> bool:
 
 def _prompt_has_security_best_practices_intent(prompt: str) -> bool:
     text = _normalized_unquoted_prompt(prompt)
-    return bool(
+    explicit_best_practices = bool(
         re.search(r"\bsecurity\s+best\s+practices\b", text)
         and not _prompt_has_affirmative_implementation(text)
         and _security_action_requested(
@@ -2268,6 +2454,20 @@ def _prompt_has_security_best_practices_intent(prompt: str) -> bool:
             telegraphic_pattern=r"^security\s+best\s+practices\s+(?:review|assessment|guidance)\b",
         )
     )
+    technical_review = bool(
+        _technical_security_context_is_bounded(text)
+        and not _SECURITY_FINDING_CONTEXT.search(text)
+        and not _SECURITY_DIFF_CONTEXT.search(text)
+        and not _TEXT_ONLY_REVIEW_CONTEXT.search(text)
+        and not _prompt_has_affirmative_implementation(text)
+        and not _prompt_has_provider_operations_intent(text)
+        and _prompt_has_affirmative_direct_action(
+            prompt,
+            r"(?:review|assess|audit|check|analy[sz]e|inspect|verify|validate|"
+            r"evaluate|recommend)",
+        )
+    )
+    return explicit_best_practices or technical_review
 
 
 def _prompt_has_affirmative_direct_action(
@@ -2291,7 +2491,7 @@ def _prompt_has_affirmative_direct_action(
 
 
 _ADVERSARIAL_REVIEW_CONTEXT = re.compile(
-    r"\b(?:critique|challenge|audit|stress[- ]test|pressure[- ]test|"
+    r"\b(?:critique|challenge\s+(?:this|that|the|my|our|its?)|audit|stress[- ]test|pressure[- ]test|"
     r"poke\s+holes\s+in|find\s+flaws?(?:\s+in)?|critically|weak\s+logic|"
     r"expose\s+(?:the\s+)?flaws?|"
     r"skeptical\s+review|hard\s+second\s+opinion)\b"
@@ -2432,7 +2632,13 @@ _SPREADSHEET_FILE_CONTEXT = re.compile(
     r"\b(?:spreadsheet|workbook)\s+file\b)"
 )
 _PDF_FILE_CONTEXT = re.compile(
-    r"(?:\.pdf\b|\bpdf\s+file\b|\b(?:attached|uploaded|provided|this|the)\s+pdf\b)"
+    r"(?:\.pdf\b|\bpdf\s+file\b|"
+    r"\b(?:attached|uploaded|provided|supplied|this|the)\s+pdf\b)"
+)
+_PDF_SOFTWARE_TARGET_CONTEXT = re.compile(
+    r"\b(?:pdf\s+(?:parser|reader|writer|renderer|library|module|class|function|api)|"
+    r"(?:parser|reader|writer|renderer|library|module|class|function|api)\s+"
+    r"(?:for|that\s+handles?)\s+(?:a\s+)?pdf)\b"
 )
 _SOFTWARE_FILE_IMPLEMENTATION_CONTEXT = re.compile(
     r"\b(?:parser|reader|writer|renderer|rendering\s+bug|library|module|class|"
@@ -2481,26 +2687,48 @@ def _prompt_has_direct_pdf_analysis_intent(prompt: str) -> bool:
     text = _normalized_unquoted_prompt(prompt)
     return bool(
         _PDF_FILE_CONTEXT.search(text)
-        and not _SOFTWARE_FILE_IMPLEMENTATION_CONTEXT.search(text)
+        and not _PDF_SOFTWARE_TARGET_CONTEXT.search(text)
         and not _MATERIAL_ARTIFACT_CREATION_CONTEXT.search(text)
         and not _PDF_TO_SPREADSHEET_OUTPUT_CONTEXT.search(text)
         and not _prompt_has_affirmative_implementation(text)
         and not _ADVERSARIAL_REVIEW_CONTEXT.search(text)
         and _prompt_has_affirmative_direct_action(
             prompt,
-            r"(?:analy[sz]e|inspect|read|open|summari[sz]e|extract)",
+            r"(?:analy[sz]e|inspect|review|read|open|summari[sz]e|extract)",
             special_positive=_PDF_ANALYSIS_SPECIAL_POSITIVE,
         )
     )
 
 
+def _prompt_has_critical_pdf_review_intent(prompt: str) -> bool:
+    """Compose PDF inspection with an explicitly evaluative critique action."""
+
+    text = _normalized_unquoted_prompt(prompt)
+    return bool(
+        _PDF_FILE_CONTEXT.search(text)
+        and not _PDF_SOFTWARE_TARGET_CONTEXT.search(text)
+        and not _MATERIAL_ARTIFACT_CREATION_CONTEXT.search(text)
+        and not _prompt_has_affirmative_implementation(text)
+        and _prompt_has_affirmative_critique_intent(prompt)
+        and (
+            _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
+            or _ADVERSARIAL_REVIEW_CONTEXT.search(text)
+        )
+    )
+
+
 _STRATEGIC_OPTION_CONTEXT = re.compile(
-    r"\b(?:strateg(?:y|ic)|market[- ]entry|product|architecture|repo(?:sitory)?[- ]adoption|"
-    r"business|pricing|operational|investment|initiative|vendor)\b"
+    r"\b(?:strateg(?:y|ies|ic)|markets?|market[- ]entry|products?|architecture|"
+    r"repo(?:sitory)?[- ]adoption|business|pricing|operational|investments?|"
+    r"initiatives?|vendors?)\b"
 )
 _OPTION_SET_CONTEXT = re.compile(
     r"\b(?:options?|alternatives?|approaches?|strategies|markets?|vendors?|"
-    r"investments?|initiatives?)\b"
+    r"investments?|initiatives?|products?|architectures?)\b"
+)
+_EXPLICIT_OPTION_PAIR_CONTEXT = re.compile(
+    r"\boption\s+[a-z0-9][a-z0-9._-]*\b[^.!?;]{0,180}"
+    r"\b(?:against|versus|vs\.?|and|or|with)\s+option\s+[a-z0-9][a-z0-9._-]*\b"
 )
 _STRATEGIC_DECISION_SPECIAL_POSITIVE = (
     re.compile(
@@ -2511,19 +2739,149 @@ _STRATEGIC_DECISION_SPECIAL_POSITIVE = (
         r"^what\b[^.!?;]{0,120}\b(?:option|alternative|approach|strategy)\b"
         r"[^.!?;]{0,80}\bshould\s+(?:we|i)\s+(?:choose|select)\b"
     ),
+    re.compile(
+        r"^which\s+(?:architecture|product|market|strategy|vendor|initiative)\b"
+        r"[^.!?;]{0,80}\bshould\s+(?:we|i)\s+(?:choose|select|pick)\b"
+    ),
 )
 
 
 def _prompt_has_strategic_option_decision_intent(prompt: str) -> bool:
     text = _normalized_unquoted_prompt(prompt)
+    if (
+        not text
+        or _ADVERSARIAL_REVIEW_CONTEXT.search(text)
+        or _TEXT_ONLY_REVIEW_CONTEXT.search(text)
+    ):
+        return False
+    strategic_context = _STRATEGIC_OPTION_CONTEXT.search(text) is not None
+    referenced_option_set = re.search(
+        r"\b(?:these|the|our)\s+(?:options?|alternatives?|approaches?|strategies|"
+        r"markets?|vendors?|investments?|initiatives?|products?)\b",
+        text,
+    ) is not None
+    explicit_pair = _EXPLICIT_OPTION_PAIR_CONTEXT.search(text) is not None
+    if not (strategic_context or referenced_option_set or explicit_pair) or not _OPTION_SET_CONTEXT.search(text):
+        return False
+    direct_decision = _prompt_has_affirmative_direct_action(
+        prompt,
+        r"(?:choose|decide|rank|prioriti[sz]e|recommend|select|debate|pick)",
+        special_positive=_STRATEGIC_DECISION_SPECIAL_POSITIVE,
+    )
+    direct_comparison = _prompt_has_affirmative_direct_action(
+        prompt, r"(?:compare|evaluate)"
+    )
+    pair_decision_marker = re.search(
+        r"\b(?:recommend|choose|choice|decide|decision|select|rank|prioriti[sz]e|pick)\b",
+        text,
+    ) is not None
+    if explicit_pair:
+        return bool(direct_decision or (direct_comparison and pair_decision_marker))
     return bool(
-        _STRATEGIC_OPTION_CONTEXT.search(text)
-        and _OPTION_SET_CONTEXT.search(text)
+        direct_decision
+        or ((strategic_context or referenced_option_set) and direct_comparison and pair_decision_marker)
+    )
+
+
+_PRICING_STRATEGY_CONTEXT = re.compile(
+    r"\b(?:pricing\s+(?:strategy|approach|architecture|structure|plan)|"
+    r"price\s+(?:strategy|architecture|structure|points?|tiers?)|"
+    r"packaging\s+and\s+pricing|willingness\s+to\s+pay|price\s+elasticity)\b"
+)
+_OPERATING_MODEL_DESIGN_CONTEXT = re.compile(
+    r"\b(?:operating\s+model|decision\s+rights|team\s+interfaces|"
+    r"accountabilit(?:y|ies)|organizational\s+interfaces|ways?\s+of\s+working|"
+    r"how\s+(?:our|the)\s+company\s+operates?|"
+    r"interfaces?\s+between\s+(?:our|the)\s+departments?)\b"
+)
+_SITUATION_ASSESSMENT_CONTEXT = re.compile(
+    r"\b(?:unresolved\s+(?:(?:business|company|customer|market|operations?)\s+)?(?:problem|situation|challenge)|"
+    r"unresolved\s+organizational\s+(?:problem|situation|challenge)|"
+    r"unclear\s+(?:(?:business|company|customer|market|revenue)\s+)?(?:problem|situation|challenge)|"
+    r"what\s+(?:(?:should|do)\s+(?:we|i)\s+)?investigate\s+first|initial\s+(?:business\s+)?diagnosis|"
+    r"broad\s+(?:business\s+)?problem|hypothesis\s+tree)\b"
+)
+_BUSINESS_OR_ORGANIZATIONAL_CONTEXT = re.compile(
+    r"\b(?:business|organization|organis[sz]ation|organizational|company|enterprise|"
+    r"markets?|customers?|products?|services?|consulting|revenue|sales|commercial|operations?|"
+    r"operating\s+model|departments?|team\s+decision\s+rights|"
+    r"decision\s+rights\s+across\s+teams?|organizational\s+challenge|"
+    r"leadership|workforce|vendor|investment|initiative|unit\s+economics)\b"
+)
+_NONBUSINESS_CONTEXT = re.compile(
+    r"\b(?:history\s+essay|household\s+chores?|board\s+game|sports?\s+game|"
+    r"family\s+game\s+night)\b"
+)
+_SPECIALIST_SOFTWARE_OR_ARTIFACT_CONTEXT = re.compile(
+    r"\b(?:react|next\.?js|vue|svelte|frontend|backend|api|repository|repo|"
+    r"codebase|source\s+code|component|module|function|class|database|schema|"
+    r"migration|endpoint|typescript|javascript|python)\b|"
+    r"\b(?:create|build|generate|prepare|write|edit|design)\b[^.!?;]{0,100}\b"
+    r"(?:pdf|docx|word\s+document|spreadsheet|workbook|"
+    r"slide\s+deck|presentation|dashboard|component|api|schema|image|illustration)\b"
+)
+_LINGUISTIC_OR_PROOFREADING_CONTEXT = re.compile(
+    r"\b(?:grammar|spelling|punctuation|wording|capitalization|proofread|"
+    r"linguistic|sentence|phrase|typos?|copyedit|copy\s+edit)\b"
+)
+
+
+def _prompt_has_pricing_strategy_intent(prompt: str) -> bool:
+    text = _normalized_unquoted_prompt(prompt)
+    return bool(
+        _PRICING_STRATEGY_CONTEXT.search(text)
+        and _BUSINESS_OR_ORGANIZATIONAL_CONTEXT.search(text)
+        and not _NONBUSINESS_CONTEXT.search(text)
         and not _ADVERSARIAL_REVIEW_CONTEXT.search(text)
+        and not _MATERIAL_ARTIFACT_CREATION_CONTEXT.search(text)
+        and not _SPECIALIST_SOFTWARE_OR_ARTIFACT_CONTEXT.search(text)
+        and not _LINGUISTIC_OR_PROOFREADING_CONTEXT.search(text)
+        and not _prompt_has_affirmative_implementation(text)
         and _prompt_has_affirmative_direct_action(
             prompt,
-            r"(?:compare|choose|decide|rank|prioriti[sz]e|recommend|select|debate)",
-            special_positive=_STRATEGIC_DECISION_SPECIAL_POSITIVE,
+            r"(?:develop|design|define|formulate|create|recommend|optimi[sz]e|"
+            r"set|assess|analy[sz]e)",
+        )
+    )
+
+
+def _prompt_has_operating_model_design_intent(prompt: str) -> bool:
+    text = _normalized_unquoted_prompt(prompt)
+    return bool(
+        _OPERATING_MODEL_DESIGN_CONTEXT.search(text)
+        and _BUSINESS_OR_ORGANIZATIONAL_CONTEXT.search(text)
+        and not _NONBUSINESS_CONTEXT.search(text)
+        and not _ADVERSARIAL_REVIEW_CONTEXT.search(text)
+        and not _MATERIAL_ARTIFACT_CREATION_CONTEXT.search(text)
+        and not _SPECIALIST_SOFTWARE_OR_ARTIFACT_CONTEXT.search(text)
+        and not _LINGUISTIC_OR_PROOFREADING_CONTEXT.search(text)
+        and not _prompt_has_affirmative_implementation(text)
+        and _prompt_has_affirmative_direct_action(
+            prompt,
+            r"(?:develop|design|define|redesign|create|establish|map|clarify|structure)",
+        )
+    )
+
+
+def _prompt_has_situation_assessment_intent(prompt: str) -> bool:
+    text = _normalized_unquoted_prompt(prompt)
+    return bool(
+        _SITUATION_ASSESSMENT_CONTEXT.search(text)
+        and _BUSINESS_OR_ORGANIZATIONAL_CONTEXT.search(text)
+        and not _NONBUSINESS_CONTEXT.search(text)
+        and not _ADVERSARIAL_REVIEW_CONTEXT.search(text)
+        and not _MATERIAL_ARTIFACT_CREATION_CONTEXT.search(text)
+        and not _SPECIALIST_SOFTWARE_OR_ARTIFACT_CONTEXT.search(text)
+        and not _LINGUISTIC_OR_PROOFREADING_CONTEXT.search(text)
+        and not _prompt_has_affirmative_implementation(text)
+        and _prompt_has_affirmative_direct_action(
+            prompt,
+            r"(?:assess|structure|frame|diagnose|analy[sz]e|investigate|triage|build)",
+            special_positive=(
+                re.compile(
+                    r"^what\s+(?:(?:should|do)\s+(?:we|i)\s+)?investigate\s+first\b"
+                ),
+            ),
         )
     )
 
@@ -2632,6 +2990,25 @@ def _policy_reference_aliases(
     )
 
 
+def _prompt_is_concise_declared_rule_trigger(
+    prompt: str, rule: dict[str, Any]
+) -> bool:
+    """Preserve an exact declared trigger without admitting prose mentions."""
+
+    text = _normalized_unquoted_prompt(prompt).rstrip(" .!?")
+    if not text:
+        return False
+    triggers = [*rule.get("match_all", []), *rule.get("match_any", [])]
+    return any(
+        text
+        == re.sub(r"\s+", " ", str(trigger or "").strip().lower()).rstrip(
+            " .!?"
+        )
+        for trigger in triggers
+        if str(trigger or "").strip()
+    )
+
+
 def _prompt_affirmatively_invokes_any(prompt: str, targets: Iterable[str]) -> bool:
     text = re.sub(
         r"\s+", " ", _prompt_without_quoted_text(prompt).lower().replace("’", "'")
@@ -2643,7 +3020,10 @@ def _prompt_affirmatively_invokes_any(prompt: str, targets: Iterable[str]) -> bo
         if not target_text:
             continue
         escaped = re.escape(target_text).replace(r"\ ", r"\s+")
-        target_pattern = rf"(?<![a-z0-9]){escaped}(?![a-z0-9])"
+        optional_sigil = "" if target_text.startswith("$") else r"\$?"
+        target_pattern = (
+            rf"(?<![a-z0-9]){optional_sigil}{escaped}(?![a-z0-9])"
+        )
         if re.fullmatch(rf"\s*{target_pattern}\s*[.!]?\s*", text):
             return True
         patterns = (
@@ -3031,7 +3411,7 @@ def _intent_gate_matches(
             [rule.get("primary")], policy
         )
         return (
-            _prompt_has_affirmative_critique_intent(prompt_lower)
+            _prompt_has_mature_deep_critique_intent(prompt_lower)
             or _prompt_affirmatively_invokes_any(prompt_lower, aliases)
         )
     if gate == "source_evaluation":
@@ -3048,11 +3428,34 @@ def _intent_gate_matches(
         return _prompt_has_direct_spreadsheet_analysis_intent(prompt_lower)
     if gate == "pdf_analysis":
         return _prompt_has_direct_pdf_analysis_intent(prompt_lower)
+    if gate == "critical_pdf_review":
+        return _prompt_has_critical_pdf_review_intent(prompt_lower)
     if gate == "strategic_option_decision":
         aliases = _policy_reference_aliases([rule.get("primary")], policy)
         return (
             _prompt_has_strategic_option_decision_intent(prompt_lower)
             or _prompt_affirmatively_invokes_any(prompt_lower, aliases)
+        )
+    if gate == "pricing_strategy":
+        aliases = _policy_reference_aliases([rule.get("primary")], policy)
+        return (
+            _prompt_has_pricing_strategy_intent(prompt_lower)
+            or _prompt_affirmatively_invokes_any(prompt_lower, aliases)
+            or _prompt_is_concise_declared_rule_trigger(prompt_lower, rule)
+        )
+    if gate == "operating_model_design":
+        aliases = _policy_reference_aliases([rule.get("primary")], policy)
+        return (
+            _prompt_has_operating_model_design_intent(prompt_lower)
+            or _prompt_affirmatively_invokes_any(prompt_lower, aliases)
+            or _prompt_is_concise_declared_rule_trigger(prompt_lower, rule)
+        )
+    if gate == "situation_assessment":
+        aliases = _policy_reference_aliases([rule.get("primary")], policy)
+        return (
+            _prompt_has_situation_assessment_intent(prompt_lower)
+            or _prompt_affirmatively_invokes_any(prompt_lower, aliases)
+            or _prompt_is_concise_declared_rule_trigger(prompt_lower, rule)
         )
     if gate == "critique_with_implementation":
         return (
@@ -3256,10 +3659,22 @@ def _rule_matches_prompt(
         match_any and any(_prompt_contains(prompt_lower, phrase) for phrase in match_any)
     )
     intent_gate = normalize(rule.get("intent_gate")).replace("-", "_")
-    if not lexical_match and intent_gate not in {
+    semantic_only_allowed = intent_gate in {
         "documentation_combined",
         "software_documentation_only",
         "architecture_review",
+        "source_evaluation",
+        "operational_problem_analysis",
+        "operational_problem_review",
+        "metric_diagnostics",
+        "data_quality_analysis",
+        "spreadsheet_analysis",
+        "pdf_analysis",
+        "critical_pdf_review",
+        "strategic_option_decision",
+        "pricing_strategy",
+        "operating_model_design",
+        "situation_assessment",
         "security_diff_review",
         "security_standard_scan",
         "security_deep_scan",
@@ -3285,7 +3700,13 @@ def _rule_matches_prompt(
         "frontend_security_implementation",
         "provider_operations",
         "neon_egress",
-    }:
+    }
+    if intent_gate == "deep_critique":
+        semantic_only_allowed = bool(
+            normalize(rule.get("id")) == "deep-critique"
+            and _prompt_has_mature_deep_critique_intent(prompt_lower)
+        )
+    if not lexical_match and not semantic_only_allowed:
         return False
     return _intent_gate_matches(rule, prompt_lower, policy)
 
@@ -4307,28 +4728,101 @@ CREATE TABLE IF NOT EXISTS route_decisions (
     schema_version TEXT NOT NULL,
     manifest_snapshot TEXT NOT NULL,
     decision_snapshot TEXT NOT NULL,
+    manifest_authority_sha256 TEXT NOT NULL
+        CHECK(length(manifest_authority_sha256) = 64 AND manifest_authority_sha256 NOT GLOB '*[^0-9a-f]*'),
+    policy_authority_sha256 TEXT NOT NULL
+        CHECK(length(policy_authority_sha256) = 64 AND policy_authority_sha256 NOT GLOB '*[^0-9a-f]*'),
     issued_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL CHECK(expires_at > issued_at)
 )
 """
+_ROUTE_REGISTRY_INDEX_DDL = (
+    "CREATE INDEX IF NOT EXISTS ix_route_decisions_expires_at "
+    "ON route_decisions(expires_at)"
+)
 
 
-def _ensure_registry_schema_v2(connection: sqlite3.Connection) -> None:
-    """Atomically replace any obsolete receipt schema with the exact v2 table."""
+def _registry_schema_signature(
+    connection: sqlite3.Connection,
+) -> tuple[tuple[object, ...], tuple[tuple[object, ...], ...]]:
+    """Return the exact table, constraint, index, and trigger shape for v3."""
 
-    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    columns = tuple(
-        str(row[1])
-        for row in connection.execute("PRAGMA table_info(route_decisions)").fetchall()
+    table_xinfo = tuple(
+        tuple(row)
+        for row in connection.execute("PRAGMA table_xinfo(route_decisions)").fetchall()
     )
-    if version != ROUTE_REGISTRY_SCHEMA_VERSION or columns != ROUTE_REGISTRY_COLUMNS:
-        connection.execute("DROP TABLE IF EXISTS route_decisions")
+    objects = tuple(
+        tuple(row)
+        for row in connection.execute(
+            """
+            SELECT type, name, tbl_name, COALESCE(sql, '')
+            FROM sqlite_schema
+            WHERE name = 'route_decisions' OR tbl_name = 'route_decisions'
+            ORDER BY type, name
+            """
+        ).fetchall()
+    )
+    return table_xinfo, objects
+
+
+def _expected_registry_schema_signature(
+) -> tuple[tuple[object, ...], tuple[tuple[object, ...], ...]]:
+    """Build the canonical v3 signature from the same DDL used for issuance."""
+
+    expected = sqlite3.connect(":memory:")
+    try:
+        expected.execute(_ROUTE_REGISTRY_DDL)
+        expected.execute(_ROUTE_REGISTRY_INDEX_DDL)
+        return _registry_schema_signature(expected)
+    finally:
+        expected.close()
+
+
+_EXPECTED_ROUTE_REGISTRY_SCHEMA_SIGNATURE = _expected_registry_schema_signature()
+
+
+def _registry_schema_is_exact(connection: sqlite3.Connection) -> bool:
+    """Reject same-column counterfeits that omit v3 constraints or indexes."""
+
+    try:
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        return bool(
+            version == ROUTE_REGISTRY_SCHEMA_VERSION
+            and _registry_schema_signature(connection)
+            == _EXPECTED_ROUTE_REGISTRY_SCHEMA_SIGNATURE
+        )
+    except (TypeError, ValueError, sqlite3.Error):
+        return False
+
+
+def _drop_obsolete_registry_schema(connection: sqlite3.Connection) -> None:
+    """Remove the route-owned table or view and its named index."""
+
+    row = connection.execute(
+        "SELECT type FROM sqlite_schema WHERE name = 'route_decisions'"
+    ).fetchone()
+    object_type = str(row[0]) if row else ""
+    if object_type == "view":
+        connection.execute("DROP VIEW route_decisions")
+    elif object_type == "table":
+        connection.execute("DROP TABLE route_decisions")
+    elif object_type == "index":
+        connection.execute("DROP INDEX route_decisions")
+    elif object_type == "trigger":
+        connection.execute("DROP TRIGGER route_decisions")
+    connection.execute("DROP INDEX IF EXISTS ix_route_decisions_expires_at")
+
+
+def _ensure_registry_schema_v3(connection: sqlite3.Connection) -> None:
+    """Atomically replace any obsolete receipt schema with the exact v3 table."""
+
+    if not _registry_schema_is_exact(connection):
+        _drop_obsolete_registry_schema(connection)
     connection.execute(_ROUTE_REGISTRY_DDL)
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS ix_route_decisions_expires_at "
-        "ON route_decisions(expires_at)"
-    )
+    connection.execute(_ROUTE_REGISTRY_INDEX_DDL)
     connection.execute(f"PRAGMA user_version = {ROUTE_REGISTRY_SCHEMA_VERSION}")
+    if not _registry_schema_is_exact(connection):
+        raise RouteRegistryError("route registry schema does not match canonical v3 DDL")
 
 
 def _registry_path(value: str | Path | None = None) -> Path:
@@ -4376,7 +4870,7 @@ def _issue_route_decision(
                 )
             connection.execute("PRAGMA synchronous = FULL")
             connection.execute("BEGIN IMMEDIATE")
-            _ensure_registry_schema_v2(connection)
+            _ensure_registry_schema_v3(connection)
             connection.execute(
                 "DELETE FROM route_decisions WHERE expires_at < ?",
                 (now - EXPIRED_ROUTE_AUDIT_RETENTION_SECONDS,),
@@ -4408,9 +4902,11 @@ def _issue_route_decision(
                     schema_version,
                     manifest_snapshot,
                     decision_snapshot,
+                    manifest_authority_sha256,
+                    policy_authority_sha256,
                     issued_at,
                     expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(decision_id) DO UPDATE SET
                     decision_digest = excluded.decision_digest,
                     task_text_sha256 = excluded.task_text_sha256,
@@ -4420,6 +4916,8 @@ def _issue_route_decision(
                     schema_version = excluded.schema_version,
                     manifest_snapshot = excluded.manifest_snapshot,
                     decision_snapshot = excluded.decision_snapshot,
+                    manifest_authority_sha256 = excluded.manifest_authority_sha256,
+                    policy_authority_sha256 = excluded.policy_authority_sha256,
                     issued_at = excluded.issued_at,
                     expires_at = excluded.expires_at
                 """,
@@ -4433,6 +4931,8 @@ def _issue_route_decision(
                     decision["schema_version"],
                     decision["manifest_snapshot"],
                     decision["decision_snapshot"],
+                    decision["manifest_authority_sha256"],
+                    decision["policy_authority_sha256"],
                     now,
                     expires_at,
                 ),
@@ -4489,6 +4989,8 @@ def verify_registered_route(
     *,
     registry_path: str | Path | None = None,
     now: int | None = None,
+    manifest_path: str | Path | None = None,
+    policy_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Read-only verification of one exact, current Catalogue Router issuance."""
 
@@ -4535,6 +5037,40 @@ def verify_registered_route(
         base["status"] = "issuance_failed"
         return base
 
+    try:
+        current_manifest = load_active_capabilities(
+            Path(manifest_path) if manifest_path is not None else ACTIVE_CAPABILITIES_PATH
+        )
+        current_policy = load_routing_policy(
+            Path(policy_path) if policy_path is not None else ROUTING_POLICY_PATH
+        )
+    except (CapabilityDataError, OSError, RuntimeError, ValueError):
+        base["status"] = "authority_unavailable"
+        return base
+    manifest_authority_sha256 = _authority_sha256(current_manifest)
+    policy_authority_sha256 = _authority_sha256(current_policy)
+    if not manifest_authority_sha256 or not policy_authority_sha256:
+        base["status"] = "authority_unavailable"
+        return base
+    if not hmac.compare_digest(
+        str(decision.get("manifest_authority_sha256") or ""),
+        manifest_authority_sha256,
+    ):
+        base["status"] = "manifest_mismatch"
+        return base
+    if not hmac.compare_digest(
+        str(decision.get("policy_authority_sha256") or ""),
+        policy_authority_sha256,
+    ):
+        base["status"] = "policy_mismatch"
+        return base
+    if (
+        normalize(current_manifest.get("freshness_status")) not in FRESH_STATES
+        or current_manifest.get("source_hashes_verified") is not True
+    ):
+        base["status"] = "authority_unavailable"
+        return base
+
     path = _registry_path(registry_path)
     if not path.is_file():
         base["status"] = "registry_missing"
@@ -4547,12 +5083,7 @@ def verify_registered_route(
             timeout=5.0,
         )
         connection.execute("PRAGMA query_only = ON")
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        columns = tuple(
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(route_decisions)").fetchall()
-        )
-        if version != ROUTE_REGISTRY_SCHEMA_VERSION or columns != ROUTE_REGISTRY_COLUMNS:
+        if not _registry_schema_is_exact(connection):
             base["status"] = "registry_schema_mismatch"
             return base
         row = connection.execute(
@@ -4566,6 +5097,8 @@ def verify_registered_route(
                 schema_version,
                 manifest_snapshot,
                 decision_snapshot,
+                manifest_authority_sha256,
+                policy_authority_sha256,
                 issued_at,
                 expires_at
             FROM route_decisions
@@ -4592,15 +5125,23 @@ def verify_registered_route(
         stored_schema_version,
         stored_manifest_snapshot,
         stored_decision_snapshot,
+        stored_manifest_authority_sha256,
+        stored_policy_authority_sha256,
         issued_at,
         expires_at,
     ) = row
-    base["issued_at"] = int(issued_at)
-    base["expires_at"] = int(expires_at)
-    current = int(time.time()) if now is None else int(now)
+    try:
+        issued_at_value = int(issued_at)
+        expires_at_value = int(expires_at)
+        current = int(time.time()) if now is None else int(now)
+    except (TypeError, ValueError, OverflowError):
+        base["status"] = "registry_error"
+        return base
+    base["issued_at"] = issued_at_value
+    base["expires_at"] = expires_at_value
     if (
-        int(expires_at) - int(issued_at) != DEFAULT_ROUTE_TTL_SECONDS
-        or not int(issued_at) <= current <= int(expires_at)
+        expires_at_value - issued_at_value != DEFAULT_ROUTE_TTL_SECONDS
+        or not issued_at_value <= current <= expires_at_value
     ):
         base["status"] = "expired"
         return base
@@ -4619,6 +5160,14 @@ def verify_registered_route(
             str(stored_schema_version) == str(decision["schema_version"]),
             str(stored_manifest_snapshot) == str(decision["manifest_snapshot"]),
             str(stored_decision_snapshot) == str(decision["decision_snapshot"]),
+            hmac.compare_digest(
+                str(stored_manifest_authority_sha256),
+                decision["manifest_authority_sha256"],
+            ),
+            hmac.compare_digest(
+                str(stored_policy_authority_sha256),
+                decision["policy_authority_sha256"],
+            ),
         )
     )
     if not exact_match:
@@ -4740,11 +5289,35 @@ def _fail_closed_local_execution(local_execution: dict[str, Any]) -> dict[str, A
     return failed
 
 
-def route_execution_ready(decision: dict[str, Any]) -> bool:
-    """Return whether a requested worker route is complete and executable."""
+def route_execution_ready(
+    decision: dict[str, Any],
+    *,
+    task_text: object | None = None,
+    task_input: dict[str, Any] | None = None,
+) -> bool:
+    """Authorize execution only against the canonical current authorities and registry."""
+
+    return _route_execution_ready_with_runtime(
+        decision,
+        task_text=task_text,
+        task_input=task_input,
+    )
+
+
+def _route_execution_ready_with_runtime(
+    decision: dict[str, Any],
+    *,
+    task_text: object | None,
+    task_input: dict[str, Any] | None,
+    registry_path: str | Path | None = None,
+    now: int | None = None,
+    manifest_path: str | Path | None = None,
+    policy_path: str | Path | None = None,
+) -> bool:
+    """Internal verifier with path/time overrides for isolated contract tests."""
 
     try:
-        _validate_route_schema(decision)
+        validate_route_decision(decision)
     except CapabilityDataError:
         return False
     issuance = decision.get("issuance")
@@ -4752,7 +5325,9 @@ def route_execution_ready(decision: dict[str, Any]) -> bool:
         return False
     requested = issuance.get("worker_execution_requested") is True
     if not requested:
-        return True
+        return issuance.get("status") == "registered"
+    if task_text is None or task_input is None:
+        return False
     support_workers = decision.get("support_workers")
     support_workers = support_workers if isinstance(support_workers, list) else []
     local_execution = decision.get("local_execution")
@@ -4764,13 +5339,35 @@ def route_execution_ready(decision: dict[str, Any]) -> bool:
     )
     local_admitted = local_execution.get("admitted") is True
     runnable = bool(support_workers) or local_admitted
-    return bool(
+    structurally_ready = bool(
         runnable
         and (not has_local_worker or local_admitted)
         and decision.get("task_input_mode") == "complete"
         and issuance.get("status") == "registered"
         and issuance.get("failure_code") is None
+        and SHA256_PATTERN.fullmatch(
+            str(decision.get("manifest_authority_sha256") or "")
+        )
+        is not None
+        and SHA256_PATTERN.fullmatch(
+            str(decision.get("policy_authority_sha256") or "")
+        )
+        is not None
     )
+    if not structurally_ready:
+        return False
+    if not route_task_text_matches(decision, task_text) or not route_task_input_matches(
+        decision, task_input
+    ):
+        return False
+    receipt = verify_registered_route(
+        decision,
+        registry_path=registry_path,
+        now=now,
+        manifest_path=manifest_path,
+        policy_path=policy_path,
+    )
+    return receipt.get("valid") is True and receipt.get("status") == "registered"
 
 
 def _execution_profile_for_rule(
@@ -5421,7 +6018,7 @@ def _build_decision(
     )
     unique_reasons = list(dict.fromkeys(reason_codes or ["CODEX_SOL_DEFAULT"]))
     decision = {
-        "schema_version": "2.0",
+        "schema_version": "3.0",
         "rule_id": str((rule or {}).get("id") or ""),
         "scenario": str((rule or {}).get("scenario") or "Conservative Codex default"),
         "execution_owner": profile["execution_owner"],
@@ -5447,6 +6044,8 @@ def _build_decision(
         "evidence_ids": list((rule or {}).get("evidence_ids", [])),
         "manifest_snapshot": str(manifest.get("snapshot_id") or ""),
         "decision_snapshot": str(policy.get("decision_snapshot") or ""),
+        "manifest_authority_sha256": _authority_sha256(manifest),
+        "policy_authority_sha256": _authority_sha256(policy),
         "task_text_sha256": task_text_sha256,
         "task_input_sha256": task_input_sha256,
         "task_input_mode": task_input_mode,
@@ -5480,10 +6079,13 @@ def conservative_default_decision(
     manifest = {
         "snapshot_id": "",
         "freshness_status": "missing",
+        "source_hashes_verified": False,
+        "authority_sha256": "",
         "entries": [],
     }
     policy = {
         "decision_snapshot": "",
+        "authority_sha256": "",
         "default_execution_profile": "codex-sol-default",
         "execution_profiles": {"codex-sol-default": DEFAULT_EXECUTION_PROFILE},
     }
@@ -5532,22 +6134,96 @@ def conservative_default_decision(
         "manifest": manifest,
         "policy": policy,
     }
-    decision = _build_decision(
+    del failure_code
+    build_args["reason_codes"] = [*reasons, "AUTHORITY_UNAVAILABLE"]
+    return _build_decision(
         **build_args,
-        issuance_status="registered",
-        issuance_failure_code=failure_code,
+        issuance_status="failed",
+        issuance_failure_code="AUTHORITY_UNAVAILABLE",
     )
+
+
+def _canonical_authority_payload(value: dict[str, Any]) -> str:
+    """Serialize the routed authority content without its provenance wrapper."""
+
+    if not isinstance(value, dict):
+        raise CapabilityDataError("authority input must be an object")
+    payload = {
+        key: item
+        for key, item in value.items()
+        if key not in {"source", "authority_sha256"}
+    }
     try:
-        _issue_route_decision(decision)
-        return decision
-    except RouteRegistryError:
-        failure_args = dict(build_args)
-        failure_args["reason_codes"] = [*reasons, "ROUTE_REGISTRY_UNAVAILABLE"]
-        return _build_decision(
-            **failure_args,
-            issuance_status="failed",
-            issuance_failure_code="ROUTE_REGISTRY_UNAVAILABLE",
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
         )
+    except (TypeError, ValueError) as exc:
+        raise CapabilityDataError(f"authority input is not canonical JSON data: {exc}") from exc
+
+
+def _rebind_supplied_authority(
+    supplied: dict[str, Any] | None,
+    *,
+    canonical_path: Path,
+    loader: Callable[[Path | None], dict[str, Any]],
+    label: str,
+) -> dict[str, Any]:
+    """Reload provenance-bearing authority and reject mutable injected wrappers."""
+
+    if supplied is None:
+        return loader(canonical_path)
+    if not isinstance(supplied, dict):
+        raise CapabilityDataError(f"{label} authority must be an object")
+
+    has_provenance = "source" in supplied or "authority_sha256" in supplied
+    if not has_provenance:
+        return json.loads(_canonical_authority_payload(supplied))
+
+    source = str(supplied.get("source") or "").strip()
+    supplied_hash = str(supplied.get("authority_sha256") or "").lower()
+    if not source or not SHA256_PATTERN.fullmatch(supplied_hash):
+        raise CapabilityDataError(f"{label} authority provenance is incomplete")
+    try:
+        source_path = Path(source).resolve(strict=True)
+        expected_path = canonical_path.resolve(strict=True)
+    except OSError as exc:
+        raise CapabilityDataError(f"{label} authority source is unavailable") from exc
+    if source_path != expected_path:
+        raise CapabilityDataError(f"{label} authority source is not canonical")
+
+    current = loader(canonical_path)
+    current_hash = _authority_sha256(current)
+    if not current_hash or not hmac.compare_digest(supplied_hash, current_hash):
+        raise CapabilityDataError(f"{label} authority changed after it was loaded")
+    if not hmac.compare_digest(
+        _canonical_authority_payload(supplied),
+        _canonical_authority_payload(current),
+    ):
+        raise CapabilityDataError(f"{label} authority was mutated after it was loaded")
+    return current
+
+
+def _route_authority_issuable(
+    manifest: dict[str, Any], policy: dict[str, Any]
+) -> bool:
+    """Require fresh manifest evidence and both exact authority hashes before write."""
+
+    return bool(
+        normalize(manifest.get("freshness_status")) in FRESH_STATES
+        and manifest.get("source_hashes_verified") is True
+        and SHA256_PATTERN.fullmatch(_authority_sha256(manifest))
+        and SHA256_PATTERN.fullmatch(_authority_sha256(policy))
+    )
+
+
+def _synthetic_authority_input(value: dict[str, Any]) -> bool:
+    """Identify test-only authority objects that have no live source provenance."""
+
+    return "source" not in value and "authority_sha256" not in value
 
 
 def resolve_route(
@@ -5563,8 +6239,18 @@ def resolve_route(
     exact_input, input_mode, bounded_text, instruction_agrees = _prepare_task_input(
         prompt, task_text, task_input
     )
-    manifest = manifest or load_active_capabilities()
-    policy = policy or load_routing_policy()
+    manifest = _rebind_supplied_authority(
+        manifest,
+        canonical_path=ACTIVE_CAPABILITIES_PATH,
+        loader=load_active_capabilities,
+        label="active capability manifest",
+    )
+    policy = _rebind_supplied_authority(
+        policy,
+        canonical_path=ROUTING_POLICY_PATH,
+        loader=load_routing_policy,
+        label="routing policy",
+    )
     entries = manifest.get("entries") if isinstance(manifest, dict) else []
     rules = policy.get("rules") if isinstance(policy, dict) else []
     entries = entries if isinstance(entries, list) else []
@@ -6015,6 +6701,28 @@ def resolve_route(
         "manifest": manifest,
         "policy": policy,
     }
+    authority_issuable = _route_authority_issuable(manifest, policy)
+    synthetic_authority = _synthetic_authority_input(manifest) and _synthetic_authority_input(
+        policy
+    )
+    if not authority_issuable and not synthetic_authority:
+        failed_args = dict(build_args)
+        failed_args["support_workers"] = []
+        failed_args["local_execution"] = _fail_closed_local_execution(local_execution)
+        failed_args["reason_codes"] = list(
+            dict.fromkeys(
+                [
+                    "CODEX_SOL_DEFAULT",
+                    *(reason for reason in reasons if reason != "CODEX_SOL_ORCHESTRATOR"),
+                    "AUTHORITY_UNAVAILABLE",
+                ]
+            )
+        )
+        return _build_decision(
+            **failed_args,
+            issuance_status="failed",
+            issuance_failure_code="AUTHORITY_UNAVAILABLE",
+        )
     decision = _build_decision(
         **build_args,
         issuance_status="registered",

@@ -26,6 +26,8 @@ split-task reason instead of silently selecting the first ordered rule.
 
 Runtime state is intentionally excluded. This repository never ships `active-capabilities.json`, `route-decisions.sqlite3`, live authority receipts, plugin cache contents, authentication state, user configuration, or private project paths.
 
+The reference runtime uses route-decision schema 3.0 and SQLite registry version 3. Every executable receipt binds the exact active-manifest and routing-policy content hashes. Verification reloads both current authorities and rejects a receipt after either authority changes, even if a human-readable snapshot label was reused. Migration from an older registry version atomically purges its receipts.
+
 Tests must bind all Codex home, manifest, policy, configuration, schema, registry, and project-map paths to temporary directories before importing or invoking the reference runtime.
 
 Repository contract tests install the exact dependency pinned in
