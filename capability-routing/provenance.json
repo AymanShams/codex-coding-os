@@ -56,7 +56,7 @@
     "capability-routing/reference-runtime/_common.py": "cb7d0f9813e554f4c6c312289665d2688d31199593f8c1aab404f54717a82559",
     "capability-routing/reference-runtime/_hook_io.py": "6a4965f9c01c5d1a1b32b1cf94b1c57542674e0195b5e252805d5b0bfb251b15",
     "capability-routing/reference-runtime/capability_config_fingerprint.py": "492915e091f20595b30a131a1db75001696ffca5336456de97a7dd6db5c1b782",
-    "capability-routing/reference-runtime/capability_index.py": "ca635867127474bff947aadf39dce0e2b78f7f437409b9e199f0c787b893b007",
+    "capability-routing/reference-runtime/capability_index.py": "7e2ffc03f9049bb804f08f1b4bb73900130c607dcd464c65bcf37a01f50f3df7",
     "capability-routing/reference-runtime/capability_index_cli.py": "a5cecd8c4ed79013add2392b554c50ff745753782ad697b54917c30ca32a81e3",
     "capability-routing/reference-runtime/capability_index_session_start.py": "dab8721546ce8d8976a4fdcd7355c43776e6fc0abcfcc9d0fa7096d1ce4cf6bc",
     "capability-routing/reference-runtime/capability_manifest_recovery.py": "6940a24f1313bd94a459c7eec513d2040d82a066cdbc954fd59bef9a57fbaa6a",
@@ -64,10 +64,10 @@
     "capability-routing/route-decision.schema.json": "17d0623ea640eda44471327989d7294cced787fe186dde6314ef7a420d488601",
     "capability-routing/routing-policy.schema.json": "58717fc8413219ee08eb78aef520b1f6f34c7e77f75e6521b4e8c3e8c9f0d914",
     "capability-routing/routing-policy.yaml": "6f0ea59e606ff289052ee89f0ed3d5d1c5068afcefb086fe4c02371bf87b90aa",
-    "tests/test_repository_capability_router.py": "369eabb8b0c9c3da15383130754c3665ae75e6be7e66a09d6906af5d86ac2092",
+    "tests/test_repository_capability_router.py": "9fb63eedcbf3dd18a631b5a781cc7b91971f34d9e5006e1e249ecf0e6b8b7e36",
     "tests/test_capability_manifest_recovery.py": "e686e1a9bb6511ddb32aa59ecb9d53d30550bc1a59f01d983b09d22eef07e61a",
     "tests/test_catalogue_router_wrapper.py": "90848c919497b65a0c3fa1ca65fc8f7129efa3feab43c3419eb678c610074d38",
-    "tests/test_security_capability_routing.py": "8c3eb54db5e1fd460e9241a3cf7b526c924081695813dc82c021c23362e59db9"
+    "tests/test_security_capability_routing.py": "9e6d87f0bd34a7b5128405ab610f18b41d0648b998a41841aa66b43b2322b55c"
   },
   "repository_adaptations": [
     "removed private project roots, source scopes, memory scopes, and project-specific policy rules",
