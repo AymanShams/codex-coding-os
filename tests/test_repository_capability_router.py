@@ -413,4 +413,342 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "skill:pdf:pdf",
             ),
             (
-                "Analyze the ×­7òÚ$z{-®éÜj×ÒÀ¢ ¢6÷VçFW&fV—E÷F‚Ò6VÆbç&ö÷Bò&6÷VçFW&fV—B×c2ç7Æ—FS2 ¢v—F‚6Æ÷6–ær‡7Æ—FS2æ6öææV7B†6÷VçFW&fV—E÷F‚’’26öææV7F–öã ¢6öÇVÖç2Ò°¢b'¶æÖWÒDU…B"²‚"$”Ô%’´U’"–bæÖRÓÒ&FV6—6–öåö–B"VÇ6R""¢f÷"æÖR–â–æFW‚å$õUDUõ$Tt•5E%•ô4ôÅTÔå0¢Ð¢6öææV7F–öâæW†V7WFR†b$5$TDRD$ÄR&÷WFUöFV6—6–öç2‡²rÂræ¦ö–â†6öÇVÖç2—Ò’"¢6öææV7F–öâæW†V7WFR‚%$tÔW6W%÷fW'6–öâÒ2"¢6öææV7F–öâæW†V7WFR€¢$”å4U%B”åDò&÷WFUöFV6—6–öç2dÅTU2‚ ¢²"Â"æ¦ö–â‚#ò"f÷"ò–â6öÇVÖç2¢²"’"À¢GWÆR‚&§Væ²"f÷"ò–â6öÇVÖç2’À¢¢6öææV7F–öâæ6öÖÖ—B‚¢–æFW‚åö—77VU÷&÷WFUöFV6—6–öâ€¢FV6—6–öç5³5ÒÂ&Vv—7G'•÷FƒÖ6÷VçFW&fV—E÷F‚Â—77VVEöCÓ ¢¢v—F‚6Æ÷6–ær‡7Æ—FS2æ6öææV7B†6÷VçFW&fV—E÷F‚’’26öææV7F–öã ¢6VÆbæ76W'EG'VR†–æFW‚å÷&Vv—7G'•÷66†VÖö—5öW†7B†6öææV7F–öâ’¢6VÆbæ76W'DWVÂ€¢6öææV7F–öâæW†V7WFR‚%4TÄT5BFV6—6–öåö–Be$ôÒ&÷WFUöFV6—6–öç2"’æfWF6†ÆÂ‚’À¢²†FV6—6–öç5³5Õ²&FV6—6–öåö–B%ÒÂ•ÒÀ¢ ¢ÖÆf÷&ÖVE÷F‚Ò6VÆbç&ö÷Bò&ÖÆf÷&ÖVB×&÷rç7Æ—FS2 ¢–æFW‚åö—77VU÷&÷WFUöFV6—6–öâ€¢FV6—6–öç5³ÒÂ&Vv—7G'•÷FƒÖÖÆf÷&ÖVE÷F‚Â—77VVEöCÓ ¢¢v—F‚6Æ÷6–ær‡7Æ—FS2æ6öææV7B†ÖÆf÷&ÖVE÷F‚’’26öææV7F–öã ¢6öææV7F–öâæW†V7WFR‚%$tÔ–væ÷&Uö6†V6µö6öç7G&–çG2Òôâ"¢6öææV7F–öâæW†V7WFR€¢%UDDR&÷WFUöFV6—6–öç24UB—77VVEöBÒòt„U$RFV6—6–öåö–BÒò"À¢‚&æ÷BÖâÖ–çFVvW""ÂFV6—6–öç5³Õ²&FV6—6–öåö–B%Ò’À¢¢6öææV7F–öâæ6öÖÖ—B‚¢6VÆbæ76W'DWVÂ€¢6VÆbå÷fW&–g•÷v—F…ö7W'&VçEöWF†÷&—G’€¢FV6—6–öç5³ÒÂ&Vv—7G'•÷FƒÖÖÆf÷&ÖVE÷F‚Âæ÷sÓ ¢•²'7FGW2%ÒÀ¢'&Vv—7G'•öW'&÷""À¢ ¢FVbFW7E÷v÷&¶W%öæVvF–öåöæEövVæW&–5÷66÷Uöf–Åö6Æ÷6VB‡6VÆb’ÓâæöæS ¢6VÆbæ76W'EG'VR†–æFW‚å÷&ö×EöæVvFW5öç’‚$Fòæ÷BW6RFW'&"Â²'FW'&%Ò’¢6VÆbæ76W'DfÇ6R†–æFW‚å÷&ö×EöæVvFW5öç’‚%W6RFW'&"Â²'FW'&%Ò’¢v—F‚Öö6²çF6‚æö&¦V7B†–æFW‚Â%$ô¤T5Eõ4õU$4Uõ44õU2"Â²&vVæW&–2#¢µ×Ò“ ¢66÷W2ÂfÆ–BÂ&V6öâÒ–æFW‚å÷7G'V7GW&VE÷6÷W&6U÷66÷W2€¢°¢'6÷W&6UöæVVB#¢&–æFW‚"À¢'&WVW7FVE÷6÷W&6U÷66÷W2#¢²'6×ÆU÷&ö¦V7B%ÒÀ¢ÒÀ¢&vVæW&–2"À¢¢6VÆbæ76W'DWVÂ‡66÷W2ÂµÒ¢6VÆbæ76W'DfÇ6R‡fÆ–B¢6VÆbæ76W'DWVÂ‡&V6öâÂ%4õU$4Uõ44õUõTäUD„õ$•¤TB" ¢FVbFW7E÷v÷&¶W%öFÖ—76–öå÷&WV—&W5ööæUöW†7Eö6ö×ÆWFU÷F6µövFU÷GWÆR‡6VÆb’ÓâæöæS ¢6VÆbåöVæ&ÆUöÆö6ÅövFWv’‚¢öÆ–7’Ò–æFW‚æÆöE÷&÷WF–æu÷öÆ–7’‡6VÆbçöÆ–7•÷F‚¢Öæ–fW7BÒ7–çF†WF–5öÖæ–fW7B‡öÆ–7’Â&Ö7¦6öFW‚×7F&–Æ—G’ÖvFWv’"¢6Æ76–f–6F–öâÒ6ö×ÆWFUö6Æ76–f–6F–öâ€¢&Æö6Åö6öF–æuöVÆ–v–&ÆR"À¢&fö7W6VEö6öF–æuö76—7Fæ6R"À¢&Æö6Å÷7W÷'E÷&WV—&VB"À¢v÷&¶W%öfÖ–Ç“Ò&Æö6ÅövVçE÷7F6²"À¢¢F6µö–çWBÒ6ö×ÆWFU÷F6µö–çWB€¢&&÷VæFVB6öFRvVæW&F–öâ"À¢&WVW7Eö–CÒ&6ö×ÆWFRÖÆö6Â×F6²ÖvFR"À¢v÷&¶W%öfÖ–Ç“Ò&Æö6ÅövVçE÷7F6²"À¢¢–æ6ö×ÆWFRÒ6÷’æFVW6÷’†6Æ76–f–6F–öâ¢–æ6ö×ÆWFRç÷‚'W'6—7FVæ6Uö–çFVçB" ¢v—F‚Öö6²çF6‚æö&¦V7B†–æFW‚Â%öVçG'•ö†6…ö7W'&VçB"Â&WGW&å÷fÇVSÕG'VR“ ¢FÖ—GFVBÒ–æFW‚ç&W6öÇfU÷&÷WFR€¢&&÷VæFVB6öFRvVæW&F–öâ"À¢Öæ–fW7CÖÖæ–fW7BÀ¢öÆ–7“×öÆ–7’À¢6Æ76–f–6F–öãÖ6Æ76–f–6F–öâÀ¢F6µö–çWC×F6µö–çWBÀ¢¢&V¦V7FVBÒ–æFW‚ç&W6öÇfU÷&÷WFR€¢&&÷VæFVB6öFRvVæW&F–öâ"À¢Öæ–fW7CÖÖæ–fW7BÀ¢öÆ–7“×öÆ–7’À¢6Æ76–f–6F–öãÖ–æ6ö×ÆWFRÀ¢F6µö–çWC×²¢§F6µö–çWBÂ&W†V7WF–öå÷&WVW7Eö–B#¢&–æ6ö×ÆWFR×F6²ÖvFR'ÒÀ¢ ¢6VÆbæ76W'EG'VR†FÖ—GFVE²&Æö6ÅöW†V7WF–öâ%Õ²&FÖ—GFVB%Ò¢6VÆbæ76W'DWVÂ€¢·v÷&¶W%²'&öÆR%Òf÷"v÷&¶W"–âFÖ—GFVE²'7W÷'E÷v÷&¶W'2%ÕÒÀ¢²&6öF–ær"Â&7&—F–2%ÒÀ¢¢6VÆbæ76W'DWVÂ†FÖ—GFVE²'F6µö–çWEöÖöFR%ÒÂ&6ö×ÆWFR"¢6VÆbæ76W'DWVÂ†FÖ—GFVE²&—77Væ6R%Õ²'7FGW2%ÒÂ'&Vv—7FW&VB"¢ÖF6†–æuöÖæ–fW7BÒ°¢&g&W6†æW75÷7FGW2#¢&g&W6‚"À¢'6÷W&6Uö†6†W5÷fW&–f–VB#¢G'VRÀ¢&WF†÷&—G•÷6†#Sb#¢FÖ—GFVE²&Öæ–fW7EöWF†÷&—G•÷6†#Sb%ÒÀ¢Ð¢ÖF6†–æu÷öÆ–7’Ò°¢&WF†÷&—G•÷6†#Sb#¢FÖ—GFVE²'öÆ–7•öWF†÷&—G•÷6†#Sb%ÒÀ¢Ð¢v—F‚Öö6²çF6‚æö&¦V7B€¢–æFW‚Â&ÆöEö7F—fUö6&–Æ—F–W2"Â&WGW&å÷fÇVSÖÖF6†–æuöÖæ–fW7@¢’ÂÖö6²çF6‚æö&¦V7B†–æFW‚Â&ÆöE÷&÷WF–æu÷öÆ–7’"Â&WGW&å÷fÇVSÖÖF6†–æu÷öÆ–7’“ ¢6VÆbæ76W'EG'VR€¢–æFW‚å÷&÷WFUöW†V7WF–öå÷&VG•÷v—F…÷'VçF–ÖR€¢FÖ—GFVBÀ¢F6µ÷FW‡C×F6µö–çWE²&–ç7G'V7F–öâ%ÒÀ¢F6µö–çWC×F6µö–çWBÀ¢&Vv—7G'•÷Fƒ×6VÆbç&Vv—7G'’À¢¢¢6VÆbæ76W'DfÇ6R†–æFW‚ç&÷WFUöW†V7WF–öå÷&VG’†FÖ—GFVB’¢w&öæuö–çWBÒ²¢§F6µö–çWBÂ&W†V7WF–öå÷&WVW7Eö–B#¢&F–ffW&VçB×&WVW7B'Ð¢6VÆbæ76W'DfÇ6R€¢–æFW‚å÷&÷WFUöW†V7WF–öå÷&VG•÷v—F…÷'VçF–ÖR€¢FÖ—GFVBÀ¢F6µ÷FW‡C×F6µö–çWE²&–ç7G'V7F–öâ%ÒÀ¢F6µö–çWC×w&öæuö–çWBÀ¢&Vv—7G'•÷Fƒ×6VÆbç&Vv—7G'’À¢¢¢F×W&VBÒ6÷’æFVW6÷’†FÖ—GFVB¢F×W&VE²&FV6—6–öåöF–vW7B%ÒÒ#"¢c@¢6VÆbæ76W'DfÇ6R€¢–æFW‚å÷&÷WFUöW†V7WF–öå÷&VG•÷v—F…÷'VçF–ÖR€¢F×W&VBÀ¢F6µ÷FW‡C×F6µö–çWE²&–ç7G'V7F–öâ%ÒÀ¢F6µö–çWC×F6µö–çWBÀ¢&Vv—7G'•÷Fƒ×6VÆbç&Vv—7G'’À¢¢¢V×G•öWF†÷&—G’Ò6÷’æFVW6÷’†FÖ—GFVB¢V×G•öWF†÷&—G•²&Öæ–fW7EöWF†÷&—G•÷6†#Sb%ÒÒ" ¢V×G•öWF†÷&—G•²&FV6—6–öåö–B%ÒÒ" ¢V×G•öWF†÷&—G•²&FV6—6–öåöF–vW7B%ÒÒ" ¢V×G•öF–vW7BÒ–æFW‚åöFV6—6–öåöF–vW7B†V×G•öWF†÷&—G’¢V×G•öWF†÷&—G•²&FV6—6–öåö–B%ÒÒV×G•öF–vW7@¢V×G•öWF†÷&—G•²&FV6—6–öåöF–vW7B%ÒÒV×G•öF–vW7@¢v—F‚6VÆbæ76W'E&—6W5&VvW‚€¢–æFW‚ä6&–Æ—G”FFW'&÷"Â'66†VÖfÆ–FF–öâf–ÆVB ¢“ ¢–æFW‚çfÆ–FFU÷&÷WFUöFV6—6–öâ†V×G•öWF†÷&—G’¢6æöæ–6Å÷&Vv—7G'’Ò–æFW‚å$õUDUôDT4•4”ôåõ$Tt•5E%•õD€¢v—F‚Öö6²çF6‚æö&¦V7B€¢–æFW‚Â%$õUDUôDT4•4”ôåõ$Tt•5E%•õD‚"Â6VÆbç&ö÷Bò&Ö—76–ærÖ6æöæ–6Âç7Æ—FS2 ¢“ ¢6VÆbæ76W'DfÇ6R€¢–æFW‚ç&÷WFUöW†V7WF–öå÷&VG’€¢FÖ—GFVBÀ¢F6µ÷FW‡C×F6µö–çWE²&–ç7G'V7F–öâ%ÒÀ¢F6µö–çWC×F6µö–çWBÀ¢¢¢6VÆbæ76W'DWVÂ†–æFW‚å$õUDUôDT4•4”ôåõ$Tt•5E%•õD‚Â6æöæ–6Å÷&Vv—7G'’¢6VÆbæ76W'DfÇ6R‡&V¦V7FVE²&Æö6ÅöW†V7WF–öâ%Õ²&FÖ—GFVB%Ò¢6VÆbæ76W'DWVÂ‡&V¦V7FVE²'7W÷'E÷v÷&¶W'2%ÒÂµÒ¢6VÆbæ76W'D–â‚%tõ$´U%õD4µôtDUõEUÄUô”ådÄ”B"Â&V¦V7FVE²'&V6öåö6öFW2%Ò ¢FVbFW7EöÆö6Åö–ç7G'V7F–öå÷6—¦Uö&÷VæF'•÷&WGW&ç5ööæÇ•ö÷fW'6—¦U÷Fõö6öFW‚€¢6VÆbÀ¢’ÓâæöæS ¢6VÆbåöVæ&ÆUöÆö6ÅövFWv’‚¢öÆ–7’Ò–æFW‚æÆöE÷&÷WF–æu÷öÆ–7’‡6VÆbçöÆ–7•÷F‚¢Öæ–fW7BÒ7–çF†WF–5öÖæ–fW7B‡öÆ–7’Â&Ö7¦6öFW‚×7F&–Æ—G’ÖvFWv’"¢6Æ76–f–6F–öâÒ6ö×ÆWFUö6Æ76–f–6F–öâ€¢&Æö6Åö6öF–æuöVÆ–v–&ÆR"À¢&fö7W6VEö6öF–æuö76—7Fæ6R"À¢&Æö6Å÷7W÷'E÷&WV—&VB"À¢v÷&¶W%öfÖ–Ç“Ò&Æö6ÅövVçE÷7F6²"À¢¢66WFVEö–ç7G'V7F–öâÒ'‚"¢–æFW‚äÔ…ôÄô4Åô”å5E%T5D”ôåô4„$5DU%0¢&V¦V7FVEö–ç7G'V7F–öâÒ66WFVEö–ç7G'V7F–öâ²'’  ¢v—F‚Öö6²çF6‚æö&¦V7B†–æFW‚Â%öVçG'•ö†6…ö7W'&VçB"Â&WGW&å÷fÇVSÕG'VR“ ¢66WFVBÒ–æFW‚ç&W6öÇfU÷&÷WFR€¢66WFVEö–ç7G'V7F–öâÀ¢Öæ–fW7CÖÖæ–fW7BÀ¢öÆ–7“×öÆ–7’À¢6Æ76–f–6F–öãÖ6Æ76–f–6F–öâÀ¢F6µö–çWCÖ6ö×ÆWFU÷F6µö–çWB€¢66WFVEö–ç7G'V7F–öâÀ¢&WVW7Eö–CÒ&Æö6Â×6—¦RÖ66WFVB"À¢v÷&¶W%öfÖ–Ç“Ò&Æö6ÅövVçE÷7F6²"À¢’À¢¢&V¦V7FVBÒ–æFW‚ç&W6öÇfU÷&÷WFR€¢&V¦V7FVEö–ç7G'V7F–öâÀ¢Öæ–fW7CÖÖæ–fW7BÀ¢öÆ–7“×öÆ–7’À¢6Æ76–f–6F–öãÖ6Æ76–f–6F–öâÀ¢F6µö–çWCÖ6ö×ÆWFU÷F6µö–çWB€¢&V¦V7FVEö–ç7G'V7F–öâÀ¢&WVW7Eö–CÒ&Æö6Â×6—¦R×&V¦V7FVB"À¢v÷&¶W%öfÖ–Ç“Ò&Æö6ÅövVçE÷7F6²"À¢’À¢ ¢6VÆbæ76W'EG'VR†66WFVE²&Æö6ÅöW†V7WF–öâ%Õ²&FÖ—GFVB%Ò¢6VÆbæ76W'Dæ÷D–â€¢$Äô4Åô”åUEõDôõôÄ$tUõ$UEU$äTEõDõô4ôDU‚"Â66WFVE²'&V6öåö6öFW2%Ð¢¢6VÆbæ76W'DfÇ6R‡&V¦V7FVE²&Æö6ÅöW†V7WF–öâ%Õ²&FÖ—GFVB%Ò¢6VÆbæ76W'DWVÂ‡&V¦V7FVE²'7W÷'E÷v÷&¶W'2%ÒÂµÒ¢6VÆbæ76W'D–â€¢$Äô4Åô”åUEõDôõôÄ$tUõ$UEU$äTEõDõô4ôDU‚"Â&V¦V7FVE²'&V6öåö6öFW2%Ð¢¢6VÆbæ76W'DWVÂ‡&V¦V7FVE²&W†V7WF–öåö÷væW"%ÒÂ&6öFW…÷&VçB" ¢FVbFW7E÷&ö×Eö†ööµöæõöÖF6…öæEöÖÆf÷&ÖVE÷öÆ–7•÷7F•ö6öç6W'fF—fR‡6VÆb’ÓâæöæS ¢†öö²Ò%TåD”ÔUõ$ôõBò'W6W%÷&ö×E÷6¶–ÆÅ÷&÷WFW"ç’ ¢fÆ–E÷öÆ–7’Ò6VÆbçöÆ–7•÷F‚ç&VE÷FW‡B†Væ6öF–æsÒ'WFbÓ‚"¢VçbÒ÷2æVçf—&öâæ6÷’‚¢VçbçWFFR€¢°¢%•D„ôäDôåEu$•DT%•DT4ôDR#¢#"À¢$4ôDU…ô„ôÔR#¢7G"‡6VÆbæ6öFW…ö†öÖR’À¢$4ôDU…ô4$”Ä•E•õ$õUD”äuôD•"#¢7G"‡6VÆbç&÷WF–æuöF—"’À¢$4ôDU…ô5D•dUô4$”Ä•D”U5õD‚#¢7G"‡6VÆbæÖæ–fW7E÷F‚’À¢$4ôDU…õ$õUD”äuõôÄ”5•õD‚#¢7G"‡6VÆbçöÆ–7•÷F‚’À¢$4ôDU…ô4ôäd”uõD‚#¢7G"‡6VÆbæ6öæf–u÷F‚’À¢$4ôDU…õ$õUDUôDT4•4”ôåõ44„TÔõD‚#¢7G"‡6VÆbç66†VÖ÷F‚’À¢$4ôDU…õ$õUDUôDT4•4”ôåõ$Tt•5E%•õD‚#¢7G"‡6VÆbç&Vv—7G'’’À¢$4ôDU…õ$ô¤T5Eõ44õUôÔõD‚#¢7G"‡6VÆbç&ö¦V7EöÖ÷F‚’À¢Ð¢ ¢f÷"Æ&VÂÂöÆ–7•÷FW‡B–â€¢‚&æòÖÖF6‚"ÂfÆ–E÷öÆ–7’’À¢‚&ÖÆf÷&ÖVB×öÆ–7’"Â'¶æ÷BfÆ–B§6öâ"’À¢“ ¢6VÆbçöÆ–7•÷F‚çw&—FU÷FW‡B‡öÆ–7•÷FW‡BÂVæ6öF–æsÒ'WFbÓ‚"¢6ö×ÆWFVBÒ7V'&ö6W72ç'Vâ€¢·7—2æW†V7WF&ÆRÂ"Ô""Â7G"††öö²•ÒÀ¢–çWCÖ§6öâæGV×2‡²'&ö×B#¢'7–çF†WF–2VæÖF6†VB&WVW7B'Ò’À¢FW‡CÕG'VRÀ¢6GW&Uö÷WGWCÕG'VRÀ¢VçcÖVçbÀ¢6†V6³ÔfÇ6RÀ¢¢v—F‚6VÆbç7V%FW7B†Æ&VÃÖÆ&VÂ“ ¢6VÆbæ76W'DWVÂ†6ö×ÆWFVBç&WGW&æ6öFRÂÂ6ö×ÆWFVBç7FFW'"¢–ÆöBÒ§6öâæÆöG2†6ö×ÆWFVBç7FF÷WB¢†ööµö÷WGWBÒ–ÆöE²&†ööµ7V6–f–4÷WGWB%Ð¢6VÆbæ76W'DWVÂ††ööµö÷WGWE²&†öö´WfVçDæÖR%ÒÂ%W6W%&ö×E7V&Ö—B"¢Ö&¶W"Ò%$õUDUôDT4•4”ôåô¥4ôãÒ ¢6VÆbæ76W'D–â†Ö&¶W"Â†ööµö÷WGWE²&FF—F–öæÄ6öçFW‡B%Ò¢FV6—6–öâÒ§6öâæÆöG2€¢†ööµö÷WGWE²&FF—F–öæÄ6öçFW‡B%Òç7Æ—B†Ö&¶W"Â•³Ð¢¢6VÆbæ76W'DWVÂ€¢FV6—6–öå²'F6µö–çWEöÖöFR%ÒÂ&6öç6W'fF—fUö–ç7G'V7F–öåööæÇ’ ¢¢6VÆbæ76W'DWVÂ†FV6—6–öå²&W†V7WF–öåö÷væW"%ÒÂ&6öFW…÷&VçB"¢6VÆbæ76W'DWVÂ†FV6—6–öå²'7W÷'E÷v÷&¶W'2%ÒÂµÒ¢6VÆbæ76W'DfÇ6R†FV6—6–öå²&Æö6ÅöW†V7WF–öâ%Õ²&FÖ—GFVB%Ò ¢6VÆbçöÆ–7•÷F‚çw&—FU÷FW‡B‡fÆ–E÷öÆ–7’ÂVæ6öF–æsÒ'WFbÓ‚" ¢FVbFW7E÷&VfW&Væ6U÷'VçF–ÖUö—5öæWfW%ö–ç7FÆÆVEö÷%ö7F—fFVB‡6VÆb’ÓâæöæS ¢6²Ò§6öâæÆöG2‚…$Uõõ$ôõBò'6²æÖæ–fW7Bæ§6öâ"’ç&VE÷FW‡B‚'WFbÓ‚"’¢6W&–Æ—¦VBÒ§6öâæGV×2‡6²’æÆ÷vW"‚¢6VÆbæ76W'Dæ÷D–â‚'&VfW&Væ6R×'VçF–ÖR"Â6W&–Æ—¦VB¢6VÆbæ76W'Dæ÷D–â‚&†öö·2ö6&–Æ—G’×&÷WFW""Â6W&–Æ—¦VB¢6VÆbæ76W'Dæ÷D–â‚&6&–Æ—G•÷&Vg&W6…ö6Æ’"Â6W&–Æ—¦VB¢†öö·2Ò$Uõõ$ôõBò&†öö·2æ§6öâ ¢–b†öö·2æW†—7G2‚“ ¢6VÆbæ76W'Dæ÷D–â€¢'&VfW&Væ6R×'VçF–ÖR"Â†öö·2ç&VE÷FW‡B‚'WFbÓ‚"ÂW'&÷'3Ò'&WÆ6R"’æÆ÷vW"‚¢ ¢FVbFW7Eö6•ö–ç7FÆÇ5÷F†UöW†7E÷&÷WFW%÷FW7EöFWVæFVæ7’‡6VÆb’ÓâæöæS ¢&WV—&VÖVçG2Ò€¢$Uõõ$ôõBò&6&–Æ—G’×&÷WF–ær"ò'&WV—&VÖVçG2×FW7BçG‡B ¢’ç&VE÷FW‡B†Væ6öF–æsÒ'WFbÓ‚"¢6VÆbæ76W'DWVÂ‡&WV—&VÖVçG2Â&§6öç66†VÖÓÓBã#bãÆâ"¢v÷&¶fÆ÷rÒ€¢$Uõõ$ôõBò"æv—F‡V""ò'v÷&¶fÆ÷w2"ò'fÆ–FFRç–ÖÂ ¢’ç&VE÷FW‡B†Væ6öF–æsÒ'WFbÓ‚"¢–ç7FÆÅö6öÖÖæBÒ€¢'—F†öâÖÒ—–ç7FÆÂ×"6&–Æ—G’×&÷WF–ær÷&WV—&VÖVçG2×FW7BçG‡B ¢¢6VÆbæ76W'DWVÂ‡v÷&¶fÆ÷ræ6÷VçB†–ç7FÆÅö6öÖÖæB’Â"¢–ç7FÆÅö'VæFÆRÒ§6öâæÆöG2€¢…$Uõõ$ôõBò&–ç7FÆÂÖ'VæFÆRæÖæ–fW7Bæ§6öâ"’ç&VE÷FW‡B†Væ6öF–æsÒ'WFbÓ‚"¢¢6VÆbæ76W'Dæ÷D–â€¢&6&–Æ—G’×&÷WF–ær÷&WV—&VÖVçG2×FW7BçG‡B"À¢¶VçG'•²'F‚%Òf÷"VçG'’–â–ç7FÆÅö'VæFÆU²&VçG&–W2%×ÒÀ¢¢6¶vU÷67&—BÒ…$Uõõ$ôõBò'67&—G2"ò'6¶vRç3"’ç&VE÷FW‡B€¢Væ6öF–æsÒ'WFbÓ‚ ¢¢6VÆbæ76W'D–â€¢r&6&–Æ—G’×&÷WF–ær÷&WV—&VÖVçG2×FW7BçG‡B"rÂ6¶vU÷67&—@¢ ¢FVbFW7Eö6Æ•ö66WG5÷7FF–åöæEöVçf—&öæÖVçE÷F…ö÷fW'&–FW5÷v—F†÷WEöÆ—fU÷7FFR‡6VÆb’ÓâæöæS ¢VçbÒ÷2æVçf—&öâæ6÷’‚¢6Æ•÷&ö÷BÒ6VÆbç&ö÷Bò&6Æ’ ¢VçbçWFFR€¢°¢$4ôDU…ô„ôÔR#¢7G"†6Æ•÷&ö÷B’À¢$4ôDU…ô4$”Ä•E•õ$õUD”äuôD•"#¢7G"†6Æ•÷&ö÷Bò'&÷WF–ær"’À¢$4ôDU…ô5D•dUô4$”Ä•D”U5õD‚#¢7G"†6Æ•÷&ö÷Bò&Ö—76–æræ§6öâ"’À¢$4ôDU…õ$õUD”äuõôÄ”5•õD‚#¢7G"…$õUD”äuõ$ôõBò'&÷WF–ær×öÆ–7’ç–ÖÂ"’À¢$4ôDU…ô4ôäd”uõD‚#¢7G"†6Æ•÷&ö÷Bò&6öæf–rçFöÖÂ"’À¢$4ôDU…õ$õUDUôDT4•4”ôåõ44„TÔõD‚#¢7G"€¢$õUD”äuõ$ôõBò'&÷WFRÖFV6—6–öâç66†VÖæ§6öâ ¢’À¢$4ôDU…õ$õUDUôDT4•4”ôåõ$Tt•5E%•õD‚#¢7G"†6Æ•÷&ö÷Bò'&÷WFW2ç7Æ—FS2"’À¢$4ôDU…õ$ô¤T5Eõ44õUôÔõD‚#¢7G"†6Æ•÷&ö÷Bò'&ö¦V7BÖÖæ§6öâ"’À¢Ð¢¢6Æ’Ò%TåD”ÔUõ$ôõBò&6&–Æ—G•ö–æFW…ö6Æ’ç’ ¢&W7VÇBÒ7V'&ö6W72ç'Vâ€¢·7—2æW†V7WF&ÆRÂ"Ô""Â7G"†6Æ’’Â"Ò×VW'’"Â'‚"Â"Ò×F6²Ö–çWBÖ§6öâ"Â"Ò%ÒÀ¢–çWCÒ%µÒ"À¢FW‡CÕG'VRÀ¢6GW&Uö÷WGWCÕG'VRÀ¢VçcÖVçbÀ¢6†V6³ÔfÇ6RÀ¢¢6VÆbæ76W'DWVÂ‡&W7VÇBç&WGW&æ6öFRÂ"¢6VÆbæ76W'DWVÂ†§6öâæÆöG2‡&W7VÇBç7FF÷WB•²'7FGW2%ÒÂ'F6µö–çWEö–çfÆ–B"¢6VÆbæ76W'DfÇ6R‚†6Æ•÷&ö÷Bò'&÷WFW2ç7Æ—FS2"’æW†—7G2‚’  ¦–bõöæÖUõòÓÒ%õöÖ–åõò# ¢Væ—GFW7BæÖ–â‚
+                "Analyze the ×­7îÚ$z{-®éÜj×)],
+        )
+
+        counterfeit_path = self.root / "counterfeit-v3.sqlite3"
+        with closing(sqlite3.connect(counterfeit_path)) as connection:
+            columns = [
+                f"{name} TEXT" + (" PRIMARY KEY" if name == "decision_id" else "")
+                for name in index.ROUTE_REGISTRY_COLUMNS
+            ]
+            connection.execute(f"CREATE TABLE route_decisions ({','.join(columns)})")
+            connection.execute("PRAGMA user_version = 3")
+            connection.execute(
+                "INSERT INTO route_decisions VALUES ("
+                + ",".join("?" for _ in columns)
+                + ")",
+                tuple("junk" for _ in columns),
+            )
+            connection.commit()
+        index._issue_route_decision(
+            decisions[3], registry_path=counterfeit_path, issued_at=1000
+        )
+        with closing(sqlite3.connect(counterfeit_path)) as connection:
+            self.assertTrue(index._registry_schema_is_exact(connection))
+            self.assertEqual(
+                connection.execute("SELECT decision_id FROM route_decisions").fetchall(),
+                [(decisions[3]["decision_id"],)],
+            )
+
+        malformed_path = self.root / "malformed-row.sqlite3"
+        index._issue_route_decision(
+            decisions[0], registry_path=malformed_path, issued_at=1000
+        )
+        with closing(sqlite3.connect(malformed_path)) as connection:
+            connection.execute("PRAGMA ignore_check_constraints = ON")
+            connection.execute(
+                "UPDATE route_decisions SET issued_at = ? WHERE decision_id = ?",
+                ("not-an-integer", decisions[0]["decision_id"]),
+            )
+            connection.commit()
+        self.assertEqual(
+            self._verify_with_current_authority(
+                decisions[0], registry_path=malformed_path, now=1000
+            )["status"],
+            "registry_error",
+        )
+
+    def test_worker_negation_and_generic_scope_fail_closed(self) -> None:
+        self.assertTrue(index._prompt_negates_any("Do not use Terra", ["terra"]))
+        self.assertFalse(index._prompt_negates_any("Use Terra", ["terra"]))
+        with mock.patch.object(index, "PROJECT_SOURCE_SCOPES", {"generic": []}):
+            scopes, valid, reason = index._structured_source_scopes(
+                {
+                    "source_need": "index",
+                    "requested_source_scopes": ["sample_project"],
+                },
+                "generic",
+            )
+        self.assertEqual(scopes, [])
+        self.assertFalse(valid)
+        self.assertEqual(reason, "SOURCE_SCOPE_UNAUTHORIZED")
+
+    def test_worker_admission_requires_one_exact_complete_task_gate_tuple(self) -> None:
+        self._enable_local_gateway()
+        policy = index.load_routing_policy(self.policy_path)
+        manifest = synthetic_manifest(policy, "mcp:codex-stability-gateway")
+        classification = complete_classification(
+            "local_coding_eligible",
+            "focused_coding_assistance",
+            "local_support_required",
+            worker_family="local_agent_stack",
+        )
+        task_input = complete_task_input(
+            "bounded code generation",
+            request_id="complete-local-task-gate",
+            worker_family="local_agent_stack",
+        )
+        incomplete = copy.deepcopy(classification)
+        incomplete.pop("persistence_intent")
+
+        with mock.patch.object(index, "_entry_hash_current", return_value=True):
+            admitted = index.resolve_route(
+                "bounded code generation",
+                manifest=manifest,
+                policy=policy,
+                classification=classification,
+                task_input=task_input,
+            )
+            rejected = index.resolve_route(
+                "bounded code generation",
+                manifest=manifest,
+                policy=policy,
+                classification=incomplete,
+                task_input={**task_input, "execution_request_id": "incomplete-task-gate"},
+            )
+
+        self.assertTrue(admitted["local_execution"]["admitted"])
+        self.assertEqual(
+            [worker["role"] for worker in admitted["support_workers"]],
+            ["coding", "critic"],
+        )
+        self.assertEqual(admitted["task_input_mode"], "complete")
+        self.assertEqual(admitted["issuance"]["status"], "registered")
+        matching_manifest = {
+            "freshness_status": "fresh",
+            "source_hashes_verified": True,
+            "authority_sha256": admitted["manifest_authority_sha256"],
+        }
+        matching_policy = {
+            "authority_sha256": admitted["policy_authority_sha256"],
+        }
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=matching_manifest
+        ), mock.patch.object(index, "load_routing_policy", return_value=matching_policy):
+            self.assertTrue(
+                index._route_execution_ready_with_runtime(
+                    admitted,
+                    task_text=task_input["instruction"],
+                    task_input=task_input,
+                    registry_path=self.registry,
+                )
+            )
+            self.assertFalse(index.route_execution_ready(admitted))
+            wrong_input = {**task_input, "execution_request_id": "different-request"}
+            self.assertFalse(
+                index._route_execution_ready_with_runtime(
+                    admitted,
+                    task_text=task_input["instruction"],
+                    task_input=wrong_input,
+                    registry_path=self.registry,
+                )
+            )
+            tampered = copy.deepcopy(admitted)
+            tampered["decision_digest"] = "0" * 64
+            self.assertFalse(
+                index._route_execution_ready_with_runtime(
+                    tampered,
+                    task_text=task_input["instruction"],
+                    task_input=task_input,
+                    registry_path=self.registry,
+                )
+            )
+            empty_authority = copy.deepcopy(admitted)
+            empty_authority["manifest_authority_sha256"] = ""
+            empty_authority["decision_id"] = ""
+            empty_authority["decision_digest"] = ""
+            empty_digest = index._decision_digest(empty_authority)
+            empty_authority["decision_id"] = empty_digest
+            empty_authority["decision_digest"] = empty_digest
+            with self.assertRaisesRegex(
+                index.CapabilityDataError, "schema validation failed"
+            ):
+                index.validate_route_decision(empty_authority)
+            canonical_registry = index.ROUTE_DECISION_REGISTRY_PATH
+            with mock.patch.object(
+                index, "ROUTE_DECISION_REGISTRY_PATH", self.root / "missing-canonical.sqlite3"
+            ):
+                self.assertFalse(
+                    index.route_execution_ready(
+                        admitted,
+                        task_text=task_input["instruction"],
+                        task_input=task_input,
+                    )
+                )
+            self.assertEqual(index.ROUTE_DECISION_REGISTRY_PATH, canonical_registry)
+        self.assertFalse(rejected["local_execution"]["admitted"])
+        self.assertEqual(rejected["support_workers"], [])
+        self.assertIn("WORKER_TASK_GATE_TUPLE_INVALID", rejected["reason_codes"])
+
+    def test_local_instruction_size_boundary_returns_only_oversize_to_codex(
+        self,
+    ) -> None:
+        self._enable_local_gateway()
+        policy = index.load_routing_policy(self.policy_path)
+        manifest = synthetic_manifest(policy, "mcp:codex-stability-gateway")
+        classification = complete_classification(
+            "local_coding_eligible",
+            "focused_coding_assistance",
+            "local_support_required",
+            worker_family="local_agent_stack",
+        )
+        accepted_instruction = "x" * index.MAX_LOCAL_INSTRUCTION_CHARACTERS
+        rejected_instruction = accepted_instruction + "y"
+
+        with mock.patch.object(index, "_entry_hash_current", return_value=True):
+            accepted = index.resolve_route(
+                accepted_instruction,
+                manifest=manifest,
+                policy=policy,
+                classification=classification,
+                task_input=complete_task_input(
+                    accepted_instruction,
+                    request_id="local-size-accepted",
+                    worker_family="local_agent_stack",
+                ),
+            )
+            rejected = index.resolve_route(
+                rejected_instruction,
+                manifest=manifest,
+                policy=policy,
+                classification=classification,
+                task_input=complete_task_input(
+                    rejected_instruction,
+                    request_id="local-size-rejected",
+                    worker_family="local_agent_stack",
+                ),
+            )
+
+        self.assertTrue(accepted["local_execution"]["admitted"])
+        self.assertNotIn(
+            "LOCAL_INPUT_TOO_LARGE_RETURNED_TO_CODEX", accepted["reason_codes"]
+        )
+        self.assertFalse(rejected["local_execution"]["admitted"])
+        self.assertEqual(rejected["support_workers"], [])
+        self.assertIn(
+            "LOCAL_INPUT_TOO_LARGE_RETURNED_TO_CODEX", rejected["reason_codes"]
+        )
+        self.assertEqual(rejected["execution_owner"], "codex_parent")
+
+    def test_prompt_hook_no_match_and_malformed_policy_stay_conservative(self) -> None:
+        hook = RUNTIME_ROOT / "user_prompt_skill_router.py"
+        valid_policy = self.policy_path.read_text(encoding="utf-8")
+        env = os.environ.copy()
+        env.update(
+            {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "CODEX_HOME": str(self.codex_home),
+                "CODEX_CAPABILITY_ROUTING_DIR": str(self.routing_dir),
+                "CODEX_ACTIVE_CAPABILITIES_PATH": str(self.manifest_path),
+                "CODEX_ROUTING_POLICY_PATH": str(self.policy_path),
+                "CODEX_CONFIG_PATH": str(self.config_path),
+                "CODEX_ROUTE_DECISION_SCHEMA_PATH": str(self.schema_path),
+                "CODEX_ROUTE_DECISION_REGISTRY_PATH": str(self.registry),
+                "CODEX_PROJECT_SCOPE_MAP_PATH": str(self.project_map_path),
+            }
+        )
+
+        for label, policy_text in (
+            ("no-match", valid_policy),
+            ("malformed-policy", "{not valid json"),
+        ):
+            self.policy_path.write_text(policy_text, encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, "-B", str(hook)],
+                input=json.dumps({"prompt": "synthetic unmatched request"}),
+                text=True,
+                capture_output=True,
+                env=env,
+                check=False,
+            )
+            with self.subTest(label=label):
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                payload = json.loads(completed.stdout)
+                hook_output = payload["hookSpecificOutput"]
+                self.assertEqual(hook_output["hookEventName"], "UserPromptSubmit")
+                marker = "ROUTE_DECISION_JSON="
+                self.assertIn(marker, hook_output["additionalContext"])
+                decision = json.loads(
+                    hook_output["additionalContext"].split(marker, 1)[1]
+                )
+                self.assertEqual(
+                    decision["task_input_mode"], "conservative_instruction_only"
+                )
+                self.assertEqual(decision["execution_owner"], "codex_parent")
+                self.assertEqual(decision["support_workers"], [])
+                self.assertFalse(decision["local_execution"]["admitted"])
+
+        self.policy_path.write_text(valid_policy, encoding="utf-8")
+
+    def test_reference_runtime_is_never_installed_or_activated(self) -> None:
+        pack = json.loads((REPO_ROOT / "pack.manifest.json").read_text("utf-8"))
+        serialized = json.dumps(pack).lower()
+        self.assertNotIn("reference-runtime", serialized)
+        self.assertNotIn("hooks/capability-router", serialized)
+        self.assertNotIn("capability_refresh_cli", serialized)
+        hooks = REPO_ROOT / "hooks.json"
+        if hooks.exists():
+            self.assertNotIn(
+                "reference-runtime", hooks.read_text("utf-8", errors="replace").lower()
+            )
+
+    def test_ci_installs_the_exact_router_test_dependency(self) -> None:
+        requirements = (
+            REPO_ROOT / "capability-routing" / "requirements-test.txt"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(requirements, "jsonschema==4.26.0\n")
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "validate.yml"
+        ).read_text(encoding="utf-8")
+        install_command = (
+            "python -m pip install -r capability-routing/requirements-test.txt"
+        )
+        self.assertEqual(workflow.count(install_command), 2)
+        install_bundle = json.loads(
+            (REPO_ROOT / "install-bundle.manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertNotIn(
+            "capability-routing/requirements-test.txt",
+            {entry["path"] for entry in install_bundle["entries"]},
+        )
+        package_script = (REPO_ROOT / "scripts" / "package.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            '"capability-routing/requirements-test.txt"', package_script
+        )
+
+    def test_cli_accepts_stdin_and_environment_path_overrides_without_live_state(self) -> None:
+        env = os.environ.copy()
+        cli_root = self.root / "cli"
+        env.update(
+            {
+                "CODEX_HOME": str(cli_root),
+                "CODEX_CAPABILITY_ROUTING_DIR": str(cli_root / "routing"),
+                "CODEX_ACTIVE_CAPABILITIES_PATH": str(cli_root / "missing.json"),
+                "CODEX_ROUTING_POLICY_PATH": str(ROUTING_ROOT / "routing-policy.yaml"),
+                "CODEX_CONFIG_PATH": str(cli_root / "config.toml"),
+                "CODEX_ROUTE_DECISION_SCHEMA_PATH": str(
+                    ROUTING_ROOT / "route-decision.schema.json"
+                ),
+                "CODEX_ROUTE_DECISION_REGISTRY_PATH": str(cli_root / "routes.sqlite3"),
+                "CODEX_PROJECT_SCOPE_MAP_PATH": str(cli_root / "project-map.json"),
+            }
+        )
+        cli = RUNTIME_ROOT / "capability_index_cli.py"
+        result = subprocess.run(
+            [sys.executable, "-B", str(cli), "--query", "x", "--task-input-json", "-"],
+            input="[]",
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stdout)["status"], "task_input_invalid")
+        self.assertFalse((cli_root / "routes.sqlite3").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

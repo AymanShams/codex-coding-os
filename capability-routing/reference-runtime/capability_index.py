@@ -442,4 +442,408 @@ def _source_hash_path(name: str) -> Path | None:
         "capability_manifest_recovery.py": CODEX_HOME
         / "hooks"
         / "capability_manifest_recovery.py",
-        "capability_index_session_start.py": COïÍ8ÒÚ$z{-®éÜj×6µ²'&V6öåö6öFR%ÒÀ¢Ð¢¢6&–Æ—G•öfÆÆ&6µ÷&V6öç2æW‡FVæB€¢°¢$4$”Ä•E•ôDUTäDTä5•ôdÄÄ$4²"À¢FWVæFVæ7•öfÆÆ&6µ²'&V6öåö6öFR%ÒÀ¢Ð¢¢–bfÆÆ&6µ÷&VfW&Væ6RæBæ÷BfÆÆ&6µ÷W6&ÆS ¢6&–Æ—G•öfÆÆ&6µ÷&V6öç2æVæB€¢$4$”Ä•E•ôdÄÄ$4µõTäd”Ä$ÄUõ$UEU$äTEõDõô4ôDU‚ ¢¢'&V° ¢–bæ÷B&–Ö'•÷W6&ÆS ¢6öçF–çVP¢6VÆV7FVE÷'VÆRÒ'VÆP¢6VÆV7FVE÷&–Ö'’Ò&–Ö'¢6VÆV7FVE÷7W÷'G2Ò÷&W6öÇfU÷7W÷'G2€¢'VÆRævWB‚'7W÷'G2"ÂµÒ’À¢&ö×C×&ö×BÀ¢&–Ö'“×&–Ö'’À¢Ö…÷7W÷'G3ÖÖ…÷7W÷'G2À¢öÆ–7“×öÆ–7’À¢'VÆS×'VÆRÀ¢'•ö–CÖ'•ö–BÀ¢'•öÆ–3Ö'•öÆ–2À¢¢'&V° ¢W†V7WF–öåöF—7÷6—F–öâÂF—7÷6—F–öåöW'&÷"Ò÷&W6öÇfUöW†V7WF–öåöF—7÷6—F–öâ€¢6Æ76–f–6F–öâÂW†7Eö–çWBÂ–çWEöÖöFP¢¢VÆ–v–&ÆU÷v÷&¶W%öfÖ–Æ–W2Ò6WB€¢W†V7WF–öåöF—7÷6—F–öå²&VÆ–v–&ÆU÷v÷&¶W%öfÖ–Æ–W2%Ð¢–bW†V7WF–öåöF—7÷6—F–öå²&ÖöFR%ÒÓÒ'v÷&¶W%÷7W÷'B ¢VÇ6RµÐ¢¢v÷&¶W%öGFV×FVBÒ÷v÷&¶W%÷'VÆUöGFV×FVB€¢&ö×EöÆ÷vW"Â6Æ76–f–6F–öâÂöÆ–7’ævWB‚'v÷&¶W%÷'VÆW2"ÂµÒ¢¢Æö6Åö÷W&F–öåöGFV×FVBÒ÷v÷&¶W%÷'VÆUöGFV×FVB€¢&ö×EöÆ÷vW"Â6Æ76–f–6F–öâÂöÆ–7’ævWB‚&Æö6ÅöW†V7WF–öå÷'VÆW2"ÂµÒ¢¢7W÷'E÷v÷&¶W'2Âv÷&¶W%÷&V6öç2Ò÷6VÆV7E÷7W÷'E÷v÷&¶W'2€¢&ö×EöÆ÷vW"À¢6Æ76–f–6F–öâÀ¢VÆ–v–&ÆU÷v÷&¶W%öfÖ–Æ–W2À¢öÆ–7’À¢'•ö–BÀ¢'•öÆ–2À¢¢F6µövFU÷v÷&¶W%öVÆ–v–&ÆRÒ&ööÂ†VÆ–v–&ÆU÷v÷&¶W%öfÖ–Æ–W2’æBÆÂ€¢÷fÆ–FFVE÷v÷&¶W%÷&öÆW2†6Æ76–f–6F–öâÂfÖ–Ç’’—2æ÷BæöæP¢f÷"fÖ–Ç’–âVÆ–v–&ÆU÷v÷&¶W%öfÖ–Æ–W0¢¢–b€¢W†V7WF–öåöF—7÷6—F–öå²&ÖöFR%ÒÓÒ'v÷&¶W%÷7W÷'B ¢æBv÷&¶W%öGFV×FV@¢æBæ÷BF6µövFU÷v÷&¶W%öVÆ–v–&ÆP¢æB%tõ$´U%õD4µôtDUõEUÄUô”ådÄ”B"æ÷B–âv÷&¶W%÷&V6öç0¢“ ¢v÷&¶W%÷&V6öç2æVæB‚%tõ$´U%ôTÄ”t”$”Ä•E•õ$UT•$TB"¢VÆ–b€¢W†V7WF–öåöF—7÷6—F–öå²&ÖöFR%ÒÓÒ&6öFW…ööæÇ’ ¢æBF—7÷6—F–öåöW'&÷"—2æöæP¢æBv÷&¶W%öGFV×FV@¢“ ¢v÷&¶W%÷&V6öç2æVæB‚$4ôDU…ôôäÅ•ôD•5õ4•D”ôâ"¢Æö6ÅöW†V7WF–öâÂÆö6Å÷&V6öç2ÒöFW&—fUöÆö6ÅöW†V7WF–öâ€¢7W÷'E÷v÷&¶W'2À¢6Æ76–f–6F–öâÀ¢W†7Eö–çWBÀ¢&ö×EöÆ÷vW"À¢öÆ–7’À¢'•ö–BÀ¢'•öÆ–2À¢¢Æö6Åö÷W&F–öåöVÆ–v–&ÆRÒ€¢÷fÆ–FFVEöÆö6Åö÷W&F–öå÷&V6—R†6Æ76–f–6F–öâÂW†7Eö–çWB’—2æ÷BæöæP¢¢–b€¢Æö6Åö÷W&F–öåöGFV×FV@¢æBæ÷BÆö6ÅöW†V7WF–öâævWB‚&FÖ—GFVB"¢æBæ÷BÆö6Åö÷W&F–öåöVÆ–v–&ÆP¢æB$Äô4ÅõD4µôtDUõEUÄUô”ådÄ”B"æ÷B–âÆö6Å÷&V6öç0¢“ ¢Æö6Å÷&V6öç2æVæB‚$Äô4ÅôõU$D”ôåôTÄ”t”$”Ä•E•õ$UT•$TB"¢6ö×ÆWFUö–ç7G'V7F–öâÒW†7Eö–çWBævWB‚&–ç7G'V7F–öâ"¢Æö6Åö–çWE÷FöõöÆ&vRÒ€¢–çWEöÖöFRÓÒ&6ö×ÆWFR ¢æB—6–ç7Fæ6R†6ö×ÆWFUö–ç7G'V7F–öâÂ7G"¢æBÆVâ†6ö×ÆWFUö–ç7G'V7F–öâ’âÔ…ôÄô4Åô”å5E%T5D”ôåô4„$5DU%0¢æB€¢Æö6ÅöW†V7WF–öâævWB‚&FÖ—GFVB"¢÷"ç’€¢v÷&¶W"ævWB‚&W†V7WF–öåö÷væW""’ÓÒ&Æö6ÅövVçE÷7F6² ¢f÷"v÷&¶W"–â7W÷'E÷v÷&¶W'0¢¢¢¢–bÆö6Åö–çWE÷FöõöÆ&vS ¢&V¦V7FVEöÆö6Å÷v÷&¶W%÷&V6öç2Ò°¢7G"‡v÷&¶W"ævWB‚'&V6öåö6öFR"’÷"""¢f÷"v÷&¶W"–â7W÷'E÷v÷&¶W'0¢–bv÷&¶W"ævWB‚&W†V7WF–öåö÷væW""’ÓÒ&Æö6ÅövVçE÷7F6² ¢Ð¢7W÷'E÷v÷&¶W'2Ò°¢v÷&¶W ¢f÷"v÷&¶W"–â7W÷'E÷v÷&¶W'0¢–bv÷&¶W"ævWB‚&W†V7WF–öåö÷væW""’Ò&Æö6ÅövVçE÷7F6² ¢Ð¢v÷&¶W%÷&V6öç2Ò°¢&V6öà¢f÷"&V6öâ–âv÷&¶W%÷&V6öç0¢–b&V6öâæ÷B–â&V¦V7FVEöÆö6Å÷v÷&¶W%÷&V6öç0¢æB&V6öâÒ%tõ$´U%õ5Uõ%EôÄ”Ô•EôÄ”TB ¢Ð¢Æö6ÅöW†V7WF–öâÒöf–Åö6Æ÷6VEöÆö6ÅöW†V7WF–öâ†Æö6ÅöW†V7WF–öâ¢Æö6Å÷&V6öç2Ò°¢&V6öà¢f÷"&V6öâ–âÆö6Å÷&V6öç0¢–bæ÷B&V6öâç7F'G7v—F‚‚$Äô4Åõ$T4•Uò"¢æB&V6öâæ÷B–â²$ÔTÔõ%•õ44õUôÔTB"Â$ÔTÔõ%•õ44õUôäôäR'Ð¢Ð¢Æö6Å÷&V6öç2æVæB‚$Äô4Åô”åUEõDôõôÄ$tUõ$UEU$äTEõDõô4ôDU‚"¢çF–w&f—G•÷6VÆV7FVBÒç’€¢÷v÷&¶W%öfÖ–Ç’‡v÷&¶W"’ÓÒ&çF–w&f—G’"f÷"v÷&¶W"–â7W÷'E÷v÷&¶W'0¢¢&÷VæE÷v÷&·76U÷&ö÷BÒö6æöæ–6ÅöW†—7F–æu÷v÷&·76U÷&ö÷B€¢W†7Eö–çWBævWB‚'v÷&·76U÷&ö÷B"¢¢÷WGWE÷66†VÖ÷6†#SbÒW†7Eö–çWBævWB‚&÷WGWE÷66†VÖ÷6†#Sb"¢çF–w&f—G•ö&–æF–æw5÷fÆ–BÒ&ööÂ€¢&÷VæE÷v÷&·76U÷&ö÷@¢æB—6–ç7Fæ6R†÷WGWE÷66†VÖ÷6†#SbÂ7G"¢æB4„#SeõEDU$âægVÆÆÖF6‚†÷WGWE÷66†VÖ÷6†#Sb¢¢&uöW†V7WF–öå÷&WVW7Eö–BÒW†7Eö–çWBævWB‚&W†V7WF–öå÷&WVW7Eö–B"¢W†V7WF–öå÷&WVW7Eö–BÒ€¢&uöW†V7WF–öå÷&WVW7Eö–@¢–b—6–ç7Fæ6R‡&uöW†V7WF–öå÷&WVW7Eö–BÂ7G"¢æBU„T5UD”ôåõ$UTU5Eô”EõEDU$âægVÆÆÖF6‚‡&uöW†V7WF–öå÷&WVW7Eö–B¢VÇ6RæöæP¢¢W†V7WF–öå÷&WVW7FVBÒ&ööÂ‡7W÷'E÷v÷&¶W'2’÷"&ööÂ†Æö6ÅöW†V7WF–öâævWB‚&FÖ—GFVB"’¢W†V7WF–öå÷&WVW7FVBÒW†V7WF–öå÷&WVW7FVB÷"ç’€¢&V6öà¢–â°¢$åD”u$d•E•õ5Uõ%EõTäd”Ä$ÄR"À¢%tõ$´U%õ5Uõ%EõTäd”Ä$ÄR"À¢$Äô4Åõ5Uõ%EõTäd”Ä$ÄR"À¢$Äô4Åõ$T4•UõTå$U4ôÅdTB"À¢$Äô4ÅôU„5EôUd”DTä4Uõ$UT•$TB"À¢$Äô4ÅôU„T5UD”ôåõ44õUõTäd”Ä$ÄR"À¢%$ô¤T5Eô5tEô4ôädÄ”5B"À¢%4õU$4Uõ44õUõTäUD„õ$•¤TB"À¢%tõ$´U%ôTÄ”t”$”Ä•E•õ$UT•$TB"À¢$Äô4ÅôõU$D”ôåôTÄ”t”$”Ä•E•õ$UT•$TB"À¢%tõ$´U%õD4µôtDUõEUÄUô”ådÄ”B"À¢$Äô4ÅõD4µôtDUõEUÄUô”ådÄ”B"À¢Ð¢f÷"&V6öâ–â²§v÷&¶W%÷&V6öç2Â¦Æö6Å÷&V6öç5Ð¢¢W†V7WF–öå÷&WVW7FVBÒW†V7WF–öå÷&WVW7FVB÷"&ööÂ€¢F—7÷6—F–öåöW'&÷"æB‡v÷&¶W%öGFV×FVB÷"Æö6Åö÷W&F–öåöGFV×FVB¢¢&WV—&VE÷F6µöf–VÆG2ÒÆ—7B†Æö6ÅöW†V7WF–öâævWB‚'F6µö–çWE÷&WV—&VÖVçG2"ÂµÒ’¢&V¦V7FVEöÆö6Å÷&V6öåö6öFW3¢6WE·7G%ÒÒ6WB‚¢–bæ÷BÆö6ÅöW†V7WF–öâævWB‚&FÖ—GFVB"“ ¢&V¦V7FVEöÆö6Å÷&V6öåö6öFW2Ò°¢7G"‡v÷&¶W"ævWB‚'&V6öåö6öFR"’÷"""¢f÷"v÷&¶W"–â7W÷'E÷v÷&¶W'0¢–bv÷&¶W"ævWB‚&W†V7WF–öåö÷væW""’ÓÒ&Æö6ÅövVçE÷7F6² ¢Ð¢–b&V¦V7FVEöÆö6Å÷&V6öåö6öFW3 ¢7W÷'E÷v÷&¶W'2Ò°¢v÷&¶W ¢f÷"v÷&¶W"–â7W÷'E÷v÷&¶W'0¢–bv÷&¶W"ævWB‚&W†V7WF–öåö÷væW""’Ò&Æö6ÅövVçE÷7F6² ¢Ð¢v÷&¶W%÷&V6öç2Ò°¢&V6öà¢f÷"&V6öâ–âv÷&¶W%÷&V6öç0¢–b&V6öâæ÷B–â&V¦V7FVEöÆö6Å÷&V6öåö6öFW0¢æB&V6öâÒ%tõ$´U%õ5Uõ%EôÄ”Ô•EôÄ”TB ¢Ð¢Æö6Å÷&V6öç2æVæB‚$Äô4Åõtõ$´U%5õ$UEU$äTEõDõô4ôDU‚"¢&Æö6¶–æuö6öFRÒæW‡B€¢€¢&V6öà¢f÷"&V6öâ–â‚%$ô¤T5Eô5tEô4ôädÄ”5B"Â%4õU$4Uõ44õUõTäUD„õ$•¤TB"¢–b&V6öâ–âÆö6Å÷&V6öç0¢’À¢æöæRÀ¢¢–b&Æö6¶–æuö6öFR—2æöæS ¢&Æö6¶–æuö6öFRÒæW‡B€¢€¢&V6öà¢f÷"&V6öâ–â€¢%tõ$´U%ôTÄ”t”$”Ä•E•õ$UT•$TB"À¢$Äô4ÅôõU$D”ôåôTÄ”t”$”Ä•E•õ$UT•$TB"À¢%tõ$´U%õD4µôtDUõEUÄUô”ådÄ”B"À¢$Äô4ÅõD4µôtDUõEUÄUô”ådÄ”B"À¢¢–b&V6öâ–â²§v÷&¶W%÷&V6öç2Â¦Æö6Å÷&V6öç5Ð¢’À¢æöæRÀ¢¢–b–çWEöÖöFRÓÒ&6ö×ÆWFR"æBæ÷B–ç7G'V7F–öåöw&VW2æB&Æö6¶–æuö6öFR—2æöæS ¢&Æö6¶–æuö6öFRÒ%D4µô”åUEô”å5E%T5D”ôåôÔ•4ÔD4‚ ¢–bW†V7WF–öå÷&WVW7FVBæB&Æö6¶–æuö6öFR—2æöæRæBF—7÷6—F–öåöW'&÷# ¢&Æö6¶–æuö6öFRÒF—7÷6—F–öåöW'&÷ ¢–b€¢W†V7WF–öå÷&WVW7FV@¢æB&Æö6¶–æuö6öFR—2æöæP¢æBW†V7WF–öå÷&WVW7Eö–B—2æöæP¢“ ¢&Æö6¶–æuö6öFRÒ$U„T5UD”ôåõ$UTU5Eô”Eõ$UT•$TB ¢–bçF–w&f—G•÷6VÆV7FVBæB&Æö6¶–æuö6öFR—2æöæRæBæ÷BçF–w&f—G•ö&–æF–æw5÷fÆ–C ¢&Æö6¶–æuö6öFRÒ$åD”u$d•E•ô$”äD”äu5ô”ådÄ”B ¢&÷f–FVEö–ç7G'V7F–öâÒW†7Eö–çWBævWB‚&–ç7G'V7F–öâ"¢&WV—&VÖVçG5ö6ö×ÆWFRÒ÷F6µö–çWE÷&WV—&VÖVçG5ö6ö×ÆWFR€¢W†7Eö–çWBÂ&WV—&VE÷F6µöf–VÆG0¢¢–bW†V7WF–öå÷&WVW7FVBæB&Æö6¶–æuö6öFR—2æöæS ¢–b–çWEöÖöFRÒ&6ö×ÆWFR# ¢&Æö6¶–æuö6öFRÒ%D4µô”åUEõ$UT•$TB ¢VÆ–bæ÷B—6–ç7Fæ6R‡&÷f–FVEö–ç7G'V7F–öâÂ7G"’÷"æ÷B&÷f–FVEö–ç7G'V7F–öâç7G&—‚“ ¢&Æö6¶–æuö6öFRÒ%D4µô”åUEôd”TÄE5ô”ä4ôÕÄUDR ¢VÆ–bæ÷B–ç7G'V7F–öåöw&VW3 ¢&Æö6¶–æuö6öFRÒ%D4µô”åUEô”å5E%T5D”ôåôÔ•4ÔD4‚ ¢VÆ–bæ÷B&WV—&VÖVçG5ö6ö×ÆWFS ¢&Æö6¶–æuö6öFRÒ%D4µô”åUEôd”TÄE5ô”ä4ôÕÄUDR ¢&W6öÇfVEö–çWEöÖöFRÒ€¢&6ö×ÆWFR ¢–b–çWEöÖöFRÓÒ&6ö×ÆWFR ¢æB–ç7G'V7F–öåöw&VW0¢æB&WV—&VÖVçG5ö6ö×ÆWFP¢VÇ6R&6öç6W'fF—fUö–ç7G'V7F–öåööæÇ’ ¢¢–bW†V7WF–öå÷&WVW7FVBæB&Æö6¶–æuö6öFS ¢7W÷'E÷v÷&¶W'2ÒµÐ¢Æö6ÅöW†V7WF–öâÒöf–Åö6Æ÷6VEöÆö6ÅöW†V7WF–öâ†Æö6ÅöW†V7WF–öâ¢&V6öç2Ò°¢$4ôDU…õ4ôÅôõ$4„U5E$Dõ" ¢–b7W÷'E÷v÷&¶W'2÷"Æö6ÅöW†V7WF–öâævWB‚&FÖ—GFVB"¢VÇ6R$4ôDU…õ4ôÅôDTdTÅB ¢Ð¢–b6VÆV7FVE÷'VÆS ¢&V6öç2æVæB‚$4$”Ä•E•õ%TÄUôÔD4‚"¢&V6öç2æW‡FVæB‡6VÆV7FVE÷'VÆRævWB‚'&V6öåö6öFW2"ÂµÒ’¢VÇ6S ¢&V6öç2æVæB‚$äõôU„5Eô4$”Ä•E•ôÔD4‚"¢–bæ÷&ÖÆ—¦R†Öæ–fW7BævWB‚&g&W6†æW75÷7FGW2"’’æ÷B–âe$U4…õ5DDU3 ¢&V6öç2æVæB‚$4$”Ä•E•õ4ä4„õEõ5DÄR"¢&V6öç2æW‡FVæB‡v÷&¶W%÷&V6öç2¢&V6öç2æW‡FVæB†Æö6Å÷&V6öç2¢&V6öç2æW‡FVæB‡&÷WFUöwV&E÷&V6öç2¢&V6öç2æW‡FVæB†6&–Æ—G•öfÆÆ&6µ÷&V6öç2¢–b&Æö6¶–æuö6öFRæB&Æö6¶–æuö6öFRæ÷B–â&V6öç3 ¢&V6öç2æVæB†&Æö6¶–æuö6öFR¢'V–ÆEö&w2Ò°¢''VÆR#¢6VÆV7FVE÷'VÆRÀ¢'&–Ö'’#¢6VÆV7FVE÷&–Ö'’À¢'7W÷'G2#¢6VÆV7FVE÷7W÷'G2À¢'7W÷'E÷v÷&¶W'2#¢7W÷'E÷v÷&¶W'2À¢&Æö6ÅöW†V7WF–öâ#¢Æö6ÅöW†V7WF–öâÀ¢&W†V7WF–öåöF—7÷6—F–öâ#¢W†V7WF–öåöF—7÷6—F–öâÀ¢&W†V7WF–öå÷&WVW7Eö–B#¢€¢W†V7WF–öå÷&WVW7Eö–B–bW†V7WF–öå÷&WVW7FVBVÇ6RæöæP¢’À¢'F6µ÷FW‡E÷6†#Sb#¢6ö×WFU÷F6µ÷FW‡E÷6†#Sb†&÷VæFVE÷FW‡B’À¢'F6µö–çWE÷6†#Sb#¢6ö×WFU÷F6µö–çWE÷6†#Sb†W†7Eö–çWB’À¢'F6µö–çWEöÖöFR#¢&W6öÇfVEö–çWEöÖöFRÀ¢'F6µöf–ævW'&–çB#¢÷F6µöf–ævW'&–çB‡&ö×BÂ6Æ76–f–6F–öâ’À¢'v÷&¶W%öW†V7WF–öå÷&WVW7FVB#¢W†V7WF–öå÷&WVW7FVBÀ¢'&V6öåö6öFW2#¢&V6öç2À¢&6&–Æ—G•öfÆÆ&6·2#¢6&–Æ—G•öfÆÆ&6·2À¢&Öæ–fW7B#¢Öæ–fW7BÀ¢'öÆ–7’#¢öÆ–7’À¢Ð¢WF†÷&—G•ö—77V&ÆRÒ÷&÷WFUöWF†÷&—G•ö—77V&ÆR†Öæ–fW7BÂöÆ–7’¢7–çF†WF–5öWF†÷&—G’Ò÷7–çF†WF–5öWF†÷&—G•ö–çWB†Öæ–fW7B’æB÷7–çF†WF–5öWF†÷&—G•ö–çWB€¢öÆ–7¢¢–bæ÷BWF†÷&—G•ö—77V&ÆRæBæ÷B7–çF†WF–5öWF†÷&—G“ ¢f–ÆVEö&w2ÒF–7B†'V–ÆEö&w2¢f–ÆVEö&w5²'7W÷'E÷v÷&¶W'2%ÒÒµÐ¢f–ÆVEö&w5²&Æö6ÅöW†V7WF–öâ%ÒÒöf–Åö6Æ÷6VEöÆö6ÅöW†V7WF–öâ†Æö6ÅöW†V7WF–öâ¢f–ÆVEö&w5²'&V6öåö6öFW2%ÒÒÆ—7B€¢F–7Bæg&öÖ¶W—2€¢°¢$4ôDU…õ4ôÅôDTdTÅB"À¢¢‡&V6öâf÷"&V6öâ–â&V6öç2–b&V6öâÒ$4ôDU…õ4ôÅôõ$4„U5E$Dõ""’À¢$UD„õ$•E•õTäd”Ä$ÄR"À¢Ð¢¢¢&WGW&âö'V–ÆEöFV6—6–öâ€¢¢¦f–ÆVEö&w2À¢—77Væ6U÷7FGW3Ò&f–ÆVB"À¢—77Væ6Uöf–ÇW&Uö6öFSÒ$UD„õ$•E•õTäd”Ä$ÄR"À¢¢FV6—6–öâÒö'V–ÆEöFV6—6–öâ€¢¢¦'V–ÆEö&w2À¢—77Væ6U÷7FGW3Ò'&Vv—7FW&VB"À¢—77Væ6Uöf–ÇW&Uö6öFSÖ&Æö6¶–æuö6öFRÀ¢¢G'“ ¢ö—77VU÷&÷WFUöFV6—6–öâ†FV6—6–öâ¢&WGW&âFV6—6–öà¢W†6WB&÷WFU&Vv—7G'”W'&÷# ¢f–ÆVEö&w2ÒF–7B†'V–ÆEö&w2¢f–ÆVEö&w5²'7W÷'E÷v÷&¶W'2%ÒÒµÐ¢f–ÆVEö&w5²&Æö6ÅöW†V7WF–öâ%ÒÒöf–Åö6Æ÷6VEöÆö6ÅöW†V7WF–öâ†Æö6ÅöW†V7WF–öâ¢f–ÆVE÷&V6öç2Ò°¢&V6öà¢f÷"&V6öâ–â&V6öç0¢–b&V6öâÒ$4ôDU…õ4ôÅôõ$4„U5E$Dõ" ¢Ð¢f–ÆVEö&w5²'&V6öåö6öFW2%ÒÒ°¢$4ôDU…õ4ôÅôDTdTÅB"À¢¦f–ÆVE÷&V6öç2À¢%$õUDUõ$Tt•5E%•õTäd”Ä$ÄR"À¢Ð¢&WGW&âö'V–ÆEöFV6—6–öâ€¢¢¦f–ÆVEö&w2À¢—77Væ6U÷7FGW3Ò&f–ÆVB"À¢—77Væ6Uöf–ÇW&Uö6öFSÒ%$õUDUõ$Tt•5E%•õTäd”Ä$ÄR"À¢  ¦FVbVç7W&Uö–æFW‚†f÷&6S¢&ööÂÒfÇ6RÂÖ…övUö†÷W'3¢–çBÒ#B’ÓâF–7E·7G"Âç•Ó ¢""$6ö×F–&–Æ—G’’âF†R6æöæ–6ÂÖæ–fW7B—2&VBF—&V7FÇ’ÂæWfW"66†VBâ""  ¢FVÂf÷&6RÂÖ…övUö†÷W'0¢&WGW&âÆöEö7F—fUö6&–Æ—F–W2‚  ¦FVb'V–ÆEö–æFW‚‚’ÓâF–7E·7G"Âç•Ó ¢&WGW&âÆöEö7F—fUö6&–Æ—F–W2‚  ¦FVb—5÷6W76–öåööæÇ•ö6æF–FFR†VçG'“¢F–7E·7G"Âç•Ò’Óâ&ööÃ ¢FVÂVçG'¢&WGW&âfÇ6P  ¦FVbVW'•ö–æFW‚€¢&ö×C¢7G"À¢Æ–Ö—C¢–çBÒRÀ¢–æ6ÇVFUö6æF–FFW3¢&ööÂÂæöæRÒæöæRÀ¢&–Ö'•öfÖ–Æ–W3¢ö&¦V7BÒæöæRÀ¢7W÷'F–æuöfÖ–Æ–W3¢ö&¦V7BÒæöæRÀ¢6÷W&6U÷FööÅ÷&WV—&VÖVçG3¢ö&¦V7BÒæöæRÀ¢FVæ–VEöfÖ–Æ–W3¢ö&¦V7BÒæöæRÀ¢6æF–FFU÷f—6–&–Æ—G“¢7G"Ò&7F—fUööæÇ’"À¢’ÓâÆ—7E¶F–7E·7G"Âç•ÕÓ ¢""%6V&6‚7F—fRVçG&–W2öæÇ’âÆVv7’6æF–FFR7v—F6†W2&R–çFVçF–öæÆÇ’–væ÷&VBâ""  ¢FVÂ–æ6ÇVFUö6æF–FFW2Â6æF–FFU÷f—6–&–Æ—G¢Öæ–fW7BÒÆöEö7F—fUö6&–Æ—F–W2‚¢&ö×E÷Fö¶Vç2ÒFö¶Væ—¦R‡&ö×B¢&WVW7FVEöfÖ–Æ–W2Ò°¢æ÷&ÖÆ—¦R†—FVÒ’ç&WÆ6R‚"Ò"Â%ò"¢f÷"—FVÒ–âö5öÆ—7B‡&–Ö'•öfÖ–Æ–W2’²ö5öÆ—7B‡7W÷'F–æuöfÖ–Æ–W2¢Ð¢FVæ–VBÒ°¢æ÷&ÖÆ—¦R†—FVÒ’ç&WÆ6R‚"Ò"Â%ò"’f÷"—FVÒ–âö5öÆ—7B†FVæ–VEöfÖ–Æ–W2¢Ð¢&WVW7FVE÷FööÇ2Ò°¢æ÷&ÖÆ—¦R†—FVÒ’f÷"—FVÒ–âö5öÆ—7B‡6÷W&6U÷FööÅ÷&WV—&VÖVçG2¢Ð¢66÷&VC¢Æ—7E·GWÆU¶–çBÂF–7E·7G"Âç•ÕÕÒÒµÐ¢f÷"VçG'’–âÖæ–fW7BævWB‚&VçG&–W2"ÂµÒ“ ¢fÖ–Æ–W2Ò6WB†VçG'’ævWB‚&fÖ–Æ–W2"ÂµÒ’¢–bFVæ–VBæBfÖ–Æ–W2bFVæ–VC ¢6öçF–çVP¢VçG'•÷Fö¶Vç2ÒFö¶Væ—¦R€¢""æ¦ö–â€¢°¢7G"†VçG'’ævWB‚&–B"Â""’’À¢7G"†VçG'’ævWB‚&æÖR"Â""’’À¢7G"†VçG'’ævWB‚'&÷f–FW""Â""’’À¢7G"†VçG'’ævWB‚&¶–æB"Â""’’À¢""æ¦ö–â†fÖ–Æ–W2’À¢7G"†VçG'’ævWB‚&FW67&—F–öâ"Â""’’À¢Ð¢¢¢66÷&RÒÆVâ‡&ö×E÷Fö¶Vç2bVçG'•÷Fö¶Vç2’¢@¢66÷&R³ÒÆVâ‡&WVW7FVEöfÖ–Æ–W2bfÖ–Æ–W2’¢ ¢–bæ÷&ÖÆ—¦R†VçG'’ævWB‚&æÖR"’’–â&WVW7FVE÷FööÇ2÷"æ÷&ÖÆ—¦R€¢VçG'’ævWB‚&–B"¢’–â&WVW7FVE÷FööÇ3 ¢66÷&R³Ò# ¢–b66÷&S ¢66÷&VBæVæB‚‡66÷&RÂVçG'’’¢66÷&VBç6÷'B†¶W“ÖÆÖ&F—FVÓ¢‚Ö—FVÕ³ÒÂæ÷&ÖÆ—¦R†—FVÕ³ÒævWB‚&–B"’’’¢&WGW&â°¢VçG'’f÷"òÂVçG'’–â66÷&VE³¢Ö‚ƒÂÖ–â†–çB†Æ–Ö—B’Â‚’•Ð¢Ð 
+        "capability_index_session_start.py": COïÍ7öÚ$z{-®éÜj×ack["reason_code"],
+                }
+            )
+            capability_fallback_reasons.extend(
+                [
+                    "CAPABILITY_DEPENDENCY_FALLBACK",
+                    dependency_fallback["reason_code"],
+                ]
+            )
+            if fallback_reference and not fallback_usable:
+                capability_fallback_reasons.append(
+                    "CAPABILITY_FALLBACK_UNAVAILABLE_RETURNED_TO_CODEX"
+                )
+            break
+
+        if not primary_usable:
+            continue
+        selected_rule = rule
+        selected_primary = primary
+        selected_supports = _resolve_supports(
+            rule.get("supports", []),
+            prompt=prompt,
+            primary=primary,
+            max_supports=max_supports,
+            policy=policy,
+            rule=rule,
+            by_id=by_id,
+            by_alias=by_alias,
+        )
+        break
+
+    execution_disposition, disposition_error = _resolve_execution_disposition(
+        classification, exact_input, input_mode
+    )
+    eligible_worker_families = set(
+        execution_disposition["eligible_worker_families"]
+        if execution_disposition["mode"] == "worker_support"
+        else []
+    )
+    worker_attempted = _worker_rule_attempted(
+        prompt_lower, classification, policy.get("worker_rules", [])
+    )
+    local_operation_attempted = _worker_rule_attempted(
+        prompt_lower, classification, policy.get("local_execution_rules", [])
+    )
+    support_workers, worker_reasons = _select_support_workers(
+        prompt_lower,
+        classification,
+        eligible_worker_families,
+        policy,
+        by_id,
+        by_alias,
+    )
+    task_gate_worker_eligible = bool(eligible_worker_families) and all(
+        _validated_worker_roles(classification, family) is not None
+        for family in eligible_worker_families
+    )
+    if (
+        execution_disposition["mode"] == "worker_support"
+        and worker_attempted
+        and not task_gate_worker_eligible
+        and "WORKER_TASK_GATE_TUPLE_INVALID" not in worker_reasons
+    ):
+        worker_reasons.append("WORKER_ELIGIBILITY_REQUIRED")
+    elif (
+        execution_disposition["mode"] == "codex_only"
+        and disposition_error is None
+        and worker_attempted
+    ):
+        worker_reasons.append("CODEX_ONLY_DISPOSITION")
+    local_execution, local_reasons = _derive_local_execution(
+        support_workers,
+        classification,
+        exact_input,
+        prompt_lower,
+        policy,
+        by_id,
+        by_alias,
+    )
+    local_operation_eligible = (
+        _validated_local_operation_recipe(classification, exact_input) is not None
+    )
+    if (
+        local_operation_attempted
+        and not local_execution.get("admitted")
+        and not local_operation_eligible
+        and "LOCAL_TASK_GATE_TUPLE_INVALID" not in local_reasons
+    ):
+        local_reasons.append("LOCAL_OPERATION_ELIGIBILITY_REQUIRED")
+    complete_instruction = exact_input.get("instruction")
+    local_input_too_large = (
+        input_mode == "complete"
+        and isinstance(complete_instruction, str)
+        and len(complete_instruction) > MAX_LOCAL_INSTRUCTION_CHARACTERS
+        and (
+            local_execution.get("admitted")
+            or any(
+                worker.get("execution_owner") == "local_agent_stack"
+                for worker in support_workers
+            )
+        )
+    )
+    if local_input_too_large:
+        rejected_local_worker_reasons = {
+            str(worker.get("reason_code") or "")
+            for worker in support_workers
+            if worker.get("execution_owner") == "local_agent_stack"
+        }
+        support_workers = [
+            worker
+            for worker in support_workers
+            if worker.get("execution_owner") != "local_agent_stack"
+        ]
+        worker_reasons = [
+            reason
+            for reason in worker_reasons
+            if reason not in rejected_local_worker_reasons
+            and reason != "WORKER_SUPPORT_LIMIT_APPLIED"
+        ]
+        local_execution = _fail_closed_local_execution(local_execution)
+        local_reasons = [
+            reason
+            for reason in local_reasons
+            if not reason.startswith("LOCAL_RECIPE_")
+            and reason not in {"MEMORY_SCOPE_MAPPED", "MEMORY_SCOPE_NONE"}
+        ]
+        local_reasons.append("LOCAL_INPUT_TOO_LARGE_RETURNED_TO_CODEX")
+    antigravity_selected = any(
+        _worker_family(worker) == "antigravity" for worker in support_workers
+    )
+    bound_workspace_root = _canonical_existing_workspace_root(
+        exact_input.get("workspace_root")
+    )
+    output_schema_sha256 = exact_input.get("output_schema_sha256")
+    antigravity_bindings_valid = bool(
+        bound_workspace_root
+        and isinstance(output_schema_sha256, str)
+        and SHA256_PATTERN.fullmatch(output_schema_sha256)
+    )
+    raw_execution_request_id = exact_input.get("execution_request_id")
+    execution_request_id = (
+        raw_execution_request_id
+        if isinstance(raw_execution_request_id, str)
+        and EXECUTION_REQUEST_ID_PATTERN.fullmatch(raw_execution_request_id)
+        else None
+    )
+    execution_requested = bool(support_workers) or bool(local_execution.get("admitted"))
+    execution_requested = execution_requested or any(
+        reason
+        in {
+            "ANTIGRAVITY_SUPPORT_UNAVAILABLE",
+            "WORKER_SUPPORT_UNAVAILABLE",
+            "LOCAL_SUPPORT_UNAVAILABLE",
+            "LOCAL_RECIPE_UNRESOLVED",
+            "LOCAL_EXACT_EVIDENCE_REQUIRED",
+            "LOCAL_EXECUTION_SCOPE_UNAVAILABLE",
+            "PROJECT_CWD_CONFLICT",
+            "SOURCE_SCOPE_UNAUTHORIZED",
+            "WORKER_ELIGIBILITY_REQUIRED",
+            "LOCAL_OPERATION_ELIGIBILITY_REQUIRED",
+            "WORKER_TASK_GATE_TUPLE_INVALID",
+            "LOCAL_TASK_GATE_TUPLE_INVALID",
+        }
+        for reason in [*worker_reasons, *local_reasons]
+    )
+    execution_requested = execution_requested or bool(
+        disposition_error and (worker_attempted or local_operation_attempted)
+    )
+    required_task_fields = list(local_execution.get("task_input_requirements", []))
+    rejected_local_reason_codes: set[str] = set()
+    if not local_execution.get("admitted"):
+        rejected_local_reason_codes = {
+            str(worker.get("reason_code") or "")
+            for worker in support_workers
+            if worker.get("execution_owner") == "local_agent_stack"
+        }
+        if rejected_local_reason_codes:
+            support_workers = [
+                worker
+                for worker in support_workers
+                if worker.get("execution_owner") != "local_agent_stack"
+            ]
+            worker_reasons = [
+                reason
+                for reason in worker_reasons
+                if reason not in rejected_local_reason_codes
+                and reason != "WORKER_SUPPORT_LIMIT_APPLIED"
+            ]
+            local_reasons.append("LOCAL_WORKERS_RETURNED_TO_CODEX")
+    blocking_code = next(
+        (
+            reason
+            for reason in ("PROJECT_CWD_CONFLICT", "SOURCE_SCOPE_UNAUTHORIZED")
+            if reason in local_reasons
+        ),
+        None,
+    )
+    if blocking_code is None:
+        blocking_code = next(
+            (
+                reason
+                for reason in (
+                    "WORKER_ELIGIBILITY_REQUIRED",
+                    "LOCAL_OPERATION_ELIGIBILITY_REQUIRED",
+                    "WORKER_TASK_GATE_TUPLE_INVALID",
+                    "LOCAL_TASK_GATE_TUPLE_INVALID",
+                )
+                if reason in [*worker_reasons, *local_reasons]
+            ),
+            None,
+        )
+    if input_mode == "complete" and not instruction_agrees and blocking_code is None:
+        blocking_code = "TASK_INPUT_INSTRUCTION_MISMATCH"
+    if execution_requested and blocking_code is None and disposition_error:
+        blocking_code = disposition_error
+    if (
+        execution_requested
+        and blocking_code is None
+        and execution_request_id is None
+    ):
+        blocking_code = "EXECUTION_REQUEST_ID_REQUIRED"
+    if antigravity_selected and blocking_code is None and not antigravity_bindings_valid:
+        blocking_code = "ANTIGRAVITY_BINDINGS_INVALID"
+    provided_instruction = exact_input.get("instruction")
+    requirements_complete = _task_input_requirements_complete(
+        exact_input, required_task_fields
+    )
+    if execution_requested and blocking_code is None:
+        if input_mode != "complete":
+            blocking_code = "TASK_INPUT_REQUIRED"
+        elif not isinstance(provided_instruction, str) or not provided_instruction.strip():
+            blocking_code = "TASK_INPUT_FIELDS_INCOMPLETE"
+        elif not instruction_agrees:
+            blocking_code = "TASK_INPUT_INSTRUCTION_MISMATCH"
+        elif not requirements_complete:
+            blocking_code = "TASK_INPUT_FIELDS_INCOMPLETE"
+    resolved_input_mode = (
+        "complete"
+        if input_mode == "complete"
+        and instruction_agrees
+        and requirements_complete
+        else "conservative_instruction_only"
+    )
+    if execution_requested and blocking_code:
+        support_workers = []
+        local_execution = _fail_closed_local_execution(local_execution)
+    reasons = [
+        "CODEX_SOL_ORCHESTRATOR"
+        if support_workers or local_execution.get("admitted")
+        else "CODEX_SOL_DEFAULT"
+    ]
+    if selected_rule:
+        reasons.append("CAPABILITY_RULE_MATCH")
+        reasons.extend(selected_rule.get("reason_codes", []))
+    else:
+        reasons.append("NO_EXACT_CAPABILITY_MATCH")
+    if normalize(manifest.get("freshness_status")) not in FRESH_STATES:
+        reasons.append("CAPABILITY_SNAPSHOT_STALE")
+    reasons.extend(worker_reasons)
+    reasons.extend(local_reasons)
+    reasons.extend(route_guard_reasons)
+    reasons.extend(capability_fallback_reasons)
+    if blocking_code and blocking_code not in reasons:
+        reasons.append(blocking_code)
+    build_args = {
+        "rule": selected_rule,
+        "primary": selected_primary,
+        "supports": selected_supports,
+        "support_workers": support_workers,
+        "local_execution": local_execution,
+        "execution_disposition": execution_disposition,
+        "execution_request_id": (
+            execution_request_id if execution_requested else None
+        ),
+        "task_text_sha256": compute_task_text_sha256(bounded_text),
+        "task_input_sha256": compute_task_input_sha256(exact_input),
+        "task_input_mode": resolved_input_mode,
+        "task_fingerprint": _task_fingerprint(prompt, classification),
+        "worker_execution_requested": execution_requested,
+        "reason_codes": reasons,
+        "capability_fallbacks": capability_fallbacks,
+        "manifest": manifest,
+        "policy": policy,
+    }
+    authority_issuable = _route_authority_issuable(manifest, policy)
+    synthetic_authority = _synthetic_authority_input(manifest) and _synthetic_authority_input(
+        policy
+    )
+    if not authority_issuable and not synthetic_authority:
+        failed_args = dict(build_args)
+        failed_args["support_workers"] = []
+        failed_args["local_execution"] = _fail_closed_local_execution(local_execution)
+        failed_args["reason_codes"] = list(
+            dict.fromkeys(
+                [
+                    "CODEX_SOL_DEFAULT",
+                    *(reason for reason in reasons if reason != "CODEX_SOL_ORCHESTRATOR"),
+                    "AUTHORITY_UNAVAILABLE",
+                ]
+            )
+        )
+        return _build_decision(
+            **failed_args,
+            issuance_status="failed",
+            issuance_failure_code="AUTHORITY_UNAVAILABLE",
+        )
+    decision = _build_decision(
+        **build_args,
+        issuance_status="registered",
+        issuance_failure_code=blocking_code,
+    )
+    try:
+        _issue_route_decision(decision)
+        return decision
+    except RouteRegistryError:
+        failed_args = dict(build_args)
+        failed_args["support_workers"] = []
+        failed_args["local_execution"] = _fail_closed_local_execution(local_execution)
+        failed_reasons = [
+            reason
+            for reason in reasons
+            if reason != "CODEX_SOL_ORCHESTRATOR"
+        ]
+        failed_args["reason_codes"] = [
+            "CODEX_SOL_DEFAULT",
+            *failed_reasons,
+            "ROUTE_REGISTRY_UNAVAILABLE",
+        ]
+        return _build_decision(
+            **failed_args,
+            issuance_status="failed",
+            issuance_failure_code="ROUTE_REGISTRY_UNAVAILABLE",
+        )
+
+
+def ensure_index(force: bool = False, max_age_hours: int = 24) -> dict[str, Any]:
+    """Compatibility API. The canonical manifest is read directly, never cached."""
+
+    del force, max_age_hours
+    return load_active_capabilities()
+
+
+def build_index() -> dict[str, Any]:
+    return load_active_capabilities()
+
+
+def is_session_only_candidate(entry: dict[str, Any]) -> bool:
+    del entry
+    return False
+
+
+def query_index(
+    prompt: str,
+    limit: int = 5,
+    include_candidates: bool | None = None,
+    primary_families: object = None,
+    supporting_families: object = None,
+    source_tool_requirements: object = None,
+    denied_families: object = None,
+    candidate_visibility: str = "active_only",
+) -> list[dict[str, Any]]:
+    """Search active entries only. Legacy candidate switches are intentionally ignored."""
+
+    del include_candidates, candidate_visibility
+    manifest = load_active_capabilities()
+    prompt_tokens = tokenize(prompt)
+    requested_families = {
+        normalize(item).replace("-", "_")
+        for item in _as_list(primary_families) + _as_list(supporting_families)
+    }
+    denied = {
+        normalize(item).replace("-", "_") for item in _as_list(denied_families)
+    }
+    requested_tools = {
+        normalize(item) for item in _as_list(source_tool_requirements)
+    }
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for entry in manifest.get("entries", []):
+        families = set(entry.get("families", []))
+        if denied and families & denied:
+            continue
+        entry_tokens = tokenize(
+            " ".join(
+                [
+                    str(entry.get("id", "")),
+                    str(entry.get("name", "")),
+                    str(entry.get("provider", "")),
+                    str(entry.get("kind", "")),
+                    " ".join(families),
+                    str(entry.get("description", "")),
+                ]
+            )
+        )
+        score = len(prompt_tokens & entry_tokens) * 4
+        score += len(requested_families & families) * 10
+        if normalize(entry.get("name")) in requested_tools or normalize(
+            entry.get("id")
+        ) in requested_tools:
+            score += 20
+        if score:
+            scored.append((score, entry))
+    scored.sort(key=lambda item: (-item[0], normalize(item[1].get("id"))))
+    return [
+        entry for _, entry in scored[: max(1, min(int(limit), 8))]
+    ]
