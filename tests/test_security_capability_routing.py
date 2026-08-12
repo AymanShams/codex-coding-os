@@ -380,169 +380,726 @@ class SecurityCapabilityRoutingTests(unittest.TestCase):
                 "skill:supabase:supabase",
             ),
             (
-                "Validate this Neon Postgres RLS security findinçNù¶‰žËkºwµçTÔS“È[œÝXYÙˆ™[Ûˆ‹ˆ˜ÛÙ[™Ë\ÜÝÜ™\Ë\ÙXÝ\š]KX›Ý[™\žH‹ˆœÚÚ[œÜÝÜ™\Ë\ÙXÝ\š]KX™\Ý\˜XÝXÙ\È‹ˆ
-KˆBˆ›Üˆ›Û\[WÚYÝ\Ü[ˆØ\Ù\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-BˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—K[WÚY
-BˆÙ[‹˜\ÜÙ\[ŠÝ\ÜÚ][VÈšY—H›Üˆ][H[ˆXÚ\Ú[Û–ÈœÝ\ÜÈ—WJB‚ˆYˆ\ÝÜ›ÝšY\—Ù[Ø]][XØ][Û—Ø[™Ø]]Üš^˜][Û—ÝÛÜ™×Ü›Ý]JÙ[ŠHOˆ›Û™N‚ˆØ\Ù\ÈHÂˆ
-ˆ’[\[Y[Ý\X˜\ÙH]][XØ][ÛˆÛXÚY\È‹ˆ˜ÛÙ[™Ë\Ý\X˜\ÙK\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-Kˆ
-ˆ’[\[Y[™[Ûˆ]]Üš^˜][ÛˆÛÛ›ÛÈ‹ˆ˜ÛÙ[™Ë[™[Û‹\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-Kˆ
-ˆ’[\[Y[Ý\X˜\ÙHÙÚ[ˆ[™Ù\ÜÚ[Ûˆ[™[™È‹ˆ˜ÛÙ[™Ë\Ý\X˜\ÙK\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-KˆBˆ›Üˆ›Û\[WÚY[ˆØ\Ù\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆÙ[‹˜\ÜÙ\\]X[
-Ù[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-VÈœ[WÚY—K[WÚY
-B‚ˆYˆ\ÝÜ›ÝšY\—ÜÜÝÜ™\×Ù[™Ú[™WØÛÛ^Ú\×Û›ÝØWÜÙXÛÛ™ÜÝ\™˜XÙJÙ[ŠHOˆ›Û™N‚ˆØ\Ù\ÈHÂˆ
-ˆ’[\[Y[ÜÝÜ™TÔS“È›ÜˆÝ\ˆÝ\X˜\ÙH›Ú™XÝ‹ˆ˜ÛÙ[™Ë\Ý\X˜\ÙK\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-Kˆ
-ˆ’[\[Y[“È[ˆÝ\ˆÝ\X˜\ÙH›Ú™XÝ\Ú[™ÈÜÝÜ™TÔS‹ˆ˜ÛÙ[™Ë\Ý\X˜\ÙK\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-Kˆ
-ˆ’[\[Y[ÜÝÜ™TÔS“È›ÜˆÝ\ˆ™[Ûˆ›Ú™XÝ‹ˆ˜ÛÙ[™Ë[™[Û‹\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-Kˆ
-ˆ’[\[Y[“È[ˆÝ\ˆ™[Ûˆ›Ú™XÝ\Ú[™ÈÜÝÜ™TÔS‹ˆ˜ÛÙ[™Ë[™[Û‹\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-Kˆ
-ˆ’[\[Y[“È›ÜˆÝ\ˆ™[Ûˆ]X˜\ÙKÚXÚ\Ù\ÈÜÝÜ™TÔS‹ˆ˜ÛÙ[™Ë[™[Û‹\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-Kˆ
-ˆ’[\[Y[“È›ÜˆÝ\ˆÝ\X˜\ÙH]X˜\ÙKÚXÚ\Ù\ÈÜÝÜ™TÔS‹ˆ˜ÛÙ[™Ë\Ý\X˜\ÙK\ÙXÝ\š]KX›Ý[™\žH‹ˆ
-KˆBˆ›Üˆ›Û\[WÚY[ˆØ\Ù\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆÙ[‹˜\ÜÙ\\]X[
-Ù[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-VÈœ[WÚY—K[WÚY
-B‚ˆ[™\[™[HÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠˆ’[\[Y[“È[ˆÝ\X˜\ÙH[™HÙ\\˜]HÜÝÜ™TÔS]X˜\ÙH‚ˆ
-BˆÙ[‹˜\ÜÙ\\]X[
-[™\[™[Èœ[WÚY—KˆŠBˆÙ[‹˜\ÜÙ\[Šˆ”ÑPÕT’UWÔÕT‘PÑT×Ô‘TURT‘WÔÔUÕTÒÈ‹[™\[™[Èœ™X\ÛÛ—ØÛÙ\È—Bˆ
-B‚ˆYˆ\ÝÛ][\WÜÙXÝ\š]WÜÝ\™˜XÙ\×Ù˜Z[ØÛÜÙYÝÚ]ÜÜ]Ü™\]Z\™[Y[
-Ù[ŠHOˆ›Û™N‚ˆ›Û\ÈHÂˆ”[ˆHY\ÙXÝ\š]HØØ[ˆÙˆÝ\X˜\ÙH[™™[ÛˆÜÝÜ™\È[ˆ\È™XXÝœ›Û[™™\ÜÚ]ÜžH‹ˆ’[\[Y[Ý\X˜\ÙH“ÈÛXÚY\È[™ÙXÝ\™HÛ›HÛÛÚÚY\È[ˆ\È™XXÝœ›Û[™‹ˆBˆ›Üˆ›Û\[ˆ›Û\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-BˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—KˆŠBˆÙ[‹˜\ÜÙ\\Ó›Û™JXÚ\Ú[Û–Èœš[X\žH—JBˆÙ[‹˜\ÜÙ\[Šˆ”ÑPÕT’UWÔÕT‘PÑT×Ô‘TURT‘WÔÔUÕTÒÈ‹ˆXÚ\Ú[Û–Èœ™X\ÛÛ—ØÛÙ\È—Kˆ
-B‚ˆYˆ\ÝÛ][\WÜÙXÝ\š]WÜ\Ù\×Ù˜Z[ØÛÜÙYÚ[œÝXYÛÙ—Ù›Ü[™×ÝÛÜšÊÙ[ŠHOˆ›Û™N‚ˆØ\Ù\ÈHÂˆ
-ˆ”[ˆHY\ÙXÝ\š]HØØ[ˆ[ˆ™[YYX]HHš[™[™ÜÈ‹ˆÈ‘QTÔÐÐSˆ‹‘’VŸKˆ
-Kˆ
-ˆ”[ˆHÝ[™\™ÙXÝ\š]HØØ[ˆ[™š^Hš[™[™ÜÈ‹ˆÈ”ÕS‘T‘ÔÐÐSˆ‹‘’VŸKˆ
-Kˆ
-‘\ØÛÝ™\ˆ[™\˜Xš[]Y\È[ˆš^[H‹È‘TÐÓÕ‘T–H‹‘’VŸJKˆ
-ˆ‘š\œÝ\ØÛÝ™\ˆÙXÝ\š]Hš[™[™ÜÈ[ˆ\È[Ù[K[ˆš^[H‹ˆÈ‘TÐÓÕ‘T–H‹‘’VŸKˆ
-Kˆ
-ˆ”ØØ[ˆ\È™\ÜÚ]ÜžH›Üˆ[™\˜Xš[]Y\È[™]Ú[H‹ˆÈ”ÕS‘T‘ÔÐÐSˆ‹‘’VŸKˆ
-Kˆ
-ˆ•šXYÙH\ÈÙXÝ\š]Hš[™[™È[ˆš^]‹ˆÈ•’PQÑH‹‘’VŸKˆ
-Kˆ
-ˆ•˜[Y]H\ÈÙXÝ\š]Hš[™[™È[ˆš^]‹ˆÈ•SQUSÓˆ‹‘’VŸKˆ
-Kˆ
-ˆ‘š^[™˜[Y]H\È[™\˜Xš[]Hš[™[™È‹ˆÈ‘’V‹•SQUSÓˆŸKˆ
-Kˆ
-ˆ•Üš]HH[™\˜Xš[]H™\Ü[ˆ˜XÚÈ\ÈÙXÝ\š]Hš[™[™È[ˆ[™X\ˆ‹ˆÈ•Ô’UUT‹•PÒÒS‘ÈŸKˆ
-KˆBˆ›Üˆ›Û\^XÝYÜ\Ù\È[ˆØ\Ù\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-BˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—KˆŠBˆÙ[‹˜\ÜÙ\\Ó›Û™JXÚ\Ú[Û–Èœš[X\žH—JBˆÙ[‹˜\ÜÙ\[Šˆ”ÑPÕT’UWÔTÑT×Ô‘TURT‘WÔÔUÕTÒÈ‹ˆXÚ\Ú[Û–Èœ™X\ÛÛ—ØÛÙ\È—Kˆ
-Bˆ\ÙWÜ™X\ÛÛˆH™^
-ˆ™X\ÛÛ‚ˆ›Üˆ™X\ÛÛˆ[ˆXÚ\Ú[Û–Èœ™X\ÛÛ—ØÛÙ\È—BˆYˆ™X\ÛÛ‹œÝ\ÝÚ]
-”ÑPÕT’UWÔTÑT×ÈŠBˆ[™™X\ÛÛˆOH”ÑPÕT’UWÔTÑT×Ô‘TURT‘WÔÔUÕTÒÈ‚ˆ
-Bˆ›Üˆ\ÙH[ˆ^XÝYÜ\Ù\Î‚ˆÙ[‹˜\ÜÙ\[Š\ÙK\ÙWÜ™X\ÛÛŠB‚ˆYˆ\ÝÛ™[Û—Ü›Ú™XÝØœ˜[˜ÚÚ\×Ü›ÝšY\—ÜØÛÜWÛ›ÝÙÚ]ÙY™—ÜØÛÜJÙ[ŠHOˆ›Û™N‚ˆ›Û\ÈHÂˆ”[ˆHÝ[™\™ÙXÝ\š]HØØ[ˆÙˆ\È™[Ûˆ]X˜\ÙHœ˜[˜Ú‹ˆ”[ˆHÙXÝ\š]HØØ[ˆÙˆH™[Ûˆ›Ú™XÝœ˜[˜Ú›ÙXÝ[Ûˆ‹ˆBˆ›Üˆ›Û\[ˆ›Û\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆÙ[‹˜\ÜÙ\\]X[
-ˆÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-VÈœ[WÚY—Kˆ›™[Û‹\Ý[™\™\ÙXÝ\š]K\™]šY]È‹ˆ
-BˆÙ[‹˜\ÜÙ\›Ý\]X[
-ˆÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ”™]šY]ÈÝÈÈ]Ú\È[™\˜Xš[]HŠVÈœ[WÚY—KˆœÙXÝ\š]KYY™‹\™]šY]È‹ˆ
-B‚ˆYˆ\ÝÙ^XÚ]Û]™WØXØÙ\Ü×Ù^Û\Ú[Û—ÛÝ™\œšY\×ØØ[X›WÜ›Ø™JÙ[ŠHOˆ›Û™N‚ˆØ\Ù\ÈHÂˆ
-ˆ•˜[Y]H\ÈÝ\X˜\ÙHÙXÝ\š]Hš[™[™ÈÚ]Ý]\Ú[™ÈH]™HÝ\X˜\ÙHÛÛ›™XÝÜˆ‹ˆ˜\œÝ\X˜\ÙH‹ˆœÝ\X˜\ÙK\ÙXÝ\š]KYš[™[™Ë]˜[Y][Ûˆ‹ˆ
-Kˆ
-ˆ•˜[Y]H\ÈÝ\X˜\ÙHÙXÝ\š]Hš[™[™ÈÝ]XØ[NÈÈ›ÝXØÙ\ÜÈH]™H›Ú™XÝ‹ˆ˜\œÝ\X˜\ÙH‹ˆœÝ\X˜\ÙK\ÙXÝ\š]KYš[™[™Ë]˜[Y][Ûˆ‹ˆ
-Kˆ
-ˆ•˜[Y]H\ÈÝ\X˜\ÙHÙXÝ\š]Hš[™[™ÎÈÈ›ÝØ[HÝ\X˜\ÙH\‹ˆ˜\œÝ\X˜\ÙH‹ˆœÝ\X˜\ÙK\ÙXÝ\š]KYš[™[™Ë]˜[Y][Ûˆ‹ˆ
-Kˆ
-ˆ•˜[Y]H\È™[ÛˆÙXÝ\š]Hš[™[™ÈÚ]Ý]]™H›ÝšY\ˆXØÙ\ÜÈ‹ˆ˜\›™[Ûˆ‹ˆ›™[Û‹\ÙXÝ\š]KYš[™[™Ë]˜[Y][Ûˆ‹ˆ
-Kˆ
-ˆ•˜[Y]H\È™[ÛˆÙXÝ\š]Hš[™[™ÈÚ]Ý]\Ú[™ÈH]™H™[ÛˆÛÛ›™XÝÜˆ‹ˆ˜\›™[Ûˆ‹ˆ›™[Û‹\ÙXÝ\š]KYš[™[™Ë]˜[Y][Ûˆ‹ˆ
-Kˆ
-ˆ•˜[Y]H\È™[ÛˆÙXÝ\š]Hš[™[™ÈÝ]XØ[NÈÈ›ÝXØÙ\ÜÈH]™H›Ú™XÝ‹ˆ˜\›™[Ûˆ‹ˆ›™[Û‹\ÙXÝ\š]KYš[™[™Ë]˜[Y][Ûˆ‹ˆ
-Kˆ
-ˆ•˜[Y]H\È™[ÛˆÙXÝ\š]Hš[™[™ÎÈÈ›ÝØ[H™[Ûˆ\‹ˆ˜\›™[Ûˆ‹ˆ›™[Û‹\ÙXÝ\š]KYš[™[™Ë]˜[Y][Ûˆ‹ˆ
-Kˆ
-ˆ”[ˆHY\ÙXÝ\š]HØØ[ˆÙˆ\È™\ÜÚ]ÜžHÚ]Ý]\Ú[™ÈHÛÙ^ÙXÝ\š]HPÔ‹ˆ›XÜ˜ÛÙ^\ÙXÝ\š]H‹ˆ™Y\\ÙXÝ\š]K\™]šY]È‹ˆ
-KˆBˆ›Üˆ›Û\\[™[˜ÞWÚY[WÚY[ˆØ\Ù\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™UÚ]Ø[X›Q\[™[˜ÞJˆ›Û\\[™[˜ÞWÚYˆ
-BˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—K[WÚY
-Bˆ˜[˜XÚÈHXÚ\Ú[Û–È˜Ø\Xš[]WÙ˜[˜XÚÜÈ—VÌBˆÙ[‹˜\ÜÙ\\]X[
-˜[˜XÚÖÈ™\]Z]˜[[˜ÙH—K››Û—Ù\]Z]˜[[ŠBˆÙ[‹˜\ÜÙ\[Šˆˆœ›Û\žÙ\[™[˜ÞWÚYN™^XÚ]WÙ^ÛYY‹ˆ˜[˜XÚÖÈ[˜]˜Z[X›WÙ\[™[˜ÚY\È—Kˆ
-B‚ˆYˆ\ÝÜ™\ÜÚ]ÜžWÝ[™\˜Xš[]WÜØØ[—Ý\Ù\×ÜÝ[™\™ÜØØ[—Û›ÝÙ\ØÛÝ™\žJÙ[ŠHOˆ›Û™N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ”ØØ[ˆ\È™\ÜÚ]ÜžH›Üˆ[™\˜Xš[]Y\ÈŠBˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—KœÝ[™\™\ÙXÝ\š]K\™]šY]ÈŠBˆÙ[‹˜\ÜÙ\›Ý\]X[
-XÚ\Ú[Û–Èœ[WÚY—KœÙXÝ\š]KYš[™[™ËY\ØÛÝ™\žHŠB‚ˆYˆ\ÝÙš^Ü™\]Z\™\×ØÝ\œ™[Û]]][Û—Ú[[
-Ù[ŠHOˆ›Û™N‚ˆ™YØ]]™WÜ›Û\ÈHÂˆ‘^Z[ˆÝÈÈš^\ÈÙXÝ\š]Hš[™[™È‹ˆ‘š^\ÈÙXÝ\š]Hš[™[™È]\‹Û›H^Z[ˆ›ÝÈ‹ˆBˆ›Üˆ›Û\[ˆ™YØ]]™WÜ›Û\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-BˆÙ[‹˜\ÜÙ\›Ý\]X[
-XÚ\Ú[Û–Èœ[WÚY—KœÙXÝ\š]KYš[™[™ËYš^ŠBˆÙ[‹˜\ÜÙ\›Ý\]X[
-XÚ\Ú[Û–Èœ[WÚY—K˜ÛÙ[™Ë\ÙXÝ\š]KX›Ý[™\žHŠBˆÙ[‹˜\ÜÙ\\]X[
-ˆÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠˆ’[\[Y[Hš^›Üˆ\È˜[Y]YÙXÝ\š]Hš[™[™È‚ˆ
-VÈœ[WÚY—KˆœÙXÝ\š]KYš[™[™ËYš^‹ˆ
-B‚ˆYˆ\ÝÝ˜XÚÙ\—Ù\Ý[˜][Û—ÜÙ[XÝ×ÛX]Ú[™×ÜÝ\Ü
-Ù[ŠHOˆ›Û™N‚ˆØ\Ù\ÈHÂˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆÚ]Xˆ‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™ËYÚ]Xˆ‹ˆœÚÚ[™Ú]XŽ™Ú]Xˆ‹ˆ
-Kˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆ[™X\ˆ‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™Ë[[™X\ˆ‹ˆÛÛY˜[Z[N˜\›[™X\ˆ‹ˆ
-Kˆ
-ˆ”Þ[˜È\ÙHÙXÝ\š]Hš[™[™ÜÈÈš\˜H‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™ËZš\˜H‹ˆÛÛY˜[Z[N˜\˜]\ÜÚX[ˆ‹ˆ
-KˆBˆ›Üˆ›Û\[WÚYÝ\Ü[ˆØ\Ù\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-BˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—K[WÚY
-BˆÙ[‹˜\ÜÙ\\]X[
-ˆÚ][VÈšY—H›Üˆ][H[ˆXÚ\Ú[Û–ÈœÝ\ÜÈ—WKÜÝ\ÜBˆ
-B‚ˆYˆ\ÝÝ˜XÚÙ\—Ù\Ý[˜][Û—Û™YØ][Û—ÜÙ[XÝ×ÛÛ›WÝWØY™š\›X]]™WÝ\™Ù]
-Ù[ŠHOˆ›Û™N‚ˆØ\Ù\ÈHÂˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆ[™X\ˆ]›ÝÚ]Xˆ[™›Ýš\˜H‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™Ë[[™X\ˆ‹ˆÛÛY˜[Z[N˜\›[™X\ˆ‹ˆ
-Kˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆÚ]Xˆ]›Ý[™X\ˆ[™›Ý]\ÜÚX[ˆ‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™ËYÚ]Xˆ‹ˆœÚÚ[™Ú]XŽ™Ú]Xˆ‹ˆ
-Kˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆš\˜H]›ÝÚ]Xˆ[™›Ý[™X\ˆ‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™ËZš\˜H‹ˆÛÛY˜[Z[N˜\˜]\ÜÚX[ˆ‹ˆ
-KˆBˆ›Üˆ›Û\[WÚYÝ\Ü[ˆØ\Ù\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-BˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—K[WÚY
-BˆÙ[‹˜\ÜÙ\\]X[
-ˆÚ][VÈšY—H›Üˆ][H[ˆXÚ\Ú[Û–ÈœÝ\ÜÈ—WKÜÝ\ÜBˆ
-B‚ˆYˆ\ÝÝ˜XÚÙ\—ØÛÛ˜\ÝÜÙ[XÝ×ÛÛ›WÝWÜ™Y™\œ™YÙ\Ý[˜][ÛŠÙ[ŠHOˆ›Û™N‚ˆØ\Ù\ÈHÂˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆÚ]Xˆ˜]\ˆ[ˆ[™X\ˆ‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™ËYÚ]Xˆ‹ˆœÚÚ[™Ú]XŽ™Ú]Xˆ‹ˆ
-Kˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆ[™X\ˆ˜]\ˆ[ˆÚ]Xˆ‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™Ë[[™X\ˆ‹ˆÛÛY˜[Z[N˜\›[™X\ˆ‹ˆ
-Kˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆš\˜H[œÝXYÙˆÚ]Xˆ‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™ËZš\˜H‹ˆÛÛY˜[Z[N˜\˜]\ÜÚX[ˆ‹ˆ
-Kˆ
-ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆÚ]Xˆ[œÝXYÙˆš\˜H‹ˆœÙXÝ\š]KYš[™[™ÜË]˜XÚÚ[™ËYÚ]Xˆ‹ˆœÚÚ[™Ú]XŽ™Ú]Xˆ‹ˆ
-KˆBˆ›Üˆ›Û\[WÚYÝ\Ü[ˆØ\Ù\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-BˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—K[WÚY
-BˆÙ[‹˜\ÜÙ\\]X[
-ˆÚ][VÈšY—H›Üˆ][H[ˆXÚ\Ú[Û–ÈœÝ\ÜÈ—WKÜÝ\ÜBˆ
-B‚ˆYˆ\ÝÛ][\WØY™š\›X]]™WÝ˜XÚÙ\—Ù\Ý[˜][Ûœ×Ü™\]Z\™WÜÜ]
-Ù[ŠHOˆ›Û™N‚ˆ›Û\ÈHÂˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆÚ]Xˆ[™[™X\ˆ‹ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆ[™X\ˆ[™š\˜H‹ˆ•˜XÚÈ\ÙHÙXÝ\š]Hš[™[™ÜÈ[ˆÚ]Xˆ[™]\ÜÚX[ˆ‹ˆBˆ›Üˆ›Û\[ˆ›Û\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆXÚ\Ú[ÛˆHÙ[‹œ™\ÛÛ™QXÚ\Ú[ÛŠ›Û\
-BˆÙ[‹˜\ÜÙ\\]X[
-XÚ\Ú[Û–Èœ[WÚY—KˆŠBˆÙ[‹˜\ÜÙ\\Ó›Û™JXÚ\Ú[Û–Èœš[X\žH—JBˆÙ[‹˜\ÜÙ\[Šˆ•PÒÑT—ÑTÕSUSÓ”×Ô‘TURT‘WÔÔUÕTÒÈ‹ˆXÚ\Ú[Û–Èœ™X\ÛÛ—ØÛÙ\È—Kˆ
-B‚ˆYˆ\ÝÛ™YØ]]™WÙ^[\\×Ù×Û›ÝØXÝ]˜]WÜÙXÝ\š]WÛÜ—Ù]X˜\ÙWÜ›ÝšY\—Ü›Ý]\ÊÙ[ŠHOˆ›Û™N‚ˆ›Û\ÈHÂˆÚ[™ÙHH™[ÛˆÜ˜YY[Ûˆ\È]Ûˆ‹ˆ’[\[Y[HÝ\X˜\ÙHÙÛÈ[ˆH›ÛÝ\ˆ‹ˆ	Ô][ÝY^[\Nˆœ[ˆHÝ[™\™ÙXÝ\š]HØØ[ˆÙˆH™\ÜÚ]ÜžH‹ˆÝ[[X\š^™H]‰Ëˆ•HÝXš™XÝ\ÈÙXÝ\š]HØØ[ˆ‹ˆ‘È›Ý[ˆHÙXÝ\š]HØØ[ˆÙˆ\È™\ÜÚ]ÜžH‹ˆ‘È›Ýš^\ÈÙXÝ\š]Hš[™[™ÎÈÛ›HÝ[[X\š^™H]‹ˆ‘˜YHÛÜœÜ˜]HÛXÞHØÝ[Y[‹ˆ‘^Z[ˆ\È]X˜\ÙHšY]È‹ˆÚ[™ÙHH]ÛˆÛÛÜˆ‹ˆBˆ›Ü˜šY[—Ü™Yš^\ÈH
-ˆœÙXÝ\š]KH‹ˆœÝ\X˜\ÙKH‹ˆ›™[Û‹H‹ˆœÜÝÜ™\ËH‹ˆ˜ÛÙ[™Ë\Ý\X˜\ÙKH‹ˆ˜ÛÙ[™Ë[™[Û‹H‹ˆ˜ÛÙ[™Ë\ÜÝÜ™\ËH‹ˆ™œ›Û[™\ÙXÝ\š]KH‹ˆ™Y\\ÙXÝ\š]KH‹ˆœÝ[™\™\ÙXÝ\š]KH‹ˆ˜ÛÙ^\ÙXÝ\š]KH‹ˆ›ØØ[\ÙXÝ\š]KH‹ˆ™Y™[œÚ]™K\ÙXÝ\š]KH‹ˆ
-Bˆ›Üˆ›Û\[ˆ›Û\Î‚ˆÚ]Ù[‹œÝX•\Ý
-›Û\\›Û\
-N‚ˆ[HHš\œÝÛX]Ú[™×Ü[J›Û\
-BˆYˆ[H\È›Ý›Û™N‚ˆÙ[‹˜\ÜÙ\˜[ÙJ[VÈšY—KœÝ\ÝÚ]
-›Ü˜šY[—Ü™Yš^\ÊK[JB‚‚šYˆ×Û˜[YW×ÈOH—×ÛXZ[—×ÈŽ‚ˆ[š]\Ý›XZ[Š
-B
+                "Validate this Neon Postgres RLS security finding",
+                "neon-security-finding-validation",
+                "skill:neon-postgres:neon-postgres",
+            ),
+        ]
+        for prompt, rule_id, support in cases:
+            with self.subTest(rule_id=rule_id):
+                rule = first_matching_rule(prompt)
+                self.assertEqual(rule["id"], rule_id)
+                self.assertIn(support, rule["supports"])
+        self.assertEqual(
+            RULES_BY_ID["supabase-security-finding-validation"][
+                "dependency_fallback"
+            ]["equivalence"],
+            "non_equivalent",
+        )
+        self.assertEqual(
+            RULES_BY_ID["neon-security-finding-validation"]["dependency_fallback"][
+                "equivalence"
+            ],
+            "non_equivalent",
+        )
+
+    def test_security_sensitive_implementation_keeps_coding_os_primary(self) -> None:
+        cases = [
+            (
+                "Implement Supabase RLS policies for this database",
+                "coding-supabase-security-boundary",
+                "skill:supabase:supabase",
+            ),
+            (
+                "Implement Neon Postgres RLS policies for this database",
+                "coding-neon-security-boundary",
+                "skill:neon-postgres:neon-postgres",
+            ),
+            (
+                "Implement PostgreSQL RLS policies for this database",
+                "coding-postgres-security-boundary",
+                "skill:postgres-security-best-practices",
+            ),
+            (
+                "Implement secure HttpOnly cookies in this React frontend",
+                "frontend-security-boundary",
+                "skill:security-best-practices",
+            ),
+        ]
+        for prompt, rule_id, support in cases:
+            with self.subTest(rule_id=rule_id):
+                rule = first_matching_rule(prompt)
+                self.assertEqual(rule["id"], rule_id)
+                self.assertEqual(rule["primary"], "skill:codex-coding-os-master")
+                self.assertIn(support, rule["supports"])
+
+    def test_normal_provider_changes_and_operations_are_not_forced_through_supabase(self) -> None:
+        cases = [
+            ("Apply the Supabase database migration", "coding-supabase-provider-change"),
+            ("Apply the Neon Postgres migration", "coding-neon-provider-change"),
+            ("Apply the PostgreSQL schema migration", "coding-postgres-provider-change"),
+            ("Inspect the Supabase project database configuration", "supabase-operations"),
+            ("Inspect the Neon Postgres project configuration", "neon-operations"),
+            ("Inspect Postgres roles and grants in this database", "postgres-security-operations"),
+            ("Analyze Neon Postgres egress usage", "neon-postgres-egress-optimization"),
+        ]
+        for prompt, rule_id in cases:
+            with self.subTest(rule_id=rule_id):
+                self.assertEqual(first_matching_rule(prompt)["id"], rule_id)
+        self.assertEqual(
+            RULES_BY_ID["coding-neon-provider-change"]["supports"][0],
+            "skill:neon-postgres:neon-postgres",
+        )
+
+    def test_deep_is_non_equivalent_while_standard_and_diff_are_equivalent(self) -> None:
+        for rule_id in (
+            "deep-security-review",
+            "supabase-deep-security-review",
+            "neon-deep-security-review",
+            "postgres-deep-security-review",
+        ):
+            self.assertEqual(
+                RULES_BY_ID[rule_id]["dependency_fallback"]["equivalence"],
+                "non_equivalent",
+            )
+        for rule_id in (
+            "security-diff-review",
+            "supabase-security-diff-review",
+            "neon-security-diff-review",
+            "postgres-security-diff-review",
+            "standard-security-review",
+            "supabase-standard-security-review",
+            "neon-standard-security-review",
+            "postgres-standard-security-review",
+        ):
+            self.assertEqual(
+                RULES_BY_ID[rule_id]["dependency_fallback"]["equivalence"],
+                "equivalent",
+            )
+
+    def test_runtime_records_equivalent_and_non_equivalent_fallbacks(self) -> None:
+        manifest = manifest_for_policy(self.root)
+        with mock.patch.object(index, "_entry_hash_current", return_value=True):
+            standard = index.resolve_route(
+                "Run a standard security scan of this repository",
+                manifest=manifest,
+                policy=POLICY,
+            )
+            deep = index.resolve_route(
+                "Run a deep security scan of this repository",
+                manifest=manifest,
+                policy=POLICY,
+            )
+        self.assertEqual(standard["capability_fallbacks"][0]["equivalence"], "equivalent")
+        self.assertEqual(deep["capability_fallbacks"][0]["equivalence"], "non_equivalent")
+        self.assertEqual(deep["primary"]["id"], "skill:security-best-practices")
+
+    def test_actual_resolution_preserves_provider_qualified_deep_scan_depth(self) -> None:
+        cases = [
+            (
+                "Run a deep Supabase security scan of this repository",
+                "supabase-deep-security-review",
+            ),
+            (
+                "Run a deep Neon Postgres security scan of this repository",
+                "neon-deep-security-review",
+            ),
+            (
+                "Run a deep PostgreSQL security scan of this repository",
+                "postgres-deep-security-review",
+            ),
+        ]
+        for prompt, rule_id in cases:
+            with self.subTest(rule_id=rule_id):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], rule_id)
+                self.assertEqual(
+                    decision["capability_fallbacks"][0]["equivalence"],
+                    "non_equivalent",
+                )
+
+    def test_common_security_phrasing_resolves_the_intended_workflow(self) -> None:
+        cases = [
+            (
+                "Review these Supabase security alerts",
+                "supabase-security-alert-triage",
+            ),
+            ("Check this security alert", "security-finding-triage"),
+            ("Investigate this security alert", "security-finding-triage"),
+            (
+                "Analyze these Supabase security advisor alerts",
+                "supabase-security-alert-triage",
+            ),
+            ("Inspect this Neon security alert", "neon-security-alert-triage"),
+            ("Please do a security scan", "standard-security-review"),
+            (
+                "Please scan this repository for security issues",
+                "standard-security-review",
+            ),
+            (
+                "Scan this repository for security problems",
+                "standard-security-review",
+            ),
+            ("Review this PR for security", "security-diff-review"),
+            (
+                "Analyze the attack paths and exploitability of this vulnerability",
+                "security-attack-path-analysis",
+            ),
+            (
+                "Analyze attack paths in this repository.",
+                "security-attack-path-analysis",
+            ),
+            (
+                "Review my security policy for missing authorization controls",
+                "security-best-practices-review",
+            ),
+        ]
+        for prompt, rule_id in cases:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(self.resolveDecision(prompt)["rule_id"], rule_id)
+
+    def test_generic_findings_do_not_activate_security_finding_phases(self) -> None:
+        prompts = [
+            "Triage this finding in the product roadmap",
+            "Validate this finding in the usability study",
+            "Fix this finding in the grammar review",
+        ]
+        security_phase_rules = {
+            "security-finding-triage",
+            "security-finding-validation",
+            "security-finding-fix",
+            "security-finding-discovery",
+        }
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                rule = first_matching_rule(prompt)
+                self.assertNotIn(rule["id"] if rule else None, security_phase_rules)
+
+    def test_all_thirteen_security_actions_respect_object_bound_negation(self) -> None:
+        cases = [
+            (
+                "Analyze this architecture, not the attack path of the security finding",
+                "security-attack-path-analysis",
+            ),
+            (
+                "Run unit tests, not a deep security scan of this repository",
+                "deep-security-review",
+            ),
+            (
+                "Draft the README, not a security policy for this repository",
+                "security-policy-definition",
+            ),
+            (
+                "Search the documentation, not discover vulnerabilities in this repository",
+                "security-finding-discovery",
+            ),
+            (
+                "Patch the formatting, not fix this security finding",
+                "security-finding-fix",
+            ),
+            (
+                "Prepare the roadmap, not security hardening recommendations for authentication",
+                "security-hardening-proposal",
+            ),
+            (
+                "Review this pull request without a security review",
+                "security-diff-review",
+            ),
+            (
+                "Run unit tests on this repository, not a security scan",
+                "standard-security-review",
+            ),
+            (
+                "Use the local checklist, not the threat model for this security scan artifact",
+                "codex-security-threat-model",
+            ),
+            (
+                "Update the summary, not track these security findings in Linear",
+                "security-findings-tracking-linear",
+            ),
+            (
+                "Review the release notes, not triage this security alert",
+                "security-finding-triage",
+            ),
+            (
+                "Verify the build, not validate this vulnerability finding",
+                "security-finding-validation",
+            ),
+            (
+                "Write a summary, not a vulnerability report, for this security finding",
+                "security-vulnerability-writeup",
+            ),
+        ]
+        for prompt, forbidden_rule_id in cases:
+            with self.subTest(forbidden_rule_id=forbidden_rule_id):
+                decision = self.resolveDecision(prompt)
+                self.assertNotEqual(decision["rule_id"], forbidden_rule_id)
+                primary = decision["primary"] or {}
+                self.assertNotEqual(
+                    primary.get("id"),
+                    RULES_BY_ID[forbidden_rule_id]["primary"],
+                )
+
+    def test_skip_omit_exclude_and_except_for_negate_security_objects(self) -> None:
+        prompts = [
+            "Run unit tests and skip the security scan",
+            "Run unit tests and omit the security scan",
+            "Run unit tests and exclude the security scan",
+            "Review PR except for security",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertNotIn(
+                    decision["rule_id"],
+                    {"standard-security-review", "security-diff-review"},
+                )
+                primary = decision["primary"] or {}
+                self.assertNotIn(
+                    primary.get("id"),
+                    {
+                        "skill:codex-security:security-scan",
+                        "skill:codex-security:security-diff-scan",
+                    },
+                )
+
+    def test_markdown_and_multiline_examples_are_not_live_directives(self) -> None:
+        prompts = [
+            "Quoted example:\n```text\nrun a standard security scan of this repository\n```\nSummarize it.",
+            "Quoted example:\n```text\nrun a standard security scan of this repository",
+            "Quoted example:\n    run a standard security scan of this repository\nSummarize it.",
+            "Quoted example: `run a standard security scan of this repository`. Summarize it.",
+            "Quoted example:\n> run a standard security scan of this repository\nSummarize it.",
+            'Quoted example:\n"run a standard security scan\nof this repository"\nSummarize it.',
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertNotEqual(decision["rule_id"], "standard-security-review")
+                primary = decision["primary"] or {}
+                self.assertNotEqual(
+                    primary.get("id"), "skill:codex-security:security-scan"
+                )
+
+        direct_control = self.resolveDecision(
+            'Use "codex-security:threat-model" for the security scan artifact'
+        )
+        self.assertEqual(direct_control["rule_id"], "codex-security-threat-model")
+
+        longer_closing_fence = self.resolveDecision(
+            "Example:\n```text\nrun a deep security scan\n````\n"
+            "Now run a standard security scan of this repository"
+        )
+        self.assertEqual(
+            longer_closing_fence["rule_id"], "standard-security-review"
+        )
+
+    def test_provider_negation_selects_only_the_affirmative_provider(self) -> None:
+        cases = [
+            (
+                "Use PostgreSQL, not Supabase, to implement RLS policies",
+                "coding-postgres-security-boundary",
+                "skill:postgres-security-best-practices",
+            ),
+            (
+                "Implement Postgres RLS policies, not Neon",
+                "coding-postgres-security-boundary",
+                "skill:postgres-security-best-practices",
+            ),
+        ]
+        for prompt, rule_id, support in cases:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], rule_id)
+                self.assertIn(support, [item["id"] for item in decision["supports"]])
+
+    def test_directional_provider_migration_binds_only_the_target(self) -> None:
+        cases = [
+            (
+                "Migrate from Supabase to Neon Postgres",
+                "coding-neon-provider-change",
+                "skill:neon-postgres:neon-postgres",
+            ),
+            (
+                "Migrate from Neon Postgres to Supabase",
+                "coding-supabase-provider-change",
+                "skill:supabase:supabase",
+            ),
+            (
+                "Use Neon rather than Supabase to implement RLS policies",
+                "coding-neon-security-boundary",
+                "skill:neon-postgres:neon-postgres",
+            ),
+            (
+                "Replace Supabase with Neon Postgres authentication policies",
+                "coding-neon-security-boundary",
+                "skill:neon-postgres:neon-postgres",
+            ),
+            (
+                "Implement PostgreSQL RLS instead of Neon",
+                "coding-postgres-security-boundary",
+                "skill:postgres-security-best-practices",
+            ),
+        ]
+        for prompt, rule_id, support in cases:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], rule_id)
+                self.assertIn(support, [item["id"] for item in decision["supports"]])
+
+    def test_provider_full_authentication_and_authorization_words_route(self) -> None:
+        cases = [
+            (
+                "Implement Supabase authentication policies",
+                "coding-supabase-security-boundary",
+            ),
+            (
+                "Implement Neon authorization controls",
+                "coding-neon-security-boundary",
+            ),
+            (
+                "Implement Supabase login and session handling",
+                "coding-supabase-security-boundary",
+            ),
+        ]
+        for prompt, rule_id in cases:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(self.resolveDecision(prompt)["rule_id"], rule_id)
+
+    def test_provider_postgres_engine_context_is_not_a_second_surface(self) -> None:
+        cases = [
+            (
+                "Implement PostgreSQL RLS for our Supabase project",
+                "coding-supabase-security-boundary",
+            ),
+            (
+                "Implement RLS in our Supabase project using PostgreSQL",
+                "coding-supabase-security-boundary",
+            ),
+            (
+                "Implement PostgreSQL RLS for our Neon project",
+                "coding-neon-security-boundary",
+            ),
+            (
+                "Implement RLS in our Neon project using PostgreSQL",
+                "coding-neon-security-boundary",
+            ),
+            (
+                "Implement RLS for our Neon database, which uses PostgreSQL",
+                "coding-neon-security-boundary",
+            ),
+            (
+                "Implement RLS for our Supabase database, which uses PostgreSQL",
+                "coding-supabase-security-boundary",
+            ),
+        ]
+        for prompt, rule_id in cases:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(self.resolveDecision(prompt)["rule_id"], rule_id)
+
+        independent = self.resolveDecision(
+            "Implement RLS in Supabase and a separate PostgreSQL database"
+        )
+        self.assertEqual(independent["rule_id"], "")
+        self.assertIn(
+            "SECURITY_SURFACES_REQUIRE_SPLIT_TASK", independent["reason_codes"]
+        )
+
+    def test_multiple_security_surfaces_fail_closed_with_split_requirement(self) -> None:
+        prompts = [
+            "Run a deep security scan of Supabase and Neon Postgres in this React frontend repository",
+            "Implement Supabase RLS policies and secure HttpOnly cookies in this React frontend",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], "")
+                self.assertIsNone(decision["primary"])
+                self.assertIn(
+                    "SECURITY_SURFACES_REQUIRE_SPLIT_TASK",
+                    decision["reason_codes"],
+                )
+
+    def test_multiple_security_phases_fail_closed_instead_of_dropping_work(self) -> None:
+        cases = [
+            (
+                "Run a deep security scan then remediate the findings",
+                {"DEEP_SCAN", "FIX"},
+            ),
+            (
+                "Run a standard security scan and fix the findings",
+                {"STANDARD_SCAN", "FIX"},
+            ),
+            ("Discover vulnerabilities then fix them", {"DISCOVERY", "FIX"}),
+            (
+                "First discover security findings in this module, then fix them",
+                {"DISCOVERY", "FIX"},
+            ),
+            (
+                "Scan this repository for vulnerabilities and patch them",
+                {"STANDARD_SCAN", "FIX"},
+            ),
+            (
+                "Triage this security finding then fix it",
+                {"TRIAGE", "FIX"},
+            ),
+            (
+                "Validate this security finding then fix it",
+                {"VALIDATION", "FIX"},
+            ),
+            (
+                "Fix and validate this vulnerability finding",
+                {"FIX", "VALIDATION"},
+            ),
+            (
+                "Write a vulnerability report then track this security finding in Linear",
+                {"WRITEUP", "TRACKING"},
+            ),
+        ]
+        for prompt, expected_phases in cases:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], "")
+                self.assertIsNone(decision["primary"])
+                self.assertIn(
+                    "SECURITY_PHASES_REQUIRE_SPLIT_TASK",
+                    decision["reason_codes"],
+                )
+                phase_reason = next(
+                    reason
+                    for reason in decision["reason_codes"]
+                    if reason.startswith("SECURITY_PHASES_")
+                    and reason != "SECURITY_PHASES_REQUIRE_SPLIT_TASK"
+                )
+                for phase in expected_phases:
+                    self.assertIn(phase, phase_reason)
+
+    def test_neon_project_branch_is_provider_scope_not_git_diff_scope(self) -> None:
+        prompts = [
+            "Run a standard security scan of this Neon database branch",
+            "Run a security scan of the Neon project branch production",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(
+                    self.resolveDecision(prompt)["rule_id"],
+                    "neon-standard-security-review",
+                )
+        self.assertNotEqual(
+            self.resolveDecision("Review how to patch this vulnerability")["rule_id"],
+            "security-diff-review",
+        )
+
+    def test_explicit_live_access_exclusion_overrides_callable_probe(self) -> None:
+        cases = [
+            (
+                "Validate this Supabase security finding without using the live Supabase connector",
+                "app:supabase",
+                "supabase-security-finding-validation",
+            ),
+            (
+                "Validate this Supabase security finding statically; do not access the live project",
+                "app:supabase",
+                "supabase-security-finding-validation",
+            ),
+            (
+                "Validate this Supabase security finding; do not call the Supabase app",
+                "app:supabase",
+                "supabase-security-finding-validation",
+            ),
+            (
+                "Validate this Neon security finding without live provider access",
+                "app:neon",
+                "neon-security-finding-validation",
+            ),
+            (
+                "Validate this Neon security finding without using the live Neon connector",
+                "app:neon",
+                "neon-security-finding-validation",
+            ),
+            (
+                "Validate this Neon security finding statically; do not access the live project",
+                "app:neon",
+                "neon-security-finding-validation",
+            ),
+            (
+                "Validate this Neon security finding; do not call the Neon app",
+                "app:neon",
+                "neon-security-finding-validation",
+            ),
+            (
+                "Run a deep security scan of this repository without using the Codex Security MCP",
+                "mcp:codex-security",
+                "deep-security-review",
+            ),
+        ]
+        for prompt, dependency_id, rule_id in cases:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveWithCallableDependency(
+                    prompt, dependency_id
+                )
+                self.assertEqual(decision["rule_id"], rule_id)
+                fallback = decision["capability_fallbacks"][0]
+                self.assertEqual(fallback["equivalence"], "non_equivalent")
+                self.assertIn(
+                    f"prompt:{dependency_id}:explicitly_excluded",
+                    fallback["unavailable_dependencies"],
+                )
+
+    def test_repository_vulnerability_scan_uses_standard_scan_not_discovery(self) -> None:
+        decision = self.resolveDecision("Scan this repository for vulnerabilities")
+        self.assertEqual(decision["rule_id"], "standard-security-review")
+        self.assertNotEqual(decision["rule_id"], "security-finding-discovery")
+
+    def test_fix_requires_current_mutation_intent(self) -> None:
+        negative_prompts = [
+            "Explain how to fix this security finding",
+            "Fix this security finding later, only explain now",
+        ]
+        for prompt in negative_prompts:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertNotEqual(decision["rule_id"], "security-finding-fix")
+                self.assertNotEqual(decision["rule_id"], "coding-security-boundary")
+        self.assertEqual(
+            self.resolveDecision(
+                "Implement the fix for this validated security finding"
+            )["rule_id"],
+            "security-finding-fix",
+        )
+
+    def test_tracker_destination_selects_matching_support(self) -> None:
+        cases = [
+            (
+                "Track these security findings in GitHub",
+                "security-findings-tracking-github",
+                "skill:github:github",
+            ),
+            (
+                "Track these security findings in Linear",
+                "security-findings-tracking-linear",
+                "tool-family:app:linear",
+            ),
+            (
+                "Sync these security findings to Jira",
+                "security-findings-tracking-jira",
+                "tool-family:app:atlassian",
+            ),
+        ]
+        for prompt, rule_id, support in cases:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], rule_id)
+                self.assertEqual(
+                    [item["id"] for item in decision["supports"]], [support]
+                )
+
+    def test_tracker_destination_negation_selects_only_the_affirmative_target(self) -> None:
+        cases = [
+            (
+                "Track these security findings in Linear but not GitHub and not Jira",
+                "security-findings-tracking-linear",
+                "tool-family:app:linear",
+            ),
+            (
+                "Track these security findings in GitHub but not Linear and not Atlassian",
+                "security-findings-tracking-github",
+                "skill:github:github",
+            ),
+            (
+                "Track these security findings in Jira but not GitHub and not Linear",
+                "security-findings-tracking-jira",
+                "tool-family:app:atlassian",
+            ),
+        ]
+        for prompt, rule_id, support in cases:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], rule_id)
+                self.assertEqual(
+                    [item["id"] for item in decision["supports"]], [support]
+                )
+
+    def test_tracker_contrast_selects_only_the_preferred_destination(self) -> None:
+        cases = [
+            (
+                "Track these security findings in GitHub rather than Linear",
+                "security-findings-tracking-github",
+                "skill:github:github",
+            ),
+            (
+                "Track these security findings in Linear rather than GitHub",
+                "security-findings-tracking-linear",
+                "tool-family:app:linear",
+            ),
+            (
+                "Track these security findings in Jira instead of GitHub",
+                "security-findings-tracking-jira",
+                "tool-family:app:atlassian",
+            ),
+            (
+                "Track these security findings in GitHub instead of Jira",
+                "security-findings-tracking-github",
+                "skill:github:github",
+            ),
+        ]
+        for prompt, rule_id, support in cases:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], rule_id)
+                self.assertEqual(
+                    [item["id"] for item in decision["supports"]], [support]
+                )
+
+    def test_multiple_affirmative_tracker_destinations_require_split(self) -> None:
+        prompts = [
+            "Track these security findings in GitHub and Linear",
+            "Track these security findings in Linear and Jira",
+            "Track these security findings in GitHub and Atlassian",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertEqual(decision["rule_id"], "")
+                self.assertIsNone(decision["primary"])
+                self.assertIn(
+                    "TRACKER_DESTINATIONS_REQUIRE_SPLIT_TASK",
+                    decision["reason_codes"],
+                )
+
+    def test_negative_examples_do_not_activate_security_or_database_provider_routes(self) -> None:
+        prompts = [
+            "Change the neon gradient on this button",
+            "Implement the Supabase logo in the footer",
+            'Quoted example: "run a standard security scan of the repository". Summarize it.',
+            "The subject is security scan",
+            "Do not run a security scan of this repository",
+            "Do not fix this security finding; only summarize it",
+            "Draft a corporate policy document",
+            "Explain this database view",
+            "Change the button color",
+        ]
+        forbidden_prefixes = (
+            "security-",
+            "supabase-",
+            "neon-",
+            "postgres-",
+            "coding-supabase-",
+            "coding-neon-",
+            "coding-postgres-",
+            "frontend-security-",
+            "deep-security-",
+            "standard-security-",
+            "codex-security-",
+            "local-security-",
+            "defensive-security-",
+        )
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                rule = first_matching_rule(prompt)
+                if rule is not None:
+                    self.assertFalse(rule["id"].startswith(forbidden_prefixes), rule)
+
+
+if __name__ == "__main__":
+    unittest.main()
