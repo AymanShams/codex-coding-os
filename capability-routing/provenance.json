@@ -1,11 +1,11 @@
 {
   "schema_version": "1.0",
-  "captured_at": "2026-08-11T17:34:00Z",
-  "source": "Universal Codex capability-routing implementation",
+  "captured_at": "2026-08-12T21:53:00Z",
+  "source": "Fresh raw-disk Universal Codex capability-routing baseline audited before the v1.2.0 repository adaptations",
   "non_live": true,
   "deployment_requires_separate_authorization": true,
   "snapshot_verification": {
-    "identical_hash_passes": 3,
+    "identical_hash_passes": 2,
     "source_hashes_verified": true,
     "upstream_manifest_status": "fresh"
   },
@@ -20,54 +20,54 @@
     "private inventory snapshots"
   ],
   "source_sha256": {
-    "_common.py": "cb7d0f9813e554f4c6c312289665d2688d31199593f8c1aab404f54717a82559",
+    "_common.py": "89705ec1d2686dcc8c1d14699a2f39c7a50c098e93dd0c5a295c20f443075057",
     "_hook_io.py": "6a4965f9c01c5d1a1b32b1cf94b1c57542674e0195b5e252805d5b0bfb251b15",
     "capability_config_fingerprint.py": "492915e091f20595b30a131a1db75001696ffca5336456de97a7dd6db5c1b782",
-    "capability_index.py": "7629c222c1c64dd833f8c38cf0ce3aa8fa52b974f44c776446ce72aa07807a2e",
+    "capability_index.py": "72db1c52f39cb9fd5a27d164f9b9f79c05406546d34c8ec49f6a51299829dfb1",
     "capability_index_cli.py": "e1b39a972a2a20517ad27186373ad2e2dbaad94bf8058672eb27810c768be7ab",
-    "capability_manifest_recovery.py": "15e9b57548e18e676261cdea0adb1b77c52902fd9fe1770baad9d87dfc928ffe",
-    "capability_index_session_start.py": "7fbf8344e36746e96a5318cbceaf2208d39bfad309459597db93aba1c3b76229",
+    "capability_manifest_recovery.py": "0e0529417846648ed1f6cc3eee2f9f8d97d139d1b15336fb0573df1c0cb04b61",
+    "capability_index_session_start.py": "dab8721546ce8d8976a4fdcd7355c43776e6fc0abcfcc9d0fa7096d1ce4cf6bc",
     "user_prompt_skill_router.py": "1b30ecaa63a6d04be8c10178ad062e563390eaec1e9391f8749cc85b0a526a2f",
-    "routing-policy.yaml": "7a79ff0294ddd9e52a28ec7772a5e0e181a51d4f8aa09b4ca27cd4ab063ad1b8",
-    "routing-policy.schema.json": "db6eba2d0c4a73ef9f97f06590d7dc2893a1d2148a4722cda0e6b803dcf88988",
-    "route-decision.schema.json": "3c478d2c1d4e172551b5e1990610ea55f62af84c5a98aa6e2e1d77ca34d3777b",
+    "routing-policy.yaml": "463d59b595dccc3c0f65877749f797772b565addc07df6072c910ea3445dcadb",
+    "routing-policy.schema.json": "c12fb47b063f22f3ffc08b2ee55ce5f6f2ae21f7e7ff16da3f0716351c8a6acd",
+    "route-decision.schema.json": "2c3401c6f4bef5bb74d2b96421216472a92d73de5c8df9b7454ecf77f58145a0",
     "active-capabilities.schema.json": "05e714b3c846ed99eb5e4e505574691144080ff322fea07bdf1455c2d12b4538",
-    "authority-receipt.schema.json": "bc98580c3f91a790a3bd41f2730e84dd0ffe6aec24263747f032cac5aef521ea",
-    "build_canonical_capability_manifest.ps1": "dac7e3dc1fbf35a2c5c78a6118fdbdb68052b2c3aaef6c747073ea46acc79a6c"
+    "authority-receipt.schema.json": "61d75e270f0fc3b564dabdfe6e808cd59c6edace1445078de47802e459badf7c",
+    "build_canonical_capability_manifest.ps1": "ce94c8ccf3a76fbf4f803315124dada1bcd3ee073db8b52efa13ac3e3c2031f8"
   },
   "upstream_test_sha256": {
-    "test_user_prompt_skill_router.py": "97170ebda76c7989e026b85af76c8c819b8618e8131b73a216ebad074a19ab65",
-    "test_capability_manifest_recovery.py": "40502101078dfc81f4d855ef3ff1282f10a159977aba0348a100b77cab9cefe8"
+    "test_user_prompt_skill_router.py": "549e3371c669c3fcc83146520adf959db57fcc47498281d4e5e30d283b514141",
+    "test_capability_manifest_recovery.py": "80e6b0a9abc7320ec5539be5971737852c394a4d8c5016d74750abec140b4a0e"
   },
   "upstream_catalogue_router_sha256": {
-    "SKILL.md": "8fb9e5a9484030d9601cd54630c6790d83441c293ce891fc5a77b6efa74b1946",
-    "scripts/query-catalogue.ps1": "2019582e5c199397cfe3a391c833bb1bff0303001a8c1398374f12fde8551797"
+    "SKILL.md": "145e8f941ae1900226f90c5e6393fb4f8fc4b93288e96d02d6f9c80919a1e5bd",
+    "scripts/query-catalogue.ps1": "55af664dc457e021a319a1ccca5c3f0d275f1e1b30e0fa17a29c26efbee72599"
   },
   "repository_port_sha256": {
-    ".agents/skills/catalogue-router/SKILL.md": "145e8f941ae1900226f90c5e6393fb4f8fc4b93288e96d02d6f9c80919a1e5bd",
+    ".agents/skills/catalogue-router/SKILL.md": "7183cf3b8c1ce5e5e702a68b84f54b02504fb9676afd410f461a801fe9f06519",
     ".agents/skills/catalogue-router/scripts/query-catalogue.ps1": "55af664dc457e021a319a1ccca5c3f0d275f1e1b30e0fa17a29c26efbee72599",
     "capability-routing/active-capabilities.schema.json": "05e714b3c846ed99eb5e4e505574691144080ff322fea07bdf1455c2d12b4538",
-    "capability-routing/authority-receipt.schema.json": "bc98580c3f91a790a3bd41f2730e84dd0ffe6aec24263747f032cac5aef521ea",
-    "capability-routing/builder/build_canonical_capability_manifest.ps1": "4dd43400027535fbd69a605ace908450b81fdcf2f53d933a7b2df42fcf382cd1",
+    "capability-routing/authority-receipt.schema.json": "b84d201dc50aee6f9d5a150d1393db7b7c2860ce1a87521f602947a968c146bd",
+    "capability-routing/builder/build_canonical_capability_manifest.ps1": "5254be7b92ef85665f8e96307ce3a061dd694f17a47777ddf21e95af12e9f3bf",
     "capability-routing/project-scope-map.example.json": "a98fee71ec1043e883fe5b75a10b33b6c3a9d380b1d53cd8d060442435848d64",
     "capability-routing/project-scope-map.schema.json": "326b7b506f64ce413539dbb099e7d3d5eed730b1c0804c9008a9d7eb921bcf32",
-    "capability-routing/README.md": "2f3f2d73049b2f1032834a4492a42534d27855692874c46ddc98034a03f7b9fd",
+    "capability-routing/README.md": "5dfe4f53c43848f13dc59d5a8681cbaa9914b95603a0a16579f9c448c335f512",
     "capability-routing/requirements-test.txt": "756cc9e506ae4ee1a6f6c0507088b5cfc0dc8ba350fb2d2d46f1ffa72033adb6",
     "capability-routing/reference-runtime/_common.py": "cb7d0f9813e554f4c6c312289665d2688d31199593f8c1aab404f54717a82559",
     "capability-routing/reference-runtime/_hook_io.py": "6a4965f9c01c5d1a1b32b1cf94b1c57542674e0195b5e252805d5b0bfb251b15",
     "capability-routing/reference-runtime/capability_config_fingerprint.py": "492915e091f20595b30a131a1db75001696ffca5336456de97a7dd6db5c1b782",
-    "capability-routing/reference-runtime/capability_index.py": "792ec12ef1f43a5e78d8fa2573343bf8f4274f2f1d2b324fd70940d1062ba617",
-    "capability-routing/reference-runtime/capability_index_cli.py": "e1b39a972a2a20517ad27186373ad2e2dbaad94bf8058672eb27810c768be7ab",
-    "capability-routing/reference-runtime/capability_index_session_start.py": "7fbf8344e36746e96a5318cbceaf2208d39bfad309459597db93aba1c3b76229",
-    "capability-routing/reference-runtime/capability_manifest_recovery.py": "15e9b57548e18e676261cdea0adb1b77c52902fd9fe1770baad9d87dfc928ffe",
+    "capability-routing/reference-runtime/capability_index.py": "7e2ffc03f9049bb804f08f1b4bb73900130c607dcd464c65bcf37a01f50f3df7",
+    "capability-routing/reference-runtime/capability_index_cli.py": "a5cecd8c4ed79013add2392b554c50ff745753782ad697b54917c30ca32a81e3",
+    "capability-routing/reference-runtime/capability_index_session_start.py": "7eb27a23c6d7caac3a501a15292700667a2de340707fc1f25ad54edcdaa4c309",
+    "capability-routing/reference-runtime/capability_manifest_recovery.py": "7138d82c571e42dc241f730dbb07144d5e57bfd334ec2eaed512171f526b2130",
     "capability-routing/reference-runtime/user_prompt_skill_router.py": "1b30ecaa63a6d04be8c10178ad062e563390eaec1e9391f8749cc85b0a526a2f",
-    "capability-routing/route-decision.schema.json": "2c3401c6f4bef5bb74d2b96421216472a92d73de5c8df9b7454ecf77f58145a0",
-    "capability-routing/routing-policy.schema.json": "82deba573f024e223cfe5d5633c32fb788355d3c03985b0bdfdf7f1b69a2daea",
-    "capability-routing/routing-policy.yaml": "a47d1a234307885d6065e37d2a8775cf5ab906aac431e5039db2115d03be6732",
-    "tests/test_repository_capability_router.py": "80ceea7c1ba2d00b5be4ca93a10da08ec28af043d5d15024ed6f3bfa45a1fc24",
-    "tests/test_capability_manifest_recovery.py": "a50c6f6091dfe7d35684fb856604fa45c40c0ba884c49c99992888e5e5ce9f57",
+    "capability-routing/route-decision.schema.json": "17d0623ea640eda44471327989d7294cced787fe186dde6314ef7a420d488601",
+    "capability-routing/routing-policy.schema.json": "58717fc8413219ee08eb78aef520b1f6f34c7e77f75e6521b4e8c3e8c9f0d914",
+    "capability-routing/routing-policy.yaml": "6f0ea59e606ff289052ee89f0ed3d5d1c5068afcefb086fe4c02371bf87b90aa",
+    "tests/test_repository_capability_router.py": "9fb63eedcbf3dd18a631b5a781cc7b91971f34d9e5006e1e249ecf0e6b8b7e36",
+    "tests/test_capability_manifest_recovery.py": "884f0d128c38516dfd570ba9868b7cf959d8b16a11337e632ba0c870a3a64da4",
     "tests/test_catalogue_router_wrapper.py": "90848c919497b65a0c3fa1ca65fc8f7129efa3feab43c3419eb678c610074d38",
-    "tests/test_security_capability_routing.py": "c12fd15d2448c8ee3ebfbfef67d4713be5c2f31b779cb9f59a842d9d448e659d"
+    "tests/test_security_capability_routing.py": "9e6d87f0bd34a7b5128405ab610f18b41d0648b998a41841aa66b43b2322b55c"
   },
   "repository_adaptations": [
     "removed private project roots, source scopes, memory scopes, and project-specific policy rules",
@@ -76,6 +76,10 @@
     "kept the runtime dormant and excluded it from installation and hooks",
     "added repository-owned security and provider routing decisions",
     "ported the universal router tests into public-safe synthetic contract coverage",
-    "adapted catalogue-router to resolve the deployment-owned CODEX_HOME instead of deriving it from the installed skill path"
+    "adapted catalogue-router to resolve the deployment-owned CODEX_HOME instead of deriving it from the installed skill path",
+    "upgraded route execution and registry receipts to content-bound authority schema 3 with exact current-authority verification",
+    "upgraded recovery receipts to schema 2 with manifest-backed plugin identity, package-byte, capability-surface, and complete source-hash cohorts while denying automatic remote-plugin replacement without detached authenticated installer attestation",
+    "made session-start recovery reload authority inside the recovery mutex so pre-lock state remains audit evidence only",
+    "bounded critique, technical security, PDF, strategy, pricing, operating-model, and situation intent gates with adversarial positive and negative cases"
   ]
 }

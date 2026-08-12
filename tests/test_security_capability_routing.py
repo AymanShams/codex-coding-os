@@ -267,6 +267,61 @@ class SecurityCapabilityRoutingTests(unittest.TestCase):
             with self.subTest(rule_id=rule_id):
                 self.assertRoute(prompt, rule_id, primary)
 
+    def test_natural_technical_security_reviews_are_bounded_to_software(self) -> None:
+        positive_prompts = [
+            "Review the security of this API.",
+            "Review Neon security configuration.",
+            "Review this API security design.",
+            "Review the API security.",
+            "Validate these RLS policies.",
+            "Review this database security plan.",
+            "Recommend security improvements for this API.",
+            "Analyze authorization in this backend.",
+            "Inspect RLS policies in this database.",
+            "Verify the RLS policies in this database.",
+            "Validate authentication in this API.",
+            "Evaluate access control in this app.",
+            "Assess API security.",
+            "Audit backend security.",
+            "Review frontend security.",
+            "Review database security.",
+            "Review application security.",
+            "Review repository security.",
+            "Review this backend for security.",
+            "Review React security.",
+            "Review browser security.",
+        ]
+        for prompt in positive_prompts:
+            with self.subTest(prompt=prompt):
+                self.assertRoute(
+                    prompt,
+                    "security-best-practices-review",
+                    "skill:security-best-practices",
+                )
+
+        false_positive_prompts = [
+            "Review the security of this investment.",
+            "Review the job security of this role.",
+            "Assess the security of this bond.",
+            "Review the security of the building.",
+            "Review a report titled Security of Supply Chains.",
+            "Review social security policy.",
+            "Analyze permissions in this HR process.",
+            "Review the conference sessions.",
+            "Review cookies for the event.",
+            "Review employee privileges.",
+            "Review the tokens in this board game.",
+            "Review credentials for this applicant.",
+            "Review the login page design.",
+            "Review this security policy about building access.",
+        ]
+        for prompt in false_positive_prompts:
+            with self.subTest(prompt=prompt):
+                decision = self.resolveDecision(prompt)
+                self.assertNotEqual(
+                    decision.get("rule_id"), "security-best-practices-review"
+                )
+
     def test_provider_aware_scans_precede_generic_scans(self) -> None:
         cases = [
             (
@@ -486,10 +541,39 @@ class SecurityCapabilityRoutingTests(unittest.TestCase):
                 "standard-security-review",
             ),
             ("Review this PR for security", "security-diff-review"),
+            (
+                "Analyze the attack paths and exploitability of this vulnerability",
+                "security-attack-path-analysis",
+            ),
+            (
+                "Analyze attack paths in this repository.",
+                "security-attack-path-analysis",
+            ),
+            (
+                "Review my security policy for missing authorization controls",
+                "security-best-practices-review",
+            ),
         ]
         for prompt, rule_id in cases:
             with self.subTest(prompt=prompt):
                 self.assertEqual(self.resolveDecision(prompt)["rule_id"], rule_id)
+
+    def test_generic_findings_do_not_activate_security_finding_phases(self) -> None:
+        prompts = [
+            "Triage this finding in the product roadmap",
+            "Validate this finding in the usability study",
+            "Fix this finding in the grammar review",
+        ]
+        security_phase_rules = {
+            "security-finding-triage",
+            "security-finding-validation",
+            "security-finding-fix",
+            "security-finding-discovery",
+        }
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                rule = first_matching_rule(prompt)
+                self.assertNotIn(rule["id"] if rule else None, security_phase_rules)
 
     def test_all_thirteen_security_actions_respect_object_bound_negation(self) -> None:
         cases = [

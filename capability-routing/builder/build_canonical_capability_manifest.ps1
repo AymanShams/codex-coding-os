@@ -129,7 +129,7 @@ function Get-RecoveryAuthorityReceipt {
     catch {
         throw "Capability recovery snapshot returned invalid JSON: $($_.Exception.Message)"
     }
-    if ([string]$Receipt.schema_version -ne 'capability-authority-receipt-v1' -or
+    if ([string]$Receipt.schema_version -ne 'capability-authority-receipt-v2' -or
         [string]$Receipt.snapshot_sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
         -not [bool]$Receipt.app_identity.coherent) {
         throw 'Capability recovery snapshot returned an invalid authority receipt.'
@@ -377,8 +377,11 @@ function Get-PluginCacheInventoryHash {
             Assert-PassiveCacheObjectWithinRoot -Item $Marketplace -ResolvedCacheRoot $ResolvedCacheRoot
             foreach ($Plugin in Get-ChildItem -LiteralPath $Marketplace.FullName -Directory | Sort-Object Name) {
                 Assert-PassiveCacheObjectWithinRoot -Item $Plugin -ResolvedCacheRoot $ResolvedCacheRoot
+                if ($Plugin.Name -like 'plugin-install-*') { continue }
                 foreach ($Version in Get-ChildItem -LiteralPath $Plugin.FullName -Directory | Sort-Object Name) {
                     Assert-PassiveCacheObjectWithinRoot -Item $Version -ResolvedCacheRoot $ResolvedCacheRoot
+                    $PackageManifestPath = Join-Path $Version.FullName '.codex-plugin\plugin.json'
+                    if (-not (Test-Path -LiteralPath $PackageManifestPath -PathType Leaf)) { continue }
                     $RelativeRoot = ([System.IO.Path]::GetRelativePath($CacheRoot, $Version.FullName) -replace '\\', '/').ToLowerInvariant()
                     $Rows.Add("ROOT`t$RelativeRoot`t0`t$($Version.LastWriteTimeUtc.Ticks)")
                     foreach ($RelativeFile in @('.codex-plugin\plugin.json', '.app.json', '.mcp.json')) {
@@ -559,6 +562,9 @@ $DefaultConfigFingerprintModulePath = Join-Path $CodexHome 'hooks\capability_con
 if (-not $ConfigFingerprintModulePath) { $ConfigFingerprintModulePath = $DefaultConfigFingerprintModulePath }
 $CapabilityIndexCliPath = Join-Path $CodexHome 'hooks\capability_index_cli.py'
 $PromptRouterPath = Join-Path $CodexHome 'hooks\user_prompt_skill_router.py'
+$SessionStartPath = Join-Path $CodexHome 'hooks\capability_index_session_start.py'
+$CommonModulePath = Join-Path $CodexHome 'hooks\_common.py'
+$HookIoModulePath = Join-Path $CodexHome 'hooks\_hook_io.py'
 $RecoveryModulePath = Join-Path $CodexHome 'hooks\capability_manifest_recovery.py'
 $InstalledBuilderPath = $PSCommandPath
 $AuthorityReceiptSchemaPath = Join-Path $CodexHome 'capability-routing\authority-receipt.schema.json'
@@ -568,6 +574,10 @@ $DependencyReadinessReadmePath = Join-Path $CodexHome 'tools\dependency-readines
 $RoutingDir = Join-Path $CodexHome 'capability-routing'
 if (-not $ManifestPath) { $ManifestPath = Join-Path $RoutingDir 'active-capabilities.json' }
 $PolicyPath = Join-Path $RoutingDir 'routing-policy.yaml'
+$RoutingPolicySchemaPath = Join-Path $RoutingDir 'routing-policy.schema.json'
+$ActiveCapabilitiesSchemaPath = Join-Path $RoutingDir 'active-capabilities.schema.json'
+$ProjectScopeMapPath = Join-Path $RoutingDir 'project-scope-map.json'
+$ProjectScopeMapSchemaPath = Join-Path $RoutingDir 'project-scope-map.schema.json'
 $RouteDecisionSchemaPath = Join-Path $RoutingDir 'route-decision.schema.json'
 
 foreach ($RequiredCsv in @($SkillsCsvPath, $PluginsCsvPath, $ToolsCsvPath)) {
@@ -1093,11 +1103,18 @@ Add-SourceHash -Target $SourceHashes -Name 'capability_index.py' -Path $Capabili
 Add-SourceHash -Target $SourceHashes -Name 'capability_config_fingerprint.py' -Path $ConfigFingerprintModulePath
 Add-SourceHash -Target $SourceHashes -Name 'capability_index_cli.py' -Path $CapabilityIndexCliPath
 Add-SourceHash -Target $SourceHashes -Name 'user_prompt_skill_router.py' -Path $PromptRouterPath
+Add-SourceHash -Target $SourceHashes -Name 'capability_index_session_start.py' -Path $SessionStartPath
+Add-SourceHash -Target $SourceHashes -Name '_common.py' -Path $CommonModulePath
+Add-SourceHash -Target $SourceHashes -Name '_hook_io.py' -Path $HookIoModulePath
 Add-SourceHash -Target $SourceHashes -Name 'capability_manifest_recovery.py' -Path $RecoveryModulePath
 Add-SourceHash -Target $SourceHashes -Name 'capability-manifest-builder.ps1' -Path $InstalledBuilderPath
 Add-SourceHash -Target $SourceHashes -Name 'authority-receipt.schema.json' -Path $AuthorityReceiptSchemaPath
 Add-SourceHash -Target $SourceHashes -Name 'query-catalogue.ps1' -Path $CatalogueQueryPath
 Add-SourceHash -Target $SourceHashes -Name 'routing-policy.yaml' -Path $PolicyPath
+Add-SourceHash -Target $SourceHashes -Name 'routing-policy.schema.json' -Path $RoutingPolicySchemaPath
+Add-SourceHash -Target $SourceHashes -Name 'active-capabilities.schema.json' -Path $ActiveCapabilitiesSchemaPath
+Add-SourceHash -Target $SourceHashes -Name 'project-scope-map.json' -Path $ProjectScopeMapPath
+Add-SourceHash -Target $SourceHashes -Name 'project-scope-map.schema.json' -Path $ProjectScopeMapSchemaPath
 Add-SourceHash -Target $SourceHashes -Name 'route-decision.schema.json' -Path $RouteDecisionSchemaPath
 Add-SourceHash -Target $SourceHashes -Name 'ensure-node-dependencies.ps1' -Path $DependencyGuardPath
 Add-SourceHash -Target $SourceHashes -Name 'dependency-readiness.README.md' -Path $DependencyReadinessReadmePath -Required $false
@@ -1121,7 +1138,7 @@ $Manifest = [ordered]@{
     snapshot_id = "universal-capabilities-live-authority-$($GeneratedTimestamp.ToString('yyyy-MM-dd'))"
     freshness_status = 'fresh'
     authority_model = [ordered]@{
-        activation = @('passive-current-skill-roots', 'live-plugin-list', 'live-mcp-list', 'live-config-component-state', 'existing-current-source', 'plugin-cache-inventory', 'authority-receipt-v1')
+        activation = @('passive-current-skill-roots', 'live-plugin-list', 'live-mcp-list', 'live-config-component-state', 'existing-current-source', 'plugin-cache-inventory', 'authority-receipt-v2')
         metadata_only = @('universal-skills-2026-07-25.csv', 'universal-plugins-2026-07-25.csv', 'universal-tool-families-and-mcps-2026-07-25.csv')
         fail_closed = $true
     }

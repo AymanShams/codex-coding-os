@@ -228,7 +228,23 @@ def main() -> int:
             task_text=args.task_text,
             task_input=task_input,
         )
-        exit_code = 0 if route_execution_ready(decision) else 4
+        exit_code = (
+            0
+            if route_execution_ready(
+                decision,
+                task_text=(
+                    task_input.get("instruction")
+                    if isinstance(task_input, dict)
+                    else args.task_text if args.task_text is not None else args.query
+                ),
+                task_input=(
+                    task_input
+                    if isinstance(task_input, dict)
+                    else {"instruction": args.task_text if args.task_text is not None else args.query}
+                ),
+            )
+            else 4
+        )
         if args.json_output:
             print(json.dumps(decision, ensure_ascii=False, sort_keys=True, indent=2))
             return exit_code

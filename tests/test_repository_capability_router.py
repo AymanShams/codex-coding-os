@@ -229,6 +229,20 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         self.patches.close()
         self.temp.cleanup()
 
+    def _verify_with_current_authority(
+        self, decision: dict[str, object], **kwargs: object
+    ) -> dict[str, object]:
+        manifest = {
+            "freshness_status": "fresh",
+            "source_hashes_verified": True,
+            "authority_sha256": decision["manifest_authority_sha256"],
+        }
+        policy = {"authority_sha256": decision["policy_authority_sha256"]}
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=manifest
+        ), mock.patch.object(index, "load_routing_policy", return_value=policy):
+            return index.verify_registered_route(decision, **kwargs)
+
     def _enable_local_gateway(self) -> None:
         command = self.root / "synthetic-gateway.exe"
         command.write_bytes(b"synthetic gateway")
@@ -261,6 +275,13 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         ids = [rule["id"] for rule in policy["rules"]]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(policy["schema_version"], "2.0")
+        self.assertEqual(decision_schema["properties"]["schema_version"]["const"], "3.0")
+        self.assertEqual(
+            decision_schema["$defs"]["issuance"]["properties"][
+                "registry_schema_version"
+            ]["const"],
+            3,
+        )
         self.assertEqual(policy["max_supports"], 2)
         self.assertLessEqual(max(len(rule["supports"]) for rule in policy["rules"]), 2)
         self.assertEqual(schema["properties"]["max_supports"]["maximum"], 2)
@@ -314,6 +335,354 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         self.assertEqual(
             set(example_map["projects"]), {"generic", "sample_project"}
         )
+
+    def test_semantic_intent_gates_are_bounded_to_the_requested_workflow(self) -> None:
+        policy = json.loads(
+            (ROUTING_ROOT / "routing-policy.yaml").read_text(encoding="utf-8")
+        )
+
+        def first_rule(prompt: str) -> dict[str, object] | None:
+            return next(
+                (
+                    rule
+                    for rule in policy["rules"]
+                    if index._rule_matches_prompt(rule, prompt.lower(), policy)
+                ),
+                None,
+            )
+
+        expected_routes = [
+            (
+                "Review my proposal and tell me whether it is good.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "What do you think about this recommendation?",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Review the sales strategy and identify weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Review this report and identify weak assumptions before the meeting.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Validate my analysis and challenge its assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Review my security policy for missing authorization controls.",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Inspect the supplied PDF and explain its main findings.",
+                "pdf-file-analysis",
+                "skill:pdf:pdf",
+            ),
+            (
+                "Review the supplied PDF for weak assumptions.",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "Read the supplied PDF about our API.",
+                "pdf-file-analysis",
+                "skill:pdf:pdf",
+            ),
+            (
+                "Summarize the provided PDF about a Python module.",
+                "pdf-file-analysis",
+                "skill:pdf:pdf",
+            ),
+            (
+                "Inspect report.pdf about source code.",
+                "pdf-file-analysis",
+                "skill:pdf:pdf",
+            ),
+            (
+                "Read the PDF from the library.",
+                "pdf-file-analysis",
+                "skill:pdf:pdf",
+            ),
+            (
+                "Analyze the supplied PDF describing a renderer.",
+                "pdf-file-analysis",
+                "skill:pdf:pdf",
+            ),
+            (
+                "Review report.pdf for accuracy.",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "Critically review the supplied PDF and identify flaws.",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "Evaluate option A against option B and recommend which one to choose.",
+                "strategy-options-war-game",
+                "skill:strategy-debate-engine",
+            ),
+            (
+                "Choose between these options.",
+                "strategy-options-war-game",
+                "skill:strategy-debate-engine",
+            ),
+            (
+                "Compare these strategies and recommend one.",
+                "strategy-options-war-game",
+                "skill:strategy-debate-engine",
+            ),
+            (
+                "Compare these options and recommend one.",
+                "strategy-options-war-game",
+                "skill:strategy-debate-engine",
+            ),
+            (
+                "Which market should we choose?",
+                "strategy-options-war-game",
+                "skill:strategy-debate-engine",
+            ),
+            (
+                "Compare our approaches and pick one.",
+                "strategy-options-war-game",
+                "skill:strategy-debate-engine",
+            ),
+            (
+                "Which product should we choose?",
+                "strategy-options-war-game",
+                "skill:strategy-debate-engine",
+            ),
+            (
+                "Which architecture should we choose?",
+                "strategy-options-war-game",
+                "skill:strategy-debate-engine",
+            ),
+            (
+                "Develop a pricing strategy for a new market entry.",
+                "strategy-pricing-analysis",
+                "skill:pricing-strategy",
+            ),
+            (
+                "Analyze willingness to pay for customers.",
+                "strategy-pricing-analysis",
+                "skill:pricing-strategy",
+            ),
+            (
+                "Develop a pricing strategy for our product.",
+                "strategy-pricing-analysis",
+                "skill:pricing-strategy",
+            ),
+            (
+                "Develop a pricing strategy for our consulting service.",
+                "strategy-pricing-analysis",
+                "skill:pricing-strategy",
+            ),
+            (
+                "Run a Van Westendorp analysis for our new subscription plan.",
+                "strategy-pricing-analysis",
+                "skill:pricing-strategy",
+            ),
+            (
+                "Design an operating model with clear decision rights and team interfaces.",
+                "strategy-operating-model-design",
+                "skill:operating-model-design",
+            ),
+            (
+                "Clarify team decision rights.",
+                "strategy-operating-model-design",
+                "skill:operating-model-design",
+            ),
+            (
+                "Redesign how our company operates.",
+                "strategy-operating-model-design",
+                "skill:operating-model-design",
+            ),
+            (
+                "Map interfaces between our departments.",
+                "strategy-operating-model-design",
+                "skill:operating-model-design",
+            ),
+            (
+                "Design decision rights across teams.",
+                "strategy-operating-model-design",
+                "skill:operating-model-design",
+            ),
+            (
+                "Structure this unresolved business problem and tell me what to investigate first.",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+            (
+                "Assess an unresolved company challenge.",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+            (
+                "Diagnose an unclear customer problem.",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+            (
+                "Structure our unclear market problem.",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+            (
+                "Diagnose our unclear revenue challenge.",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+            (
+                "Assess our unresolved organizational challenge.",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+            (
+                "Triage an unresolved operations problem.",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+            ("$pricing-strategy", "strategy-pricing-analysis", "skill:pricing-strategy"),
+            (
+                "$operating-model-design",
+                "strategy-operating-model-design",
+                "skill:operating-model-design",
+            ),
+            (
+                "$situation-assessment",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+            (
+                "Pricing analysis gate",
+                "strategy-pricing-analysis",
+                "skill:pricing-strategy",
+            ),
+            (
+                "Operating model design",
+                "strategy-operating-model-design",
+                "skill:operating-model-design",
+            ),
+            (
+                "Situation assessment",
+                "strategy-situation-assessment",
+                "skill:situation-assessment",
+            ),
+        ]
+        for prompt, rule_id, primary in expected_routes:
+            with self.subTest(prompt=prompt):
+                rule = first_rule(prompt)
+                self.assertIsNotNone(rule)
+                self.assertEqual(rule["id"], rule_id)
+                self.assertEqual(rule["primary"], primary)
+
+        security_rule = first_rule(
+            "Review my security policy for missing authorization controls."
+        )
+        self.assertIn("skill:defensive-security-checklist", security_rule["supports"])
+        critical_pdf_rule = first_rule(
+            "Review the supplied PDF for weak assumptions."
+        )
+        self.assertIn("skill:pdf:pdf", critical_pdf_rule["supports"])
+
+        rejected_routes = [
+            ("Review this document and summarize key points.", {"deep-critique"}),
+            ("Review my proposal and summarize it.", {"deep-critique"}),
+            ("Review my document for grammar only.", {"deep-critique"}),
+            ("Audit this document for grammar only.", {"deep-critique"}),
+            ("Critique this memo for spelling only.", {"deep-critique"}),
+            ("Review this report before the meeting.", {"deep-critique"}),
+            ("Review this report before our meeting.", {"deep-critique"}),
+            ("Review this report for style only.", {"deep-critique"}),
+            ("Review this report for tone only.", {"deep-critique"}),
+            ("Review the PDF parser.", {"pdf-file-analysis", "critical-pdf-review"}),
+            (
+                "Compare this document with the previous version and list changes.",
+                {"deep-critique", "strategy-options-war-game"},
+            ),
+            (
+                "Compare option A with option B and list wording differences.",
+                {"strategy-options-war-game", "deep-critique"},
+            ),
+            (
+                "Compare business option A with option B and list wording differences.",
+                {"strategy-options-war-game", "deep-critique"},
+            ),
+            (
+                "Evaluate option A and option B for spelling.",
+                {"strategy-options-war-game", "deep-critique"},
+            ),
+            (
+                "Analyze the grammar of the phrase pricing strategy.",
+                {"strategy-pricing-analysis"},
+            ),
+            (
+                "Create a price tiers component in React.",
+                {"strategy-pricing-analysis"},
+            ),
+            (
+                "Design an accountability dashboard.",
+                {"strategy-operating-model-design"},
+            ),
+            (
+                "Design team interfaces in React.",
+                {"strategy-operating-model-design"},
+            ),
+            (
+                "Structure this unresolved software problem and tell me what to investigate first.",
+                {"strategy-situation-assessment"},
+            ),
+            (
+                "Do not use $pricing-strategy. Summarize the proposal only.",
+                {"strategy-pricing-analysis"},
+            ),
+            (
+                "Analyze pricing strategy in this history essay.",
+                {"strategy-pricing-analysis"},
+            ),
+            (
+                "Create a pricing plan for household chores.",
+                {"strategy-pricing-analysis"},
+            ),
+            (
+                "A memo mentions Van Westendorp analysis.",
+                {"strategy-pricing-analysis"},
+            ),
+            (
+                "Do not run a Van Westendorp analysis. Summarize the memo only.",
+                {"strategy-pricing-analysis"},
+            ),
+            (
+                "Design accountability for household chores.",
+                {"strategy-operating-model-design"},
+            ),
+            (
+                "Establish accountability in a board game.",
+                {"strategy-operating-model-design"},
+            ),
+            (
+                "Map team interfaces in a sports game.",
+                {"strategy-operating-model-design"},
+            ),
+            (
+                "Clarify decision rights for a family game night.",
+                {"strategy-operating-model-design"},
+            ),
+        ]
+        for prompt, forbidden_rules in rejected_routes:
+            with self.subTest(prompt=prompt):
+                rule = first_rule(prompt)
+                self.assertNotIn(rule["id"] if rule else None, forbidden_rules)
 
     def test_repository_port_provenance_hashes_are_current(self) -> None:
         provenance = json.loads(
@@ -538,14 +907,178 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         self.assertEqual(decision["rule_id"], "coding-supabase-security-boundary")
         self.assertEqual(decision["primary"]["id"], "skill:codex-coding-os-master")
         self.assertLessEqual(len(decision["supports"]), 2)
-        receipt = index.verify_registered_route(decision, registry_path=self.registry)
+        receipt = self._verify_with_current_authority(
+            decision, registry_path=self.registry
+        )
         self.assertTrue(receipt["valid"])
         with closing(sqlite3.connect(self.registry)) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(
+                connection.execute("PRAGMA user_version").fetchone()[0],
+                index.ROUTE_REGISTRY_SCHEMA_VERSION,
+            )
         tampered = copy.deepcopy(decision)
         tampered["reason_codes"].append("TAMPERED")
         self.assertFalse(
-            index.verify_registered_route(tampered, registry_path=self.registry)["valid"]
+            self._verify_with_current_authority(
+                tampered, registry_path=self.registry
+            )["valid"]
+        )
+
+    def test_registered_route_is_bound_to_current_manifest_and_policy_bytes(self) -> None:
+        policy = index.load_routing_policy(self.policy_path)
+        manifest = synthetic_manifest(policy)
+        decision = index.resolve_route(
+            "synthetic authority-bound request",
+            manifest=manifest,
+            policy=policy,
+        )
+        self.assertEqual(decision["schema_version"], "3.0")
+        self.assertRegex(decision["manifest_authority_sha256"], r"^[a-f0-9]{64}$")
+        self.assertRegex(decision["policy_authority_sha256"], r"^[a-f0-9]{64}$")
+
+        matching_manifest = {
+            "freshness_status": "fresh",
+            "source_hashes_verified": True,
+            "authority_sha256": decision["manifest_authority_sha256"],
+        }
+        matching_policy = {
+            "authority_sha256": decision["policy_authority_sha256"],
+        }
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=matching_manifest
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=matching_policy
+        ):
+            self.assertEqual(
+                index.verify_registered_route(
+                    decision, registry_path=self.registry
+                )["status"],
+                "registered",
+            )
+
+        changed_manifest = {
+            **matching_manifest,
+            "authority_sha256": "b" * 64,
+        }
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=changed_manifest
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=matching_policy
+        ):
+            self.assertEqual(
+                index.verify_registered_route(
+                    decision, registry_path=self.registry
+                )["status"],
+                "manifest_mismatch",
+            )
+
+        changed_policy = {"authority_sha256": "c" * 64}
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=matching_manifest
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=changed_policy
+        ):
+            self.assertEqual(
+                index.verify_registered_route(
+                    decision, registry_path=self.registry
+                )["status"],
+                "policy_mismatch",
+            )
+
+        stale_manifest = {**matching_manifest, "source_hashes_verified": False}
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=stale_manifest
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=matching_policy
+        ):
+            self.assertEqual(
+                index.verify_registered_route(
+                    decision, registry_path=self.registry
+                )["status"],
+                "authority_unavailable",
+            )
+
+    def test_provenance_bearing_authorities_cannot_be_mutated_or_rebound(self) -> None:
+        policy = index.load_routing_policy(self.policy_path)
+        manifest = synthetic_manifest(policy)
+
+        injected_policy = copy.deepcopy(policy)
+        injected_policy["rules"].insert(
+            0,
+            {
+                "id": "injected-rule",
+                "scenario": "Injected rule",
+                "match_any": ["xyzzy-authority-probe"],
+                "match_all": [],
+                "primary": "skill:deep-critic",
+                "supports": [],
+                "requires": [],
+                "forbids": [],
+                "authority_limit": "advisory-only",
+                "evidence_ids": [],
+                "execution_profile": "",
+                "reason_codes": [],
+                "intent_gate": "",
+                "requires_live_dependencies": [],
+                "dependency_fallback": None,
+                "position": -1,
+            },
+        )
+        with self.assertRaisesRegex(index.CapabilityDataError, "mutated"):
+            index.resolve_route(
+                "xyzzy-authority-probe", manifest=manifest, policy=injected_policy
+            )
+
+        rebound = copy.deepcopy(policy)
+        rebound["source"] = str(self.root / "not-the-policy.yaml")
+        with self.assertRaisesRegex(index.CapabilityDataError, "not canonical|unavailable"):
+            index.resolve_route("x", manifest=manifest, policy=rebound)
+
+    def test_loaded_authority_hashes_bind_exact_source_bytes(self) -> None:
+        with mock.patch.object(index, "_source_hash_mismatches", return_value=[]):
+            manifest_payload = {
+                "schema_version": "1.0",
+                "generated_at": "2026-08-12T00:00:00Z",
+                "snapshot_id": "exact-byte-test",
+                "freshness_status": "fresh",
+                "source_hashes": {},
+                "entries": [],
+            }
+            self.manifest_path.write_text(
+                json.dumps(manifest_payload, indent=2) + "\n", encoding="utf-8"
+            )
+            loaded_manifest = index.load_active_capabilities(self.manifest_path)
+        loaded_policy = index.load_routing_policy(self.policy_path)
+        self.assertEqual(
+            loaded_manifest["authority_sha256"],
+            hashlib.sha256(self.manifest_path.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            loaded_policy["authority_sha256"],
+            hashlib.sha256(self.policy_path.read_bytes()).hexdigest(),
+        )
+
+    def test_stale_or_missing_authority_fails_before_registry_issuance(self) -> None:
+        policy = index.load_routing_policy(self.policy_path)
+        stale_manifest = synthetic_manifest(policy)
+        stale_manifest["freshness_status"] = "stale"
+        stale_manifest["source_hashes_verified"] = False
+        stale_manifest["authority_sha256"] = "a" * 64
+        stale_manifest["source"] = str(self.manifest_path)
+        self.manifest_path.write_text("{}", encoding="utf-8")
+
+        with mock.patch.object(index, "load_active_capabilities", return_value=stale_manifest):
+            decision = index.resolve_route("stale authority probe", policy=policy)
+        self.assertEqual(decision["issuance"]["status"], "failed")
+        self.assertEqual(
+            decision["issuance"]["failure_code"], "AUTHORITY_UNAVAILABLE"
+        )
+        self.assertFalse(self.registry.exists())
+
+        conservative = index.conservative_default_decision(prompt="missing authority")
+        self.assertEqual(conservative["issuance"]["status"], "failed")
+        self.assertEqual(
+            conservative["issuance"]["failure_code"], "AUTHORITY_UNAVAILABLE"
         )
 
     def test_live_dependency_fallbacks_bind_equivalence_and_fail_closed(self) -> None:
@@ -908,7 +1441,7 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                         decision["reason_codes"],
                     )
 
-    def test_registry_v2_is_exact_concurrent_bounded_expiring_and_purges_v1(
+    def test_registry_v3_is_exact_concurrent_bounded_expiring_and_purges_v2(
         self,
     ) -> None:
         policy = index.load_routing_policy(self.policy_path)
@@ -962,7 +1495,7 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             )
             connection.commit()
         self.assertEqual(
-            index.verify_registered_route(
+            self._verify_with_current_authority(
                 decisions[0], registry_path=tamper_path, now=1000
             )["status"],
             "route_mismatch",
@@ -980,7 +1513,7 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 max_records=1,
             )
         self.assertTrue(
-            index.verify_registered_route(
+            self._verify_with_current_authority(
                 decisions[0], registry_path=capacity_path, now=1001
             )["valid"]
         )
@@ -991,14 +1524,14 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             max_records=1,
         )
         self.assertTrue(
-            index.verify_registered_route(
+            self._verify_with_current_authority(
                 decisions[1],
                 registry_path=capacity_path,
                 now=1000 + index.DEFAULT_ROUTE_TTL_SECONDS + 1,
             )["valid"]
         )
         self.assertEqual(
-            index.verify_registered_route(
+            self._verify_with_current_authority(
                 decisions[0],
                 registry_path=capacity_path,
                 now=1000 + index.DEFAULT_ROUTE_TTL_SECONDS + 1,
@@ -1006,14 +1539,15 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             "expired",
         )
 
-        v1_path = self.root / "v1.sqlite3"
-        with closing(sqlite3.connect(v1_path)) as connection:
+        v2_path = self.root / "v2.sqlite3"
+        with closing(sqlite3.connect(v2_path)) as connection:
             connection.execute(
                 """
                 CREATE TABLE route_decisions (
                     decision_id TEXT PRIMARY KEY,
                     decision_digest TEXT NOT NULL,
                     task_text_sha256 TEXT NOT NULL,
+                    task_input_sha256 TEXT NOT NULL,
                     route_json TEXT NOT NULL,
                     route_json_sha256 TEXT NOT NULL,
                     schema_version TEXT NOT NULL,
@@ -1024,13 +1558,14 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 )
                 """
             )
-            connection.execute("PRAGMA user_version = 1")
+            connection.execute("PRAGMA user_version = 2")
             connection.execute(
-                "INSERT INTO route_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO route_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     "1" * 64,
                     "1" * 64,
                     "2" * 64,
+                    "4" * 64,
                     "{}",
                     "3" * 64,
                     "2.0",
@@ -1041,8 +1576,8 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 ),
             )
             connection.commit()
-        index._issue_route_decision(decisions[2], registry_path=v1_path, issued_at=1000)
-        with closing(sqlite3.connect(v1_path)) as connection:
+        index._issue_route_decision(decisions[2], registry_path=v2_path, issued_at=1000)
+        with closing(sqlite3.connect(v2_path)) as connection:
             self.assertEqual(
                 connection.execute("PRAGMA user_version").fetchone()[0],
                 index.ROUTE_REGISTRY_SCHEMA_VERSION,
@@ -1053,6 +1588,49 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         self.assertEqual(
             rows,
             [(decisions[2]["decision_id"], decisions[2]["task_input_sha256"])],
+        )
+
+        counterfeit_path = self.root / "counterfeit-v3.sqlite3"
+        with closing(sqlite3.connect(counterfeit_path)) as connection:
+            columns = [
+                f"{name} TEXT" + (" PRIMARY KEY" if name == "decision_id" else "")
+                for name in index.ROUTE_REGISTRY_COLUMNS
+            ]
+            connection.execute(f"CREATE TABLE route_decisions ({','.join(columns)})")
+            connection.execute("PRAGMA user_version = 3")
+            connection.execute(
+                "INSERT INTO route_decisions VALUES ("
+                + ",".join("?" for _ in columns)
+                + ")",
+                tuple("junk" for _ in columns),
+            )
+            connection.commit()
+        index._issue_route_decision(
+            decisions[3], registry_path=counterfeit_path, issued_at=1000
+        )
+        with closing(sqlite3.connect(counterfeit_path)) as connection:
+            self.assertTrue(index._registry_schema_is_exact(connection))
+            self.assertEqual(
+                connection.execute("SELECT decision_id FROM route_decisions").fetchall(),
+                [(decisions[3]["decision_id"],)],
+            )
+
+        malformed_path = self.root / "malformed-row.sqlite3"
+        index._issue_route_decision(
+            decisions[0], registry_path=malformed_path, issued_at=1000
+        )
+        with closing(sqlite3.connect(malformed_path)) as connection:
+            connection.execute("PRAGMA ignore_check_constraints = ON")
+            connection.execute(
+                "UPDATE route_decisions SET issued_at = ? WHERE decision_id = ?",
+                ("not-an-integer", decisions[0]["decision_id"]),
+            )
+            connection.commit()
+        self.assertEqual(
+            self._verify_with_current_authority(
+                decisions[0], registry_path=malformed_path, now=1000
+            )["status"],
+            "registry_error",
         )
 
     def test_worker_negation_and_generic_scope_fail_closed(self) -> None:
@@ -1111,6 +1689,68 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         )
         self.assertEqual(admitted["task_input_mode"], "complete")
         self.assertEqual(admitted["issuance"]["status"], "registered")
+        matching_manifest = {
+            "freshness_status": "fresh",
+            "source_hashes_verified": True,
+            "authority_sha256": admitted["manifest_authority_sha256"],
+        }
+        matching_policy = {
+            "authority_sha256": admitted["policy_authority_sha256"],
+        }
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=matching_manifest
+        ), mock.patch.object(index, "load_routing_policy", return_value=matching_policy):
+            self.assertTrue(
+                index._route_execution_ready_with_runtime(
+                    admitted,
+                    task_text=task_input["instruction"],
+                    task_input=task_input,
+                    registry_path=self.registry,
+                )
+            )
+            self.assertFalse(index.route_execution_ready(admitted))
+            wrong_input = {**task_input, "execution_request_id": "different-request"}
+            self.assertFalse(
+                index._route_execution_ready_with_runtime(
+                    admitted,
+                    task_text=task_input["instruction"],
+                    task_input=wrong_input,
+                    registry_path=self.registry,
+                )
+            )
+            tampered = copy.deepcopy(admitted)
+            tampered["decision_digest"] = "0" * 64
+            self.assertFalse(
+                index._route_execution_ready_with_runtime(
+                    tampered,
+                    task_text=task_input["instruction"],
+                    task_input=task_input,
+                    registry_path=self.registry,
+                )
+            )
+            empty_authority = copy.deepcopy(admitted)
+            empty_authority["manifest_authority_sha256"] = ""
+            empty_authority["decision_id"] = ""
+            empty_authority["decision_digest"] = ""
+            empty_digest = index._decision_digest(empty_authority)
+            empty_authority["decision_id"] = empty_digest
+            empty_authority["decision_digest"] = empty_digest
+            with self.assertRaisesRegex(
+                index.CapabilityDataError, "schema validation failed"
+            ):
+                index.validate_route_decision(empty_authority)
+            canonical_registry = index.ROUTE_DECISION_REGISTRY_PATH
+            with mock.patch.object(
+                index, "ROUTE_DECISION_REGISTRY_PATH", self.root / "missing-canonical.sqlite3"
+            ):
+                self.assertFalse(
+                    index.route_execution_ready(
+                        admitted,
+                        task_text=task_input["instruction"],
+                        task_input=task_input,
+                    )
+                )
+            self.assertEqual(index.ROUTE_DECISION_REGISTRY_PATH, canonical_registry)
         self.assertFalse(rejected["local_execution"]["admitted"])
         self.assertEqual(rejected["support_workers"], [])
         self.assertIn("WORKER_TASK_GATE_TUPLE_INVALID", rejected["reason_codes"])

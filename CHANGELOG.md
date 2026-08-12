@@ -4,6 +4,43 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-13
+
+### Added
+
+- Added content-bound manifest and policy authority hashes to every route
+  decision and SQLite issuance receipt.
+- Added remote-plugin package identity, declared skill identity, package-byte,
+  marketplace-enablement, and capability-surface evidence while keeping
+  automatic version-replacement recovery fail closed without detached,
+  authenticated installer attestation.
+- Added adversarial coverage for stale authority receipts, semantic routing
+  collisions, plugin identity and origin changes, source-hash coverage, and
+  marketplace alias precedence.
+
+### Changed
+
+- Upgraded route decisions to schema 3.0 and the issuance registry to version
+  3. Old registry receipts are purged during migration, and verification now
+  rejects a route when either current authority source has changed.
+- Upgraded capability authority receipts to version 2 and bound the complete
+  executable router, recovery, session-start, schema, project-map, and builder
+  source set.
+- Tightened critique, strategy, pricing, operating-model, situation-assessment,
+  and security intent gates so explicit domain and action evidence controls
+  selection without routing ordinary document or software work to specialists.
+
+### Fixed
+
+- Prevented a reused human-readable snapshot label from keeping stale route
+  receipts executable after a manifest or policy update.
+- Corrected remote curated plugin recovery for declared plugin and skill names,
+  Neon marketplace enablement, and unproven or changed installation origins.
+- Corrected attack-path plural handling and specialist precedence for explicit
+  technical security reviews.
+- Prevented session-start recovery from trusting a pre-mutex manifest snapshot
+  when authority changes while it waits for the recovery lock.
+
 ## [1.1.0] - 2026-08-11
 
 ### Added

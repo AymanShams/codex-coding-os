@@ -24,6 +24,8 @@
     "evidence_ids",
     "manifest_snapshot",
     "decision_snapshot",
+    "manifest_authority_sha256",
+    "policy_authority_sha256",
     "task_text_sha256",
     "task_input_sha256",
     "task_input_mode",
@@ -35,7 +37,7 @@
     "supports"
   ],
   "properties": {
-    "schema_version": { "const": "2.0" },
+    "schema_version": { "const": "3.0" },
     "rule_id": { "type": "string" },
     "scenario": { "type": "string", "minLength": 1 },
     "execution_owner": { "const": "codex_parent" },
@@ -97,6 +99,16 @@
     "evidence_ids": { "type": "array", "items": { "type": "string" } },
     "manifest_snapshot": { "type": "string" },
     "decision_snapshot": { "type": "string" },
+    "manifest_authority_sha256": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{64})?$",
+      "description": "SHA-256 of the exact active capability manifest authority source. It may be empty only for a conservative non-executable decision when current authority is unavailable."
+    },
+    "policy_authority_sha256": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{64})?$",
+      "description": "SHA-256 of the exact routing policy authority source. It may be empty only for a conservative non-executable decision when current authority is unavailable."
+    },
     "task_text_sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$",
@@ -241,9 +253,28 @@
           },
           "issuance": {
             "properties": {
-              "failure_code": { "const": "ROUTE_REGISTRY_UNAVAILABLE" }
+              "failure_code": {
+                "enum": ["AUTHORITY_UNAVAILABLE", "ROUTE_REGISTRY_UNAVAILABLE"]
+              }
             }
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "issuance": {
+            "properties": { "status": { "const": "registered" } },
+            "required": ["status"]
+          }
+        },
+        "required": ["issuance"]
+      },
+      "then": {
+        "properties": {
+          "manifest_authority_sha256": { "pattern": "^[a-f0-9]{64}$" },
+          "policy_authority_sha256": { "pattern": "^[a-f0-9]{64}$" }
         }
       }
     },
@@ -342,7 +373,7 @@
       ],
       "properties": {
         "status": { "enum": ["registered", "failed"] },
-        "registry_schema_version": { "const": 2 },
+        "registry_schema_version": { "const": 3 },
         "worker_execution_requested": { "type": "boolean" },
         "failure_code": {
           "type": ["string", "null"],
@@ -361,6 +392,7 @@
             "ANTIGRAVITY_BINDINGS_INVALID",
             "PROJECT_CWD_CONFLICT",
             "SOURCE_SCOPE_UNAUTHORIZED",
+            "AUTHORITY_UNAVAILABLE",
             "ROUTE_REGISTRY_UNAVAILABLE",
             null
           ]

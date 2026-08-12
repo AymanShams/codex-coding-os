@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import datetime as dt
 import hashlib
 import json
 import os
@@ -21,7 +22,17 @@ import capability_config_fingerprint as config_fingerprint
 import capability_index as index
 
 
-RECEIPT_SCHEMA = "capability-authority-receipt-v1"
+RECEIPT_SCHEMA = "capability-authority-receipt-v2"
+SESSION_START_RECEIPT_SCHEMA = "capability-session-start-recovery-v1"
+SESSION_START_RECEIPT_LIMIT = 24
+CURATED_PLUGIN_CACHE_MARKETPLACE = "openai-curated-remote"
+CURATED_PLUGIN_CONFIG_MARKETPLACE_ALIASES = (
+    CURATED_PLUGIN_CACHE_MARKETPLACE,
+    "openai-curated",
+)
+REMOTE_PLUGIN_INSTALL_RECEIPT = ".codex-remote-plugin-install.json"
+REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA = 2
+PLUGIN_INSTALL_STAGING_PREFIX = "plugin-install-"
 MUTEX_NAME = r"Local\OpenAI.Codex.CapabilityManifestRecovery.v1"
 RECOVERABLE_MISMATCHES = frozenset(
     {config_fingerprint.SOURCE_HASH_KEY, "plugin-cache-inventory"}
@@ -44,6 +55,37 @@ REQUIRED_APP_CONFIG_PATHS = frozenset(
 )
 APP_PLUGIN_NAMES = ("browser", "chrome", "computer-use")
 SHA256_PATTERN = re.compile(r"^[A-Fa-f0-9]{64}$")
+SEMVER_PATTERN = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
+REQUIRED_SOURCE_HASH_KEYS = frozenset(
+    {
+        "hooks.json",
+        "AGENTS.md",
+        "task-routing-gate.md",
+        "catalogue-router.SKILL.md",
+        "capability_index.py",
+        "capability_config_fingerprint.py",
+        "capability_index_cli.py",
+        "user_prompt_skill_router.py",
+        "capability_index_session_start.py",
+        "_common.py",
+        "_hook_io.py",
+        "query-catalogue.ps1",
+        "routing-policy.yaml",
+        "routing-policy.schema.json",
+        "active-capabilities.schema.json",
+        "project-scope-map.json",
+        "project-scope-map.schema.json",
+        "route-decision.schema.json",
+        "ensure-node-dependencies.ps1",
+        "capability_manifest_recovery.py",
+        "capability-manifest-builder.ps1",
+        "authority-receipt.schema.json",
+    }
+)
 
 
 def _canonical_json(value: Any) -> str:
@@ -85,6 +127,154 @@ def _valid_hash_map(value: Any) -> bool:
     )
 
 
+def _valid_plugin_capability_surfaces(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    for package, capabilities in value.items():
+        if not isinstance(package, str) or not package:
+            return False
+        if not isinstance(capabilities, list) or not capabilities:
+            return False
+        seen: set[tuple[str, str]] = set()
+        for capability in capabilities:
+            if not isinstance(capability, dict) or set(capability) != {"id", "kind"}:
+                return False
+            identifier = capability.get("id")
+            kind = capability.get("kind")
+            if (
+                not isinstance(identifier, str)
+                or not identifier
+                or kind not in {"plugin", "skill", "tool-family", "mcp"}
+                or (kind, identifier) in seen
+            ):
+                return False
+            seen.add((kind, identifier))
+    return True
+
+
+def _valid_plugin_package_manifests(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    for package, identity in value.items():
+        if _normalized_plugin_package(package) is None or not isinstance(identity, dict):
+            return False
+        if set(identity) != {"name", "version", "manifest_sha256"}:
+            return False
+        if not isinstance(identity.get("name"), str) or not identity["name"]:
+            return False
+        if not isinstance(identity.get("version"), str) or not identity["version"]:
+            return False
+        if not isinstance(identity.get("manifest_sha256"), str) or not SHA256_PATTERN.fullmatch(
+            identity["manifest_sha256"]
+        ):
+            return False
+    return True
+
+
+def _valid_plugin_package_origins(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    for package, origin in value.items():
+        normalized = _normalized_plugin_package(package)
+        if normalized is None or not normalized.startswith(
+            CURATED_PLUGIN_CACHE_MARKETPLACE + "/"
+        ):
+            return False
+        if not isinstance(origin, dict) or set(origin) != {
+            "receipt_schema_version",
+            "remote_plugin_id",
+            "marketplace",
+            "plugin_name",
+            "plugin_version",
+            "plugin_manifest_sha256",
+            "package_sha256",
+            "install_receipt_sha256",
+        }:
+            return False
+        marketplace, plugin_name, plugin_version = normalized.split("/")
+        if (
+            origin.get("receipt_schema_version")
+            != REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA
+            or origin.get("marketplace") != marketplace
+            or not isinstance(origin.get("plugin_name"), str)
+            or origin["plugin_name"].casefold() != plugin_name
+            or origin.get("plugin_version") != plugin_version
+        ):
+            return False
+        remote_plugin_id = origin.get("remote_plugin_id")
+        if (
+            not isinstance(remote_plugin_id, str)
+            or not re.fullmatch(r"[-A-Za-z0-9._:~]{8,256}", remote_plugin_id)
+        ):
+            return False
+        for name in (
+            "plugin_manifest_sha256",
+            "package_sha256",
+            "install_receipt_sha256",
+        ):
+            digest = origin.get(name)
+            if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
+                return False
+    return True
+
+
+def _normalized_plugin_package(value: str) -> str | None:
+    normalized = value.replace("\\", "/").strip("/")
+    parts = normalized.split("/")
+    if (
+        len(parts) != 3
+        or any(not part or part in {".", ".."} for part in parts)
+    ):
+        return None
+    return normalized.casefold()
+
+
+def _plugin_cache_rows_match_surfaces(
+    rows: dict[str, str], surfaces: dict[str, list[dict[str, str]]]
+) -> bool:
+    """Prove every cache row belongs to exactly one declared package surface."""
+
+    roots: set[str] = set()
+    parsed_rows: list[tuple[str, str]] = []
+    for key in rows:
+        try:
+            kind, relative = key.split("\t", 1)
+        except ValueError:
+            return False
+        if kind not in {"ROOT", "FILE"}:
+            return False
+        normalized_relative = relative.replace("\\", "/").strip("/").casefold()
+        if not normalized_relative:
+            return False
+        parsed_rows.append((kind, normalized_relative))
+        if kind == "ROOT":
+            package = _normalized_plugin_package(relative)
+            if package is None or package in roots:
+                return False
+            roots.add(package)
+
+    normalized_surfaces: set[str] = set()
+    for package in surfaces:
+        normalized = _normalized_plugin_package(package)
+        if normalized is None or normalized in normalized_surfaces:
+            return False
+        normalized_surfaces.add(normalized)
+    if roots != normalized_surfaces:
+        return False
+
+    for kind, relative in parsed_rows:
+        owners = {
+            package
+            for package in roots
+            if relative == package or relative.startswith(package + "/")
+        }
+        if len(owners) != 1:
+            return False
+        if kind == "ROOT" and relative not in roots:
+            return False
+    return True
+
+
 def _valid_receipt(receipt: Any) -> bool:
     if not isinstance(receipt, dict) or receipt.get("schema_version") != RECEIPT_SCHEMA:
         return False
@@ -97,8 +287,41 @@ def _valid_receipt(receipt: Any) -> bool:
         return False
     if not _valid_hash_map(receipt.get("plugin_cache_row_hashes")):
         return False
-    optional_sources = receipt.get("required_source_hashes")
-    if optional_sources is not None and not _valid_hash_map(optional_sources):
+    if not _valid_plugin_capability_surfaces(
+        receipt.get("plugin_capability_surfaces")
+    ):
+        return False
+    if not _valid_plugin_package_manifests(
+        receipt.get("plugin_package_manifests")
+    ):
+        return False
+    if not _valid_plugin_package_origins(receipt.get("plugin_package_origins")):
+        return False
+    surface_packages = set(receipt["plugin_capability_surfaces"])
+    if not set(receipt["plugin_package_manifests"]).issubset(surface_packages):
+        return False
+    if not set(receipt["plugin_package_origins"]).issubset(surface_packages):
+        return False
+    for package, origin in receipt["plugin_package_origins"].items():
+        manifest = receipt["plugin_package_manifests"].get(package)
+        if (
+            not isinstance(manifest, dict)
+            or origin["plugin_name"] != manifest.get("name")
+            or origin["plugin_version"] != manifest.get("version")
+            or origin["plugin_manifest_sha256"].upper()
+            != str(manifest.get("manifest_sha256", "")).upper()
+        ):
+            return False
+    if not _plugin_cache_rows_match_surfaces(
+        receipt["plugin_cache_row_hashes"],
+        receipt["plugin_capability_surfaces"],
+    ):
+        return False
+    required_sources = receipt.get("required_source_hashes")
+    if (
+        not _valid_hash_map(required_sources)
+        or set(required_sources) != REQUIRED_SOURCE_HASH_KEYS
+    ):
         return False
     identity = receipt.get("app_identity")
     if not isinstance(identity, dict) or identity.get("coherent") is not True:
@@ -152,6 +375,20 @@ def _plugin_delta_allowed(key: str, old_version: str, new_version: str) -> bool:
     )
 
 
+def _app_package_authority_delta_allowed(
+    package: str, old_version: str, new_version: str
+) -> bool:
+    normalized = _normalized_plugin_package(package)
+    if normalized is None:
+        return False
+    marketplace, plugin, version = normalized.split("/")
+    if marketplace != "openai-bundled" or plugin not in APP_PLUGIN_NAMES:
+        return False
+    return version in {old_version.casefold(), new_version.casefold()} or (
+        plugin == "chrome" and version == "latest"
+    )
+
+
 def classify_app_update(
     previous: dict[str, Any], current: dict[str, Any]
 ) -> tuple[bool, str]:
@@ -184,6 +421,22 @@ def classify_app_update(
     ):
         return False, "APP_IDENTITY_INCOHERENT"
 
+    if previous["plugin_package_origins"] != current["plugin_package_origins"]:
+        return False, "UNRELATED_PLUGIN_ORIGIN_DELTA"
+    for field, reason in (
+        ("plugin_package_manifests", "UNRELATED_PLUGIN_AUTHORITY_DELTA"),
+        ("plugin_capability_surfaces", "UNRELATED_PLUGIN_CAPABILITY_DELTA"),
+    ):
+        previous_values = previous[field]
+        current_values = current[field]
+        for package in set(previous_values) | set(current_values):
+            if _app_package_authority_delta_allowed(
+                package, old_version, new_version
+            ):
+                continue
+            if previous_values.get(package) != current_values.get(package):
+                return False, reason
+
     config_delta = _changed_hash_keys(
         previous["config_leaf_hashes"], current["config_leaf_hashes"]
     )
@@ -210,6 +463,234 @@ def classify_app_update(
         if new_root not in current_keys:
             return False, "PLUGIN_COHORT_INCOMPLETE"
     return True, "RECOGNIZED_CODEX_DESKTOP_UPDATE"
+
+
+def _semver_key(value: str) -> tuple[int, int, int, tuple[tuple[int, Any], ...]] | None:
+    match = SEMVER_PATTERN.fullmatch(value)
+    if not match:
+        return None
+    prerelease = match.group(4)
+    if prerelease is None:
+        prerelease_key: tuple[tuple[int, Any], ...] = ((2, ""),)
+    else:
+        parts: list[tuple[int, Any]] = []
+        for item in prerelease.split("."):
+            if item.isdigit() and len(item) > 1 and item.startswith("0"):
+                return None
+            parts.append((0, int(item)) if item.isdigit() else (1, item.casefold()))
+        prerelease_key = tuple(parts)
+    return int(match.group(1)), int(match.group(2)), int(match.group(3)), prerelease_key
+
+
+def _plugin_package_parts(package: str) -> tuple[str, str] | None:
+    parts = package.replace("\\", "/").strip("/").split("/")
+    if len(parts) != 3 or parts[0].casefold() != CURATED_PLUGIN_CACHE_MARKETPLACE:
+        return None
+    plugin_name, version = parts[1:]
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", plugin_name) or not version:
+        return None
+    return plugin_name.casefold(), version
+
+
+def _package_row_suffixes(rows: dict[str, str], package: str) -> set[str]:
+    prefix = package.casefold() + "/"
+    result: set[str] = set()
+    for key in rows:
+        try:
+            kind, relative = key.split("\t", 1)
+        except ValueError:
+            continue
+        relative_folded = relative.replace("\\", "/").casefold()
+        if relative_folded == package.casefold():
+            result.add(f"{kind.upper()}\t.")
+        elif relative_folded.startswith(prefix):
+            result.add(f"{kind.upper()}\t{relative_folded[len(prefix):]}")
+    return result
+
+
+def _plugin_is_enabled(config_leaf_hashes: dict[str, str], plugin_name: str) -> bool:
+    """Use the exact remote marketplace control, then one legacy alias."""
+
+    expected = _sha256_text(_canonical_json({"type": "boolean", "value": True}))
+    for marketplace in CURATED_PLUGIN_CONFIG_MARKETPLACE_ALIASES:
+        pointer = f"/plugins/{plugin_name}@{marketplace}/enabled"
+        supplied = config_leaf_hashes.get(pointer)
+        if supplied is not None:
+            return supplied == expected
+    return False
+
+
+def classify_enabled_plugin_version_replacement(
+    previous: dict[str, Any], current: dict[str, Any]
+) -> tuple[bool, str]:
+    """Validate a curated-plugin replacement, but never self-authorize it.
+
+    Package-local receipts bind bytes for diagnostic evidence only. A writer
+    that can replace the plugin cache can also replace those receipts, so they
+    cannot establish managed origin. Automatic recovery stays fail closed until
+    a detached, authenticated installer attestation is available.
+    """
+
+    if not _valid_receipt(previous):
+        return False, "INVALID_BASELINE_AUTHORITY_RECEIPT"
+    if not _valid_receipt(current):
+        return False, "INVALID_CURRENT_AUTHORITY_RECEIPT"
+    if previous.get("required_source_hashes") != current.get("required_source_hashes"):
+        return False, "UNRECOGNIZED_SOURCE_DELTA"
+    if (
+        previous.get("config_projection_sha256")
+        != current.get("config_projection_sha256")
+        or previous.get("config_leaf_hashes") != current.get("config_leaf_hashes")
+    ):
+        return False, "PLUGIN_CONFIG_CHANGED"
+    if previous.get("app_identity") != current.get("app_identity"):
+        return False, "PLUGIN_APP_IDENTITY_CHANGED"
+
+    previous_surfaces = previous["plugin_capability_surfaces"]
+    current_surfaces = current["plugin_capability_surfaces"]
+    removed_packages = sorted(set(previous_surfaces) - set(current_surfaces))
+    added_packages = sorted(set(current_surfaces) - set(previous_surfaces))
+    if len(removed_packages) != 1 or len(added_packages) != 1:
+        return False, "PLUGIN_VERSION_REPLACEMENT_INCOMPLETE"
+    old_package, new_package = removed_packages[0], added_packages[0]
+    old_parts = _plugin_package_parts(old_package)
+    new_parts = _plugin_package_parts(new_package)
+    if old_parts is None or new_parts is None or old_parts[0] != new_parts[0]:
+        return False, "PLUGIN_IDENTITY_CHANGED"
+    plugin_name = old_parts[0]
+    old_version = _semver_key(old_parts[1])
+    new_version = _semver_key(new_parts[1])
+    if old_version is None or new_version is None:
+        return False, "PLUGIN_VERSION_UNPARSEABLE"
+    if new_version <= old_version:
+        return False, "PLUGIN_VERSION_NOT_NEWER"
+
+    if not _plugin_is_enabled(previous["config_leaf_hashes"], plugin_name):
+        return False, "PLUGIN_NOT_ENABLED"
+
+    previous_manifests = previous["plugin_package_manifests"]
+    current_manifests = current["plugin_package_manifests"]
+    old_manifest = previous_manifests.get(old_package)
+    new_manifest = current_manifests.get(new_package)
+    if old_manifest is None or new_manifest is None:
+        return False, "PLUGIN_MANIFEST_IDENTITY_UNPROVEN"
+    if (
+        old_manifest["name"].casefold() != plugin_name
+        or new_manifest["name"].casefold() != plugin_name
+        or old_manifest["version"] != old_parts[1]
+        or new_manifest["version"] != new_parts[1]
+    ):
+        return False, "PLUGIN_MANIFEST_IDENTITY_MISMATCH"
+
+    previous_origins = previous["plugin_package_origins"]
+    current_origins = current["plugin_package_origins"]
+    old_origin = previous_origins.get(old_package)
+    new_origin = current_origins.get(new_package)
+    if old_origin is None or new_origin is None:
+        return False, "PLUGIN_ORIGIN_UNPROVEN"
+    if (
+        old_origin["receipt_schema_version"]
+        != REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA
+        or new_origin["receipt_schema_version"]
+        != REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA
+        or old_origin["marketplace"] != CURATED_PLUGIN_CACHE_MARKETPLACE
+        or new_origin["marketplace"] != CURATED_PLUGIN_CACHE_MARKETPLACE
+        or old_origin["plugin_name"] != old_manifest["name"]
+        or new_origin["plugin_name"] != new_manifest["name"]
+        or old_origin["plugin_version"] != old_manifest["version"]
+        or new_origin["plugin_version"] != new_manifest["version"]
+        or old_origin["plugin_manifest_sha256"].upper()
+        != old_manifest["manifest_sha256"].upper()
+        or new_origin["plugin_manifest_sha256"].upper()
+        != new_manifest["manifest_sha256"].upper()
+    ):
+        return False, "PLUGIN_ORIGIN_BINDING_MISMATCH"
+    if (
+        old_origin["remote_plugin_id"] != new_origin["remote_plugin_id"]
+        or old_origin["marketplace"] != new_origin["marketplace"]
+        or old_origin["plugin_name"] != new_origin["plugin_name"]
+    ):
+        return False, "PLUGIN_ORIGIN_CHANGED"
+
+    old_surface = {
+        (item["kind"], item["id"]) for item in previous_surfaces[old_package]
+    }
+    new_surface = {
+        (item["kind"], item["id"]) for item in current_surfaces[new_package]
+    }
+    if old_surface != new_surface or (
+        "plugin", f"plugin:{old_manifest['name']}"
+    ) not in old_surface:
+        return False, "PLUGIN_CAPABILITY_SURFACE_CHANGED"
+    for package in set(previous_surfaces) & set(current_surfaces):
+        if previous_surfaces[package] != current_surfaces[package]:
+            return False, "UNRELATED_PLUGIN_CAPABILITY_DELTA"
+        if previous_manifests.get(package) != current_manifests.get(package):
+            return False, "UNRELATED_PLUGIN_AUTHORITY_DELTA"
+        if previous_origins.get(package) != current_origins.get(package):
+            return False, "UNRELATED_PLUGIN_AUTHORITY_DELTA"
+
+    previous_rows = previous["plugin_cache_row_hashes"]
+    current_rows = current["plugin_cache_row_hashes"]
+    removed_rows = set(previous_rows) - set(current_rows)
+    added_rows = set(current_rows) - set(previous_rows)
+    changed_rows = {
+        key
+        for key in set(previous_rows) & set(current_rows)
+        if previous_rows[key] != current_rows[key]
+    }
+    old_prefix = old_package.casefold()
+    new_prefix = new_package.casefold()
+
+    def belongs(key: str, package_prefix: str) -> bool:
+        try:
+            _, relative = key.split("\t", 1)
+        except ValueError:
+            return False
+        value = relative.replace("\\", "/").casefold()
+        return value == package_prefix or value.startswith(package_prefix + "/")
+
+    previous_old_rows = {
+        key for key in previous_rows if belongs(key, old_prefix)
+    }
+    current_new_rows = {
+        key for key in current_rows if belongs(key, new_prefix)
+    }
+
+    if (
+        changed_rows
+        or not removed_rows
+        or not added_rows
+        or any(belongs(key, old_prefix) for key in current_rows)
+        or any(belongs(key, new_prefix) for key in previous_rows)
+        or removed_rows != previous_old_rows
+        or added_rows != current_new_rows
+        or any(not belongs(key, old_prefix) for key in removed_rows)
+        or any(not belongs(key, new_prefix) for key in added_rows)
+    ):
+        return False, "UNRELATED_PLUGIN_CACHE_DELTA"
+    old_suffixes = _package_row_suffixes(previous_rows, old_package)
+    new_suffixes = _package_row_suffixes(current_rows, new_package)
+    required_suffixes = {"ROOT\t.", "FILE\t.codex-plugin/plugin.json"}
+    if old_suffixes != new_suffixes or not required_suffixes.issubset(old_suffixes):
+        return False, "PLUGIN_AUTHORITY_SHAPE_CHANGED"
+    return False, "PLUGIN_ORIGIN_UNPROVEN"
+
+
+def classify_authority_update(
+    previous: dict[str, Any], current: dict[str, Any]
+) -> tuple[bool, str]:
+    app_allowed, app_reason = classify_app_update(previous, current)
+    if app_allowed:
+        return True, app_reason
+    plugin_allowed, plugin_reason = classify_enabled_plugin_version_replacement(
+        previous, current
+    )
+    if plugin_allowed:
+        return True, plugin_reason
+    if app_reason == "APP_IDENTITY_DID_NOT_ADVANCE":
+        return False, plugin_reason
+    return False, app_reason
 
 
 def _component_after(path_value: str, marker: str) -> str:
@@ -315,8 +796,8 @@ def _app_identity(codex_home: Path, config_path: Path) -> dict[str, Any]:
     }
 
 
-def _required_source_hashes(codex_home: Path) -> dict[str, str]:
-    paths = {
+def _required_source_paths(codex_home: Path) -> dict[str, Path]:
+    return {
         "hooks.json": codex_home / "hooks.json",
         "AGENTS.md": codex_home / "AGENTS.md",
         "task-routing-gate.md": codex_home / "docs" / "context" / "task-routing-gate.md",
@@ -332,12 +813,29 @@ def _required_source_hashes(codex_home: Path) -> dict[str, str]:
         "user_prompt_skill_router.py": codex_home
         / "hooks"
         / "user_prompt_skill_router.py",
+        "capability_index_session_start.py": codex_home
+        / "hooks"
+        / "capability_index_session_start.py",
+        "_common.py": codex_home / "hooks" / "_common.py",
+        "_hook_io.py": codex_home / "hooks" / "_hook_io.py",
         "query-catalogue.ps1": codex_home
         / "skills"
         / "catalogue-router"
         / "scripts"
         / "query-catalogue.ps1",
         "routing-policy.yaml": codex_home / "capability-routing" / "routing-policy.yaml",
+        "routing-policy.schema.json": codex_home
+        / "capability-routing"
+        / "routing-policy.schema.json",
+        "active-capabilities.schema.json": codex_home
+        / "capability-routing"
+        / "active-capabilities.schema.json",
+        "project-scope-map.json": codex_home
+        / "capability-routing"
+        / "project-scope-map.json",
+        "project-scope-map.schema.json": codex_home
+        / "capability-routing"
+        / "project-scope-map.schema.json",
         "route-decision.schema.json": codex_home
         / "capability-routing"
         / "route-decision.schema.json",
@@ -356,11 +854,19 @@ def _required_source_hashes(codex_home: Path) -> dict[str, str]:
         / "capability-routing"
         / "authority-receipt.schema.json",
     }
-    return {
-        name: digest
-        for name, path in paths.items()
-        if (digest := _sha256_file(path))
-    }
+
+
+def _required_source_hashes(codex_home: Path) -> dict[str, str]:
+    paths = _required_source_paths(codex_home)
+    if set(paths) != REQUIRED_SOURCE_HASH_KEYS:
+        raise RuntimeError("required recovery source contract is inconsistent")
+    hashes: dict[str, str] = {}
+    for name, path in paths.items():
+        digest = _sha256_file(path)
+        if not digest:
+            raise RuntimeError(f"required recovery source is unavailable: {name}")
+        hashes[name] = digest
+    return hashes
 
 
 def _plugin_row_hashes(rows: tuple[str, ...]) -> dict[str, str]:
@@ -373,6 +879,315 @@ def _plugin_row_hashes(rows: tuple[str, ...]) -> dict[str, str]:
     return dict(sorted(result.items()))
 
 
+def _capability_safe_name(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9._-]+", "-", value.casefold()).strip("-.")
+    if not normalized:
+        raise ValueError("plugin capability name is empty after normalization")
+    return normalized
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"plugin authority JSON is unreadable: {path.name}") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError(f"plugin authority JSON is not an object: {path.name}")
+    return value
+
+
+def _effective_skill_name(skill_file: Path, fallback_name: str) -> str:
+    """Match the builder's bounded frontmatter name extraction."""
+
+    try:
+        lines = skill_file.read_text(encoding="utf-8").splitlines()[:80]
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError("plugin skill metadata is unreadable") from exc
+    name = fallback_name
+    if lines and lines[0].strip() == "---":
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            match = re.fullmatch(r"name:\s*(.+?)\s*", line)
+            if match:
+                name = match.group(1).strip().strip('"').strip("'")
+    if not name:
+        raise ValueError("plugin skill name is empty")
+    return name
+
+
+def _filter_plugin_cache_inventory_rows(
+    rows: tuple[str, ...], packages: set[str]
+) -> tuple[str, ...]:
+    """Keep only manifest-backed packages represented by the bounded surface scan."""
+
+    normalized_packages = {
+        normalized
+        for package in packages
+        if (normalized := _normalized_plugin_package(package)) is not None
+    }
+    filtered: list[str] = []
+    for row in rows:
+        parts = row.split("\t", 3)
+        if len(parts) != 4 or parts[0] not in {"ROOT", "FILE"}:
+            raise ValueError("plugin cache authority row is malformed")
+        relative_parts = parts[1].replace("\\", "/").strip("/").split("/")
+        if len(relative_parts) < 3:
+            raise ValueError("plugin cache authority row has no package root")
+        package = "/".join(relative_parts[:3]).casefold()
+        if package in normalized_packages:
+            filtered.append(row)
+    return tuple(sorted(filtered))
+
+
+def _plugin_package_manifests(
+    codex_home: Path, packages: set[str]
+) -> dict[str, dict[str, str]]:
+    cache_root = codex_home / "plugins" / "cache"
+    result: dict[str, dict[str, str]] = {}
+    for package in sorted(packages):
+        manifest_path = cache_root / Path(package) / ".codex-plugin" / "plugin.json"
+        if not manifest_path.is_file():
+            continue
+        manifest = _read_json_object(manifest_path)
+        name = manifest.get("name")
+        version = manifest.get("version")
+        digest = _sha256_file(manifest_path)
+        if not isinstance(name, str) or not name or not isinstance(version, str) or not version:
+            raise RuntimeError("plugin manifest identity is incomplete")
+        if not digest:
+            raise RuntimeError("plugin manifest digest is unavailable")
+        remote_parts = _plugin_package_parts(package)
+        if remote_parts is not None and (
+            name.casefold() != remote_parts[0] or version != remote_parts[1]
+        ):
+            raise RuntimeError("remote plugin manifest identity does not match its cache directory")
+        result[package] = {
+            "name": name,
+            "version": version,
+            "manifest_sha256": digest,
+        }
+    return result
+
+
+def _plugin_package_sha256(package_root: Path, cache_root: Path) -> str:
+    """Hash canonical path/content rows, excluding only the self-referential receipt."""
+
+    try:
+        resolved_cache_root = cache_root.resolve(strict=True)
+        resolved_package_root = package_root.resolve(strict=True)
+        if (
+            package_root.is_symlink()
+            or not resolved_cache_root.is_dir()
+            or not resolved_package_root.is_dir()
+            or not resolved_package_root.is_relative_to(resolved_cache_root)
+        ):
+            return ""
+        rows: list[dict[str, str]] = []
+        paths = sorted(
+            package_root.rglob("*"),
+            key=lambda path: path.relative_to(package_root).as_posix(),
+        )
+        for path in paths:
+            relative = path.relative_to(package_root).as_posix()
+            if relative == REMOTE_PLUGIN_INSTALL_RECEIPT:
+                continue
+            if path.is_symlink():
+                return ""
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                return ""
+            resolved_path = path.resolve(strict=True)
+            if not resolved_path.is_relative_to(resolved_package_root):
+                return ""
+            digest = _sha256_file(path)
+            if not digest:
+                return ""
+            rows.append({"path": relative, "sha256": digest})
+        return _sha256_text(_canonical_json(rows))
+    except (OSError, RuntimeError, ValueError):
+        return ""
+
+
+def _plugin_package_origins(
+    codex_home: Path, packages: set[str]
+) -> dict[str, dict[str, Any]]:
+    """Project only package-level v2 managed-install evidence bound to exact bytes."""
+
+    cache_root = codex_home / "plugins" / "cache"
+    result: dict[str, dict[str, Any]] = {}
+    for package in sorted(packages):
+        normalized = _normalized_plugin_package(package)
+        if normalized is None or not normalized.startswith(
+            CURATED_PLUGIN_CACHE_MARKETPLACE + "/"
+        ):
+            continue
+        parts = normalized.split("/")
+        package_root = cache_root / Path(package)
+        receipt_path = package_root / REMOTE_PLUGIN_INSTALL_RECEIPT
+        # A legacy schema-v1 receipt may remain at the plugin-name root for
+        # discovery, but it never attests a particular version's package bytes.
+        if not receipt_path.is_file() or receipt_path.is_symlink():
+            continue
+        try:
+            resolved_package_root = package_root.resolve(strict=True)
+            resolved_receipt = receipt_path.resolve(strict=True)
+            if not resolved_receipt.is_relative_to(resolved_package_root):
+                continue
+            receipt = _read_json_object(receipt_path)
+        except RuntimeError:
+            continue
+        remote_plugin_id = receipt.get("remote_plugin_id")
+        marketplace = receipt.get("marketplace")
+        plugin_name = receipt.get("plugin_name")
+        plugin_version = receipt.get("plugin_version")
+        supplied_manifest_digest = receipt.get("plugin_manifest_sha256")
+        supplied_package_digest = receipt.get("package_sha256")
+        manifest_path = package_root / ".codex-plugin" / "plugin.json"
+        try:
+            manifest = _read_json_object(manifest_path)
+        except RuntimeError:
+            continue
+        manifest_name = manifest.get("name")
+        manifest_version = manifest.get("version")
+        manifest_digest = _sha256_file(manifest_path)
+        package_digest = _plugin_package_sha256(package_root, cache_root)
+        receipt_digest = _sha256_file(receipt_path)
+        if (
+            receipt.get("schema_version") != REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA
+            or not isinstance(remote_plugin_id, str)
+            or not re.fullmatch(r"[-A-Za-z0-9._:~]{8,256}", remote_plugin_id)
+            or marketplace != parts[0]
+            or not isinstance(plugin_name, str)
+            or plugin_name != manifest_name
+            or plugin_name.casefold() != parts[1]
+            or not isinstance(plugin_version, str)
+            or plugin_version != manifest_version
+            or plugin_version != parts[2]
+            or not isinstance(supplied_manifest_digest, str)
+            or not SHA256_PATTERN.fullmatch(supplied_manifest_digest)
+            or supplied_manifest_digest.upper() != manifest_digest.upper()
+            or not isinstance(supplied_package_digest, str)
+            or not SHA256_PATTERN.fullmatch(supplied_package_digest)
+            or supplied_package_digest.upper() != package_digest.upper()
+            or not manifest_digest
+            or not package_digest
+            or not receipt_digest
+        ):
+            continue
+        result[package] = {
+            "receipt_schema_version": REMOTE_PLUGIN_INSTALL_RECEIPT_SCHEMA,
+            "remote_plugin_id": remote_plugin_id,
+            "marketplace": marketplace,
+            "plugin_name": plugin_name,
+            "plugin_version": plugin_version,
+            "plugin_manifest_sha256": manifest_digest,
+            "package_sha256": package_digest,
+            "install_receipt_sha256": receipt_digest,
+        }
+    return result
+
+
+def _plugin_capability_surfaces(codex_home: Path) -> dict[str, list[dict[str, str]]]:
+    """Derive the bounded capability ID/kind surface of every cached package."""
+
+    cache_root = codex_home / "plugins" / "cache"
+    try:
+        resolved_cache_root = cache_root.resolve(strict=True)
+        if not resolved_cache_root.is_dir():
+            raise RuntimeError("plugin cache root is unavailable")
+        result: dict[str, list[dict[str, str]]] = {}
+        for marketplace in sorted(cache_root.iterdir(), key=lambda path: path.name.casefold()):
+            if not marketplace.is_dir():
+                continue
+            for plugin in sorted(marketplace.iterdir(), key=lambda path: path.name.casefold()):
+                if not plugin.is_dir():
+                    continue
+                if plugin.name.casefold().startswith(PLUGIN_INSTALL_STAGING_PREFIX):
+                    continue
+                for version in sorted(plugin.iterdir(), key=lambda path: path.name.casefold()):
+                    if not version.is_dir():
+                        continue
+                    resolved_version = version.resolve(strict=True)
+                    if not resolved_version.is_relative_to(resolved_cache_root):
+                        raise RuntimeError("plugin package escapes the configured cache root")
+                    manifest_path = version / ".codex-plugin" / "plugin.json"
+                    if not manifest_path.is_file():
+                        continue
+                    resolved_manifest = manifest_path.resolve(strict=True)
+                    if not resolved_manifest.is_relative_to(resolved_cache_root):
+                        raise RuntimeError("plugin manifest escapes the cache root")
+                    manifest = _read_json_object(manifest_path)
+                    plugin_name = manifest.get("name")
+                    if not isinstance(plugin_name, str) or not plugin_name:
+                        raise RuntimeError("plugin manifest identity is incomplete")
+                    package = version.relative_to(cache_root).as_posix().casefold()
+                    surface: set[tuple[str, str]] = {
+                        ("plugin", f"plugin:{plugin_name}")
+                    }
+
+                    skills_root = version / "skills"
+                    if skills_root.is_dir():
+                        resolved_skills = skills_root.resolve(strict=True)
+                        if not resolved_skills.is_relative_to(resolved_cache_root):
+                            raise RuntimeError("plugin skills root escapes the cache root")
+                        for skill in sorted(
+                            skills_root.iterdir(), key=lambda path: path.name.casefold()
+                        ):
+                            skill_file = skill / "SKILL.md"
+                            if not skill.is_dir() or not skill_file.is_file():
+                                continue
+                            resolved_skill = skill_file.resolve(strict=True)
+                            if not resolved_skill.is_relative_to(resolved_cache_root):
+                                raise RuntimeError("plugin skill escapes the cache root")
+                            skill_name = _effective_skill_name(skill_file, skill.name)
+                            surface.add(
+                                ("skill", f"skill:{plugin_name}:{skill_name}")
+                            )
+
+                    app_path = version / ".app.json"
+                    if app_path.is_file():
+                        resolved_app = app_path.resolve(strict=True)
+                        if not resolved_app.is_relative_to(resolved_cache_root):
+                            raise RuntimeError("plugin app manifest escapes the cache root")
+                        apps = _read_json_object(app_path).get("apps")
+                        if not isinstance(apps, dict):
+                            raise RuntimeError("plugin app manifest has no apps object")
+                        for app_name in apps:
+                            if not isinstance(app_name, str):
+                                raise RuntimeError("plugin app name is not a string")
+                            surface.add(
+                                (
+                                    "tool-family",
+                                    f"tool-family:app:{_capability_safe_name(app_name)}",
+                                )
+                            )
+
+                    mcp_path = version / ".mcp.json"
+                    if mcp_path.is_file():
+                        resolved_mcp = mcp_path.resolve(strict=True)
+                        if not resolved_mcp.is_relative_to(resolved_cache_root):
+                            raise RuntimeError("plugin MCP manifest escapes the cache root")
+                        servers = _read_json_object(mcp_path).get("mcpServers")
+                        if not isinstance(servers, dict):
+                            raise RuntimeError("plugin MCP manifest has no mcpServers object")
+                        for server_name in servers:
+                            if not isinstance(server_name, str):
+                                raise RuntimeError("plugin MCP name is not a string")
+                            surface.add(
+                                ("mcp", f"mcp:{_capability_safe_name(server_name)}")
+                            )
+
+                    result[package] = [
+                        {"id": identifier, "kind": kind}
+                        for kind, identifier in sorted(surface)
+                    ]
+        return dict(sorted(result.items()))
+    except (OSError, RuntimeError, ValueError):
+        raise
+
+
 def capture_authority_receipt(codex_home: Path | None = None) -> dict[str, Any]:
     home = (codex_home or index.CODEX_HOME).resolve(strict=True)
     config_path = home / "config.toml"
@@ -380,17 +1195,106 @@ def capture_authority_receipt(codex_home: Path | None = None) -> dict[str, Any]:
     rows = index._plugin_cache_inventory_rows(home)
     if rows is None:
         raise RuntimeError("plugin cache authority inventory is unavailable")
+    surfaces = _plugin_capability_surfaces(home)
+    packages = set(surfaces)
+    rows = _filter_plugin_cache_inventory_rows(rows, packages)
     receipt: dict[str, Any] = {
         "schema_version": RECEIPT_SCHEMA,
         "config_projection_sha256": authority["sha256"],
         "config_leaf_hashes": authority["projection_leaf_hashes"],
         "plugin_cache_inventory_sha256": _sha256_text("\n".join(rows)),
         "plugin_cache_row_hashes": _plugin_row_hashes(rows),
+        "plugin_capability_surfaces": surfaces,
+        "plugin_package_manifests": _plugin_package_manifests(home, packages),
+        "plugin_package_origins": _plugin_package_origins(home, packages),
         "required_source_hashes": _required_source_hashes(home),
         "app_identity": _app_identity(home, config_path),
     }
     receipt["snapshot_sha256"] = authority_snapshot_digest(receipt)
+    if not _valid_receipt(receipt):
+        raise RuntimeError("captured authority receipt is invalid")
     return receipt
+
+
+def _bounded_recovery_state(state: dict[str, Any] | None) -> dict[str, Any]:
+    value = state if isinstance(state, dict) else {}
+    mismatches = value.get("source_hash_mismatches")
+    mismatch_values = mismatches if isinstance(mismatches, list) else []
+    return {
+        "freshness_status": str(value.get("freshness_status") or "unknown")[:64],
+        "source_hashes_verified": value.get("source_hashes_verified") is True,
+        "source_hash_mismatches": [str(item)[:160] for item in mismatch_values[:32]],
+        "entry_count": len(value.get("entries", []))
+        if isinstance(value.get("entries"), list)
+        else 0,
+    }
+
+
+def _bounded_hash(value: str) -> str:
+    return value.upper() if SHA256_PATTERN.fullmatch(str(value or "")) else ""
+
+
+def write_session_start_recovery_receipt(
+    result: dict[str, Any],
+    *,
+    before_state: dict[str, Any] | None,
+    after_state: dict[str, Any] | None,
+    before_manifest_sha256: str,
+    after_manifest_sha256: str,
+    receipt_dir: Path | None = None,
+    max_receipts: int = SESSION_START_RECEIPT_LIMIT,
+    event_id: str | None = None,
+    recorded_at: dt.datetime | None = None,
+) -> Path:
+    """Atomically persist one bounded SessionStart recovery outcome."""
+
+    directory = receipt_dir or (
+        index.CODEX_HOME / "capability-routing" / "recovery-receipts"
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    timestamp = recorded_at or dt.datetime.now(dt.timezone.utc)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
+    timestamp = timestamp.astimezone(dt.timezone.utc)
+    identifier = re.sub(r"[^A-Za-z0-9._-]+", "-", event_id or uuid.uuid4().hex)
+    identifier = identifier.strip("-.")[:96] or uuid.uuid4().hex
+    stamp = timestamp.strftime("%Y%m%dT%H%M%S.%fZ")
+    destination = directory / f"session-start-recovery-{stamp}-{identifier}.json"
+    bounded_result = result if isinstance(result, dict) else {}
+    payload: dict[str, Any] = {
+        "schema_version": SESSION_START_RECEIPT_SCHEMA,
+        "recorded_at_utc": timestamp.isoformat().replace("+00:00", "Z"),
+        "event_id": identifier,
+        "status": str(bounded_result.get("status") or "error")[:32],
+        "reason_code": str(
+            bounded_result.get("reason_code") or "RECOVERY_RESULT_INVALID"
+        )[:128],
+        "before_manifest_sha256": _bounded_hash(before_manifest_sha256),
+        "after_manifest_sha256": _bounded_hash(after_manifest_sha256),
+        "before": _bounded_recovery_state(before_state),
+        "after": _bounded_recovery_state(after_state),
+    }
+    for key, limit in (("snapshot_sha256", 64), ("error_type", 128)):
+        value = bounded_result.get(key)
+        if isinstance(value, str) and value:
+            payload[key] = value[:limit]
+
+    temporary = directory / f".{destination.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(_canonical_json(payload) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+    retained = max(1, min(int(max_receipts), 256))
+    receipts = sorted(directory.glob("session-start-recovery-*.json"))
+    for expired in receipts[:-retained]:
+        if expired != destination:
+            expired.unlink(missing_ok=True)
+    return destination
 
 
 def stable_two_read(
@@ -720,7 +1624,7 @@ def attempt_recovery(
         )
         if preliminary is None:
             return {"status": "denied", "reason_code": stable_reason}
-        recognized, reason = classify_app_update(baseline, preliminary)
+        recognized, reason = classify_authority_update(baseline, preliminary)
         if not recognized:
             return {"status": "denied", "reason_code": reason}
         preparer = inventory_preparer or (
@@ -749,7 +1653,7 @@ def attempt_recovery(
         )
         if current is None:
             return {"status": "denied", "reason_code": stable_reason}
-        recognized, reason = classify_app_update(baseline, current)
+        recognized, reason = classify_authority_update(baseline, current)
         if not recognized:
             return {"status": "denied", "reason_code": reason}
         runner = builder_runner or (
@@ -763,10 +1667,13 @@ def attempt_recovery(
         candidate: Path | None = None
         try:
             candidate = runner(current["snapshot_sha256"], target)
-            final_snapshot = reader()
+            final_snapshot, final_reason = stable_two_read(
+                reader, settle_seconds=settle_seconds, sleeper=sleeper
+            )
+            if final_snapshot is None:
+                return {"status": "denied", "reason_code": final_reason}
             if (
-                not _valid_receipt(final_snapshot)
-                or final_snapshot["snapshot_sha256"] != current["snapshot_sha256"]
+                final_snapshot["snapshot_sha256"] != current["snapshot_sha256"]
             ):
                 return {
                     "status": "denied",
@@ -801,7 +1708,7 @@ def attempt_recovery(
                 }
             return {
                 "status": "rebuilt",
-                "reason_code": "RECOGNIZED_CODEX_DESKTOP_UPDATE",
+                "reason_code": reason,
                 "snapshot_sha256": current["snapshot_sha256"],
             }
         except (OSError, RuntimeError, TimeoutError, subprocess.SubprocessError) as exc:
