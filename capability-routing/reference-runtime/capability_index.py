@@ -1553,6 +1553,15 @@ _NONCRITIQUE_EVENT_FINDER = re.compile(
     rf"{_CRITIQUE_NEGATION}{_CRITIQUE_POST_NEGATION_MODIFIERS}"
     rf"(?P<action>{_NONCRITIQUE_EVENT_ACTION})(?=\b|$)"
 )
+_DELIVERABLE_EVENT_ACTION = (
+    r"(?:create|build|generate|prepare|write|edit|read|inspect|analy[sz]e|"
+    r"calculate|convert|extract|transcribe)"
+)
+_DELIVERABLE_EVENT_FINDER = re.compile(
+    rf"{_CRITIQUE_DIRECTIVE_INTRO}{_CRITIQUE_DIRECTIVE_MODIFIERS}"
+    rf"{_CRITIQUE_NEGATION}{_CRITIQUE_POST_NEGATION_MODIFIERS}"
+    rf"(?P<action>{_DELIVERABLE_EVENT_ACTION})(?=\b|$)"
+)
 _CRITIQUE_REPLACEMENT_IMPLEMENTATION = re.compile(
     rf"(?:^|[,;:.!?]\s*|\b(?:and(?:\s+then)?|then)\s+)"
     rf"(?:(?:actually|please)\s*,?\s+)*(?:"
@@ -2182,16 +2191,30 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
 
 
 def _prompt_is_linguistic_critique_mention(prompt: str) -> bool:
-    """Reject deliverable routing when critique targets a literal word or phrase."""
+    """Return whether the final active directive critiques a linguistic mention."""
 
     if _prompt_has_affirmative_critique_intent(prompt):
         return False
+    final_is_linguistic_critique = False
     for clause in _directive_clauses(prompt):
         text = _prepared_critique_clause(clause)
         _, mention_seen = _strip_critique_linguistic_mentions(text)
-        if mention_seen and _CRITIQUE_EVENT_FINDER.search(text):
-            return True
-    return False
+        events: list[tuple[int, bool]] = []
+        if mention_seen:
+            events.extend(
+                (match.start(), True)
+                for match in _CRITIQUE_EVENT_FINDER.finditer(text)
+                if not match.groupdict().get("negative")
+            )
+        events.extend(
+            (match.start(), False)
+            for match in _DELIVERABLE_EVENT_FINDER.finditer(text)
+            if not match.groupdict().get("negative")
+        )
+        if events:
+            events.sort(key=lambda event: event[0])
+            final_is_linguistic_critique = events[-1][1]
+    return final_is_linguistic_critique
 
 
 _SOURCE_SPECIAL_POSITIVE = (

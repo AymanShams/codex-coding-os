@@ -1867,6 +1867,11 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             "Critique the word memo.": None,
             "Critique the word policy.": None,
             "Critique the phrase weak assumptions.": None,
+            "Critique the phrase foo. Then create a PDF file.":
+                "standard-pdf-work",
+            "Critique the phrase foo and then create a Word document.":
+                "create-or-edit-word-document",
+            "Create a PDF file. Then critique the phrase foo.": None,
         }
         for prompt, expected_rule in word_document_cases.items():
             with self.subTest(family="word-document-vs-linguistic-mention", prompt=prompt):
