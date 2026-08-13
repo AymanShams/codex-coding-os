@@ -4,6 +4,25 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-13
+
+### Fixed
+
+- Split plugin executable and integration roots from managed prompt-skill roots
+  so one plugin can expose its MCP or app surface and all of its skills without
+  either inventory suppressing the other.
+- Preserved valid nested project roots and resolved the longest matching root
+  first while continuing to reject one exact root assigned to different
+  projects.
+- Bounded Deep Critic activation to the final effective directive so explicit
+  critique survives later task detail while final grammar-only or spelling-only
+  instructions remain ordinary editing work.
+- Compared manifest and policy authority bytes as UTF-8 content so equivalent
+  authority hashes remain stable across supported hosts.
+- Recognized Neon Postgres under its actual manifest surface identifier,
+  `tool-family:app:neon-postgres`, without changing the logical `app:neon`
+  dependency and live-probe contract.
+
 ## [1.2.0] - 2026-08-13
 
 ### Added

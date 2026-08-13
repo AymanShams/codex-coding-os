@@ -57,7 +57,7 @@ SHA-256 sidecar, read the exact full release commit from the GitHub release
 notes, and use archive mode:
 
 ```powershell
-$ZipPath = (Resolve-Path .\codex-coding-os-v1.2.0.zip).Path
+$ZipPath = (Resolve-Path .\codex-coding-os-v1.2.1.zip).Path
 $ExpectedZipSha = ((Get-Content "$ZipPath.sha256").Split()[0]).ToLowerInvariant()
 $ActualZipSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $ZipPath).Hash.ToLowerInvariant()
 if ($ActualZipSha -ne $ExpectedZipSha) { throw "Release ZIP digest mismatch." }
@@ -67,7 +67,7 @@ New-Item -ItemType Directory -Path $ArchiveRoot | Out-Null
 Expand-Archive -LiteralPath $ZipPath -DestinationPath $ArchiveRoot
 Set-Location $ArchiveRoot
 
-$ReleaseCommit = "<full 40-character commit from the v1.2.0 release notes>"
+$ReleaseCommit = "<full 40-character commit from the v1.2.1 release notes>"
 $BundleDigest = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
 .\scripts\install.ps1 `
   -ArchiveMode `
@@ -91,7 +91,7 @@ $InstallArgs = @{
   ExpectedBundleSha256 = (Get-Content .\install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
   InstallUniversalPolicy = $true
   PolicyAuthoritySource = "explicit-user-approval"
-  PolicyAuthorityReference = "approved-v1.2-installation"
+  PolicyAuthorityReference = "approved-v1.2.1-installation"
 }
 $LegacyRoot = "$env:USERPROFILE\.codex\case-state"
 if (Test-Path -LiteralPath $LegacyRoot -PathType Container) {

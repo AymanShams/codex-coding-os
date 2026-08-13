@@ -262,8 +262,16 @@ The repository stores no connector credentials or plugin state.
 4. Install Neon Postgres only for Neon projects.
 5. Connect only the provider used by the current project.
 6. Restart Codex and open a new task after plugin changes.
-7. Confirm the expected skills are visible before relying on automatic routing.
-8. For live work, make a bounded read and verify the project identity before
+7. Confirm the Codex Security MCP surface and all 13 plugin skills are present
+   independently. An active MCP does not prove that the skill inventory is
+   complete, and visible skills do not prove that the MCP is callable.
+8. Confirm a broad project root and a valid nested project root resolve by
+   longest-specific match, and that one exact root cannot belong to two project
+   IDs.
+9. Confirm Neon Postgres is discoverable as
+   `tool-family:app:neon-postgres`; `app:neon` remains the logical dependency
+   and live-probe target.
+10. For live work, make a bounded read and verify the project identity before
    any current-state claim.
 
 The machine-readable plugin boundary is in

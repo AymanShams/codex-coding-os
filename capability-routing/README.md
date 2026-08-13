@@ -13,6 +13,18 @@ It is not an installed or active router. The package installer must not copy thi
 - `project-scope-map.example.json` is synthetic. A real deployment supplies an external map through `CODEX_PROJECT_SCOPE_MAP_PATH`.
 - `provenance.json` records the frozen upstream snapshot and repository adaptations.
 
+A deployment must inventory plugin executable and integration roots separately
+from managed prompt-skill roots. A plugin package can expose an MCP or app from
+its package root while exposing skills from a versioned `skills` root. Finding
+the executable surface does not prove that the prompt-skill inventory is
+complete, and finding the skill root does not prove that the executable
+surface is callable.
+
+Project root maps may contain valid parent and nested roots. Resolution uses
+the longest normalized matching root first so a broad workspace root cannot
+mask a more specific project root. Only an exact normalized root assigned to
+different project IDs is invalid and must fail closed.
+
 The reference runtime treats manifest and configuration presence as
 configured-only evidence. A live dependency is callable only when complete task
 input supplies a successful `live_call` probe for that dependency, bound to the

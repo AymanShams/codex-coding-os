@@ -686,6 +686,7 @@ foreach ($Installed in @($PluginInventory.installed)) {
 }
 $PluginRoots = @{}
 $PluginPriorities = @{}
+$PluginSkillRoots = @{}
 foreach ($Installed in @($PluginInventory.installed) | Sort-Object name, marketplaceName) {
     if (-not [bool]$Installed.installed -or -not [bool]$Installed.enabled) { continue }
     $Name = [string]$Installed.name
@@ -717,7 +718,15 @@ if (Test-Path -LiteralPath $RemoteCacheRoot -PathType Container) {
             if ($Candidate) { $Candidates.Add($Candidate) }
         }
         if ($Candidates.Count -eq 1) {
-            Set-PluginPackageCandidate -Packages $PluginRoots -Priorities $PluginPriorities -Candidate $Candidates[0] -Priority 300 -DisabledPluginNames $DisabledPluginNames
+            $RemoteCandidate = $Candidates[0]
+            Set-PluginPackageCandidate -Packages $PluginRoots -Priorities $PluginPriorities -Candidate $RemoteCandidate -Priority 300 -DisabledPluginNames $DisabledPluginNames
+            # A resolved MCP package is authoritative for executable plugin surfaces, but
+            # the single managed remote package is authoritative for prompt-active skills.
+            # Keep those roots separate so an older MCP bundle cannot hide current skills.
+            if (-not $DisabledPluginNames.ContainsKey([string]$RemoteCandidate.name) -and
+                (Test-Path -LiteralPath (Join-Path $RemoteCandidate.root 'skills') -PathType Container)) {
+                $PluginSkillRoots[[string]$RemoteCandidate.name] = $RemoteCandidate
+            }
             continue
         }
         if ($Candidates.Count -gt 1) {
@@ -736,7 +745,13 @@ if (Test-Path -LiteralPath $RemoteCacheRoot -PathType Container) {
     }
 }
 
-$LiveSkillInventory = Get-PassiveSkillInventory -CodexHomePath $CodexHome -PluginPackages $PluginRoots -DisabledSkillPathKeys $DisabledSkillPathKeys
+foreach ($PluginName in @($PluginRoots.Keys | Sort-Object)) {
+    if (-not $PluginSkillRoots.ContainsKey($PluginName)) {
+        $PluginSkillRoots[$PluginName] = $PluginRoots[$PluginName]
+    }
+}
+
+$LiveSkillInventory = Get-PassiveSkillInventory -CodexHomePath $CodexHome -PluginPackages $PluginSkillRoots -DisabledSkillPathKeys $DisabledSkillPathKeys
 $GatewayKey = Normalize-LiveName -Name 'codex-stability-gateway'
 if ($CallableMcpByName.ContainsKey($GatewayKey)) {
     foreach ($GatewayManagedName in $GatewayManagedMcpNames) {
@@ -890,8 +905,14 @@ foreach ($PluginName in @($PluginRoots.Keys | Sort-Object)) {
     $Families = @('plugin')
     if ($Dated -and [string]$Dated.router_scope) { $Families += [string]$Dated.router_scope }
 
+    $PluginSkillRoot = if ($PluginSkillRoots.ContainsKey($PluginName)) {
+        [string]$PluginSkillRoots[$PluginName].root
+    }
+    else {
+        [string]$Plugin.root
+    }
     $SkillCount = @($LiveSkillInventory.rows | Where-Object {
-        ([string]$_.path).StartsWith(([string]$Plugin.root), [System.StringComparison]::OrdinalIgnoreCase)
+        ([string]$_.path).StartsWith($PluginSkillRoot, [System.StringComparison]::OrdinalIgnoreCase)
     }).Count
     $AppManifestPath = Join-Path $Plugin.root '.app.json'
     $McpManifestPath = Join-Path $Plugin.root '.mcp.json'

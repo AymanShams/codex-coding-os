@@ -1215,14 +1215,35 @@ _DEFERRED_IMPLEMENTATION_PATTERN = re.compile(
     rf"(?:be\s+)?(?:{_IMPLEMENTATION_VERB}|{_IMPLEMENTATION_PARTICIPLE})\b"
     r"[^.!?;]{0,80}\b(?:later|in\s+the\s+future|subsequently|afterwards)\b"
 )
+_COPYEDIT_IMPLEMENTATION_CONTEXT = re.compile(
+    r"\b(?:implement|apply|make|fix|correct)\b[^.!?;]{0,60}"
+    r"\b(?:typos?|grammar|spelling|punctuation|wording|formatting|"
+    r"grammatical\s+correctness)\b|"
+    r"\b(?:typo|grammar|spelling|punctuation|wording|formatting)\s+"
+    r"(?:fix|correction|change)\b"
+)
 
 
 def _prompt_has_affirmative_implementation(prompt_lower: str) -> bool:
-    raw = prompt_lower.lower().replace("’", "'").replace("\r\n", "\n").replace("\r", "\n")
+    raw = _prompt_without_quoted_text(prompt_lower).lower().replace("’", "'")
     text = re.sub(r"[ \t\f\v]+", " ", raw)
     text = re.sub(r"\s*\n+\s*", "; ", text).strip()
     text = _DEFERRED_IMPLEMENTATION_PATTERN.sub(" ", text)
-    return any(pattern.search(text) for pattern in _AFFIRMATIVE_IMPLEMENTATION_PATTERNS)
+    events: list[tuple[int, bool]] = []
+    for pattern in _AFFIRMATIVE_IMPLEMENTATION_PATTERNS:
+        events.extend((match.start(), True) for match in pattern.finditer(text))
+    events.extend(
+        (match.start(), True)
+        for match in _CRITIQUE_REPLACEMENT_IMPLEMENTATION.finditer(text)
+    )
+    if not events:
+        return False
+    events.extend(
+        (match.start(), False)
+        for match in _IMPLEMENTATION_REPLACED_BY_CRITIQUE.finditer(text)
+    )
+    events.sort(key=lambda event: event[0])
+    return events[-1][1]
 
 
 _DIRECT_QUOTED_CAPABILITY_CONTROL = re.compile(
@@ -1289,7 +1310,8 @@ def _prompt_without_quoted_text(prompt: str) -> str:
         prefix = text[max(0, match.start() - 100) : match.start()]
         if _DIRECT_QUOTED_CAPABILITY_CONTROL.search(prefix):
             return match.group("content")
-        return " "
+        content = match.group("content").rstrip()
+        return content[-1] if content.endswith((".", "!", "?", ";")) else " "
 
     quote_patterns = (
         r"“(?P<content>.*?)”",
@@ -1311,10 +1333,18 @@ _SOURCE_EVALUATION_ACTION = (
     r"(?:source[- ]backed\s+critique|fact[- ]check|"
     r"validate\s+(?:(?:the|these)\s+)?(?:sources?|claims?)|"
     r"check\s+(?:the\s+)?evidence|"
-    r"verify\s+(?:whether\s+)?(?:(?:the|these)\s+)?(?:sources?|citations?)|"
+    r"verify\s+(?:whether\s+)?(?:(?:the|these)\s+)?"
+    r"(?:sources?|citations?|they|them)|"
     r"confirm\s+(?:(?:the|these)\s+)?(?:sources?|citations?)|"
     r"run\s+(?:a\s+)?citation\s+audit|"
-    r"review\s+(?:the\s+)?evidence\s+chain)"
+    r"review\s+(?:(?:the|these)\s+)?(?:sources?|citations?|evidence\s+chain|"
+    r"evidence\s+quality)"
+    r"(?:\s+for\s+(?:credibility|authenticity|reliability|sufficiency))?|"
+    r"check\s+(?:the\s+)?(?:source|citation)\s+credibility|"
+    r"evaluate\s+(?:(?:the|these)\s+)?(?:sources?|citations?)"
+    r"(?:\s+for\s+(?:credibility|authenticity|reliability|sufficiency))?|"
+    r"assess\s+(?:(?:the|these)\s+)?(?:sources?|citations?|source\s+credibility|"
+    r"citation\s+credibility|evidence\s+quality))"
 )
 _DIRECTIVE_SPLIT = re.compile(r"(?:[.!?;]+|\bbut\b)")
 _LEADING_DISCOURSE = re.compile(
@@ -1326,7 +1356,19 @@ def _directive_clauses(prompt: str) -> list[str]:
     raw = _prompt_without_quoted_text(prompt).lower()
     text = re.sub(r"[ \t\f\v]+", " ", raw)
     text = re.sub(r"\s*\n+\s*", "; ", text).strip()
-    return [clause.strip(" ,") for clause in _DIRECTIVE_SPLIT.split(text) if clause.strip(" ,")]
+    file_dot = "\ue000"
+    text = text.replace(file_dot, " ")
+    text = re.sub(
+        r"\b[a-z0-9_-]+(?:\.[a-z0-9_-]+)*\."
+        r"(?:pdf|docx?|xlsx?|csv|json|ya?ml|py|js|ts|tsx|jsx|md)\b",
+        lambda match: match.group(0).replace(".", file_dot),
+        text,
+    )
+    return [
+        clause.replace(file_dot, ".").strip(" ,")
+        for clause in _DIRECTIVE_SPLIT.split(text)
+        if clause.strip(" ,")
+    ]
 
 
 def _clause_directive_polarity(
@@ -1368,15 +1410,58 @@ _CRITIQUE_SPECIAL_POSITIVE = (
         r"[^.!?;]{0,160}\bchallenge\b"
     ),
     re.compile(r"^(?:please\s+)?be\s+critical\b"),
-    re.compile(r"^what\s+do\s+you\s+think\s+(?:of|about)\s+this\b"),
     re.compile(
-        r"^is\s+(?:this|my|our|the)\s+"
-        r"(?:proposal|analysis|recommendation|plan|strategy|argument)\b"
-        r"[^.!?;]{0,100}\b(?:good|correct|right|sound|strong|ready)\b"
+        r"^what\s+do\s+you\s+think\s+(?:of|about)\s+"
+        r"(?:this|that|my|our|the)\s+(?:proposal|recommendation|analysis|plan|"
+        r"strategy|argument|decision|operating\s+model|business\s+case|"
+        r"forecast|model|workflow|report|memo|draft|document|policy|"
+        r"slide\s+deck|presentation|prd|concept|operating\s+update|"
+        r"security\s+policy|"
+        r"(?:repository|software|application|authentication)\s+architecture|"
+        r"architecture|approach)\b"
     ),
     re.compile(
-        r"^should\s+(?:we|i)\s+use\s+this\s+"
-        r"(?:recommendation|proposal|analysis|plan|strategy|approach)\b"
+        r"^is\s+(?:this|that|my|our|the)\s+"
+        r"(?:proposal|analysis|recommendation|plan|strategy|argument|decision|"
+        r"operating\s+model|business\s+case|forecast|model|workflow|report|"
+        r"memo|draft|document|policy|slide\s+deck|presentation|prd|concept|"
+        r"operating\s+update|security\s+policy|"
+        r"(?:repository|software|application|authentication)\s+"
+        r"architecture|architecture|approach)\b"
+        r"[^.!?;]{0,100}\b(?:good|correct|right|sound|strong|ready|accurate|"
+        r"valid|credible|defensible|secure|safe|complete|consistent|viable)\b"
+    ),
+    re.compile(
+        r"^should\s+(?:we|i)\s+use\s+(?:this|the|our|my)\s+"
+        r"(?:recommendation|proposal|analysis|plan|strategy|approach|decision|"
+        r"operating\s+model|business\s+case|forecast|model|workflow|report|"
+        r"memo|draft|document|policy|slide\s+deck|presentation|prd|concept|"
+        r"operating\s+update|security\s+policy|"
+        r"(?:repository|software|application|authentication)\s+"
+        r"architecture|architecture)\b"
+    ),
+    re.compile(
+        r"^should\s+(?:we|i)\s+(?:use|adopt|keep|approve|rely\s+on)\s+"
+        r"(?:this|that|the|our|my)\s+(?:proposal|recommendation|analysis|plan|"
+        r"strategy|argument|decision|operating\s+model|business\s+case|"
+        r"forecast|model|workflow|report|memo|draft|document|security\s+policy|"
+        r"(?:repository|software|application|authentication)\s+architecture|"
+        r"architecture|approach)\b"
+    ),
+    re.compile(
+        r"^does\s+(?:this|that|the|our|my)\s+(?:proposal|recommendation|"
+        r"analysis|plan|strategy|argument|decision|workflow|report|memo|"
+        r"security\s+policy|(?:repository|software|application|authentication)\s+"
+        r"architecture|architecture|approach)\b[^.!?;]{0,80}\blook\s+"
+        r"(?:good|correct|right|sound|strong|ready|accurate|credible|"
+        r"defensible|secure|safe|complete|consistent|viable)\b"
+    ),
+    re.compile(
+        r"^what\s+(?:are\s+)?(?:the\s+)?(?:weaknesses?|flaws?|gaps?)\s+"
+        r"(?:are\s+)?(?:in|of)\s+(?:this|that|the|our|my)\s+"
+        r"(?:proposal|recommendation|analysis|plan|strategy|argument|decision|"
+        r"workflow|report|memo|security\s+policy|(?:repository|software|"
+        r"application|authentication)\s+architecture|architecture|approach)\b"
     ),
     re.compile(
         r"^(?:use|ask)\s+(?:terra|antigravity)\b[^.!?;]{0,100}\bto\s+"
@@ -1384,37 +1469,649 @@ _CRITIQUE_SPECIAL_POSITIVE = (
     ),
 )
 
+_CRITIQUE_PDF_SPECIAL_POSITIVE = (
+    re.compile(
+        r"^what\s+do\s+you\s+think\s+(?:of|about)\s+"
+        r"(?:(?:this|that|my|our|the|a|an)\s+)?"
+        r"(?:attached|uploaded|supplied|provided)?\s*"
+        r"(?:pdf|pdf\s+file|[a-z0-9._-]+\.pdf)\b"
+    ),
+    re.compile(
+        r"^is\s+(?:(?:this|that|my|our|the|a|an)\s+)?"
+        r"(?:attached|uploaded|supplied|provided)?\s*"
+        r"(?:pdf|pdf\s+file|[a-z0-9._-]+\.pdf)\b[^.!?;]{0,100}"
+        r"\b(?:good|correct|right|sound|strong|ready|accurate|credible|"
+        r"defensible|complete|consistent)\b"
+    ),
+    re.compile(
+        r"^should\s+(?:we|i)\s+(?:use|adopt|keep|approve|rely\s+on)\s+"
+        r"(?:(?:this|that|my|our|the|a|an)\s+)?"
+        r"(?:attached|uploaded|supplied|provided)?\s*"
+        r"(?:pdf|pdf\s+file|[a-z0-9._-]+\.pdf)\b"
+    ),
+    re.compile(
+        r"^does\s+(?:(?:this|that|my|our|the|a|an)\s+)?"
+        r"(?:attached|uploaded|supplied|provided)?\s*"
+        r"(?:pdf|pdf\s+file|[a-z0-9._-]+\.pdf)\b[^.!?;]{0,80}\blook\s+"
+        r"(?:good|correct|right|sound|strong|ready|accurate|credible|"
+        r"defensible|complete|consistent)\b"
+    ),
+    re.compile(
+        r"^what\s+(?:are\s+)?(?:the\s+)?(?:weaknesses?|flaws?|gaps?)\s+"
+        r"(?:are\s+)?(?:in|of)\s+"
+        r"(?:(?:this|that|my|our|the|a|an)\s+)?"
+        r"(?:attached|uploaded|supplied|provided)?\s*"
+        r"(?:pdf|pdf\s+file|[a-z0-9._-]+\.pdf)\b"
+    ),
+)
 
-def _clause_replaces_critique_with_noncritique(clause: str) -> bool:
-    text = _LEADING_DISCOURSE.sub("", clause.strip())
-    return re.match(
-        r"^(?:only|just)\s+(?:summari[sz]e|extract|transcribe|rewrite|translate|list)\b",
+
+_CRITIQUE_STRONG_ACTION = (
+    r"(?:\$?deep[- ]critic|deep\s+critique|source[- ]backed\s+critique|"
+    r"critique|audit|challenge|validate|stress[- ]test|pressure[- ]test|"
+    r"poke\s+holes\s+in|find\s+flaws\s+in|tear\s+apart)"
+)
+_CRITIQUE_WEAK_ACTION = r"(?:review|compare)"
+_CRITIQUE_EVENT_ACTION = rf"(?:{_CRITIQUE_STRONG_ACTION}|{_CRITIQUE_WEAK_ACTION})"
+_NONCRITIQUE_EVENT_ACTION = (
+    r"(?:summari[sz]e|extract|transcribe|rewrite|translate|list|proofread|"
+    r"fix|correct)"
+)
+_CRITIQUE_LEADING_DISCOURSE = re.compile(
+    r"^(?:(?:actually|then|however|rather(?!\s+than)|finally|"
+    r"on\s+second\s+thought)\s*,?\s*)+"
+)
+_CRITIQUE_REQUEST_WRAPPER = re.compile(
+    r"^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|"
+    r"(?:i|we)\s+(?:want|need|would\s+like|prefer)\s+"
+    r"(?:you\s+)?to\s+)"
+)
+_CRITIQUE_DIRECTIVE_INTRO = (
+    r"(?:^|\b(?P<connector>and\s+also|and\s+then|and|then|also)\s+|"
+    r"(?P<comma>,)\s*)"
+)
+_CRITIQUE_DIRECTIVE_MODIFIERS = (
+    r"(?P<modifiers>(?:(?:please|now|only|just|instead|carefully|deeply|"
+    r"critically)\s*,?\s+)*)"
+)
+_CRITIQUE_NEGATION = (
+    r"(?P<negative>(?:do\s+not|don'?t|dont|"
+    r"don'?t\s+do(?:\s+(?:another|any|more))?|"
+    r"no(?:\s+(?:more|another))?|never|avoid(?:ing)?|without)\s+)?"
+)
+_CRITIQUE_POST_NEGATION_MODIFIERS = (
+    r"(?P<post_modifiers>(?:(?:please|any|ever|again|further|only|just|instead|carefully|"
+    r"deeply|critically)\s*,?\s+)*)"
+)
+_CRITIQUE_EVENT_FINDER = re.compile(
+    rf"{_CRITIQUE_DIRECTIVE_INTRO}{_CRITIQUE_DIRECTIVE_MODIFIERS}"
+    rf"{_CRITIQUE_NEGATION}{_CRITIQUE_POST_NEGATION_MODIFIERS}"
+    rf"(?P<action>{_CRITIQUE_EVENT_ACTION})(?=\b|$)"
+)
+_NONCRITIQUE_EVENT_FINDER = re.compile(
+    rf"{_CRITIQUE_DIRECTIVE_INTRO}{_CRITIQUE_DIRECTIVE_MODIFIERS}"
+    rf"{_CRITIQUE_NEGATION}{_CRITIQUE_POST_NEGATION_MODIFIERS}"
+    rf"(?P<action>{_NONCRITIQUE_EVENT_ACTION})(?=\b|$)"
+)
+_CRITIQUE_REPLACEMENT_IMPLEMENTATION = re.compile(
+    rf"(?:^|[,;:.!?]\s*|\b(?:and(?:\s+then)?|then)\s+)"
+    rf"(?:(?:actually|please)\s*,?\s+)*(?:"
+    rf"instead\s*,?\s*{_IMPLEMENTATION_ADVERB}{_IMPLEMENTATION_VERB}\b|"
+    rf"{_IMPLEMENTATION_ADVERB}{_IMPLEMENTATION_VERB}\b"
+    rf"[^,;.!?]{{0,100}}\binstead\b(?!\s+of\b))"
+)
+_IMPLEMENTATION_REPLACED_BY_CRITIQUE = re.compile(
+    rf"(?:^|[,;:.!?]\s*|\b(?:and(?:\s+then)?|then)\s+)"
+    rf"(?:(?:actually|please)\s*,?\s+)*(?:"
+    rf"instead\s*,?\s*{_CRITIQUE_EVENT_ACTION}\b|"
+    rf"{_CRITIQUE_EVENT_ACTION}\b[^,;.!?]{{0,100}}\binstead\b(?!\s+of\b))"
+)
+_CRITIQUE_TEXT_MARKER = re.compile(
+    r"\b(?:grammar|grammatical\s+errors?|spelling|spelling\s+errors?|"
+    r"punctuation|punctuation\s+errors?|wording|capitalization|formatting|"
+    r"typos?|typographical\s+errors?|grammatical\s+correctness|"
+    r"grammatically\s+(?:correct|sound|accurate)|style|tone)\b"
+)
+_CRITIQUE_EXPLICIT_TEXT_ONLY_SCOPE = re.compile(
+    r"\b(?:for|focused\s+on|limited\s+to)\s+(?:(?:the|its|this)\s+)?"
+    r"(?:grammar|grammatical\s+errors?|spelling|spelling\s+errors?|"
+    r"punctuation|punctuation\s+errors?|wording|capitalization|formatting|"
+    r"typos?|typographical\s+errors?|grammatical\s+correctness|"
+    r"grammatically\s+(?:correct|sound|accurate)|style|tone)\b"
+    r"[^.!?;]{0,24}\b(?:only|just)\b|"
+    r"\b(?:only|just)\s+(?:(?:the|its|this)\s+)?"
+    r"(?:grammar|grammatical\s+errors?|spelling|spelling\s+errors?|"
+    r"punctuation|punctuation\s+errors?|wording|capitalization|formatting|"
+    r"typos?|typographical\s+errors?|grammatical\s+correctness|"
+    r"grammatically\s+(?:correct|sound|accurate)|style|tone)\b"
+    r"|\b(?:grammar|grammatical\s+errors?|spelling|spelling\s+errors?|"
+    r"punctuation|punctuation\s+errors?|wording|capitalization|formatting|"
+    r"typos?|typographical\s+errors?|grammatical\s+correctness|"
+    r"grammatically\s+(?:correct|sound|accurate)|style|tone)\b"
+    r"[^.!?;]{0,16}\b(?:only|just)\b"
+)
+_CRITIQUE_SUBSTANTIVE_MARKER = re.compile(
+    r"\b(?:assumptions?|reasoning|logic|arguments?|strategy|conclusions?|"
+    r"evidence|methodology|accuracy|validity|credibility|flaws?|gaps?|"
+    r"failure\s+modes?|decision\s+quality|recommendations?|"
+    r"security|auth(?:entication|orization)?|access\s+controls?|permissions?|"
+    r"vulnerabilit(?:y|ies)|rls|row[- ]level\s+security|"
+    r"dependency\s+direction|module\s+boundaries|coupling|architecture|"
+    r"what(?:'s|\s+is)\s+wrong)\b"
+)
+_CRITIQUE_MIXED_SUBSTANTIVE_MARKER = re.compile(
+    r"\b(?:assumptions?|reasoning|logic|arguments?|strategy|conclusions?|"
+    r"evidence|methodology|accuracy|validity|credibility|flaws?|gaps?|"
+    r"failure\s+modes?|decision\s+quality|recommendations?|coupling|"
+    r"dependency\s+direction|module\s+boundaries|"
+    r"(?:missing|weak|flawed|incorrect|unsafe)\s+(?:authentication|"
+    r"authorization|access\s+controls?|permissions?|security|rls))\b"
+)
+_CRITIQUE_MIXED_TEXT_SUBSTANTIVE_SCOPE = re.compile(
+    rf"(?:{_CRITIQUE_MIXED_SUBSTANTIVE_MARKER.pattern})[^.!?;]{{0,80}}"
+    rf"(?:\s*(?:,|&)\s*|\s+\b(?:and|plus|along\s+with|together\s+with|"
+    rf"as\s+well\s+as)\b\s+)"
+    rf"[^.!?;]{{0,40}}"
+    rf"(?:{_CRITIQUE_TEXT_MARKER.pattern})|"
+    rf"(?:{_CRITIQUE_TEXT_MARKER.pattern})[^.!?;]{{0,80}}"
+    rf"(?:\s*(?:,|&)\s*|\s+\b(?:and|plus|along\s+with|together\s+with|"
+    rf"as\s+well\s+as)\b\s+)"
+    rf"[^.!?;]{{0,40}}"
+    rf"(?:{_CRITIQUE_MIXED_SUBSTANTIVE_MARKER.pattern})"
+)
+_CRITIQUE_EXPLICIT_SCOPE_PREFIX = re.compile(
+    r"^\s*(?:,\s*)?(?:only|just|instead)\b"
+)
+_CRITIQUE_EXPLICIT_SCOPE_SUFFIX = re.compile(
+    r"\b(?:only|just|instead)"
+    r"(?:\s*,?\s*(?:please|if\s+possible|if\s+you\s+can))?\s*$"
+)
+_CRITIQUE_ADDITIVE_SUFFIX = re.compile(
+    r"\b(?:also|too|as\s+well)"
+    r"(?:\s*,?\s*(?:please|if\s+possible|if\s+you\s+can))?\s*$"
+)
+_CRITIQUE_AMBIGUOUS_PRONOUN_TARGET = re.compile(
+    r"^\s*(?:it|this|that|them|these|those)\s*$"
+)
+_CRITIQUE_TEXT_QUALIFIER_NOUN = (
+    r"(?:assumptions?|reasoning|logic|arguments?|strategy|conclusions?|"
+    r"evidence|methodology|recommendations?|security\s+policy|"
+    r"authentication\s+documentation|access\s+control|rls\s+policy|"
+    r"(?:repository|codebase|module|software|application|authentication)\s+"
+    r"architecture|module\s+boundaries|dependency\s+direction|"
+    r"document|memo|report|plan|proposal|prd|policy|"
+    r"(?:supplied|provided)\s+pdf|pdf)"
+)
+_CRITIQUE_LINGUISTIC_MENTION_CONTEXT = re.compile(
+    r"\b(?:word|phrase|term)\b[^.!?;]{0,100}\b(?:security|authentication|"
+    r"authorization|access\s+control|rls|repository\s+architecture|"
+    r"authentication\s+architecture|architecture)\b|"
+    r"\b(?:wording|grammar|spelling|punctuation)\s+of\s+(?:a|the)\s+"
+    r"sentence\b|"
+    r"\b(?:sentence|essay)\b[^.!?;]{0,120}\b(?:about|mentions?|containing)\b"
+)
+_CRITIQUE_EVALUATION_MARKER = re.compile(
+    r"\b(?:assumptions?|reasoning|logic|arguments?|conclusions?|evidence|"
+    r"methodology|accuracy|validity|credibility|completeness|consistency|"
+    r"coherence|feasibility|rigou?r|reliability|soundness|quality|"
+    r"flaws?|gaps?|weakness(?:es)?|failure\s+modes?|decision\s+quality|"
+    r"recommendations?|coupling|dependency\s+direction|module\s+boundaries|"
+    r"(?:missing|weak|flawed|incorrect|unsafe|incomplete|inconsistent)\s+"
+    r"(?:authentication|authorization|access\s+controls?|permissions?|"
+    r"security|rls|evidence|logic|reasoning|assumptions?)|"
+    r"access\s+control\s+design|authorization\s+controls?|"
+    r"authentication\s+flow|rls\s+polic(?:y|ies))\b"
+)
+_CRITIQUE_ARTIFACT_TARGET = re.compile(
+    r"(?:\b(?:attached|uploaded|provided|supplied)?\s*pdf(?:\s+file)?\b|"
+    r"\b[a-z0-9._-]+\.pdf\b|"
+    r"\b(?:proposal|recommendation|analysis|plan|strategy|argument|decision|"
+    r"operating\s+model|business\s+case|forecast|model|workflow|report|memo|"
+    r"draft|document|policy|slide\s+deck|presentation|prd|concept|"
+    r"operating\s+update|security\s+(?:policy|architecture)|"
+    r"authorization\s+policy|access\s+control\s+documentation|rls\s+policy|"
+    r"(?:repository|codebase|module|system|software|application|"
+    r"authentication)\s+architecture|module\s+boundaries|"
+    r"evidence\s+chain|sources?|citations?)\b)"
+)
+_CRITIQUE_SCOPE_SEPARATOR = re.compile(
+    r"\s*(?:,|&)\s*|\s+\b(?:and|plus|along\s+with|together\s+with|"
+    r"as\s+well\s+as)\b\s+"
+)
+_CRITIQUE_ALTERNATIVE_SCOPE = re.compile(r"\b(?:instead\s+of|rather\s+than)\b")
+_CRITIQUE_NON_SCOPE_ACTION = re.compile(
+    rf"^(?:please\s+)?(?:{_IMPLEMENTATION_ADVERB}{_IMPLEMENTATION_VERB}|"
+    rf"{_NONCRITIQUE_EVENT_ACTION})\b"
+)
+_CRITIQUE_SCOPE_FILLER = re.compile(
+    r"^(?:also|then|please|now|carefully|deeply|critically|"
+    r"if\s+possible|if\s+you\s+can|the|this|that|my|our|its?)$"
+)
+_CRITIQUE_NEGATED_SCOPE_PREFIX = re.compile(
+    r"^(?:please\s+)?(?:not|no|without|excluding|except(?:\s+for)?|"
+    r"omit(?:ting)?|skip(?:ping)?|avoid(?:ing)?|do\s+not|don'?t|dont)\b"
+)
+_CRITIQUE_NEGATED_SCOPE_SUFFIX = re.compile(
+    r"\b(?:not|without|excluding|except(?:\s+for)?|omit(?:ting)?|"
+    r"skip(?:ping)?|avoid(?:ing)?|do\s+not|don'?t|dont)\b[^,;.!?]*$"
+)
+_CRITIQUE_ARTIFACT_QUALIFIED_TEXT = re.compile(
+    rf"\b[a-z0-9._-]+\.pdf(?:'s|’s|['’])?\s+"
+    rf"(?:{_CRITIQUE_TEXT_MARKER.pattern})|"
+    rf"(?:{_CRITIQUE_ARTIFACT_TARGET.pattern})(?:'s|’s|['’])?\s+"
+    rf"(?:{_CRITIQUE_TEXT_MARKER.pattern})|"
+    rf"(?:{_CRITIQUE_ARTIFACT_TARGET.pattern})\s+for\s+"
+    rf"(?:{_CRITIQUE_TEXT_MARKER.pattern})|"
+    rf"(?:{_CRITIQUE_TEXT_MARKER.pattern})\s+(?:in|of|for)\s+"
+    rf"(?:(?:this|the|my|our|a|an)\s+)?(?:{_CRITIQUE_ARTIFACT_TARGET.pattern})"
+)
+_CRITIQUE_SEMANTIC_COPYEDIT_SUBJECT = re.compile(
+    rf"(?:{_CRITIQUE_ARTIFACT_TARGET.pattern})(?:'s|’s|['’])?\s+"
+    rf"(?:{_CRITIQUE_TEXT_MARKER.pattern})|"
+    rf"(?:{_CRITIQUE_ARTIFACT_TARGET.pattern})\s+for\s+"
+    rf"(?:{_CRITIQUE_TEXT_MARKER.pattern})(?:\s+only)?"
+)
+_CRITIQUE_SEMANTIC_OPERATOR = re.compile(
+    r"^(?:what\s+(?:do\s+you\s+think\s+(?:of|about)|(?:are\s+)?"
+    r"(?:the\s+)?(?:weaknesses?|flaws?|gaps?)\s+(?:are\s+)?(?:in|of))|"
+    r"is|does|should\s+(?:we|i))\b"
+)
+
+
+def _semantic_question_is_copyedit_only(text: str) -> bool:
+    if not _CRITIQUE_SEMANTIC_COPYEDIT_SUBJECT.search(text):
+        return False
+    residual = _CRITIQUE_SEMANTIC_COPYEDIT_SUBJECT.sub(" ", text)
+    residual = _CRITIQUE_SEMANTIC_OPERATOR.sub(" ", residual)
+    residual = re.sub(
+        r"\b(?:good|correct|right|sound|strong|ready|accurate|credible|"
+        r"defensible|secure|safe|complete|consistent|viable|use|adopt|keep|"
+        r"approve|rely\s+on)\b",
+        " ",
+        residual,
+    )
+    return not _CRITIQUE_EVALUATION_MARKER.search(residual)
+
+
+_CRITIQUE_CONTAINER_SUBJECT_MENTION = re.compile(
+    rf"(?P<container>\b(?:(?:this|that|my|our|the|a|an)\s+)?"
+    rf"(?:attached|uploaded|provided|supplied)?\s*"
+    rf"(?:pdf(?:\s+file)?|[a-z0-9._-]+\.pdf|report|document)\b)"
+    rf"\s+(?:about|describing|covering|concerning|regarding|mentioning|on|"
+    rf"that\s+discusses|with\s+(?:a\s+)?section\s+on)\s+[^,;.!?]*?"
+    rf"(?=(?:\s+(?:for|with)\s+[^,;.!?]*?"
+    rf"(?:{_CRITIQUE_EVALUATION_MARKER.pattern}))|$)"
+)
+
+
+def _strip_critique_linguistic_mentions(text: str) -> tuple[str, bool]:
+    """Remove quoted-domain mentions while preserving later evaluation scope."""
+
+    value = text
+    found = False
+    marker = _CRITIQUE_EVALUATION_MARKER.pattern
+    patterns = (
+        re.compile(
+            rf"\b(?:word|phrase|term)\b[^,;.!?]*?"
+            rf"(?=(?:\s+\b(?:for|with)\b\s+[^,;.!?]*?(?:{marker}))|$)"
+        ),
+        re.compile(
+            rf"\b(?:(?:history\s+)?essay|sentence)\b[^,;.!?]*?"
+            rf"\b(?:about|mentions?|containing)\b[^,;.!?]*?"
+            rf"(?=(?:\s+\b(?:for|with)\b\s+[^,;.!?]*?(?:{marker}))|$)"
+        ),
+        re.compile(
+            rf"\b(?:{_CRITIQUE_TEXT_MARKER.pattern})\s+(?:in|of|for)\s+"
+            rf"[^,;.!?]*?(?=(?:\s+\b(?:and|plus|along\s+with|"
+            rf"together\s+with|as\s+well\s+as)\b\s+[^,;.!?]*?"
+            rf"(?:{marker}))|$)"
+        ),
+    )
+    for pattern in patterns:
+        value, count = pattern.subn(" ", value)
+        found = found or bool(count)
+    return re.sub(r"\s+", " ", value).strip(), found
+
+
+def _critique_positive_scope_atoms(segment: str) -> tuple[list[str], bool]:
+    """Return affirmative scope atoms after exclusions and linguistic mentions."""
+
+    atoms: list[str] = []
+    mention_seen = False
+    for raw_atom in _CRITIQUE_SCOPE_SEPARATOR.split(segment):
+        atom = raw_atom.strip(" ,")
+        atom = re.sub(r"^(?:also|then)\s+", "", atom)
+        atom = _CRITIQUE_ALTERNATIVE_SCOPE.split(atom, maxsplit=1)[0].strip(" ,")
+        if (
+            not atom
+            or _CRITIQUE_NEGATED_SCOPE_PREFIX.search(atom)
+            or _CRITIQUE_NON_SCOPE_ACTION.search(atom)
+            or _CRITIQUE_SCOPE_FILLER.fullmatch(atom)
+        ):
+            continue
+        atom = _CRITIQUE_NEGATED_SCOPE_SUFFIX.sub(" ", atom).strip(" ,")
+        if not atom:
+            continue
+        atom, found = _strip_critique_linguistic_mentions(atom)
+        mention_seen = mention_seen or found
+        if _CRITIQUE_SCOPE_FILLER.fullmatch(atom):
+            continue
+        if atom and re.search(r"[a-z0-9]", atom):
+            atoms.append(atom)
+    return atoms, mention_seen
+
+
+def _critique_atom_is_textual(atom: str) -> bool:
+    if not _CRITIQUE_TEXT_MARKER.search(atom):
+        return False
+    qualified = _CRITIQUE_ARTIFACT_QUALIFIED_TEXT.search(atom)
+    residual = _CRITIQUE_ARTIFACT_QUALIFIED_TEXT.sub(" ", atom)
+    residual = _CRITIQUE_QUALIFIED_TEXT_SCOPE.sub(" ", residual)
+    return bool(
+        qualified
+        or not _CRITIQUE_EVALUATION_MARKER.search(residual)
+    )
+
+
+def _critique_atom_is_substantive(atom: str) -> bool:
+    residual = _CRITIQUE_ARTIFACT_QUALIFIED_TEXT.sub(" ", atom)
+    residual = _CRITIQUE_QUALIFIED_TEXT_SCOPE.sub(" ", residual)
+    if _CRITIQUE_EVALUATION_MARKER.search(residual):
+        return True
+    return bool(
+        _CRITIQUE_ARTIFACT_TARGET.search(residual)
+        and not _CRITIQUE_TEXT_MARKER.search(residual)
+    )
+
+
+def _critique_segment_has_evaluation_criterion(segment: str) -> bool:
+    atoms, _ = _critique_positive_scope_atoms(segment)
+    for atom in atoms:
+        residual = _CRITIQUE_ARTIFACT_QUALIFIED_TEXT.sub(" ", atom)
+        residual = _CRITIQUE_QUALIFIED_TEXT_SCOPE.sub(" ", residual)
+        if _CRITIQUE_EVALUATION_MARKER.search(residual):
+            return True
+    textual_atoms = [_critique_atom_is_textual(atom) for atom in atoms]
+    if any(textual_atoms) and any(not textual for textual in textual_atoms):
+        return True
+    return False
+
+
+def _critique_live_domain_text(prompt: str, effective_clause: str = "") -> str:
+    """Return affirmative, non-copyediting scope for specialist ownership."""
+
+    source = (
+        effective_clause
+        if effective_clause and _prompt_has_affirmative_critique_intent(prompt)
+        else _normalized_unquoted_prompt(prompt)
+    )
+    atoms, _ = _critique_positive_scope_atoms(source)
+    live_atoms: list[str] = []
+    for atom in atoms:
+        atom, _ = _strip_critique_linguistic_mentions(atom)
+        atom = _CRITIQUE_CONTAINER_SUBJECT_MENTION.sub(
+            lambda match: match.group("container"),
+            atom,
+        )
+        atom = _CRITIQUE_ARTIFACT_QUALIFIED_TEXT.sub(" ", atom)
+        atom = _CRITIQUE_QUALIFIED_TEXT_SCOPE.sub(" ", atom)
+        atom = re.sub(r"\s+", " ", atom).strip(" ,")
+        if atom:
+            live_atoms.append(atom)
+    return " ".join(live_atoms)
+_CRITIQUE_QUALIFIED_TEXT_SCOPE = re.compile(
+    rf"\b{_CRITIQUE_TEXT_QUALIFIER_NOUN}(?:'s|’s|['’])\s+"
+    rf"(?:grammar|grammatical\s+errors?|spelling|punctuation|wording|"
+    rf"capitalization|formatting|typos?|typographical\s+errors?|"
+    rf"grammatical\s+correctness|grammatically\s+(?:correct|sound|accurate)|style|tone)\b|"
+    rf"\b(?:grammar|grammatical\s+errors?|spelling|punctuation|wording|"
+    rf"capitalization|formatting|typos?|typographical\s+errors?|"
+    rf"grammatical\s+correctness|grammatically\s+(?:correct|sound|accurate)|style|tone)"
+    rf"\s+(?:in|of|for)\s+(?:(?:this|the|my|our)\s+)?"
+    rf"{_CRITIQUE_TEXT_QUALIFIER_NOUN}\b|"
+    rf"\b(?:(?:this|the|my|our)\s+)?{_CRITIQUE_TEXT_QUALIFIER_NOUN}"
+    rf"\s+(?:for|focused\s+on|limited\s+to)\s+(?:(?:the|its)\s+)?"
+    rf"(?:grammar|grammatical\s+errors?|spelling|punctuation|wording|"
+    rf"capitalization|formatting|typos?|typographical\s+errors?|"
+    rf"grammatical\s+correctness|grammatically\s+(?:correct|sound|accurate)|style|tone)\b|"
+    rf"\b(?:(?:this|the|my|our)\s+)?{_CRITIQUE_TEXT_QUALIFIER_NOUN}\s+"
+    rf"(?:grammar|grammatical\s+errors?|spelling|punctuation|wording|"
+    rf"capitalization|formatting|typos?|typographical\s+errors?|"
+    rf"grammatical\s+correctness|grammatically\s+(?:correct|sound|accurate)|style|tone)\b"
+)
+
+
+def _critique_scope_has_instead(match: re.Match[str], segment: str) -> bool:
+    modifiers = f"{match.groupdict().get('modifiers') or ''} " \
+        f"{match.groupdict().get('post_modifiers') or ''}"
+    return bool(
+        re.search(r"\binstead\b(?!\s+of\b)", modifiers)
+        or re.match(r"^\s*(?:,\s*)?instead\b(?!\s+of\b)", segment)
+        or re.search(
+            r"\binstead\b(?!\s+of\b)"
+            r"(?:\s*,?\s*(?:please|if\s+possible|if\s+you\s+can))?\s*$",
+            segment,
+        )
+    )
+
+
+def _prepared_critique_clause(clause: str) -> str:
+    text = _CRITIQUE_LEADING_DISCOURSE.sub("", clause.strip())
+    text = _CRITIQUE_REQUEST_WRAPPER.sub("", text)
+    text = re.sub(
+        rf"^rather\s+than\s+(?={_NONCRITIQUE_EVENT_ACTION}\b)",
+        "do not ",
         text,
-    ) is not None
+    )
+    gerunds = {
+        "critiquing": "critique",
+        "auditing": "audit",
+        "challenging": "challenge",
+        "reviewing": "review",
+        "validating": "validate",
+        "comparing": "compare",
+        "stress-testing": "stress-test",
+        "pressure-testing": "pressure-test",
+    }
+    for gerund, action in gerunds.items():
+        text = re.sub(
+            rf"\b(?P<negative>avoid(?:ing)?|without)\s+{gerund}\b",
+            rf"\g<negative> {action}",
+            text,
+        )
+    return text
+
+
+def _critique_owned_segment(
+    text: str,
+    events: list[tuple[str, re.Match[str]]],
+    event_index: int,
+) -> str:
+    match = events[event_index][1]
+    end = events[event_index + 1][1].start() if event_index + 1 < len(events) else len(text)
+    return text[match.end() : end].strip(" ,")
+
+
+def _critique_scope_is_explicit(match: re.Match[str], segment: str) -> bool:
+    modifiers = f"{match.groupdict().get('modifiers') or ''} " \
+        f"{match.groupdict().get('post_modifiers') or ''}"
+    return bool(
+        re.search(r"\b(?:only|just|instead)\b", modifiers)
+        or _CRITIQUE_EXPLICIT_SCOPE_PREFIX.search(segment)
+        or _CRITIQUE_EXPLICIT_SCOPE_SUFFIX.search(segment)
+    )
+
+
+def _critique_action_is_additive(segment: str) -> bool:
+    return bool(
+        _CRITIQUE_ADDITIVE_SUFFIX.search(segment)
+        or re.match(r"^\s*also\b", segment)
+    )
+
+
+def _critique_segment_is_text_only(segment: str) -> bool:
+    atoms, mention_seen = _critique_positive_scope_atoms(segment)
+    if not atoms:
+        return mention_seen
+    if any(_critique_atom_is_substantive(atom) for atom in atoms):
+        return False
+    textual_atoms = [_critique_atom_is_textual(atom) for atom in atoms]
+    if any(textual_atoms) and any(not textual for textual in textual_atoms):
+        return False
+    return bool(
+        mention_seen
+        or any(textual_atoms)
+    )
+
+
+def _critique_segment_is_substantive(segment: str) -> bool:
+    return _critique_segment_has_evaluation_criterion(segment)
+
+
+def _critique_clause_events(clause: str) -> list[tuple[int, bool, bool]]:
+    """Return ordered (position, polarity, mature) critique intent events."""
+
+    text = _prepared_critique_clause(clause)
+    if not text:
+        return []
+    actions: list[tuple[str, re.Match[str]]] = [
+        ("critique", match) for match in _CRITIQUE_EVENT_FINDER.finditer(text)
+    ]
+    actions.extend(
+        ("noncritique", match) for match in _NONCRITIQUE_EVENT_FINDER.finditer(text)
+    )
+    actions.sort(key=lambda item: (item[1].start(), item[1].end()))
+    events: list[tuple[int, bool, bool]] = []
+    replacement_implementation = _CRITIQUE_REPLACEMENT_IMPLEMENTATION.search(text)
+    if replacement_implementation is not None:
+        events.append((replacement_implementation.start(), False, False))
+    for pattern in (*_CRITIQUE_SPECIAL_POSITIVE, *_CRITIQUE_PDF_SPECIAL_POSITIVE):
+        special_match = pattern.search(text)
+        if special_match is None:
+            continue
+        if _semantic_question_is_copyedit_only(text):
+            break
+        next_action_start = next(
+            (
+                action_match.start()
+                for _, action_match in actions
+                if action_match.start() >= special_match.end()
+            ),
+            len(text),
+        )
+        special_segment = text[special_match.start() : next_action_start].strip(" ,")
+        if not _critique_segment_is_text_only(special_segment):
+            events.append((special_match.start(), True, True))
+        break
+
+    for index, (kind, match) in enumerate(actions):
+        segment = _critique_owned_segment(text, actions, index)
+        connector = match.groupdict().get("connector")
+        if connector is None and match.groupdict().get("comma"):
+            connector = "comma"
+        modifiers = match.groupdict().get("modifiers") or ""
+        explicit = _critique_scope_is_explicit(match, segment)
+        additive = _critique_action_is_additive(segment)
+        additive_connector = connector in {"and also", "also"}
+        instead = _critique_scope_has_instead(match, segment)
+        if kind == "noncritique":
+            action = match.group("action")
+            if match.groupdict().get("negative"):
+                continue
+            if action in {"fix", "correct"} and not _CRITIQUE_TEXT_MARKER.search(segment):
+                continue
+            if additive_connector and not instead:
+                continue
+            if explicit:
+                events.append((match.start(), False, False))
+            elif connector is None and not additive:
+                events.append((match.start(), False, False))
+            continue
+
+        text_only = _critique_segment_is_text_only(segment)
+        negative = bool(match.groupdict().get("negative"))
+        if negative:
+            if not text_only:
+                events.append((match.start(), False, False))
+            continue
+        if text_only:
+            if additive_connector and not instead:
+                continue
+            if explicit or (connector is None and not additive):
+                events.append((match.start(), False, False))
+            continue
+
+        action = match.group("action")
+        strong = re.fullmatch(_CRITIQUE_STRONG_ACTION, action) is not None
+        modifier_is_mature = re.search(
+            r"\b(?:deeply|critically)\b", f"{modifiers} {segment}"
+        ) is not None
+        substantive = _critique_segment_is_substantive(segment)
+        semantic_target = _DEEP_CRITIQUE_SEMANTIC_TARGET.search(segment) is not None
+        later_noncritique = any(
+            later_kind == "noncritique" for later_kind, _ in actions[index + 1 :]
+        )
+        if strong:
+            prior_noncritique = any(
+                earlier_kind == "noncritique" for earlier_kind, _ in actions[:index]
+            )
+            if (
+                connector is not None
+                and prior_noncritique
+                and _CRITIQUE_AMBIGUOUS_PRONOUN_TARGET.fullmatch(segment)
+                and not modifier_is_mature
+            ):
+                continue
+            events.append((match.start(), True, True))
+            continue
+        if substantive or modifier_is_mature or (semantic_target and not later_noncritique):
+            events.append((match.start(), True, True))
+
+    events.sort(key=lambda event: event[0])
+    return events
+
+
+def _critique_clause_polarity(clause: str) -> bool | None:
+    """Return the final effective critique event in one bounded clause."""
+
+    events = _critique_clause_events(clause)
+    return events[-1][1] if events else None
+
+
+def _prompt_critique_state(prompt: str) -> tuple[bool | None, bool, str]:
+    polarity: bool | None = None
+    mature = False
+    effective_clause = ""
+    for clause in _directive_clauses(prompt):
+        events = _critique_clause_events(clause)
+        if events:
+            _, polarity, mature = events[-1]
+            effective_clause = clause
+    return polarity, mature, effective_clause
 
 
 def _prompt_has_affirmative_critique_intent(prompt: str) -> bool:
     """Return the last direct critique instruction after removing quoted text."""
 
-    polarity: bool | None = None
-    for clause in _directive_clauses(prompt):
-        if _clause_replaces_critique_with_noncritique(clause):
-            polarity = False
-            continue
-        clause_polarity = _clause_directive_polarity(
-            clause,
-            _CRITIQUE_ACTION,
-            special_positive=_CRITIQUE_SPECIAL_POSITIVE,
-        )
-        if clause_polarity is not None:
-            polarity = clause_polarity
+    polarity, _, _ = _prompt_critique_state(prompt)
     return polarity is True
+
+
+def _effective_affirmative_critique_clause(prompt: str) -> str:
+    """Return the final clause that leaves critique intent affirmative."""
+
+    polarity, _, effective_clause = _prompt_critique_state(prompt)
+    return effective_clause if polarity is True else ""
 
 
 _DEEP_CRITIQUE_SEMANTIC_TARGET = re.compile(
     r"\b(?:proposal|recommendation|analysis|plan|strategy|argument|decision|"
     r"operating\s+model|business\s+case|forecast|model|workflow|report|memo|"
-    r"draft|document|policy|slide\s+deck|presentation|prd|concept)\b"
+    r"draft|document|policy|slide\s+deck|presentation|prd|concept|"
+    r"operating\s+update|security\s+policy|"
+    r"(?:repository|software|application|authentication)\s+"
+    r"architecture|architecture|approach|(?:attached|uploaded|provided|"
+    r"supplied)?\s*pdf(?:\s+file)?|[a-z0-9._-]+\.pdf)\b"
 )
 _DEEP_CRITIQUE_EVALUATION_CONTEXT = re.compile(
     r"\b(?:good|correct|right|sound|strong|ready|accurate|accuracy|validity|credible|defensible|"
@@ -1433,9 +2130,20 @@ _NON_CRITIQUE_REVIEW_WORKFLOW = re.compile(
 _TEXT_ONLY_REVIEW_CONTEXT = re.compile(
     r"\b(?:summari[sz]e|read|extract|transcribe|rewrite|translate|proofread|"
     r"grammar|spelling|punctuation|wording|capitalization|formatting|typos?|"
+    r"grammatical\s+correctness|grammatically\s+(?:correct|sound|accurate)|"
     r"style\s+only|tone\s+only|"
     r"key\s+points?|main\s+points?|list\s+(?:the\s+)?(?:changes?|differences?)|"
     r"change\s+list)\b"
+)
+_EXPLICIT_TEXT_ONLY_LIMITATION = re.compile(
+    r"\b(?:only|just)\b[^.!?;]{0,64}\b(?:summari[sz]e|extract|transcribe|"
+    r"rewrite|translate|list|proofread|grammar|spelling|punctuation|wording|"
+    r"capitalization|formatting|typos?|grammatical\s+correctness|"
+    r"grammatically\s+(?:correct|sound|accurate)|style|tone)\b|"
+    r"\b(?:summari[sz]e|extract|transcribe|rewrite|translate|list|proofread|"
+    r"grammar|spelling|punctuation|wording|capitalization|formatting|typos?|"
+    r"grammatical\s+correctness|grammatically\s+(?:correct|sound|accurate)|style|tone)\b"
+    r"[^.!?;]{0,32}\b(?:only|just)\b"
 )
 _DEEP_CRITIQUE_SEMANTIC_QUESTION = re.compile(
     r"^(?:what\s+do\s+you\s+think\s+(?:of|about)|"
@@ -1449,44 +2157,35 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
     """Require evaluative critique intent, not ordinary document handling."""
 
     text = _normalized_unquoted_prompt(prompt)
+    polarity, mature, effective_clause = _prompt_critique_state(prompt)
     if (
         not text
-        or not _prompt_has_affirmative_critique_intent(prompt)
+        or polarity is not True
+        or not mature
         or (
             _NON_CRITIQUE_REVIEW_WORKFLOW.search(text)
             and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
         )
     ):
         return False
-    if _DEEP_CRITIQUE_SEMANTIC_QUESTION.search(text):
-        return True
-    if _TEXT_ONLY_REVIEW_CONTEXT.search(text) and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(
-        text
-    ):
-        return False
-    if _prompt_has_affirmative_direct_action(
-        prompt,
-        r"(?:deep\s+critique|source[- ]backed\s+critique|critique|audit|challenge|"
-        r"validate|stress[- ]test|pressure[- ]test|poke\s+holes\s+in|"
-        r"find\s+flaws\s+in|tear\s+apart)",
-    ):
-        return True
-    return bool(
-        _DEEP_CRITIQUE_SEMANTIC_TARGET.search(text)
-        and _prompt_has_affirmative_direct_action(prompt, r"(?:review|compare)")
-        and (
-            _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
-            or not _TEXT_ONLY_REVIEW_CONTEXT.search(text)
-        )
-    )
+    return bool(effective_clause)
 
 
 _SOURCE_SPECIAL_POSITIVE = (
     re.compile(r"^are\s+these\s+sources\s+strong\s+enough\b"),
     re.compile(
+        r"^(?:are|is)\s+(?:these|the)\s+(?:sources?|citations?)\b"
+        r"[^.!?;]{0,100}\b(?:authentic|credible|valid|reliable|sufficient)\b"
+    ),
+    re.compile(
         r"^(?:do|does)\s+(?:these|the)\s+(?:sources|citations)\b"
         r"[^.!?;]{0,140}\bsupport\b"
     ),
+)
+_SOURCE_EVENT_FINDER = re.compile(
+    rf"{_CRITIQUE_DIRECTIVE_INTRO}{_CRITIQUE_DIRECTIVE_MODIFIERS}"
+    rf"{_CRITIQUE_NEGATION}{_CRITIQUE_POST_NEGATION_MODIFIERS}"
+    rf"(?P<action>{_SOURCE_EVALUATION_ACTION})(?=\b|$)"
 )
 
 
@@ -1495,13 +2194,46 @@ def _prompt_has_affirmative_source_evaluation_intent(prompt: str) -> bool:
 
     polarity: bool | None = None
     for clause in _directive_clauses(prompt):
-        clause_polarity = _clause_directive_polarity(
-            clause,
-            _SOURCE_EVALUATION_ACTION,
-            special_positive=_SOURCE_SPECIAL_POSITIVE,
+        text = _prepared_critique_clause(clause)
+        actions: list[tuple[str, re.Match[str]]] = [
+            ("source", match) for match in _SOURCE_EVENT_FINDER.finditer(text)
+        ]
+        actions.extend(
+            ("non-source", match)
+            for match in _NONCRITIQUE_EVENT_FINDER.finditer(text)
         )
-        if clause_polarity is not None:
-            polarity = clause_polarity
+        actions.sort(key=lambda item: (item[1].start(), item[1].end()))
+        events: list[tuple[int, bool]] = []
+        for pattern in _SOURCE_SPECIAL_POSITIVE:
+            special_match = pattern.search(text)
+            if special_match is not None:
+                events.append((special_match.start(), True))
+                break
+        for action_index, (kind, match) in enumerate(actions):
+            segment = _critique_owned_segment(text, actions, action_index)
+            connector = match.groupdict().get("connector")
+            if connector is None and match.groupdict().get("comma"):
+                connector = "comma"
+            explicit = _critique_scope_is_explicit(match, segment)
+            additive = _critique_action_is_additive(segment)
+            if kind == "source":
+                events.append(
+                    (
+                        match.start(),
+                        not bool(match.groupdict().get("negative"))
+                        and not _critique_segment_is_text_only(
+                            f"{match.group('action')} {segment}"
+                        ),
+                    )
+                )
+                continue
+            if match.groupdict().get("negative"):
+                continue
+            if explicit or (connector is None and not additive):
+                events.append((match.start(), False))
+        if events:
+            events.sort(key=lambda event: event[0])
+            polarity = events[-1][1]
     return polarity is True
 
 
@@ -1524,7 +2256,7 @@ _SECURITY_TECHNICAL_CONTEXT = re.compile(
     r"attack\s+(?:paths?|surface)|threat\s+model|sql\s+injection|xss|csrf|ssrf|idor|"
     r"csp|cross[- ]site\s+scripting|privilege\s+escalation|data\s+exposure|"
     r"security\s+(?:configuration|settings?|posture|alerts?|advisors?|findings?|issues?|"
-    r"problems?|warnings?|boundary|regression|scan|audit|review|policy|baseline|"
+    r"problems?|warnings?|flaws?|boundary|regression|scan|audit|review|policy|baseline|"
     r"hardening|checklist|best\s+practices))\b|"
     rf"\b{_SECURITY_TECHNICAL_SYSTEM}\s+security\b|"
     rf"\bsecurity\s+(?:of|for|in)\s+(?:(?:this|the|our|an?)\s+)?"
@@ -2293,6 +3025,14 @@ def _prompt_has_security_implementation_intent(prompt: str) -> bool:
     text = _normalized_unquoted_prompt(prompt)
     if _prompt_defers_or_explains_security_fix(prompt):
         return False
+    critique_polarity, critique_mature, _ = _prompt_critique_state(prompt)
+    copyedit_mutation = bool(
+        critique_polarity is False
+        and not critique_mature
+        and _COPYEDIT_IMPLEMENTATION_CONTEXT.search(text)
+    )
+    if copyedit_mutation:
+        return False
     mutation_requested = _security_action_requested(
         prompt,
         r"(?:implement|fix|remediate|patch|apply|enforce|harden|secure|add|remove|update|change|create|alter|revoke|grant|enable|disable)",
@@ -2444,6 +3184,8 @@ def _prompt_has_defensive_checklist_intent(prompt: str) -> bool:
 
 def _prompt_has_security_best_practices_intent(prompt: str) -> bool:
     text = _normalized_unquoted_prompt(prompt)
+    critique_polarity, _, effective_clause = _prompt_critique_state(prompt)
+    live_security_text = _critique_live_domain_text(prompt, effective_clause)
     explicit_best_practices = bool(
         re.search(r"\bsecurity\s+best\s+practices\b", text)
         and not _prompt_has_affirmative_implementation(text)
@@ -2455,17 +3197,38 @@ def _prompt_has_security_best_practices_intent(prompt: str) -> bool:
         )
     )
     technical_review = bool(
-        _technical_security_context_is_bounded(text)
+        _technical_security_context_is_bounded(live_security_text)
         and not _SECURITY_FINDING_CONTEXT.search(text)
         and not _SECURITY_DIFF_CONTEXT.search(text)
-        and not _TEXT_ONLY_REVIEW_CONTEXT.search(text)
+        and (
+            not _TEXT_ONLY_REVIEW_CONTEXT.search(text)
+            or bool(
+                _prompt_has_affirmative_critique_intent(prompt)
+                and
+                (
+                    _STRONG_SECURITY_TERM_CONTEXT.search(live_security_text)
+                    or (
+                        _AMBIGUOUS_SECURITY_TERM_CONTEXT.search(live_security_text)
+                        and re.search(
+                            rf"\b{_SECURITY_TECHNICAL_SYSTEM}\b",
+                            live_security_text,
+                        )
+                    )
+                )
+                and _CRITIQUE_SUBSTANTIVE_MARKER.search(live_security_text)
+            )
+        )
         and not _prompt_has_affirmative_implementation(text)
         and not _prompt_has_provider_operations_intent(text)
-        and _prompt_has_affirmative_direct_action(
-            prompt,
-            r"(?:review|assess|audit|check|analy[sz]e|inspect|verify|validate|"
-            r"evaluate|recommend)",
+        and (
+            _prompt_has_affirmative_direct_action(
+                prompt,
+                r"(?:review|assess|audit|check|analy[sz]e|inspect|verify|validate|"
+                r"evaluate|recommend)",
+            )
+            or _prompt_has_affirmative_critique_intent(prompt)
         )
+        and critique_polarity is not False
     )
     return explicit_best_practices or technical_review
 
@@ -2633,7 +3396,7 @@ _SPREADSHEET_FILE_CONTEXT = re.compile(
 )
 _PDF_FILE_CONTEXT = re.compile(
     r"(?:\.pdf\b|\bpdf\s+file\b|"
-    r"\b(?:attached|uploaded|provided|supplied|this|the)\s+pdf\b)"
+    r"\b(?:attached|uploaded|provided|supplied|this|that|my|our|the|a|an)\s+pdf\b)"
 )
 _PDF_SOFTWARE_TARGET_CONTEXT = re.compile(
     r"\b(?:pdf\s+(?:parser|reader|writer|renderer|library|module|class|function|api)|"
@@ -2685,12 +3448,27 @@ def _prompt_has_direct_spreadsheet_analysis_intent(prompt: str) -> bool:
 
 def _prompt_has_direct_pdf_analysis_intent(prompt: str) -> bool:
     text = _normalized_unquoted_prompt(prompt)
+    critique_polarity, _, effective_clause = _prompt_critique_state(prompt)
+    live_pdf_text = (
+        _critique_live_domain_text(prompt, effective_clause)
+        if critique_polarity is True
+        else text
+    )
+    copyedit_review = bool(
+        critique_polarity is False
+        and _prompt_has_affirmative_direct_action(
+            prompt,
+            r"(?:review|critique|audit|challenge|validate|compare|stress[- ]test|"
+            r"pressure[- ]test)",
+        )
+    )
     return bool(
-        _PDF_FILE_CONTEXT.search(text)
+        _PDF_FILE_CONTEXT.search(live_pdf_text)
         and not _PDF_SOFTWARE_TARGET_CONTEXT.search(text)
         and not _MATERIAL_ARTIFACT_CREATION_CONTEXT.search(text)
         and not _PDF_TO_SPREADSHEET_OUTPUT_CONTEXT.search(text)
         and not _prompt_has_affirmative_implementation(text)
+        and not copyedit_review
         and not _ADVERSARIAL_REVIEW_CONTEXT.search(text)
         and _prompt_has_affirmative_direct_action(
             prompt,
@@ -2704,15 +3482,20 @@ def _prompt_has_critical_pdf_review_intent(prompt: str) -> bool:
     """Compose PDF inspection with an explicitly evaluative critique action."""
 
     text = _normalized_unquoted_prompt(prompt)
+    _, _, effective_clause = _prompt_critique_state(prompt)
+    live_pdf_text = _critique_live_domain_text(prompt, effective_clause)
     return bool(
-        _PDF_FILE_CONTEXT.search(text)
+        _PDF_FILE_CONTEXT.search(live_pdf_text)
         and not _PDF_SOFTWARE_TARGET_CONTEXT.search(text)
         and not _MATERIAL_ARTIFACT_CREATION_CONTEXT.search(text)
         and not _prompt_has_affirmative_implementation(text)
         and _prompt_has_affirmative_critique_intent(prompt)
         and (
+            _prompt_has_mature_deep_critique_intent(prompt)
+            or
             _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
             or _ADVERSARIAL_REVIEW_CONTEXT.search(text)
+            or any(pattern.search(text) for pattern in _CRITIQUE_PDF_SPECIAL_POSITIVE)
         )
     )
 
@@ -2911,7 +3694,7 @@ def _prompt_requests_specialist_nonimplementation_owner(prompt: str) -> bool:
     text = re.sub(r"\s+", " ", _prompt_without_quoted_text(prompt).lower()).strip()
     return bool(
         _SPECIALIST_NON_IMPLEMENTATION_OUTPUT.search(text)
-        or _prompt_has_affirmative_critique_intent(text)
+        or _prompt_has_affirmative_critique_intent(prompt)
         or _prompt_has_nonexecution_subject_intent(text)
         or _prompt_has_affirmative_software_documentation_intent(text)
     )
@@ -2950,17 +3733,22 @@ _CODE_ARCHITECTURE_SPECIAL_POSITIVE = (
 
 def _prompt_has_affirmative_code_architecture_review_intent(prompt: str) -> bool:
     text = _normalized_unquoted_prompt(prompt)
-    context_text = re.sub(r"[-_]+", " ", text)
+    critique_polarity, _, effective_clause = _prompt_critique_state(prompt)
+    context_text = re.sub(
+        r"[-_]+", " ", _critique_live_domain_text(prompt, effective_clause)
+    )
     if (
         not _CODE_ARCHITECTURE_CONTEXT.search(context_text)
         or _prompt_has_affirmative_implementation(prompt)
     ):
         return False
+    if critique_polarity is False:
+        return False
     return bool(
         _prompt_has_affirmative_critique_intent(prompt)
         or _prompt_has_affirmative_direct_action(
             prompt,
-            r"(?:assess|inspect|analy[sz]e|identify|find|improve)",
+            r"(?:review|assess|inspect|analy[sz]e|identify|find|improve)",
             special_positive=_CODE_ARCHITECTURE_SPECIAL_POSITIVE,
         )
     )
@@ -3409,7 +4197,10 @@ def _intent_gate_matches(
         ):
             return False
         if _prompt_has_affirmative_implementation(prompt_lower):
-            return _SOFTWARE_CONTEXT.search(prompt_lower) is not None
+            return bool(
+                _SOFTWARE_CONTEXT.search(prompt_lower)
+                or _COPYEDIT_IMPLEMENTATION_CONTEXT.search(prompt_lower)
+            )
         return not _prompt_requests_specialist_nonimplementation_owner(prompt_lower)
     if gate == "deep_critique":
         aliases = _policy_reference_aliases(
@@ -3710,6 +4501,12 @@ def _rule_matches_prompt(
         semantic_only_allowed = bool(
             normalize(rule.get("id")) == "deep-critique"
             and _prompt_has_mature_deep_critique_intent(prompt_lower)
+        )
+    if intent_gate == "critique_with_implementation":
+        semantic_only_allowed = bool(
+            normalize(rule.get("id")) == "coding-deep-critique-implementation"
+            and _prompt_has_affirmative_critique_intent(prompt_lower)
+            and _prompt_has_affirmative_implementation(prompt_lower)
         )
     if not lexical_match and not semantic_only_allowed:
         return False
@@ -5610,11 +6407,7 @@ def _load_project_scope_map(path: Path | None = None) -> dict[str, dict[str, Any
         for other_project_id, other_root in claimed_roots[index + 1 :]:
             if project_id == other_project_id:
                 continue
-            if (
-                root == other_root
-                or root.startswith(other_root + "\\")
-                or other_root.startswith(root + "\\")
-            ):
+            if root == other_root:
                 return default
     return normalized
 
@@ -6205,8 +6998,8 @@ def _rebind_supplied_authority(
     if not current_hash or not hmac.compare_digest(supplied_hash, current_hash):
         raise CapabilityDataError(f"{label} authority changed after it was loaded")
     if not hmac.compare_digest(
-        _canonical_authority_payload(supplied),
-        _canonical_authority_payload(current),
+        _canonical_authority_payload(supplied).encode("utf-8"),
+        _canonical_authority_payload(current).encode("utf-8"),
     ):
         raise CapabilityDataError(f"{label} authority was mutated after it was loaded")
     return current
