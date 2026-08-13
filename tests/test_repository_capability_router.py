@@ -652,6 +652,9 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             ("Review this report before our meeting.", {"deep-critique"}),
             ("Review this report for style only.", {"deep-critique"}),
             ("Review this report for tone only.", {"deep-critique"}),
+            ("Audit this document for grammar.", {"deep-critique"}),
+            ("Critique this memo for spelling.", {"deep-critique"}),
+            ("Challenge this plan for grammar.", {"deep-critique"}),
             (
                 "Review this plan critically. Actually, proofread it for grammar only.",
                 {"deep-critique"},
@@ -677,6 +680,25 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "Critique this memo for weak assumptions and please instead proofread it.",
                 {"deep-critique"},
             ),
+            (
+                "Critique this memo for weak assumptions and only summarize the section that also covers revenue.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and instead summarize the section that also covers revenue.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions. Actually, only summarize the part that also discusses costs.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo. Actually, proofread it because it is too long.",
+                {"deep-critique"},
+            ),
+            ("Correct the grammar and then review it.", {"deep-critique"}),
+            ("Correct the grammar and then audit it.", {"deep-critique"}),
+            ("Correct the grammar and then compare wording.", {"deep-critique"}),
             ("Review the PDF parser.", {"pdf-file-analysis", "critical-pdf-review"}),
             (
                 "Compare this document with the previous version and list changes.",

@@ -1401,17 +1401,25 @@ _CRITIQUE_REPLACEMENT_DIRECTIVE = re.compile(
     r"wording|style|tone|formatting?)\b"
 )
 _ADDITIVE_NONCRITIQUE_SUFFIX = re.compile(
-    r"^[^.!?;]{0,48}\b(?:also|too|as\s+well)\b"
+    r"^[^.!?;]{0,48}\b(?:too|as\s+well)\s*$"
+)
+_EXPLICIT_CRITIQUE_REPLACEMENT = re.compile(r"\b(?:only|just|instead)\b")
+_SEQUENCED_STRONG_CRITIQUE_ACTION = (
+    r"(?:deep\s+critique|source[- ]backed\s+critique|critique|challenge|"
+    r"stress[- ]test|pressure[- ]test|poke\s+holes\s+in|find\s+flaws\s+in|"
+    r"tear\s+apart)"
 )
 _SEQUENCED_CRITIQUE_DIRECTIVE = re.compile(
-    rf"\b(?:and(?:\s+then)?|then)\s+(?:(?:please|now)\s+)*(?:{_CRITIQUE_ACTION})\b"
+    rf"\b(?:and(?:\s+then)?|then)\s+(?:(?:please|now)\s+)*"
+    rf"(?:{_SEQUENCED_STRONG_CRITIQUE_ACTION})\b"
 )
 
 
 def _clause_replaces_critique_with_noncritique(clause: str) -> bool:
     text = _LEADING_DISCOURSE.sub("", clause.strip())
     return any(
-        not _ADDITIVE_NONCRITIQUE_SUFFIX.search(text[match.end() :])
+        _EXPLICIT_CRITIQUE_REPLACEMENT.search(match.group(0))
+        or not _ADDITIVE_NONCRITIQUE_SUFFIX.search(text[match.end() :])
         for match in _CRITIQUE_REPLACEMENT_DIRECTIVE.finditer(text)
     )
 
@@ -1443,7 +1451,8 @@ def _critique_clause_polarity(clause: str) -> bool | None:
     events.extend(
         (match.start(), False)
         for match in _CRITIQUE_REPLACEMENT_DIRECTIVE.finditer(text)
-        if not _ADDITIVE_NONCRITIQUE_SUFFIX.search(text[match.end() :])
+        if _EXPLICIT_CRITIQUE_REPLACEMENT.search(match.group(0))
+        or not _ADDITIVE_NONCRITIQUE_SUFFIX.search(text[match.end() :])
     )
     if not events:
         return None
@@ -1510,6 +1519,11 @@ _EXPLICIT_TEXT_ONLY_LIMITATION = re.compile(
     r"grammar|spelling|punctuation|wording|capitalization|formatting|typos?|"
     r"style|tone)\b[^.!?;]{0,32}\b(?:only|just)\b"
 )
+_TEXT_ONLY_SCOPE_LIMITATION = re.compile(
+    r"\b(?:for|focused\s+on|limited\s+to)\s+(?:(?:the|its)\s+)?"
+    r"(?:grammar|spelling|punctuation|wording|capitalization|formatting|"
+    r"typos?|style|tone)\b"
+)
 _DEEP_CRITIQUE_SEMANTIC_QUESTION = re.compile(
     r"^(?:what\s+do\s+you\s+think\s+(?:of|about)|"
     r"is\s+(?:this|my|our|the)\s+[^.!?;]{0,100}\b"
@@ -1542,6 +1556,7 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
         and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(effective_clause)
         and (
             _EXPLICIT_TEXT_ONLY_LIMITATION.search(effective_clause)
+            or _TEXT_ONLY_SCOPE_LIMITATION.search(effective_clause)
             or not _ADVERSARIAL_REVIEW_CONTEXT.search(effective_clause)
         )
     ):
