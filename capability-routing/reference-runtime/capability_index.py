@@ -1386,19 +1386,34 @@ _CRITIQUE_SPECIAL_POSITIVE = (
 
 
 _CRITIQUE_REPLACEMENT_DIRECTIVE = re.compile(
-    r"(?:^|\b(?:and(?:\s+then)?|then)\s+)"
+    r"(?:^|"
+    r"\b(?:and(?:\s+then)?|then)\s+"
+    r"(?=(?:(?:please)\s+)*(?:only|just)\b)|"
+    r"\b(?:and\s+)?(?:please\s+)?instead\s+)"
     r"(?:(?:please|only|just)\s+)*(?:summari[sz]e|extract|transcribe|"
     r"rewrite|translate|list|proofread)\b|"
-    r"(?:^|\b(?:and(?:\s+then)?|then)\s+)"
+    r"(?:^|"
+    r"\b(?:and(?:\s+then)?|then)\s+"
+    r"(?=(?:(?:please)\s+)*(?:only|just)\b)|"
+    r"\b(?:and\s+)?(?:please\s+)?instead\s+)"
     r"(?:(?:please|only|just)\s+)*(?:fix|correct)\s+"
     r"(?:(?:the|its|this)\s+)?(?:grammar|spelling|typos?|punctuation|"
     r"wording|style|tone|formatting?)\b"
+)
+_ADDITIVE_NONCRITIQUE_SUFFIX = re.compile(
+    r"^[^.!?;]{0,48}\b(?:also|too|as\s+well)\b"
+)
+_SEQUENCED_CRITIQUE_DIRECTIVE = re.compile(
+    rf"\b(?:and(?:\s+then)?|then)\s+(?:(?:please|now)\s+)*(?:{_CRITIQUE_ACTION})\b"
 )
 
 
 def _clause_replaces_critique_with_noncritique(clause: str) -> bool:
     text = _LEADING_DISCOURSE.sub("", clause.strip())
-    return _CRITIQUE_REPLACEMENT_DIRECTIVE.search(text) is not None
+    return any(
+        not _ADDITIVE_NONCRITIQUE_SUFFIX.search(text[match.end() :])
+        for match in _CRITIQUE_REPLACEMENT_DIRECTIVE.finditer(text)
+    )
 
 
 def _critique_clause_polarity(clause: str) -> bool | None:
@@ -1415,6 +1430,10 @@ def _critique_clause_polarity(clause: str) -> bool | None:
     )
     if affirmative is not None:
         events.append((0, affirmative))
+    events.extend(
+        (match.start(), True)
+        for match in _SEQUENCED_CRITIQUE_DIRECTIVE.finditer(text)
+    )
     for match in re.finditer(
         rf"\b(?:do\s+not|don'?t|dont|never|avoid(?:ing)?|without)\s+"
         rf"(?:(?:please|any|further)\s+)*(?:{_CRITIQUE_ACTION})\b",
@@ -1424,6 +1443,7 @@ def _critique_clause_polarity(clause: str) -> bool | None:
     events.extend(
         (match.start(), False)
         for match in _CRITIQUE_REPLACEMENT_DIRECTIVE.finditer(text)
+        if not _ADDITIVE_NONCRITIQUE_SUFFIX.search(text[match.end() :])
     )
     if not events:
         return None
@@ -1482,6 +1502,14 @@ _TEXT_ONLY_REVIEW_CONTEXT = re.compile(
     r"key\s+points?|main\s+points?|list\s+(?:the\s+)?(?:changes?|differences?)|"
     r"change\s+list)\b"
 )
+_EXPLICIT_TEXT_ONLY_LIMITATION = re.compile(
+    r"\b(?:only|just)\b[^.!?;]{0,64}\b(?:summari[sz]e|extract|transcribe|"
+    r"rewrite|translate|list|proofread|grammar|spelling|punctuation|wording|"
+    r"capitalization|formatting|typos?|style|tone)\b|"
+    r"\b(?:summari[sz]e|extract|transcribe|rewrite|translate|list|proofread|"
+    r"grammar|spelling|punctuation|wording|capitalization|formatting|typos?|"
+    r"style|tone)\b[^.!?;]{0,32}\b(?:only|just)\b"
+)
 _DEEP_CRITIQUE_SEMANTIC_QUESTION = re.compile(
     r"^(?:what\s+do\s+you\s+think\s+(?:of|about)|"
     r"is\s+(?:this|my|our|the)\s+[^.!?;]{0,100}\b"
@@ -1509,11 +1537,18 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
     # An explicit text-only limitation controls even when the action verb is
     # otherwise adversarial (for example, "audit ... for grammar only"). A
     # separate substantive evaluation request may still select Deep Critic.
-    if _TEXT_ONLY_REVIEW_CONTEXT.search(
-        effective_clause
-    ) and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(effective_clause):
+    if (
+        _TEXT_ONLY_REVIEW_CONTEXT.search(effective_clause)
+        and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(effective_clause)
+        and (
+            _EXPLICIT_TEXT_ONLY_LIMITATION.search(effective_clause)
+            or not _ADVERSARIAL_REVIEW_CONTEXT.search(effective_clause)
+        )
+    ):
         return False
     if any(pattern.search(text) for pattern in _CRITIQUE_SPECIAL_POSITIVE):
+        return True
+    if _SEQUENCED_CRITIQUE_DIRECTIVE.search(effective_clause):
         return True
     if _prompt_has_affirmative_direct_action(
         prompt,

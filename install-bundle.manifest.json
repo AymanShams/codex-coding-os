@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "e46d39e06719d11f27b47e6f67b35d6e3cce35148a3a396c50dc64588147ebb4",
+  "aggregate_sha256": "5e3b7ca9a26960176bc6e5bc3207e2d51a1436c3cf59496f0592a18b56bba635",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2898,8 +2898,8 @@
     },
     {
       "path": "tests/test_repository_capability_router.py",
-      "sha256": "e6f3037b223a9d735cda01f92a1818920d581a6ec3a6c9da7aa34ede537f0d6e",
-      "size": 82917
+      "sha256": "bb02eb405ee4bd27d258bb1cbac0e4204331ca0cc96afec89f5c8e534ec1f1ec",
+      "size": 84416
     },
     {
       "path": "tests/test_security_capability_routing.py",

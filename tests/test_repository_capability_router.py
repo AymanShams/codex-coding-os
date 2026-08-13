@@ -393,6 +393,36 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "skill:deep-critic",
             ),
             (
+                "Critique this memo for weak assumptions and correct its grammar.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Review this plan for weak assumptions and then proofread it.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for weak assumptions and summarize it.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo and proofread it.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for weak assumptions. Proofread it too.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Correct the grammar and then critique its weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
                 "Review my security policy for missing authorization controls.",
                 "security-best-practices-review",
                 "skill:security-best-practices",
@@ -633,6 +663,18 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             ("Critique this memo. Actually, summarize it.", {"deep-critique"}),
             (
                 "Review this plan for grammar only and do not critique its assumptions.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and only summarize it.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and instead summarize it.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and please instead proofread it.",
                 {"deep-critique"},
             ),
             ("Review the PDF parser.", {"pdf-file-analysis", "critical-pdf-review"}),
