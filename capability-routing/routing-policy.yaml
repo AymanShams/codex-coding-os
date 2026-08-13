@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0",
-  "decision_snapshot": "codex-coding-os-v1.2.0-semantic-router-2026-08-12",
+  "decision_snapshot": "codex-coding-os-v1.2.1-semantic-router-2026-08-13",
   "max_supports": 2,
   "max_worker_supports": 2,
   "capability_aliases": {
@@ -69,7 +69,7 @@
       "probe_requirement": {"kind": "live_call", "target": "app:supabase", "success_status": "callable"}
     },
     "app:neon": {
-      "manifest_any": ["app:neon", "tool-family:app:neon", "tool-family:neon"],
+      "manifest_any": ["app:neon", "tool-family:app:neon", "tool-family:app:neon-postgres", "tool-family:neon"],
       "config_path": ["plugins", "neon-postgres@openai-curated-remote", "enabled"],
       "expected_value": true,
       "probe_requirement": {"kind": "live_call", "target": "app:neon", "success_status": "callable"}

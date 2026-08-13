@@ -378,6 +378,21 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "skill:deep-critic",
             ),
             (
+                "Summarize this plan. On second thought, review it critically.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for spelling only. Actually, challenge its assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Review this operating update for decision quality.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
                 "Review my security policy for missing authorization controls.",
                 "security-best-practices-review",
                 "skill:security-best-practices",
@@ -601,10 +616,25 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             ("Review my document for grammar only.", {"deep-critique"}),
             ("Audit this document for grammar only.", {"deep-critique"}),
             ("Critique this memo for spelling only.", {"deep-critique"}),
+            ("Challenge this plan for grammar only.", {"deep-critique"}),
+            ("Stress-test this memo for spelling only.", {"deep-critique"}),
             ("Review this report before the meeting.", {"deep-critique"}),
             ("Review this report before our meeting.", {"deep-critique"}),
             ("Review this report for style only.", {"deep-critique"}),
             ("Review this report for tone only.", {"deep-critique"}),
+            (
+                "Review this plan critically. Actually, proofread it for grammar only.",
+                {"deep-critique"},
+            ),
+            (
+                "What do you think about this plan? On second thought, just fix spelling.",
+                {"deep-critique"},
+            ),
+            ("Critique this memo. Actually, summarize it.", {"deep-critique"}),
+            (
+                "Review this plan for grammar only and do not critique its assumptions.",
+                {"deep-critique"},
+            ),
             ("Review the PDF parser.", {"pdf-file-analysis", "critical-pdf-review"}),
             (
                 "Compare this document with the previous version and list changes.",
@@ -869,6 +899,74 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        loaded = index._load_project_scope_map(map_path)
+        self.assertIn("project_alpha", loaded)
+        self.assertIn("project_beta", loaded)
+        project_roots = tuple(
+            sorted(
+                (
+                    (project_id, root)
+                    for project_id, config in loaded.items()
+                    for root in config["roots"]
+                ),
+                key=lambda item: (-len(item[1]), item[0], item[1]),
+            )
+        )
+        with mock.patch.object(index, "PROJECT_ROOTS", project_roots):
+            self.assertEqual(index._project_from_cwd(project_root), "project_alpha")
+            self.assertEqual(index._project_from_cwd(nested), "project_beta")
+
+        map_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "projects": {
+                        "generic": {
+                            "roots": [],
+                            "source_scopes": [],
+                            "memory_scope": None,
+                        },
+                        "project_alpha": {
+                            "roots": [str(project_root)],
+                            "source_scopes": ["project_alpha"],
+                            "memory_scope": None,
+                        },
+                        "project_beta": {
+                            "roots": [str(project_root)],
+                            "source_scopes": ["project_beta"],
+                            "memory_scope": None,
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            index._load_project_scope_map(map_path),
+            {"generic": {"roots": [], "source_scopes": [], "memory_scope": None}},
+        )
+
+        missing = self.root / "missing-project"
+        map_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "projects": {
+                        "generic": {
+                            "roots": [],
+                            "source_scopes": [],
+                            "memory_scope": None,
+                        },
+                        "missing_project": {
+                            "roots": [str(missing)],
+                            "source_scopes": ["missing_project"],
+                            "memory_scope": None,
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
         self.assertEqual(
             index._load_project_scope_map(map_path),
             {"generic": {"roots": [], "source_scopes": [], "memory_scope": None}},
@@ -1033,6 +1131,31 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         rebound["source"] = str(self.root / "not-the-policy.yaml")
         with self.assertRaisesRegex(index.CapabilityDataError, "not canonical|unavailable"):
             index.resolve_route("x", manifest=manifest, policy=rebound)
+
+        unicode_source = self.root / "unicode-authority.json"
+        unicode_source.write_text("{}\n", encoding="utf-8")
+        current = {
+            "source": str(unicode_source.resolve()),
+            "authority_sha256": "a" * 64,
+            "description": "bounded résumé – security route",
+        }
+        supplied = copy.deepcopy(current)
+        rebound_unicode = index._rebind_supplied_authority(
+            supplied,
+            canonical_path=unicode_source,
+            loader=lambda _path: copy.deepcopy(current),
+            label="Unicode test",
+        )
+        self.assertEqual(rebound_unicode, current)
+
+        supplied["description"] = "mutated résumé – security route"
+        with self.assertRaisesRegex(index.CapabilityDataError, "mutated"):
+            index._rebind_supplied_authority(
+                supplied,
+                canonical_path=unicode_source,
+                loader=lambda _path: copy.deepcopy(current),
+                label="Unicode test",
+            )
 
     def test_loaded_authority_hashes_bind_exact_source_bytes(self) -> None:
         with mock.patch.object(index, "_source_hash_mismatches", return_value=[]):

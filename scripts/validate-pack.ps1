@@ -127,6 +127,7 @@ if (-not (Test-Path $DocumentationContractValidator -PathType Leaf)) {
 $CapabilityContractTests = @(
   "tests.test_repository_capability_router",
   "tests.test_capability_manifest_recovery",
+  "tests.test_capability_manifest_builder",
   "tests.test_catalogue_router_wrapper",
   "tests.test_security_capability_routing",
   "tests.test_local_security_skill_parity",

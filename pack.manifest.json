@@ -1,6 +1,6 @@
 {
   "$schema": "pack.schema.json",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "package_name": "codex-coding-os",
   "display_name": "Codex Coding OS",
   "release_status": "public-release",

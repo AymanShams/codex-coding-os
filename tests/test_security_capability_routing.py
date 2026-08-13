@@ -114,7 +114,7 @@ class SecurityCapabilityRoutingTests(unittest.TestCase):
         manifest = manifest_for_policy(self.root)
         dependency_manifest_ids = {
             "app:supabase": "tool-family:app:supabase",
-            "app:neon": "tool-family:app:neon",
+            "app:neon": "tool-family:app:neon-postgres",
             "mcp:codex-security": "tool-family:mcp:codex-security",
         }
         manifest["entries"].append(
@@ -945,6 +945,14 @@ class SecurityCapabilityRoutingTests(unittest.TestCase):
                     f"prompt:{dependency_id}:explicitly_excluded",
                     fallback["unavailable_dependencies"],
                 )
+
+    def test_neon_actual_tool_family_id_satisfies_live_dependency(self) -> None:
+        decision = self.resolveWithCallableDependency(
+            "Validate this Neon security finding against the live project",
+            "app:neon",
+        )
+        self.assertEqual(decision["rule_id"], "neon-security-finding-validation")
+        self.assertEqual(decision["capability_fallbacks"], [])
 
     def test_repository_vulnerability_scan_uses_standard_scan_not_discovery(self) -> None:
         decision = self.resolveDecision("Scan this repository for vulnerabilities")

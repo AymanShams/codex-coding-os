@@ -1385,12 +1385,50 @@ _CRITIQUE_SPECIAL_POSITIVE = (
 )
 
 
+_CRITIQUE_REPLACEMENT_DIRECTIVE = re.compile(
+    r"(?:^|\b(?:and(?:\s+then)?|then)\s+)"
+    r"(?:(?:please|only|just)\s+)*(?:summari[sz]e|extract|transcribe|"
+    r"rewrite|translate|list|proofread)\b|"
+    r"(?:^|\b(?:and(?:\s+then)?|then)\s+)"
+    r"(?:(?:please|only|just)\s+)*(?:fix|correct)\s+"
+    r"(?:(?:the|its|this)\s+)?(?:grammar|spelling|typos?|punctuation|"
+    r"wording|style|tone|formatting?)\b"
+)
+
+
 def _clause_replaces_critique_with_noncritique(clause: str) -> bool:
     text = _LEADING_DISCOURSE.sub("", clause.strip())
-    return re.match(
-        r"^(?:only|just)\s+(?:summari[sz]e|extract|transcribe|rewrite|translate|list)\b",
+    return _CRITIQUE_REPLACEMENT_DIRECTIVE.search(text) is not None
+
+
+def _critique_clause_polarity(clause: str) -> bool | None:
+    """Return the last bounded critique or replacement directive in a clause."""
+
+    text = _LEADING_DISCOURSE.sub("", clause.strip())
+    if not text:
+        return None
+    events: list[tuple[int, bool]] = []
+    affirmative = _clause_directive_polarity(
+        clause,
+        _CRITIQUE_ACTION,
+        special_positive=_CRITIQUE_SPECIAL_POSITIVE,
+    )
+    if affirmative is not None:
+        events.append((0, affirmative))
+    for match in re.finditer(
+        rf"\b(?:do\s+not|don'?t|dont|never|avoid(?:ing)?|without)\s+"
+        rf"(?:(?:please|any|further)\s+)*(?:{_CRITIQUE_ACTION})\b",
         text,
-    ) is not None
+    ):
+        events.append((match.start(), False))
+    events.extend(
+        (match.start(), False)
+        for match in _CRITIQUE_REPLACEMENT_DIRECTIVE.finditer(text)
+    )
+    if not events:
+        return None
+    events.sort(key=lambda event: event[0])
+    return events[-1][1]
 
 
 def _prompt_has_affirmative_critique_intent(prompt: str) -> bool:
@@ -1398,23 +1436,30 @@ def _prompt_has_affirmative_critique_intent(prompt: str) -> bool:
 
     polarity: bool | None = None
     for clause in _directive_clauses(prompt):
-        if _clause_replaces_critique_with_noncritique(clause):
-            polarity = False
-            continue
-        clause_polarity = _clause_directive_polarity(
-            clause,
-            _CRITIQUE_ACTION,
-            special_positive=_CRITIQUE_SPECIAL_POSITIVE,
-        )
+        clause_polarity = _critique_clause_polarity(clause)
         if clause_polarity is not None:
             polarity = clause_polarity
     return polarity is True
 
 
+def _effective_affirmative_critique_clause(prompt: str) -> str:
+    """Return the final clause that leaves critique intent affirmative."""
+
+    polarity: bool | None = None
+    effective_clause = ""
+    for clause in _directive_clauses(prompt):
+        clause_polarity = _critique_clause_polarity(clause)
+        if clause_polarity is not None:
+            polarity = clause_polarity
+            effective_clause = clause
+    return effective_clause if polarity is True else ""
+
+
 _DEEP_CRITIQUE_SEMANTIC_TARGET = re.compile(
     r"\b(?:proposal|recommendation|analysis|plan|strategy|argument|decision|"
     r"operating\s+model|business\s+case|forecast|model|workflow|report|memo|"
-    r"draft|document|policy|slide\s+deck|presentation|prd|concept)\b"
+    r"draft|document|policy|slide\s+deck|presentation|prd|concept|"
+    r"operating\s+update)\b"
 )
 _DEEP_CRITIQUE_EVALUATION_CONTEXT = re.compile(
     r"\b(?:good|correct|right|sound|strong|ready|accurate|accuracy|validity|credible|defensible|"
@@ -1449,9 +1494,10 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
     """Require evaluative critique intent, not ordinary document handling."""
 
     text = _normalized_unquoted_prompt(prompt)
+    effective_clause = _effective_affirmative_critique_clause(prompt)
     if (
         not text
-        or not _prompt_has_affirmative_critique_intent(prompt)
+        or not effective_clause
         or (
             _NON_CRITIQUE_REVIEW_WORKFLOW.search(text)
             and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
@@ -1460,10 +1506,15 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
         return False
     if _DEEP_CRITIQUE_SEMANTIC_QUESTION.search(text):
         return True
-    if _TEXT_ONLY_REVIEW_CONTEXT.search(text) and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(
-        text
-    ):
+    # An explicit text-only limitation controls even when the action verb is
+    # otherwise adversarial (for example, "audit ... for grammar only"). A
+    # separate substantive evaluation request may still select Deep Critic.
+    if _TEXT_ONLY_REVIEW_CONTEXT.search(
+        effective_clause
+    ) and not _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(effective_clause):
         return False
+    if any(pattern.search(text) for pattern in _CRITIQUE_SPECIAL_POSITIVE):
+        return True
     if _prompt_has_affirmative_direct_action(
         prompt,
         r"(?:deep\s+critique|source[- ]backed\s+critique|critique|audit|challenge|"
@@ -1472,10 +1523,14 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
     ):
         return True
     return bool(
-        _DEEP_CRITIQUE_SEMANTIC_TARGET.search(text)
+        (
+            _DEEP_CRITIQUE_SEMANTIC_TARGET.search(text)
+            or _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
+        )
         and _prompt_has_affirmative_direct_action(prompt, r"(?:review|compare)")
         and (
             _DEEP_CRITIQUE_EVALUATION_CONTEXT.search(text)
+            or _ADVERSARIAL_REVIEW_CONTEXT.search(text)
             or not _TEXT_ONLY_REVIEW_CONTEXT.search(text)
         )
     )
@@ -5610,11 +5665,7 @@ def _load_project_scope_map(path: Path | None = None) -> dict[str, dict[str, Any
         for other_project_id, other_root in claimed_roots[index + 1 :]:
             if project_id == other_project_id:
                 continue
-            if (
-                root == other_root
-                or root.startswith(other_root + "\\")
-                or other_root.startswith(root + "\\")
-            ):
+            if root == other_root:
                 return default
     return normalized
 
@@ -6205,8 +6256,8 @@ def _rebind_supplied_authority(
     if not current_hash or not hmac.compare_digest(supplied_hash, current_hash):
         raise CapabilityDataError(f"{label} authority changed after it was loaded")
     if not hmac.compare_digest(
-        _canonical_authority_payload(supplied),
-        _canonical_authority_payload(current),
+        _canonical_authority_payload(supplied).encode("utf-8"),
+        _canonical_authority_payload(current).encode("utf-8"),
     ):
         raise CapabilityDataError(f"{label} authority was mutated after it was loaded")
     return current

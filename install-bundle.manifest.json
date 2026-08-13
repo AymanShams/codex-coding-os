@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "67d32829b2b491a66b0e7581a978b681c6e30bde5d8059acf6a4cd3ab5900de2",
+  "aggregate_sha256": "e46d39e06719d11f27b47e6f67b35d6e3cce35148a3a396c50dc64588147ebb4",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2193,13 +2193,13 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "317f59549203d68158e15284a250943982ebdcc15196c83baa1be37ced067e68",
-      "size": 5828
+      "sha256": "764d516fd2e59f5ae73b29b3fbf05076c046cafcd586ea2a0898e2695c957e48",
+      "size": 5877
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "8db81162823474cf601c020b4650060d9d12ad4249d73cd2fcae7b1cbf4bdb49",
-      "size": 22151
+      "sha256": "8dfc9a05e35e1f7816dc8a5a0dd4d590d973ae241fbfb00664c7713d8899c516",
+      "size": 23076
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2313,8 +2313,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "102e9c715c3ef18131fd0c68f6769aa77a3291650b225cdc967344506b824bbb",
-      "size": 7933
+      "sha256": "b1efc03c244bab15d5136597550115462485aad244a4f523b963965a1b12f5a7",
+      "size": 7935
     },
     {
       "path": "docs/license-strategy.md",
@@ -2343,8 +2343,8 @@
     },
     {
       "path": "docs/publishing-checklist.md",
-      "sha256": "f635fde0f7ae9108aa5a394aedab92052d0e829e8433a315c0a0f58cf4cd2a17",
-      "size": 8089
+      "sha256": "d4f6d9ec27deb60d4fa056a7321f957cbe22c98e6d2bc6d16b039eb36b78c354",
+      "size": 8729
     },
     {
       "path": "docs/review-doctrine.md",
@@ -2353,8 +2353,8 @@
     },
     {
       "path": "docs/security-capability-operating-model.md",
-      "sha256": "f7cf2d5d463d90efff89f864f83399966d0dc856a465ea66dc608588f5f2908a",
-      "size": 16859
+      "sha256": "0ea9c92270442d7b5f001734f9060f26fe58faa097f770007d6a83934d0c847b",
+      "size": 17316
     },
     {
       "path": "docs/skill-quality-standard.md",
@@ -2378,7 +2378,7 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "7b88e186846bd67762f88bb3c386d658fe8aaf4a7dbbaab84ad50a8855de3f50",
+      "sha256": "ddc4d12183a05252a6ebb57db440c1f5f7b827101082113daa79f370297d1559",
       "size": 27261
     },
     {
@@ -2558,8 +2558,8 @@
     },
     {
       "path": "scripts/validate-pack.ps1",
-      "sha256": "e20dfd8a27df7c477b9f9253853a85de8425daf6e7900c849749b20215d50983",
-      "size": 14122
+      "sha256": "b268a54bc5e5f11ec797fbae030c2487eda2ef1b21652e66adbee9df582d0160",
+      "size": 14166
     },
     {
       "path": "scripts/validate_documentation_contracts.py",
@@ -2847,6 +2847,11 @@
       "size": 3362
     },
     {
+      "path": "tests/test_capability_manifest_builder.py",
+      "sha256": "901ea894aa9869b72904e9aa6b83c6c22545e6affaabd443ceeaeb7444e3268f",
+      "size": 12886
+    },
+    {
       "path": "tests/test_capability_manifest_recovery.py",
       "sha256": "884f0d128c38516dfd570ba9868b7cf959d8b16a11337e632ba0c870a3a64da4",
       "size": 55966
@@ -2893,13 +2898,13 @@
     },
     {
       "path": "tests/test_repository_capability_router.py",
-      "sha256": "9fb63eedcbf3dd18a631b5a781cc7b91971f34d9e5006e1e249ecf0e6b8b7e36",
-      "size": 78111
+      "sha256": "e6f3037b223a9d735cda01f92a1818920d581a6ec3a6c9da7aa34ede537f0d6e",
+      "size": 82917
     },
     {
       "path": "tests/test_security_capability_routing.py",
-      "sha256": "9e6d87f0bd34a7b5128405ab610f18b41d0648b998a41841aa66b43b2322b55c",
-      "size": 45223
+      "sha256": "138ec0a4eaa930f6a5ac8648f6be663534afda06322a43ddcf996683f75705a1",
+      "size": 45624
     },
     {
       "path": "tests/test_source_repository_profile.py",
@@ -2934,7 +2939,7 @@
   ],
   "package": {
     "name": "codex-coding-os",
-    "version": "1.2.0"
+    "version": "1.2.1"
   },
   "protocol": "CCOS-INSTALL-BUNDLE-v1"
 }
