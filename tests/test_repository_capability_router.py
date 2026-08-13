@@ -373,6 +373,16 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "skill:deep-critic",
             ),
             (
+                "Review this repository architecture for flawed dependency direction.",
+                "coding-architecture-review",
+                "skill:improve-codebase-architecture",
+            ),
+            (
+                "Critique my security policy for missing authorization controls and grammar.",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
                 "Validate my analysis and challenge its assumptions.",
                 "deep-critique",
                 "skill:deep-critic",
@@ -418,7 +428,225 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "skill:deep-critic",
             ),
             (
+                "Critique this memo for weak assumptions. Proofread it too, please.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for weak assumptions. Proofread it as well, please.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for weak assumptions. Proofread it as well, if possible.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo and proofread it for grammar.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
                 "Correct the grammar and then critique its weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for weak assumptions and then critique its spelling.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this plan for flawed logic and then challenge its wording.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "What do you think about this plan and then critique its spelling?",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Is this plan good and then critique its spelling?",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Should we use this recommendation and then critique its wording?",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for weak assumptions. Critique its spelling too.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for weak assumptions. Critique its spelling also.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo's grammar and argument.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Correct the grammar and then review it for weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Proofread this memo and then audit its reasoning.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Summarize this plan and instead audit its weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Correct the grammar and then only review the reasoning.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Only critique this memo for weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Just critique this memo for weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Please only critique this memo for weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            ("Only deep critique this memo.", "deep-critique", "skill:deep-critic"),
+            ("Just critique this memo.", "deep-critique", "skill:deep-critic"),
+            ("Please only challenge this plan.", "deep-critique", "skill:deep-critic"),
+            ("Only audit this report.", "deep-critique", "skill:deep-critic"),
+            ("Just stress-test this proposal.", "deep-critique", "skill:deep-critic"),
+            ("Only review this plan.", "deep-critique", "skill:deep-critic"),
+            (
+                "Proofread this memo and then review the strategy.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Correct grammar and then critically review its assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique weak assumptions, but do not critique spelling.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Summarize this plan and also critique its weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Audit the conclusions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Summarize this report and instead audit the conclusions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique the proposal's argument and the memo's grammar.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Is this business case defensible?",
+                "quantitative-model-critique",
+                "skill:quant-review",
+            ),
+            ("Is the forecast credible?", "deep-critique", "skill:deep-critic"),
+            ("Is this workflow correct?", "deep-critique", "skill:deep-critic"),
+            (
+                "Should we use this business case?",
+                "quantitative-model-critique",
+                "skill:quant-review",
+            ),
+            (
+                "Summarize this plan. Rather, critique its weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique this memo for weak assumptions. Proofread also its grammar.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique grammar and strategy in this memo.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique my security policy for missing authorization controls and grammar only.",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Review the repository architecture for coupling and spelling only.",
+                "coding-architecture-review",
+                "skill:improve-codebase-architecture",
+            ),
+            (
+                "Review weak assumptions and grammar only.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Review wording only and weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique weak assumptions and also critique grammar only.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique my security policy for authorization flaws and also audit wording only.",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Review repository architecture for coupling and also review spelling only.",
+                "coding-architecture-review",
+                "skill:improve-codebase-architecture",
+            ),
+            (
+                "Review assumptions, logic, wording only.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique security flaws, grammar only.",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Critique weak assumptions along with grammar only.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique wording plus the conclusions.",
                 "deep-critique",
                 "skill:deep-critic",
             ),
@@ -434,6 +662,126 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             ),
             (
                 "Review the supplied PDF for weak assumptions.",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "Review the supplied PDF for completeness and grammar only.",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "Review the supplied PDF for internal consistency and spelling only.",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "What do you think about this supplied PDF?",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "Is this supplied PDF accurate?",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "Should we use this supplied PDF?",
+                "critical-pdf-review",
+                "skill:deep-critic",
+            ),
+            (
+                "What do you think about this repository architecture?",
+                "coding-architecture-review",
+                "skill:improve-codebase-architecture",
+            ),
+            (
+                "Is this repository architecture sound?",
+                "coding-architecture-review",
+                "skill:improve-codebase-architecture",
+            ),
+            (
+                "Should we use this repository architecture?",
+                "coding-architecture-review",
+                "skill:improve-codebase-architecture",
+            ),
+            (
+                "What do you think about this authentication architecture?",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "What do you think about this security policy?",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Is this security policy sound?",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Should we use the security policy?",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Should I use our security policy?",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Should we use our repository architecture?",
+                "coding-architecture-review",
+                "skill:improve-codebase-architecture",
+            ),
+            (
+                "Critique repository architecture for coupling and spelling, then implement the refactor.",
+                "coding-deep-critique-implementation",
+                "skill:codex-coding-os-master",
+            ),
+            (
+                "Review a history essay that mentions repository architecture for weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique the argument in a history essay that mentions repository architecture.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique a sentence about access control for flawed logic.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Review an essay about market strategy for weak assumptions.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique weak assumptions together with grammar only.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Critique weak assumptions & grammar only.",
+                "deep-critique",
+                "skill:deep-critic",
+            ),
+            (
+                "Review security policy and grammar only.",
+                "security-best-practices-review",
+                "skill:security-best-practices",
+            ),
+            (
+                "Review repository architecture and spelling only.",
+                "coding-architecture-review",
+                "skill:improve-codebase-architecture",
+            ),
+            (
+                "Review the supplied PDF and grammar only.",
                 "critical-pdf-review",
                 "skill:deep-critic",
             ),
@@ -655,6 +1003,26 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             ("Audit this document for grammar.", {"deep-critique"}),
             ("Critique this memo for spelling.", {"deep-critique"}),
             ("Challenge this plan for grammar.", {"deep-critique"}),
+            ("Audit this document's grammar.", {"deep-critique"}),
+            ("Critique this memo's spelling.", {"deep-critique"}),
+            ("Challenge this plan's wording.", {"deep-critique"}),
+            ("Critique the PRD's spelling.", {"deep-critique"}),
+            ("Audit the policy's grammar.", {"deep-critique"}),
+            ("Audit grammatical errors in this document.", {"deep-critique"}),
+            ("Audit document grammar.", {"deep-critique"}),
+            ("Critique memo spelling.", {"deep-critique"}),
+            ("Stress-test report punctuation.", {"deep-critique"}),
+            (
+                "Audit grammar and grammatical errors in this document.",
+                {"deep-critique"},
+            ),
+            ("Only critique this memo's spelling.", {"deep-critique"}),
+            ("Just critique this memo's spelling.", {"deep-critique"}),
+            ("Please only critique this memo's spelling.", {"deep-critique"}),
+            ("Audit the grammar in this document.", {"deep-critique"}),
+            ("Critique the spelling of this memo.", {"deep-critique"}),
+            ("Challenge the wording in this plan.", {"deep-critique"}),
+            ("Stress-test the punctuation in this memo.", {"deep-critique"}),
             (
                 "Review this plan critically. Actually, proofread it for grammar only.",
                 {"deep-critique"},
@@ -696,9 +1064,269 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "Critique this memo. Actually, proofread it because it is too long.",
                 {"deep-critique"},
             ),
+            (
+                "Critique this memo for weak assumptions. Instead, proofread it too.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions. Actually, instead proofread it too.",
+                {"deep-critique"},
+            ),
             ("Correct the grammar and then review it.", {"deep-critique"}),
             ("Correct the grammar and then audit it.", {"deep-critique"}),
             ("Correct the grammar and then compare wording.", {"deep-critique"}),
+            ("Proofread this memo and then critique the spelling.", {"deep-critique"}),
+            ("Correct the grammar and then challenge the wording.", {"deep-critique"}),
+            ("Correct the grammar and then critique its punctuation.", {"deep-critique"}),
+            (
+                "Critique this memo for weak assumptions and instead critique its spelling.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and only critique its spelling.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and then only challenge its wording.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and instead audit its grammar.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions. Only critique its spelling.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique weak assumptions and then only carefully audit its grammar.",
+                {"deep-critique"},
+            ),
+            ("Audit the grammatical errors in this document.", {"deep-critique"}),
+            (
+                "Critique the grammar and also the spelling in this memo.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and then critique only its spelling.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and instead critique only its spelling.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and then review only its grammar.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and then challenge just its wording.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions. Then critique only its spelling.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and then critique its spelling only.",
+                {"deep-critique"},
+            ),
+            ("Review this strategy for grammar only.", {"deep-critique"}),
+            (
+                "Review my security policy for grammar only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Critique my security policy for grammar only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Audit authentication documentation for spelling only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review this repository architecture for grammar only.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Critique this repository architecture for spelling only.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            ("Audit module boundaries for wording only.", {"deep-critique"}),
+            (
+                "Review authorization wording only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review my security policy grammar only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Critique my security policy's grammar only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review dependency direction punctuation only.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Review this repository architecture's spelling only.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Audit authentication documentation spelling.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Critique my security policy's grammar.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review repository architecture spelling.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Critique this repository architecture's punctuation.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Review codebase architecture spelling.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Review module architecture wording.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Review access control wording.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review RLS policy grammar.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            ("What do you think about this document's grammar?", {"deep-critique"}),
+            ("Is this memo's wording correct?", {"deep-critique"}),
+            (
+                "What do you think about this repository architecture's spelling?",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Should we use this supplied PDF for grammar?",
+                {"deep-critique", "critical-pdf-review"},
+            ),
+            (
+                "Review the word authorization.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review the phrase authentication architecture.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Audit the wording of a sentence about access control.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Critique the term repository architecture.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Review a history essay that mentions repository architecture.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Review security policy grammar and spelling only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review security policy grammar & spelling only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review repository architecture grammar and spelling only.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Review repository architecture grammar & spelling only.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "Review codebase architecture spelling along with grammar only.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            (
+                "What do you think about this security policy grammar and spelling only?",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review security architecture for grammar.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Audit security architecture spelling.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            ("Review system architecture for spelling.", {"deep-critique"}),
+            (
+                "Review authorization policy spelling.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review access control documentation grammar.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            ("Review the argument's grammar and spelling only.", {"deep-critique"}),
+            ("Review the strategy's wording and grammar only.", {"deep-critique"}),
+            ("Review the assumptions' wording and spelling only.", {"deep-critique"}),
+            ("Review the phrase weak assumptions.", {"deep-critique"}),
+            ("Critique the term weak assumptions.", {"deep-critique"}),
+            ("Review the phrase flawed logic.", {"deep-critique"}),
+            ("Review grammar only, not logic.", {"deep-critique"}),
+            (
+                "Review this repository architecture for spelling only, not coupling.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            ("Critique the argument for spelling only.", {"deep-critique"}),
+            ("Review the conclusions for wording only.", {"deep-critique"}),
+            (
+                "Critique this memo for weak assumptions and summarize it instead.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique this memo for weak assumptions and proofread its grammar instead.",
+                {"deep-critique"},
+            ),
+            ("Critique this plan. Do not ever critique it.", {"deep-critique"}),
+            ("Critique this plan. Never again critique it.", {"deep-critique"}),
+            ("Critique this plan. Avoid critiquing it.", {"deep-critique"}),
+            (
+                "Critique this plan. Without critiquing it, summarize it.",
+                {"deep-critique"},
+            ),
+            ("Critique this plan. Rather, summarize it.", {"deep-critique"}),
+            (
+                "Review my security policy for missing authorization controls. Actually, proofread it for grammar only.",
+                {"deep-critique", "security-best-practices-review"},
+            ),
+            (
+                "Review this repository architecture for flawed dependency direction. Instead, summarize it.",
+                {"deep-critique", "coding-architecture-review"},
+            ),
+            ("Critique the strategy's grammar.", {"deep-critique"}),
+            ("Critique the argument's spelling.", {"deep-critique"}),
+            ("Audit the conclusions' wording.", {"deep-critique"}),
+            ("Critique grammar in this strategy.", {"deep-critique"}),
+            ("Critique the grammar of this argument.", {"deep-critique"}),
+            ("What do you think about this grammar?", {"deep-critique"}),
+            (
+                "Critique assumptions and then audit grammar only, please.",
+                {"deep-critique"},
+            ),
+            (
+                "Critique assumptions and then audit grammar just, if possible.",
+                {"deep-critique"},
+            ),
             ("Review the PDF parser.", {"pdf-file-analysis", "critical-pdf-review"}),
             (
                 "Compare this document with the previous version and list changes.",
@@ -777,6 +1405,567 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             with self.subTest(prompt=prompt):
                 rule = first_rule(prompt)
                 self.assertNotIn(rule["id"] if rule else None, forbidden_rules)
+
+        critique_state_cases = [
+            ("Summarize this plan and also critique its weak assumptions.", True),
+            ("Summarize this report and instead audit the conclusions.", True),
+            ("Critique grammar and strategy in this memo.", True),
+            ("Critique the proposal's argument and the memo's grammar.", True),
+            ("Critique weak assumptions, but do not critique spelling.", True),
+            ("Critique the strategy's grammar.", False),
+            ("Critique the grammar of this argument.", False),
+            ("What do you think about this grammar?", False),
+            (
+                "Critique assumptions and then audit grammar only, please.",
+                False,
+            ),
+            (
+                "Critique assumptions and then audit grammar just, if possible.",
+                False,
+            ),
+            ("Review this strategy for grammar only.", False),
+            (
+                "Critique this memo for weak assumptions and summarize it instead.",
+                False,
+            ),
+            ("Critique this plan. Avoid critiquing it.", False),
+            ("Is this business case defensible?", True),
+            ("Critique this plan. Rather, summarize it.", False),
+            (
+                "Summarize this plan. Rather, critique its weak assumptions.",
+                True,
+            ),
+            (
+                "Critique this memo for weak assumptions and then critique only its spelling.",
+                False,
+            ),
+            (
+                "Critique weak assumptions and also critique grammar only.",
+                True,
+            ),
+            ("Audit authentication documentation spelling.", False),
+            ("Critique my security policy's grammar.", False),
+            ("Review repository architecture spelling.", False),
+            (
+                "Critique this repository architecture's punctuation.",
+                False,
+            ),
+            ("Review assumptions, logic, wording only.", True),
+            ("Critique security flaws, grammar only.", True),
+            ("Critique weak assumptions along with grammar only.", True),
+            ("Critique weak assumptions together with grammar only.", True),
+            ("Critique weak assumptions & grammar only.", True),
+            ("Review codebase architecture spelling.", False),
+            ("Review module architecture wording.", False),
+            ("Review access control wording.", False),
+            ("Review RLS policy grammar.", False),
+            ("What do you think about this document's grammar?", False),
+            ("Is this memo's wording correct?", False),
+            (
+                "What do you think about this repository architecture's spelling?",
+                False,
+            ),
+            ("Should we use this supplied PDF for grammar?", False),
+            ("Review the word authorization.", False),
+            ("Review the phrase authentication architecture.", False),
+            ("Audit the wording of a sentence about access control.", False),
+            ("Critique the term repository architecture.", False),
+            (
+                "Review a history essay that mentions repository architecture.",
+                False,
+            ),
+            ("Review security policy grammar and spelling only.", False),
+            ("Review security policy grammar & spelling only.", False),
+            ("Review repository architecture grammar and spelling only.", False),
+            ("Review repository architecture grammar & spelling only.", False),
+            (
+                "Review codebase architecture spelling along with grammar only.",
+                False,
+            ),
+            (
+                "What do you think about this security policy grammar and spelling only?",
+                False,
+            ),
+            (
+                "Review a history essay that mentions repository architecture for weak assumptions.",
+                True,
+            ),
+            (
+                "Critique the argument in a history essay that mentions repository architecture.",
+                True,
+            ),
+            ("Critique a sentence about access control for flawed logic.", True),
+            ("Review an essay about market strategy for weak assumptions.", True),
+        ]
+        for prompt, expected in critique_state_cases:
+            with self.subTest(critique_state_prompt=prompt):
+                polarity, mature, _ = index._prompt_critique_state(prompt)
+                self.assertIs(polarity is True and mature, expected)
+
+    def test_critique_event_parser_generated_boundary_matrix(self) -> None:
+        policy = json.loads(
+            (ROUTING_ROOT / "routing-policy.yaml").read_text(encoding="utf-8")
+        )
+
+        def first_rule(prompt: str) -> dict[str, object] | None:
+            return next(
+                (
+                    rule
+                    for rule in policy["rules"]
+                    if index._rule_matches_prompt(rule, prompt.lower(), policy)
+                ),
+                None,
+            )
+
+        def assert_mature(prompt: str, expected: bool) -> None:
+            polarity, mature, _ = index._prompt_critique_state(prompt)
+            self.assertIs(polarity is True and mature, expected)
+
+        cases_run = 0
+        actions = (
+            "Review",
+            "Critique",
+            "Audit",
+            "Challenge",
+            "Validate",
+            "Stress-test",
+            "Compare",
+        )
+        targets = (
+            "this proposal",
+            "my security policy",
+            "this repository architecture",
+            "the supplied PDF",
+        )
+        text_scopes = (
+            "grammar only",
+            "spelling only",
+            "wording only",
+            "punctuation only",
+            "tone only",
+        )
+        critique_routes = {
+            "deep-critique",
+            "security-best-practices-review",
+            "coding-architecture-review",
+            "critical-pdf-review",
+        }
+        for action in actions:
+            for target in targets:
+                for scope in text_scopes:
+                    prompt = f"{action} {target} for {scope}."
+                    with self.subTest(family="explicit-text-only", prompt=prompt):
+                        assert_mature(prompt, False)
+                        rule = first_rule(prompt)
+                        self.assertNotIn(rule["id"] if rule else None, critique_routes)
+                    cases_run += 1
+
+        domain_terms = (
+            "authorization",
+            "authentication",
+            "access control",
+            "repository architecture",
+        )
+        linguistic_dimensions = ("grammar", "spelling", "capitalization", "wording")
+        for action in actions:
+            for domain in domain_terms:
+                for dimension in linguistic_dimensions:
+                    prompt = f"{action} the {dimension} of {domain} only."
+                    with self.subTest(family="linguistic-domain", prompt=prompt):
+                        assert_mature(prompt, False)
+                        rule = first_rule(prompt)
+                        self.assertNotIn(rule["id"] if rule else None, critique_routes)
+                    cases_run += 1
+
+        substantive_criteria = (
+            "weak assumptions",
+            "flawed logic",
+            "accuracy",
+            "missing authorization",
+            "coupling",
+            "module boundaries",
+        )
+        mixed_text = ("grammar", "spelling", "wording")
+        for action in actions:
+            for criterion in substantive_criteria:
+                for dimension in mixed_text:
+                    prompt = (
+                        f"{action} this proposal for {criterion} and {dimension}."
+                    )
+                    with self.subTest(family="mixed-positive", prompt=prompt):
+                        assert_mature(prompt, True)
+                    cases_run += 1
+
+        exclusion_scopes = ("grammar only", "spelling only", "wording only")
+        excluded_criteria = ("assumptions", "logic", "coupling", "module boundaries")
+        exclusion_templates = (
+            "{scope}, not {criterion}",
+            "{scope}, excluding {criterion}",
+            "{scope} and do not analyze {criterion}",
+        )
+        for action in actions:
+            for scope in exclusion_scopes:
+                for criterion in excluded_criteria:
+                    for template in exclusion_templates:
+                        criteria = template.format(scope=scope, criterion=criterion)
+                        prompt = f"{action} this proposal for {criteria}."
+                        with self.subTest(family="explicit-exclusion", prompt=prompt):
+                            assert_mature(prompt, False)
+                        cases_run += 1
+
+        precedence_cases = (
+            ("Critique weak assumptions. Do not critique them.", False),
+            ("Do not critique this plan. Critique its weak assumptions.", True),
+            ("Critique weak assumptions and proofread it too.", True),
+            ("Critique weak assumptions and also proofread it.", True),
+            ("Critique weak assumptions. Instead, proofread it.", False),
+            ("Critique weak assumptions. Actually, summarize it only.", False),
+            ("Critique weak assumptions. No critique, just summarize.", False),
+            ("Critique weak assumptions. Don't do another critique, just summarize.", False),
+            ("Do not summarize, critique weak assumptions instead.", True),
+            ("Rather than summarize, critique weak assumptions.", True),
+        )
+        for prompt, expected in precedence_cases:
+            with self.subTest(family="precedence", prompt=prompt):
+                assert_mature(prompt, expected)
+            cases_run += 1
+
+        semantic_cases = (
+            ("What do you think about that proposal?", "deep-critique"),
+            ("Is our recommendation defensible?", "deep-critique"),
+            ("Should we use the plan?", "deep-critique"),
+            ("What do you think about that security policy?", "security-best-practices-review"),
+            ("Is my authentication architecture secure?", "security-best-practices-review"),
+            ("Should we use the security policy?", "security-best-practices-review"),
+            ("What do you think about that repository architecture?", "coding-architecture-review"),
+            ("Is our repository architecture sound?", "coding-architecture-review"),
+            ("Should we use the repository architecture?", "coding-architecture-review"),
+            ("What do you think about the attached PDF?", "critical-pdf-review"),
+            ("Is the uploaded PDF accurate?", "critical-pdf-review"),
+            ("Should we use the supplied PDF?", "critical-pdf-review"),
+            ("Is report.pdf accurate?", "critical-pdf-review"),
+            ("What do you think about this document's grammar?", None),
+            ("Is this memo's wording correct?", None),
+            ("Should we use this supplied PDF for grammar?", None),
+            ("What do you think about the word authorization?", None),
+            ("Is that proposal viable?", "deep-critique"),
+            ("Is that security policy complete?", "security-best-practices-review"),
+            ("Is that repository architecture consistent?", "coding-architecture-review"),
+            ("Is the attached PDF credible?", "critical-pdf-review"),
+        )
+        for prompt, expected_rule in semantic_cases:
+            with self.subTest(family="semantic-specialist", prompt=prompt):
+                rule = first_rule(prompt)
+                self.assertEqual(rule["id"] if rule else None, expected_rule)
+            cases_run += 1
+
+        masking_cases = (
+            'Example: "Critique weak assumptions." Summarize this plan only.',
+            "Example: ‘Critique weak assumptions.’ Summarize this plan only.",
+            "Example: `Critique weak assumptions.` Summarize this plan only.",
+            "Example:\n```text\nCritique weak assumptions.\n```\nSummarize this plan only.",
+            "> Critique weak assumptions.\nSummarize this plan only.",
+        )
+        for prompt in masking_cases:
+            with self.subTest(family="masking", prompt=prompt):
+                assert_mature(prompt, False)
+            cases_run += 1
+
+        source_cases = (
+            ("Do these sources support the claim?", "source-backed-critique"),
+            ("Are these citations authentic?", "source-backed-critique"),
+            ("Review the evidence chain for credibility and wording.", "source-backed-critique"),
+            ("Review the evidence chain wording only.", None),
+            ("Review citation formatting only.", None),
+            ("Verify the sources. Actually, summarize them only.", None),
+        )
+        for prompt, expected_rule in source_cases:
+            with self.subTest(family="source", prompt=prompt):
+                rule = first_rule(prompt)
+                self.assertEqual(rule["id"] if rule else None, expected_rule)
+            cases_run += 1
+
+        implementation_cases = (
+            ("Deeply critique this code and implement the fix.", "coding-deep-critique-implementation"),
+            ("Source-backed critique this patch and implement the fix.", "coding-source-critique-implementation"),
+            ("Critique repository architecture for coupling, then implement the refactor.", "coding-deep-critique-implementation"),
+            ("Review code grammar only and implement the fix.", "coding-project-lifecycle"),
+            ("Do not critique the code. Implement the fix.", "coding-project-lifecycle"),
+            ('Example: "Critique this code." Implement the fix.', "coding-project-lifecycle"),
+        )
+        for prompt, expected_rule in implementation_cases:
+            with self.subTest(family="critique-implementation", prompt=prompt):
+                rule = first_rule(prompt)
+                self.assertEqual(rule["id"] if rule else None, expected_rule)
+            cases_run += 1
+
+        self.assertEqual(cases_run, 678)
+
+    def test_critique_event_parser_metamorphic_equivalents(self) -> None:
+        policy = json.loads(
+            (ROUTING_ROOT / "routing-policy.yaml").read_text(encoding="utf-8")
+        )
+
+        def first_rule_id(prompt: str) -> str | None:
+            rule = next(
+                (
+                    candidate
+                    for candidate in policy["rules"]
+                    if index._rule_matches_prompt(candidate, prompt.lower(), policy)
+                ),
+                None,
+            )
+            return str(rule["id"]) if rule else None
+
+        semantic_cases = {
+            "Should we use that proposal?": "deep-critique",
+            "Should we use that security policy?": "security-best-practices-review",
+            "Should we use that repository architecture?": "coding-architecture-review",
+            "What do you think about that PDF?": "critical-pdf-review",
+            "Is my PDF accurate?": "critical-pdf-review",
+            "Should we use our PDF?": "critical-pdf-review",
+            "Should we adopt this proposal?": "deep-critique",
+            "Should we adopt this security policy?": "security-best-practices-review",
+            "Should we adopt this repository architecture?": "coding-architecture-review",
+            "Should we adopt this supplied PDF?": "critical-pdf-review",
+            "Does this proposal look sound?": "deep-critique",
+            "Does this security policy look sound?": "security-best-practices-review",
+            "Does this repository architecture look sound?": "coding-architecture-review",
+            "Does this PDF look sound?": "critical-pdf-review",
+            "What weaknesses are in this proposal?": "deep-critique",
+            "What weaknesses are in this security policy?": "security-best-practices-review",
+            "What weaknesses are in this repository architecture?": "coding-architecture-review",
+            "What weaknesses are in this PDF?": "critical-pdf-review",
+            "Summarize these sources. Instead, verify whether they support the claim.": "source-backed-critique",
+            "Rather than summarize, verify whether these sources support the claim.": "source-backed-critique",
+            "Critique this code. Instead, implement the fix.": "coding-project-lifecycle",
+            "Critique this code and also implement the fix.": "coding-deep-critique-implementation",
+        }
+        for prompt, expected_rule in semantic_cases.items():
+            with self.subTest(prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+    def test_critique_event_parser_downstream_boundary_closure(self) -> None:
+        policy = json.loads(
+            (ROUTING_ROOT / "routing-policy.yaml").read_text(encoding="utf-8")
+        )
+
+        def first_rule_id(prompt: str) -> str | None:
+            rule = next(
+                (
+                    candidate
+                    for candidate in policy["rules"]
+                    if index._rule_matches_prompt(candidate, prompt.lower(), policy)
+                ),
+                None,
+            )
+            return str(rule["id"]) if rule else None
+
+        copyedit_questions = (
+            "What flaws are in my proposal's grammar?",
+            "What gaps are in that security policy's wording?",
+            "What weaknesses are in our repository architecture's spelling?",
+        )
+        for prompt in copyedit_questions:
+            with self.subTest(family="semantic-copyedit", prompt=prompt):
+                self.assertEqual(index._prompt_critique_state(prompt)[:2], (None, False))
+                self.assertIsNone(first_rule_id(prompt))
+
+        for basename in (
+            "report",
+            "analysis",
+            "plan",
+            "memo",
+            "policy",
+            "strategy",
+            "forecast",
+        ):
+            prompts = (
+                f"What do you think about {basename}.pdf's wording?",
+                f"Is {basename}.pdf's grammar correct?",
+                f"Should we rely on {basename}.pdf for spelling only?",
+            )
+            for prompt in prompts:
+                with self.subTest(family="pdf-filename-copyedit", prompt=prompt):
+                    self.assertEqual(index._prompt_critique_state(prompt)[:2], (None, False))
+                    self.assertIsNone(first_rule_id(prompt))
+
+        source_cases = {
+            "Summarize these sources, then instead verify whether they support the claim.":
+                "source-backed-critique",
+            "Verify these sources, then instead summarize them.": None,
+            "Summarize these sources. Instead, verify whether they support the claim.":
+                "source-backed-critique",
+            "Review the sources for credibility.": "source-backed-critique",
+            "Review citations for credibility and wording only.": "source-backed-critique",
+            "Assess source credibility and grammar only.": "source-backed-critique",
+            "Review the evidence chain for grammatical correctness only.": None,
+        }
+        for prompt, expected_rule in source_cases.items():
+            with self.subTest(family="source-ordering", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        implementation_cases = {
+            "Critique this code, instead implement the fix.": "coding-project-lifecycle",
+            "Critique this code. Implement the fix instead.": "coding-project-lifecycle",
+            "Critique this code; Implement the fix instead.": "coding-project-lifecycle",
+            "Implement the fix. Instead, critique this code.": "deep-critique",
+            "Critique this code and also implement the fix.":
+                "coding-deep-critique-implementation",
+            "Review this code for grammatical correctness only and implement the typo fix.":
+                "coding-project-lifecycle",
+        }
+        for prompt, expected_rule in implementation_cases.items():
+            with self.subTest(family="implementation-ordering", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        copyedit_only = (
+            "Review this memo for grammatical correctness only.",
+            "Is this memo grammatically correct?",
+            "Review my security policy for grammatical correctness only.",
+            "Is this security policy grammatically correct?",
+            "Review this repository architecture for grammatical correctness only.",
+            "Is this repository architecture grammatically correct?",
+            "Review the supplied PDF for grammatical correctness only.",
+            "Is this supplied PDF grammatically correct?",
+        )
+        for prompt in copyedit_only:
+            with self.subTest(family="grammatical-correctness", prompt=prompt):
+                polarity, mature, _ = index._prompt_critique_state(prompt)
+                self.assertIn(polarity, (None, False))
+                self.assertFalse(mature)
+                self.assertIsNone(first_rule_id(prompt))
+
+        security_mixed = (
+            "Review access control design and wording only.",
+            "Review authorization controls and grammar only.",
+            "Review authentication flow and spelling only.",
+            "Review RLS policies and grammar only.",
+        )
+        for prompt in security_mixed:
+            with self.subTest(family="security-mixed", prompt=prompt):
+                self.assertEqual(index._prompt_critique_state(prompt)[:2], (True, True))
+                self.assertEqual(first_rule_id(prompt), "security-best-practices-review")
+
+        mention_cases = {
+            "Critique the phrase supplied PDF for weak assumptions.": "deep-critique",
+            "Review a history essay that mentions the supplied PDF for weak assumptions.":
+                "deep-critique",
+            "Critique a sentence about the attached PDF for flawed logic.": "deep-critique",
+            "Review the supplied PDF about authentication for weak assumptions.":
+                "critical-pdf-review",
+            "Review the supplied PDF about repository architecture for weak assumptions.":
+                "critical-pdf-review",
+        }
+        for prompt, expected_rule in mention_cases.items():
+            with self.subTest(family="container-mention", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        structural_scope_cases = {
+            "Review this proposal for grammar plus commercial viability.": "deep-critique",
+            "Critique this proposal for wording and strategic fit.": "deep-critique",
+            "Audit this plan for tone and business impact.": "deep-critique",
+            "Review authentication and grammar only.": "security-best-practices-review",
+            "Review authorization and wording only.": "security-best-practices-review",
+            "Review API permissions and grammar only.": "security-best-practices-review",
+            "Review access control effectiveness and wording only.":
+                "security-best-practices-review",
+            "Review authentication robustness and spelling only.":
+                "security-best-practices-review",
+        }
+        for prompt, expected_rule in structural_scope_cases.items():
+            with self.subTest(family="structural-sibling", prompt=prompt):
+                self.assertEqual(index._prompt_critique_state(prompt)[:2], (True, True))
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        multi_dot_cases = {
+            "What do you think of security.review.final.pdf?": "critical-pdf-review",
+            "Is Q3.board.pack.pdf credible?": "critical-pdf-review",
+            "Review report.v3.final.pdf for grammar only.": None,
+        }
+        for prompt, expected_rule in multi_dot_cases.items():
+            with self.subTest(family="multi-dot-filename", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        quoted_example_cases = {
+            'Example: "Critique the security policy for flaws." Now critique this memo for weak assumptions.':
+                "deep-critique",
+            'The prior request was "Critique this policy." Now critique this memo for weak assumptions.':
+                "deep-critique",
+            'Example: "Implement the fix." Critique this code.': "deep-critique",
+            "Example:\n```text\nImplement the fix.\n```\nCritique this code.": "deep-critique",
+        }
+        for prompt, expected_rule in quoted_example_cases.items():
+            with self.subTest(family="example-boundary", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        scope_alternative_cases = {
+            "Review grammar instead of weak assumptions.": None,
+            "Review grammar rather than weak assumptions.": None,
+            "Review the security policy's grammar instead of authorization controls.": None,
+            "Review repository architecture spelling instead of coupling.": None,
+            "Review supplied PDF grammar instead of weak assumptions.": None,
+            "Review the sources for grammar instead of credibility.": None,
+            "Review weak assumptions instead of grammar.": "deep-critique",
+            "Review authorization controls rather than grammar.":
+                "security-best-practices-review",
+        }
+        for prompt, expected_rule in scope_alternative_cases.items():
+            with self.subTest(family="scope-alternative", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        implementation_object_cases = {
+            "Critique this code and implement caching instead of recomputing.":
+                "coding-deep-critique-implementation",
+            "Critique this code, then implement a fallback instead of retrying.":
+                "coding-deep-critique-implementation",
+            "Implement the fix and critique fallback behavior instead of retry behavior.":
+                "coding-deep-critique-implementation",
+            "Review this security policy for grammatical correctness only and implement the typo fix.":
+                "coding-project-lifecycle",
+            "Review authentication documentation for spelling only and implement the typo fix.":
+                "coding-project-lifecycle",
+        }
+        for prompt, expected_rule in implementation_object_cases.items():
+            with self.subTest(family="implementation-object", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        expanded_copyedit = (
+            "Is this memo grammatically sound?",
+            "Is this memo grammatically accurate?",
+            "Is this security policy grammatically sound?",
+            "Is this repository architecture grammatically accurate?",
+            "Is this supplied PDF grammatically sound?",
+        )
+        for prompt in expanded_copyedit:
+            with self.subTest(family="copyedit-morphology", prompt=prompt):
+                self.assertIsNone(first_rule_id(prompt))
+
+        expanded_container_mentions = {
+            "Review the supplied PDF regarding authentication for weak assumptions.":
+                "critical-pdf-review",
+            "Review the supplied PDF that discusses authentication for weak assumptions.":
+                "critical-pdf-review",
+            "Review the supplied PDF mentioning authentication for weak assumptions.":
+                "critical-pdf-review",
+            "Review the supplied PDF with a section on authentication for weak assumptions.":
+                "critical-pdf-review",
+            "What do you think about the supplied PDF that discusses repository architecture?":
+                "critical-pdf-review",
+        }
+        for prompt, expected_rule in expanded_container_mentions.items():
+            with self.subTest(family="container-subject-syntax", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+
+        expanded_source_actions = {
+            "Review evidence quality and grammar only.": "source-backed-critique",
+            "Check source credibility and spelling only.": "source-backed-critique",
+            "Evaluate the sources for reliability and wording only.":
+                "source-backed-critique",
+        }
+        for prompt, expected_rule in expanded_source_actions.items():
+            with self.subTest(family="source-action", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
 
     def test_repository_port_provenance_hashes_are_current(self) -> None:
         provenance = json.loads(
