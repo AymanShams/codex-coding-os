@@ -1743,11 +1743,20 @@ _CRITIQUE_CONTAINER_SUBJECT_MENTION = re.compile(
     rf"(?:{_CRITIQUE_EVALUATION_MARKER.pattern}))|$)"
 )
 
+_CRITIQUE_WORD_PRODUCT_REFERENCE = re.compile(
+    r"\b(?P<prefix>(?:this|that|my|our|attached|uploaded|provided|supplied|"
+    r"microsoft)\s+)(?P<product>word)\b"
+)
+_CRITIQUE_WORD_PRODUCT_MARKER = "\ue001"
+
 
 def _strip_critique_linguistic_mentions(text: str) -> tuple[str, bool]:
     """Remove quoted-domain mentions while preserving later evaluation scope."""
 
-    value = text
+    value = _CRITIQUE_WORD_PRODUCT_REFERENCE.sub(
+        lambda match: f"{match.group('prefix')}{_CRITIQUE_WORD_PRODUCT_MARKER}",
+        text,
+    )
     found = False
     marker = _CRITIQUE_EVALUATION_MARKER.pattern
     patterns = (
@@ -1770,6 +1779,7 @@ def _strip_critique_linguistic_mentions(text: str) -> tuple[str, bool]:
     for pattern in patterns:
         value, count = pattern.subn(" ", value)
         found = found or bool(count)
+    value = value.replace(_CRITIQUE_WORD_PRODUCT_MARKER, "word")
     return re.sub(r"\s+", " ", value).strip(), found
 
 
@@ -2169,6 +2179,19 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
     ):
         return False
     return bool(effective_clause)
+
+
+def _prompt_is_linguistic_critique_mention(prompt: str) -> bool:
+    """Reject deliverable routing when critique targets a literal word or phrase."""
+
+    if _prompt_has_affirmative_critique_intent(prompt):
+        return False
+    for clause in _directive_clauses(prompt):
+        text = _prepared_critique_clause(clause)
+        _, mention_seen = _strip_critique_linguistic_mentions(text)
+        if mention_seen and _CRITIQUE_EVENT_FINDER.search(text):
+            return True
+    return False
 
 
 _SOURCE_SPECIAL_POSITIVE = (
@@ -4270,6 +4293,7 @@ def _intent_gate_matches(
         return bool(
             not software_implementation
             and not _prompt_has_affirmative_critique_intent(prompt_lower)
+            and not _prompt_is_linguistic_critique_mention(prompt_lower)
         )
     if gate == "security_diff_review":
         return _prompt_has_security_diff_review_intent(prompt_lower)

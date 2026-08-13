@@ -1847,6 +1847,33 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 self.assertEqual(index._prompt_critique_state(prompt)[:2], (True, True))
                 self.assertEqual(first_rule_id(prompt), "security-best-practices-review")
 
+        word_document_cases = {
+            "Critique this Word document, do not edit it.": "deep-critique",
+            "Critique this Word file for weak assumptions.": "deep-critique",
+            "Critique this Word report, do not edit it.": "deep-critique",
+            "Critique this Word memo, do not edit it.": "deep-critique",
+            "Critique the attached Word memo, do not edit it.": "deep-critique",
+            "Critique my Word policy for weak assumptions.": "deep-critique",
+            "Critique the Microsoft Word proposal for flawed logic.": "deep-critique",
+            "Critique this Word document for grammar only.":
+                "create-or-edit-word-document",
+            "Critique this Word document. Instead, summarize it.":
+                "create-or-edit-word-document",
+            "Critique this Word document and also summarize it.": "deep-critique",
+            "Critique the word authorization.": None,
+            "Critique the word document as a verb.": None,
+            "Critique the word report as a noun.": None,
+            "Critique the word file in this sentence.": None,
+            "Critique the word memo.": None,
+            "Critique the word policy.": None,
+            "Critique the phrase weak assumptions.": None,
+        }
+        for prompt, expected_rule in word_document_cases.items():
+            with self.subTest(family="word-document-vs-linguistic-mention", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+                if "grammar only" in prompt.lower():
+                    self.assertEqual(index._prompt_critique_state(prompt)[:2], (False, False))
+
         mention_cases = {
             "Critique the phrase supplied PDF for weak assumptions.": "deep-critique",
             "Review a history essay that mentions the supplied PDF for weak assumptions.":
