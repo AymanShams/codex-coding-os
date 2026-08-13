@@ -1553,6 +1553,15 @@ _NONCRITIQUE_EVENT_FINDER = re.compile(
     rf"{_CRITIQUE_NEGATION}{_CRITIQUE_POST_NEGATION_MODIFIERS}"
     rf"(?P<action>{_NONCRITIQUE_EVENT_ACTION})(?=\b|$)"
 )
+_DELIVERABLE_EVENT_ACTION = (
+    r"(?:create|build|generate|prepare|write|edit|read|inspect|analy[sz]e|"
+    r"calculate|convert|extract|transcribe)"
+)
+_DELIVERABLE_EVENT_FINDER = re.compile(
+    rf"{_CRITIQUE_DIRECTIVE_INTRO}{_CRITIQUE_DIRECTIVE_MODIFIERS}"
+    rf"{_CRITIQUE_NEGATION}{_CRITIQUE_POST_NEGATION_MODIFIERS}"
+    rf"(?P<action>{_DELIVERABLE_EVENT_ACTION})(?=\b|$)"
+)
 _CRITIQUE_REPLACEMENT_IMPLEMENTATION = re.compile(
     rf"(?:^|[,;:.!?]\s*|\b(?:and(?:\s+then)?|then)\s+)"
     rf"(?:(?:actually|please)\s*,?\s+)*(?:"
@@ -1743,11 +1752,20 @@ _CRITIQUE_CONTAINER_SUBJECT_MENTION = re.compile(
     rf"(?:{_CRITIQUE_EVALUATION_MARKER.pattern}))|$)"
 )
 
+_CRITIQUE_WORD_PRODUCT_REFERENCE = re.compile(
+    r"\b(?P<prefix>(?:this|that|my|our|attached|uploaded|provided|supplied|"
+    r"microsoft)\s+)(?P<product>word)\b"
+)
+_CRITIQUE_WORD_PRODUCT_MARKER = "\ue001"
+
 
 def _strip_critique_linguistic_mentions(text: str) -> tuple[str, bool]:
     """Remove quoted-domain mentions while preserving later evaluation scope."""
 
-    value = text
+    value = _CRITIQUE_WORD_PRODUCT_REFERENCE.sub(
+        lambda match: f"{match.group('prefix')}{_CRITIQUE_WORD_PRODUCT_MARKER}",
+        text,
+    )
     found = False
     marker = _CRITIQUE_EVALUATION_MARKER.pattern
     patterns = (
@@ -1770,6 +1788,7 @@ def _strip_critique_linguistic_mentions(text: str) -> tuple[str, bool]:
     for pattern in patterns:
         value, count = pattern.subn(" ", value)
         found = found or bool(count)
+    value = value.replace(_CRITIQUE_WORD_PRODUCT_MARKER, "word")
     return re.sub(r"\s+", " ", value).strip(), found
 
 
@@ -2169,6 +2188,33 @@ def _prompt_has_mature_deep_critique_intent(prompt: str) -> bool:
     ):
         return False
     return bool(effective_clause)
+
+
+def _prompt_is_linguistic_critique_mention(prompt: str) -> bool:
+    """Return whether the final active directive critiques a linguistic mention."""
+
+    if _prompt_has_affirmative_critique_intent(prompt):
+        return False
+    final_is_linguistic_critique = False
+    for clause in _directive_clauses(prompt):
+        text = _prepared_critique_clause(clause)
+        _, mention_seen = _strip_critique_linguistic_mentions(text)
+        events: list[tuple[int, bool]] = []
+        if mention_seen:
+            events.extend(
+                (match.start(), True)
+                for match in _CRITIQUE_EVENT_FINDER.finditer(text)
+                if not match.groupdict().get("negative")
+            )
+        events.extend(
+            (match.start(), False)
+            for match in _DELIVERABLE_EVENT_FINDER.finditer(text)
+            if not match.groupdict().get("negative")
+        )
+        if events:
+            events.sort(key=lambda event: event[0])
+            final_is_linguistic_critique = events[-1][1]
+    return final_is_linguistic_critique
 
 
 _SOURCE_SPECIAL_POSITIVE = (
@@ -4270,6 +4316,7 @@ def _intent_gate_matches(
         return bool(
             not software_implementation
             and not _prompt_has_affirmative_critique_intent(prompt_lower)
+            and not _prompt_is_linguistic_critique_mention(prompt_lower)
         )
     if gate == "security_diff_review":
         return _prompt_has_security_diff_review_intent(prompt_lower)
