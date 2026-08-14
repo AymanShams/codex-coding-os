@@ -13,11 +13,13 @@ from capability_index import (
     ROUTE_DECISION_REGISTRY_PATH,
     ROUTING_POLICY_PATH,
     ensure_index,
+    hook_carrier_status,
     load_routing_policy,
     query_index,
     resolve_route,
     route_execution_ready,
     verify_registered_route,
+    worker_runtime_identity_status,
 )
 
 
@@ -59,6 +61,11 @@ def main() -> int:
         ),
     )
     parser.add_argument("--json", action="store_true", dest="json_output", help="Print the unified decision as JSON.")
+    parser.add_argument(
+        "--status-json",
+        action="store_true",
+        help="Print component-level router authority status as JSON.",
+    )
     parser.add_argument("--project-id", help="Structured Task Gate project identity for scoped memory mapping.")
     parser.add_argument("--cwd", help="Structured working directory for scoped memory mapping.")
     parser.add_argument(
@@ -300,6 +307,59 @@ def main() -> int:
         print(f"route_registry={receipt['status']}")
         return exit_code
 
+    if args.status_json:
+        dynamic = manifest.get("dynamic_authority")
+        dynamic = dynamic if isinstance(dynamic, dict) else {}
+        summary = manifest.get("summary")
+        summary = summary if isinstance(summary, dict) else {}
+        router_ready = (
+            manifest.get("source_hashes_verified") is True
+            and manifest.get("freshness_status") in {"fresh", "degraded", "current", "live", "valid", "verified"}
+        )
+        worker_identities = worker_runtime_identity_status(manifest)
+        status = {
+            "schema_version": "capability-router-status-v1",
+            "router_admission_status": (
+                "degraded"
+                if router_ready and manifest.get("freshness_status") == "degraded"
+                else "available"
+                if router_ready
+                else "unavailable"
+            ),
+            "freshness_status": manifest.get("freshness_status", "missing"),
+            "static_source_hashes_verified": bool(
+                manifest.get("static_source_hashes_verified")
+            ),
+            "dynamic_authority_status": manifest.get(
+                "dynamic_authority_status", "unavailable"
+            ),
+            "worker_runtime_bom_status": manifest.get(
+                "worker_runtime_bom_status", "unavailable"
+            ),
+            "worker_runtime_identities": worker_identities,
+            "hook_carrier": hook_carrier_status(),
+            "generation_pointer_status": manifest.get(
+                "generation_pointer_status", "unknown"
+            ),
+            "authority_generation_id": str(
+                (manifest.get("authority_generation") or {}).get("id") or ""
+            ),
+            "manifest_authority_sha256": manifest.get("authority_sha256", ""),
+            "active_entries": int(summary.get("active_entries", 0)),
+            "quarantined_package_count": len(
+                dynamic.get("quarantined_packages", [])
+            ),
+            "quarantined_capability_count": len(
+                dynamic.get("quarantined_capability_ids", [])
+            ),
+            "changed_packages": dynamic.get("changed_packages", []),
+            "changed_config_leaves": dynamic.get("changed_config_leaves", []),
+            "quarantined_packages": dynamic.get("quarantined_packages", []),
+            "reason_code": dynamic.get("reason_code", ""),
+        }
+        print(json.dumps(status, ensure_ascii=False, sort_keys=True, indent=2))
+        return 0 if router_ready else 4
+
     summary = manifest["summary"]
     print(f"manifest_snapshot={manifest.get('snapshot_id', '')}")
     print(f"freshness_status={manifest.get('freshness_status', '')}")
@@ -311,6 +371,18 @@ def main() -> int:
     print(f"max_worker_supports={policy.get('max_worker_supports', 2)}")
     print(f"worker_rules={len(policy.get('worker_rules', []))}")
     print(f"source_hashes_verified={str(bool(manifest.get('source_hashes_verified'))).lower()}")
+    print(
+        "static_source_hashes_verified="
+        f"{str(bool(manifest.get('static_source_hashes_verified'))).lower()}"
+    )
+    print(f"dynamic_authority_status={manifest.get('dynamic_authority_status', '')}")
+    print(f"worker_runtime_bom_status={manifest.get('worker_runtime_bom_status', '')}")
+    print(f"generation_pointer_status={manifest.get('generation_pointer_status', '')}")
+    print(
+        "authority_generation_id="
+        f"{(manifest.get('authority_generation') or {}).get('id', '')}"
+    )
+    print(f"rejected_quarantined={summary.get('rejected_quarantined', 0)}")
     return 0
 
 

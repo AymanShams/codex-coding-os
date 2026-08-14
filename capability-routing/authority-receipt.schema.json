@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://local.codex/capability-authority-receipt-v2.schema.json",
+  "$id": "https://local.codex/capability-authority-receipt-v3.schema.json",
   "title": "Capability Authority Receipt",
   "type": "object",
   "additionalProperties": false,
@@ -8,24 +8,85 @@
     "schema_version",
     "config_projection_sha256",
     "config_leaf_hashes",
+    "config_capability_surfaces",
     "plugin_cache_inventory_sha256",
     "plugin_cache_row_hashes",
     "plugin_capability_surfaces",
     "plugin_package_manifests",
     "plugin_package_origins",
+    "remote_plugin_catalog_entries",
+    "bundled_marketplace_origin",
+    "primary_runtime_bundle_origin",
     "required_source_hashes",
     "app_identity",
     "snapshot_sha256"
   ],
   "properties": {
     "schema_version": {
-      "const": "capability-authority-receipt-v2"
+      "const": "capability-authority-receipt-v3"
     },
     "config_projection_sha256": {
       "$ref": "#/$defs/sha256"
     },
     "config_leaf_hashes": {
       "$ref": "#/$defs/hashMap"
+    },
+    "config_capability_surfaces": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "change_class",
+          "control_kind",
+          "control_key",
+          "capability_ids",
+          "required_capability_ids"
+        ],
+        "properties": {
+          "change_class": {
+            "enum": ["availability_toggle", "runtime_identity"]
+          },
+          "control_kind": {
+            "enum": [
+              "app",
+              "app_tool",
+              "app_runtime",
+              "global_runtime",
+              "mcp",
+              "mcp_runtime",
+              "plugin",
+              "plugin_mcp",
+              "skill"
+            ]
+          },
+          "control_key": { "type": "string", "minLength": 1 },
+          "capability_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "required_capability_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "enabled": { "type": "boolean" }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "change_class": { "const": "availability_toggle" }
+              }
+            },
+            "then": { "required": ["enabled"] },
+            "else": { "not": { "required": ["enabled"] } }
+          }
+        ]
+      }
     },
     "plugin_cache_inventory_sha256": {
       "$ref": "#/$defs/sha256"
@@ -94,6 +155,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "attestation_mode",
           "receipt_schema_version",
           "remote_plugin_id",
           "marketplace",
@@ -104,8 +166,14 @@
           "install_receipt_sha256"
         ],
         "properties": {
+          "attestation_mode": {
+            "enum": [
+              "plugin-root-v1",
+              "version-package-v2"
+            ]
+          },
           "receipt_schema_version": {
-            "const": 2
+            "enum": [1, 2]
           },
           "remote_plugin_id": {
             "type": "string",
@@ -130,6 +198,256 @@
           },
           "install_receipt_sha256": {
             "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "remote_plugin_catalog_entries": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "remote_plugin_id",
+          "plugin_name",
+          "plugin_version",
+          "status",
+          "installation_policy",
+          "apps",
+          "local_apps",
+          "skill_names",
+          "entry_projection_sha256",
+          "fetched_at"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "remote-plugin-catalog-entry-v1"
+          },
+          "remote_plugin_id": {
+            "type": "string",
+            "pattern": "^[-A-Za-z0-9._:~]{8,256}$"
+          },
+          "plugin_name": {
+            "type": "string",
+            "pattern": "^[a-z0-9._-]+$"
+          },
+          "plugin_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "const": "AVAILABLE"
+          },
+          "installation_policy": {
+            "enum": ["AVAILABLE", "INSTALLED_BY_DEFAULT"]
+          },
+          "apps": {
+            "$ref": "#/$defs/stringMap"
+          },
+          "local_apps": {
+            "$ref": "#/$defs/stringMap"
+          },
+          "skill_names": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "entry_projection_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "bundled_marketplace_origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "materialization_version",
+        "app_version",
+        "bundle_id",
+        "materialization_key_sha256",
+        "marketplace_projection_sha256",
+        "authority_projection_sha256",
+        "packages"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "bundled-marketplace-origin-v1"
+        },
+        "materialization_version": {
+          "const": 1
+        },
+        "app_version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "bundle_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "materialization_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "marketplace_projection_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "authority_projection_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "packages": {
+          "type": "object",
+          "minProperties": 3,
+          "required": ["browser", "chrome", "computer-use"],
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "plugin_name",
+              "plugin_version",
+              "bundle_package",
+              "cache_packages",
+              "authority_file_hashes",
+              "bundle_authority_sha256",
+              "cache_authority_sha256s"
+            ],
+            "properties": {
+              "plugin_name": {
+                "type": "string",
+                "pattern": "^[a-z0-9._-]+$"
+              },
+              "plugin_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "bundle_package": {
+                "type": "string",
+                "pattern": "^plugins/[a-z0-9._-]+$"
+              },
+              "cache_packages": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^openai-bundled/[a-z0-9._-]+/[^/]+$"
+                }
+              },
+              "authority_file_hashes": {
+                "allOf": [
+                  { "$ref": "#/$defs/hashMap" },
+                  {
+                    "minProperties": 1,
+                    "propertyNames": {
+                      "pattern": "^(?:\\.codex-plugin/plugin\\.json|\\.app\\.json|\\.mcp\\.json|skills/[a-z0-9._-]+/skill\\.md)$"
+                    }
+                  }
+                ]
+              },
+              "bundle_authority_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "cache_authority_sha256s": {
+                "$ref": "#/$defs/hashMap"
+              }
+            }
+          }
+        }
+      }
+    },
+    "primary_runtime_bundle_origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "bundle_format_version",
+        "bundle_version",
+        "runtime_json_sha256",
+        "authority_projection_sha256",
+        "packages"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "primary-runtime-bundle-origin-v1"
+        },
+        "bundle_format_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bundle_version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "runtime_json_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "authority_projection_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "packages": {
+          "type": "object",
+          "minProperties": 1,
+          "required": [
+            "documents",
+            "pdf",
+            "presentations",
+            "spreadsheets",
+            "template-creator"
+          ],
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z0-9._-]+$": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "plugin_name",
+                "plugin_version",
+                "bundle_package",
+                "cache_package",
+                "authority_file_hashes",
+                "bundle_authority_sha256",
+                "cache_authority_sha256"
+              ],
+              "properties": {
+                "plugin_name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._-]+$"
+                },
+                "plugin_version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "bundle_package": {
+                  "type": "string",
+                  "pattern": "^plugins/openai-primary-runtime/plugins/[a-z0-9._-]+$"
+                },
+                "cache_package": {
+                  "type": "string",
+                  "pattern": "^openai-primary-runtime/[a-z0-9._-]+/[^/]+$"
+                },
+                "authority_file_hashes": {
+                  "allOf": [
+                    { "$ref": "#/$defs/hashMap" },
+                    {
+                      "minProperties": 1,
+                      "propertyNames": {
+                        "pattern": "^(?:\\.codex-plugin/plugin\\.json|\\.app\\.json|\\.mcp\\.json|skills/[a-z0-9._-]+/skill\\.md)$"
+                      }
+                    }
+                  ]
+                },
+                "bundle_authority_sha256": {
+                  "$ref": "#/$defs/sha256"
+                },
+                "cache_authority_sha256": {
+                  "$ref": "#/$defs/sha256"
+                }
+              }
+            }
           }
         }
       }
@@ -195,20 +513,24 @@
         "$ref": "#/$defs/sha256"
       }
     },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "requiredSourceHashMap": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "hooks.json",
-        "AGENTS.md",
-        "task-routing-gate.md",
         "catalogue-router.SKILL.md",
         "capability_index.py",
+        "routing_policy_validation.py",
         "capability_config_fingerprint.py",
         "capability_index_cli.py",
         "user_prompt_skill_router.py",
         "capability_index_session_start.py",
-        "_common.py",
         "_hook_io.py",
         "query-catalogue.ps1",
         "routing-policy.yaml",
@@ -217,22 +539,21 @@
         "project-scope-map.json",
         "project-scope-map.schema.json",
         "route-decision.schema.json",
-        "ensure-node-dependencies.ps1",
         "capability_manifest_recovery.py",
         "capability-manifest-builder.ps1",
-        "authority-receipt.schema.json"
+        "authority-receipt.schema.json",
+        "worker-runtime-bom.json",
+        "worker-runtime-bom.schema.json",
+        "promote_worker_runtime_bom.py"
       ],
       "properties": {
-        "hooks.json": { "$ref": "#/$defs/sha256" },
-        "AGENTS.md": { "$ref": "#/$defs/sha256" },
-        "task-routing-gate.md": { "$ref": "#/$defs/sha256" },
         "catalogue-router.SKILL.md": { "$ref": "#/$defs/sha256" },
         "capability_index.py": { "$ref": "#/$defs/sha256" },
+        "routing_policy_validation.py": { "$ref": "#/$defs/sha256" },
         "capability_config_fingerprint.py": { "$ref": "#/$defs/sha256" },
         "capability_index_cli.py": { "$ref": "#/$defs/sha256" },
         "user_prompt_skill_router.py": { "$ref": "#/$defs/sha256" },
         "capability_index_session_start.py": { "$ref": "#/$defs/sha256" },
-        "_common.py": { "$ref": "#/$defs/sha256" },
         "_hook_io.py": { "$ref": "#/$defs/sha256" },
         "query-catalogue.ps1": { "$ref": "#/$defs/sha256" },
         "routing-policy.yaml": { "$ref": "#/$defs/sha256" },
@@ -241,10 +562,12 @@
         "project-scope-map.json": { "$ref": "#/$defs/sha256" },
         "project-scope-map.schema.json": { "$ref": "#/$defs/sha256" },
         "route-decision.schema.json": { "$ref": "#/$defs/sha256" },
-        "ensure-node-dependencies.ps1": { "$ref": "#/$defs/sha256" },
         "capability_manifest_recovery.py": { "$ref": "#/$defs/sha256" },
         "capability-manifest-builder.ps1": { "$ref": "#/$defs/sha256" },
-        "authority-receipt.schema.json": { "$ref": "#/$defs/sha256" }
+        "authority-receipt.schema.json": { "$ref": "#/$defs/sha256" },
+        "worker-runtime-bom.json": { "$ref": "#/$defs/sha256" },
+        "worker-runtime-bom.schema.json": { "$ref": "#/$defs/sha256" },
+        "promote_worker_runtime_bom.py": { "$ref": "#/$defs/sha256" }
       }
     }
   }

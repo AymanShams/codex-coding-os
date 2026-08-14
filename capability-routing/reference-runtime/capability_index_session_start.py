@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from _common import fail_open, load_input, no_output
+from _hook_io import fail_open, load_input, no_output
 from capability_index import (
     ACTIVE_CAPABILITIES_PATH,
     ensure_index,
@@ -10,6 +10,7 @@ from capability_index import (
 from capability_manifest_recovery import (
     _sha256_file,
     attempt_recovery,
+    record_quarantine_observation,
     write_session_start_recovery_receipt,
 )
 
@@ -41,6 +42,14 @@ def run_session_start(*, receipt_dir: Path | None = None) -> Path:
                 "error_type": type(exc).__name__,
             }
     after_manifest_sha256 = _sha256_file(ACTIVE_CAPABILITIES_PATH)
+    try:
+        record_quarantine_observation(after_state)
+    except Exception:
+        if result.get("status") not in {"error", "rebuilt"}:
+            result = {
+                "status": "error",
+                "reason_code": "QUARANTINE_OBSERVATION_WRITE_FAILED",
+            }
     return write_session_start_recovery_receipt(
         result,
         before_state=before_state,

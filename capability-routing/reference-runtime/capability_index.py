@@ -8,13 +8,21 @@ applies the ordered routing policy to active entries only.
 
 from __future__ import annotations
 
+import ast
+import datetime as dt
+import csv
 import fnmatch
 import hashlib
 import hmac
+import importlib.metadata
+import importlib.util
+import io
 import json
 import os
 import re
 import sqlite3
+import stat
+import subprocess
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -33,6 +41,18 @@ from capability_config_fingerprint import (
 )
 from capability_config_fingerprint import (
     capability_config_fingerprint as _capability_config_fingerprint,
+)
+from capability_config_fingerprint import (
+    capability_config_authority as _capability_config_authority,
+)
+from routing_policy_validation import (
+    ACTIVE_CAPABILITY_STATES,
+    APPROVED_LOCAL_EXECUTION_CONTRACTS,
+    APPROVED_WORKER_CONTRACTS,
+    RoutingPolicyValidationError,
+)
+from routing_policy_validation import (
+    validate_routing_policy as _validate_routing_policy,
 )
 
 
@@ -81,6 +101,12 @@ ROUTING_POLICY_PATH = Path(
         ),
     )
 )
+ROUTING_POLICY_SCHEMA_PATH = Path(
+    os.environ.get(
+        "CODEX_ROUTING_POLICY_SCHEMA_PATH",
+        str(ROUTING_DIR / "routing-policy.schema.json"),
+    )
+)
 CONFIG_PATH = Path(os.environ.get("CODEX_CONFIG_PATH", str(CODEX_HOME / "config.toml")))
 ROUTE_DECISION_SCHEMA_PATH = Path(
     os.environ.get(
@@ -94,22 +120,27 @@ ROUTE_DECISION_REGISTRY_PATH = Path(
         str(ROUTING_DIR / "route-decisions.sqlite3"),
     )
 )
+AUTHORITY_GENERATION_POINTER_PATH = Path(
+    os.environ.get(
+        "CODEX_AUTHORITY_GENERATION_POINTER_PATH",
+        str(ROUTING_DIR / "current-generation.json"),
+    )
+)
 PROJECT_SCOPE_MAP_PATH = Path(
     os.environ.get(
         "CODEX_PROJECT_SCOPE_MAP_PATH",
         str(ROUTING_DIR / "project-scope-map.json"),
     )
 )
+WORKER_RUNTIME_BOM_PATH = Path(
+    os.environ.get(
+        "CODEX_WORKER_RUNTIME_BOM_PATH",
+        str(ROUTING_DIR / "worker-runtime-bom.json"),
+    )
+)
 
-ACTIVE_STATES = {
-    "active",
-    "enabled",
-    "exposed",
-    "installed-active",
-    "runtime-active",
-    "verified-active",
-}
-FRESH_STATES = {"current", "fresh", "live", "valid", "verified"}
+ACTIVE_STATES = set(ACTIVE_CAPABILITY_STATES)
+FRESH_STATES = {"current", "degraded", "fresh", "live", "valid", "verified"}
 STATE_ARTIFACT_KINDS = {
     "routing-state",
     "snapshot",
@@ -136,6 +167,221 @@ CODEX_ONLY_EXECUTION_DISPOSITION = {
 }
 EXECUTION_REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
 SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+AUTHORITY_GENERATION_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+AUTHORITY_GENERATION_PROMOTION_REASONS = frozenset(
+    {
+        "coherent_app_update",
+        "compound_app_primary_runtime_update",
+        "primary_runtime_bundle_update",
+        "worker_runtime_bom_update",
+        "scoped_config_update",
+        "updater_bound_plugin_update",
+        "operator_rebaseline",
+    }
+)
+WORKER_RUNTIME_BOM_SCHEMA = "capability-worker-runtime-bom-v1"
+WORKER_RUNTIME_BOM_SOURCE_HASH_KEY = "worker-runtime-bom.json"
+WORKER_RUNTIME_BOM_PROMOTER_SOURCE_HASH_KEY = "promote_worker_runtime_bom.py"
+WORKER_FAMILY_SERVER_IDS = {
+    "local_agent_stack": "local-agent-stack",
+    "antigravity": "antigravity-adapter",
+}
+REQUIRED_WORKER_RUNTIME_SERVER_IDS = frozenset(WORKER_FAMILY_SERVER_IDS.values())
+WORKER_SERVER_SPECS = {
+    "antigravity-adapter": {
+        "module": "antigravity_adapter.server",
+        "pycache_relative_path": "state/python-cache/antigravity-adapter-2.1.1",
+        "env": {
+            "ANTIGRAVITY_ADAPTER_ROOT",
+            "ANTIGRAVITY_AGY_EXECUTABLE",
+        },
+    },
+    "local-agent-stack": {
+        "module": "local_agent_stack.server",
+        "pycache_relative_path": "run/python-cache/local-agent-stack-v5",
+        "env": {"LOCAL_AGENT_STACK_ROOT"},
+    },
+}
+WORKER_EXECUTION_KEYS = frozenset(
+    {
+        "args",
+        "command",
+        "cwd",
+        "enabled",
+        "env",
+        "gateway_managed",
+        "startup_timeout_sec",
+        "tool_timeout_sec",
+    }
+)
+WORKER_PRESENTATION_KEYS = frozenset({"description", "display_name", "name"})
+PYTHON_EXECUTION_CLOSURE_SCHEMA = "python-venv-execution-closure-v1"
+WORKER_IMPORT_PACKAGES = {
+    "antigravity-adapter": "antigravity_adapter",
+    "local-agent-stack": "local_agent_stack",
+}
+PYTHON_FORBIDDEN_ENVIRONMENT_VARIABLES = [
+    "PYTHONHOME",
+    "PYTHONINSPECT",
+    "PYTHONPATH",
+    "PYTHONPYCACHEPREFIX",
+    "PYTHONSTARTUP",
+    "PYTHONUSERBASE",
+]
+WORKER_CHILD_ENVIRONMENT_POLICY_ID = "codex-stability-child-env-v1"
+GATEWAY_CONFIG_SERVER_ID = "codex-stability-gateway"
+GATEWAY_CONFIG_URL = "http://127.0.0.1:8765/mcp"
+GATEWAY_RUNTIME_IDENTITY_RELATIVE_PATH = (
+    "tools/codex-stability/runtime-identity.json"
+)
+GATEWAY_RUNTIME_IDENTITY_SCHEMA = "codex-stability-gateway-runtime-identity-v1"
+GATEWAY_COMPONENT = "codex-stability-gateway"
+GATEWAY_RELEASE_ID = "codex-stability-gateway-1.0.1"
+GATEWAY_STARTUP_RECEIPT_SCHEMA = "codex-stability-gateway-startup-receipt-v2"
+GATEWAY_STARTUP_RECEIPT_BINDING_DOMAIN = (
+    "codex-stability-gateway-startup-receipt-binding-v1"
+)
+GATEWAY_STARTUP_RECEIPT_KEYS = {
+    "binding_sha256",
+    "child_environment_policy_id",
+    "executable_path",
+    "executable_sha256",
+    "gateway_startup_environment_policy_id",
+    "loaded_upstream_config_sha256",
+    "managed_upstreams_absent_at_start",
+    "process_id",
+    "process_role",
+    "process_start_time_utc",
+    "recorded_at_utc",
+    "release_id",
+    "runtime_identity_path",
+    "runtime_identity_sha256",
+    "schema_version",
+    "source_sha256",
+    "task_action_sha256",
+    "upstream_config_sha256_by_server",
+    "worker_runtime_bom_path",
+    "worker_runtime_bom_sha256",
+}
+GATEWAY_STARTUP_RECEIPT_BINDING_FIELDS = (
+    "schema_version",
+    "release_id",
+    "process_role",
+    "process_id",
+    "process_start_time_utc",
+    "executable_path",
+    "executable_sha256",
+    "runtime_identity_path",
+    "runtime_identity_sha256",
+    "source_sha256",
+    "worker_runtime_bom_path",
+    "worker_runtime_bom_sha256",
+    "loaded_upstream_config_sha256",
+    "task_action_sha256",
+    "child_environment_policy_id",
+    "gateway_startup_environment_policy_id",
+    "managed_upstreams_absent_at_start",
+)
+GATEWAY_STARTUP_RECEIPT_PATH = Path(
+    os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
+) / "Codex" / "stability" / "gateway-startup-receipt.json"
+GATEWAY_STARTUP_ENVIRONMENT_POLICY_ID = "codex-stability-gateway-startup-v1"
+GATEWAY_REQUIRED_PYTHON_FLAGS = {
+    "dont_write_bytecode": 1,
+    "isolated": 1,
+    "no_site": 1,
+    "no_user_site": 1,
+}
+GATEWAY_SOURCE_DOMAIN = b"CODEX-STABILITY-GATEWAY-SOURCE-v1\0"
+GATEWAY_SITE_PACKAGES_DOMAIN = b"CODEX-STABILITY-GATEWAY-SITE-PACKAGES-v1\0"
+GATEWAY_PYTHON_BASE_RUNTIME_DOMAIN = (
+    b"CODEX-STABILITY-GATEWAY-PYTHON-BASE-RUNTIME-v1\0"
+)
+GATEWAY_SOURCE_RELATIVE_PATHS = (
+    "codex_mcp_gateway.py",
+    "gateway_bootstrap.py",
+)
+GATEWAY_RUNTIME_BINDING_KEYS = {
+    "config_server_id",
+    "identity_relative_path",
+    "identity_sha256",
+    "runtime_identity",
+    "server_config_sha256",
+}
+GATEWAY_RUNTIME_IDENTITY_KEYS = {
+    "child_environment_policy_id",
+    "component",
+    "gateway_startup_environment_policy_id",
+    "gateway_startup_python_flags",
+    "python_bytecode_cache",
+    "python_injection_environment_keys",
+    "python_runtime",
+    "release_id",
+    "schema_version",
+    "source_files",
+    "source_sha256",
+}
+GATEWAY_PYTHON_RUNTIME_KEYS = {
+    "base_root",
+    "base_runtime_file_count",
+    "base_runtime_sha256",
+    "console_executable_path",
+    "console_executable_sha256",
+    "dependency_lock_path",
+    "dependency_lock_sha256",
+    "site_packages_file_count",
+    "site_packages_path",
+    "site_packages_sha256",
+    "version",
+    "windowless_executable_path",
+    "windowless_executable_sha256",
+}
+PYTHON_EXECUTION_CLOSURE_KEYS = {
+    "schema_version",
+    "venv_python_path",
+    "venv_python_sha256",
+    "pyvenv_config_path",
+    "pyvenv_config_sha256",
+    "include_system_site_packages",
+    "base_interpreter_path",
+    "base_interpreter_version",
+    "base_interpreter_sha256",
+    "base_runtime_tree_path",
+    "base_runtime_tree_file_count",
+    "base_runtime_tree_sha256",
+    "editable_pth_path",
+    "editable_pth_sha256",
+    "editable_source_root",
+    "import_package",
+    "import_origin",
+    "isolated_mode",
+    "user_site_enabled",
+    "dont_write_bytecode",
+    "pycache_prefix_path",
+    "pycache_prefix_empty",
+    "forbidden_environment_variables",
+    "child_environment_policy_id",
+    "site_packages_path",
+    "site_packages_tree_file_count",
+    "site_packages_tree_sha256",
+    "installed_distributions_count",
+    "installed_distributions_sha256",
+    "pth_files_count",
+    "pth_files_sha256",
+    "pth_imports_count",
+    "pth_imports_sha256",
+}
+SEMVER_PATTERN = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
+DYNAMIC_AUTHORITY_HASH_KEYS = frozenset(
+    {
+        CONFIG_CAPABILITY_SOURCE_HASH_KEY,
+        "plugin-cache-inventory",
+        WORKER_RUNTIME_BOM_SOURCE_HASH_KEY,
+    }
+)
 ROUTE_REGISTRY_COLUMNS = (
     "decision_id",
     "decision_digest",
@@ -163,20 +409,6 @@ DEFAULT_EXECUTION_PROFILE = {
     "reasoning_effort": "high",
     "deadline_seconds": 1800,
     "fallback": DEFAULT_FALLBACK,
-}
-APPROVED_WORKER_CONTRACTS = {
-    ("codex_child", "read_heavy"): ("gpt-5.6-terra", "medium"),
-    ("codex_child", "independent_challenger"): ("gemini-3.1-pro-high", "high"),
-    ("local_agent_stack", "fast"): ("qwen3.5:2b-q8_0", None),
-    ("local_agent_stack", "coding"): ("qwen2.5-coder:7b-instruct-q6_K", None),
-    ("local_agent_stack", "critic"): ("deepseek-r1:7b-qwen-distill-q4_K_M", None),
-}
-APPROVED_LOCAL_EXECUTION_CONTRACTS = {
-    "runtime_status": ("runtime_status", "status", "none", False),
-    "memory_recall": ("prior_continuity", "recall", "memory", False),
-    "source_lookup": ("project_evidence_lookup", "research", "index", False),
-    "retrieval_bundle": ("retrieval_bundle", "research", "both", False),
-    "literal_extraction": ("literal_structured_extraction", "extract", "none", True),
 }
 WORKER_TASK_GATE_RECIPES = (
     {
@@ -346,9 +578,6 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest().upper()
 
 
-_DOTNET_UNIX_EPOCH_TICKS = 621355968000000000
-
-
 def _plugin_cache_inventory_rows(
     codex_home: Path | None = None,
 ) -> tuple[str, ...] | None:
@@ -378,10 +607,9 @@ def _plugin_cache_inventory_rows(
                     if not plugin_manifest.is_file():
                         continue
                     relative_root = version.relative_to(cache_root).as_posix().lower()
-                    root_ticks = (
-                        version.lstat().st_mtime_ns // 100 + _DOTNET_UNIX_EPOCH_TICKS
+                    rows.append(
+                        f"ROOT\t{relative_root}\t0\tauthority-files-content-v2"
                     )
-                    rows.append(f"ROOT\t{relative_root}\t0\t{root_ticks}")
 
                     authority_files = [
                         plugin_manifest,
@@ -400,14 +628,19 @@ def _plugin_cache_inventory_rows(
                         if not resolved_file.is_relative_to(resolved_cache_root):
                             return None
                         stat = authority_file.stat()
+                        content_sha256 = _sha256_file(authority_file)
+                        verified_stat = authority_file.stat()
+                        if (
+                            stat.st_size != verified_stat.st_size
+                            or stat.st_mtime_ns != verified_stat.st_mtime_ns
+                        ):
+                            return None
                         relative_file = (
                             authority_file.relative_to(cache_root).as_posix().lower()
                         )
-                        file_ticks = (
-                            stat.st_mtime_ns // 100 + _DOTNET_UNIX_EPOCH_TICKS
-                        )
                         rows.append(
-                            f"FILE\t{relative_file}\t{stat.st_size}\t{file_ticks}"
+                            f"FILE\t{relative_file}\t{verified_stat.st_size}\t"
+                            f"{content_sha256}"
                         )
     except (OSError, RuntimeError, ValueError):
         return None
@@ -425,15 +658,295 @@ def _plugin_cache_inventory_hash(codex_home: Path | None = None) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest().upper()
 
 
+def _plugin_cache_row_hashes(
+    codex_home: Path | None = None,
+) -> tuple[dict[str, str], str] | None:
+    """Return the same bounded row authority used by recovery plus its digest."""
+
+    rows = _plugin_cache_inventory_rows(codex_home)
+    if rows is None:
+        return None
+    row_hashes: dict[str, str] = {}
+    for row in rows:
+        parts = row.split("\t", 3)
+        if len(parts) != 4 or parts[0] not in {"ROOT", "FILE"}:
+            return None
+        key = f"{parts[0]}\t{parts[1]}"
+        if key in row_hashes:
+            return None
+        row_hashes[key] = hashlib.sha256(row.encode("utf-8")).hexdigest().upper()
+    inventory_sha256 = hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest().upper()
+    return dict(sorted(row_hashes.items())), inventory_sha256
+
+
+def _plugin_package_from_row_key(value: object) -> str | None:
+    try:
+        kind, relative = str(value).split("\t", 1)
+    except ValueError:
+        return None
+    if kind not in {"ROOT", "FILE"}:
+        return None
+    parts = relative.replace("\\", "/").strip("/").split("/")
+    if len(parts) < 3 or any(not part or part in {".", ".."} for part in parts[:3]):
+        return None
+    return "/".join(parts[:3]).casefold()
+
+
+def _plugin_package_name(package: str) -> str | None:
+    parts = package.replace("\\", "/").strip("/").split("/")
+    if len(parts) != 3 or any(not part or part in {".", ".."} for part in parts):
+        return None
+    return parts[1].casefold()
+
+
+def _config_capability_surface_bindings(
+    receipt: dict[str, Any],
+) -> dict[str, dict[str, Any]] | None:
+    leaves = receipt.get("config_leaf_hashes")
+    surfaces = receipt.get("config_capability_surfaces")
+    if (
+        not isinstance(leaves, dict)
+        or not isinstance(surfaces, dict)
+        or set(surfaces) != set(leaves)
+    ):
+        return None
+    normalized: dict[str, dict[str, Any]] = {}
+    for pointer, raw in surfaces.items():
+        if not isinstance(pointer, str) or not pointer.startswith("/"):
+            return None
+        if not isinstance(raw, dict):
+            return None
+        identifiers = raw.get("capability_ids")
+        required = raw.get("required_capability_ids")
+        if (
+            raw.get("change_class")
+            not in {"availability_toggle", "runtime_identity"}
+            or raw.get("control_kind")
+            not in {
+                "app",
+                "app_tool",
+                "app_runtime",
+                "global_runtime",
+                "mcp",
+                "mcp_runtime",
+                "plugin",
+                "plugin_mcp",
+                "skill",
+            }
+            or not isinstance(raw.get("control_key"), str)
+            or not raw["control_key"]
+            or not isinstance(identifiers, list)
+            or not identifiers
+            or len(identifiers) != len(set(identifiers))
+            or any(not isinstance(item, str) or not item for item in identifiers)
+            or not isinstance(required, list)
+            or not required
+            or not set(required).issubset(identifiers)
+        ):
+            return None
+        if raw["change_class"] == "availability_toggle":
+            if not isinstance(raw.get("enabled"), bool):
+                return None
+        elif "enabled" in raw:
+            return None
+        normalized[pointer] = {
+            "change_class": raw["change_class"],
+            "control_kind": raw["control_kind"],
+            "control_key": raw["control_key"],
+            "capability_ids": sorted(set(identifiers)),
+            "required_capability_ids": sorted(set(required)),
+            **({"enabled": raw["enabled"]} if "enabled" in raw else {}),
+        }
+    return normalized
+
+
+def _dynamic_authority_assessment(
+    data: dict[str, Any], mismatches: Iterable[str]
+) -> dict[str, Any]:
+    """Scope mutable deployment drift without disabling the static router.
+
+    Plugin bytes are bounded by the manifest-recorded package closure. Known
+    Codex Desktop runtime-path changes are bounded to the browser and node_repl
+    surfaces. A worker BOM change disables external workers at selection time.
+    Anything outside those provable boundaries remains globally fail closed.
+    """
+
+    unavailable = {
+        "status": "unscoped",
+        "observed_config_sha256": "",
+        "observed_inventory_sha256": "",
+        "worker_runtime_bom_status": "unavailable",
+        "assessment_digest": "",
+        "changed_config_leaves": [],
+        "changed_packages": [],
+        "quarantined_packages": [],
+        "quarantined_capability_ids": [],
+        "reason_code": "DYNAMIC_DEPENDENCY_CLOSURE_UNPROVEN",
+    }
+    mismatch_set = {str(item) for item in mismatches}
+    if not mismatch_set or not mismatch_set.issubset(DYNAMIC_AUTHORITY_HASH_KEYS):
+        return unavailable
+    receipt = data.get("authority_receipt")
+    if not isinstance(receipt, dict):
+        return unavailable
+    baseline_rows = receipt.get("plugin_cache_row_hashes")
+    surfaces = receipt.get("plugin_capability_surfaces")
+    if not isinstance(baseline_rows, dict) or not isinstance(surfaces, dict):
+        return unavailable
+
+    normalized_surfaces: dict[str, list[dict[str, Any]]] = {}
+    for raw_package, raw_capabilities in surfaces.items():
+        package = str(raw_package).replace("\\", "/").strip("/").casefold()
+        if (
+            _plugin_package_name(package) is None
+            or package in normalized_surfaces
+            or not isinstance(raw_capabilities, list)
+            or not raw_capabilities
+        ):
+            return unavailable
+        normalized_capabilities: list[dict[str, Any]] = []
+        for raw_capability in raw_capabilities:
+            if not isinstance(raw_capability, dict):
+                return unavailable
+            identifier = raw_capability.get("id")
+            kind = raw_capability.get("kind")
+            if not isinstance(identifier, str) or not identifier or not isinstance(kind, str) or not kind:
+                return unavailable
+            normalized_capabilities.append({"id": identifier, "kind": kind})
+        normalized_surfaces[package] = normalized_capabilities
+
+    quarantined_packages: set[str] = set()
+    quarantined_ids: set[str] = set()
+    changed_packages: set[str] = set()
+    inventory_sha256 = str(receipt.get("plugin_cache_inventory_sha256") or "").upper()
+    if "plugin-cache-inventory" in mismatch_set:
+        normalized_baseline_rows: dict[str, str] = {}
+        baseline_roots: set[str] = set()
+        for raw_key, raw_digest in baseline_rows.items():
+            key = str(raw_key)
+            package = _plugin_package_from_row_key(key)
+            digest = str(raw_digest or "").upper()
+            if package is None or not re.fullmatch(r"[A-F0-9]{64}", digest):
+                return unavailable
+            normalized_baseline_rows[key] = digest
+            if key.startswith("ROOT\t"):
+                baseline_roots.add(package)
+        if baseline_roots != set(normalized_surfaces):
+            return unavailable
+        current = _plugin_cache_row_hashes()
+        if current is None:
+            return unavailable
+        current_rows, inventory_sha256 = current
+        changed_keys = {
+            key
+            for key in set(normalized_baseline_rows) | set(current_rows)
+            if normalized_baseline_rows.get(key) != current_rows.get(key)
+        }
+        for key in changed_keys:
+            package = _plugin_package_from_row_key(key)
+            if package is None:
+                return unavailable
+            changed_packages.add(package)
+        if not changed_packages:
+            return unavailable
+        changed_names = {
+            name
+            for package in changed_packages
+            if (name := _plugin_package_name(package)) is not None
+        }
+        quarantined_packages.update(
+            package
+            for package in normalized_surfaces
+            if package in changed_packages
+            or _plugin_package_name(package) in changed_names
+        )
+
+    changed_config_leaves: set[str] = set()
+    observed_config_sha256 = str(receipt.get("config_projection_sha256") or "").upper()
+    if CONFIG_CAPABILITY_SOURCE_HASH_KEY in mismatch_set:
+        config_surfaces = _config_capability_surface_bindings(receipt)
+        if config_surfaces is None:
+            return unavailable
+        baseline_leaves = receipt.get("config_leaf_hashes")
+        if not isinstance(baseline_leaves, dict):
+            return unavailable
+        try:
+            current_config = _capability_config_authority(CONFIG_PATH)
+        except (CapabilityConfigError, OSError):
+            return unavailable
+        current_leaves = current_config.get("projection_leaf_hashes")
+        observed_config_sha256 = str(current_config.get("sha256") or "").upper()
+        if not isinstance(current_leaves, dict):
+            return unavailable
+        changed_config_leaves = {
+            key
+            for key in set(baseline_leaves) | set(current_leaves)
+            if baseline_leaves.get(key) != current_leaves.get(key)
+        }
+        if not changed_config_leaves:
+            return unavailable
+        for pointer in changed_config_leaves:
+            binding = config_surfaces.get(pointer)
+            if binding is None:
+                return unavailable
+            if binding["control_kind"] == "global_runtime":
+                return unavailable
+            quarantined_ids.update(binding["capability_ids"])
+
+    for package in quarantined_packages:
+        quarantined_ids.update(
+            capability["id"] for capability in normalized_surfaces[package]
+        )
+    worker_bom_status = (
+        "changed"
+        if WORKER_RUNTIME_BOM_SOURCE_HASH_KEY in mismatch_set
+        else "current"
+    )
+    assessment_payload = {
+        "baseline_snapshot": str(data.get("snapshot_id") or ""),
+        "observed_config_sha256": observed_config_sha256,
+        "observed_inventory_sha256": inventory_sha256,
+        "worker_runtime_bom_status": worker_bom_status,
+        "dynamic_mismatches": sorted(mismatch_set),
+        "changed_config_leaves": sorted(changed_config_leaves),
+        "changed_packages": sorted(changed_packages),
+        "quarantined_packages": sorted(quarantined_packages),
+        "quarantined_capability_ids": sorted(quarantined_ids),
+    }
+    assessment_digest = hashlib.sha256(
+        json.dumps(
+            assessment_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    if mismatch_set == {"plugin-cache-inventory"}:
+        reason_code = "PLUGIN_PACKAGE_QUARANTINED"
+    elif mismatch_set == {CONFIG_CAPABILITY_SOURCE_HASH_KEY}:
+        reason_code = "CONFIG_SURFACE_QUARANTINED"
+    elif mismatch_set == {WORKER_RUNTIME_BOM_SOURCE_HASH_KEY}:
+        reason_code = "WORKER_RUNTIME_BINDING_CHANGED"
+    else:
+        reason_code = "DYNAMIC_AUTHORITY_SCOPED"
+    return {
+        "status": "degraded",
+        **assessment_payload,
+        "assessment_digest": assessment_digest,
+        "reason_code": reason_code,
+    }
+
+
 def _source_hash_path(name: str) -> Path | None:
     known = {
         "config.toml": CONFIG_PATH,
         CONFIG_CAPABILITY_SOURCE_HASH_KEY: CONFIG_PATH,
-        "hooks.json": CODEX_HOME / "hooks.json",
-        "AGENTS.md": CODEX_HOME / "AGENTS.md",
-        "task-routing-gate.md": CODEX_HOME / "docs" / "context" / "task-routing-gate.md",
         "catalogue-router.SKILL.md": CODEX_HOME / "skills" / "catalogue-router" / "SKILL.md",
         "capability_index.py": CODEX_HOME / "hooks" / "capability_index.py",
+        "routing_policy_validation.py": (
+            CODEX_HOME / "hooks" / "routing_policy_validation.py"
+        ),
         "capability_config_fingerprint.py": CODEX_HOME
         / "hooks"
         / "capability_config_fingerprint.py",
@@ -445,7 +958,6 @@ def _source_hash_path(name: str) -> Path | None:
         "capability_index_session_start.py": CODEX_HOME
         / "hooks"
         / "capability_index_session_start.py",
-        "_common.py": CODEX_HOME / "hooks" / "_common.py",
         "_hook_io.py": CODEX_HOME / "hooks" / "_hook_io.py",
         "capability-manifest-builder.ps1": CODEX_HOME
         / "capability-routing"
@@ -459,10 +971,6 @@ def _source_hash_path(name: str) -> Path | None:
         / "catalogue-router"
         / "scripts"
         / "query-catalogue.ps1",
-        "ensure-node-dependencies.ps1": CODEX_HOME
-        / "tools"
-        / "dependency-readiness"
-        / "ensure-node-dependencies.ps1",
         "dependency-readiness.README.md": CODEX_HOME
         / "tools"
         / "dependency-readiness"
@@ -481,35 +989,41 @@ def _source_hash_path(name: str) -> Path | None:
         "route-decision.schema.json": CODEX_HOME
         / "capability-routing"
         / "route-decision.schema.json",
+        WORKER_RUNTIME_BOM_SOURCE_HASH_KEY: WORKER_RUNTIME_BOM_PATH,
+        WORKER_RUNTIME_BOM_PROMOTER_SOURCE_HASH_KEY: CODEX_HOME
+        / "capability-routing"
+        / "promote_worker_runtime_bom.py",
+        "worker-runtime-bom.schema.json": CODEX_HOME
+        / "capability-routing"
+        / "worker-runtime-bom.schema.json",
     }
     return known.get(name)
 
 
 REQUIRED_MANIFEST_AUTHORITY_HASH_KEYS = frozenset(
     {
-        "hooks.json",
         CONFIG_CAPABILITY_SOURCE_HASH_KEY,
-        "AGENTS.md",
-        "task-routing-gate.md",
         "catalogue-router.SKILL.md",
         "capability_index.py",
+        "routing_policy_validation.py",
         "capability_config_fingerprint.py",
         "capability_index_cli.py",
         "user_prompt_skill_router.py",
         "capability_manifest_recovery.py",
         "capability_index_session_start.py",
-        "_common.py",
         "_hook_io.py",
         "capability-manifest-builder.ps1",
         "authority-receipt.schema.json",
         "query-catalogue.ps1",
-        "ensure-node-dependencies.ps1",
         "routing-policy.yaml",
         "routing-policy.schema.json",
         "active-capabilities.schema.json",
         "project-scope-map.json",
         "project-scope-map.schema.json",
         "route-decision.schema.json",
+        WORKER_RUNTIME_BOM_SOURCE_HASH_KEY,
+        WORKER_RUNTIME_BOM_PROMOTER_SOURCE_HASH_KEY,
+        "worker-runtime-bom.schema.json",
         "plugin-cache-inventory",
     }
 )
@@ -595,17 +1109,38 @@ def _entry_hash_current(entry: dict[str, Any]) -> bool:
             )
         except (CapabilityDataError, OSError):
             return False
-    if hash_scope not in {"", "file-sha256", "text-sha256"}:
+    if hash_scope == "text-sha256":
+        actual = hashlib.sha256(source.encode("utf-8")).hexdigest().upper()
+        return hmac.compare_digest(actual, expected)
+    if hash_scope not in {"", "file-sha256"}:
         return False
-    if not re.match(r"^[A-Za-z]:[\\/]", source):
-        return True
+
+    # Empty scope is retained only as a constrained migration path for pre-1.3
+    # manifests. It never permits a URL, relative path, or missing local source.
+    if os.name == "nt":
+        if re.fullmatch(r"[A-Za-z]:[\\/].+", source) is None:
+            return False
+    elif not source.startswith("/"):
+        return False
     path = Path(source)
-    if not path.is_file():
+    if not path.is_absolute() or path.is_symlink():
         return False
     try:
-        return _sha256_file(path) == expected
+        resolved = path.resolve(strict=True)
+        if not resolved.is_file():
+            return False
+        before = resolved.stat()
+        raw = resolved.read_bytes()
+        after = resolved.stat()
     except OSError:
         return False
+    stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+    if any(getattr(before, field) != getattr(after, field) for field in stable_fields):
+        return False
+    if len(raw) != after.st_size:
+        return False
+    actual = hashlib.sha256(raw).hexdigest().upper()
+    return hmac.compare_digest(actual, expected)
 
 
 def _load_json_compatible_yaml_with_authority(
@@ -631,6 +1166,168 @@ def _load_json_compatible_yaml_with_authority(
     if not isinstance(value, dict):
         raise CapabilityDataError(f"{label} root must be an object: {path}")
     return value, hashlib.sha256(raw_bytes).hexdigest()
+
+
+def authority_generation_id(value: object) -> str:
+    """Recompute the builder's immutable generation identity exactly."""
+
+    if not isinstance(value, dict) or set(value) != {
+        "id",
+        "sequence",
+        "previous_id",
+        "transaction_id",
+        "promoted_at",
+        "promotion_reason",
+        "static_authority_sha256",
+        "dynamic_authority_sha256",
+        "config_projection_sha256",
+        "plugin_inventory_sha256",
+        "worker_runtime_bom_sha256",
+        "authority_snapshot_sha256",
+    }:
+        return ""
+    sequence = value.get("sequence")
+    previous_id = value.get("previous_id")
+    transaction_id = str(value.get("transaction_id") or "")
+    promoted_at = str(value.get("promoted_at") or "")
+    promotion_reason = value.get("promotion_reason")
+    digest_fields = (
+        "static_authority_sha256",
+        "dynamic_authority_sha256",
+        "config_projection_sha256",
+        "plugin_inventory_sha256",
+        "worker_runtime_bom_sha256",
+        "authority_snapshot_sha256",
+    )
+    if (
+        not isinstance(sequence, int)
+        or isinstance(sequence, bool)
+        or sequence < 1
+        or (
+            previous_id is not None
+            and AUTHORITY_GENERATION_ID_PATTERN.fullmatch(str(previous_id)) is None
+        )
+        or EXECUTION_REQUEST_ID_PATTERN.fullmatch(transaction_id) is None
+        or not promoted_at
+        or promotion_reason not in AUTHORITY_GENERATION_PROMOTION_REASONS
+        or any(
+            SHA256_PATTERN.fullmatch(str(value.get(name) or "")) is None
+            for name in digest_fields
+        )
+    ):
+        return ""
+    payload = {
+        "sequence": sequence,
+        "previous_id": previous_id,
+        "transaction_id": transaction_id,
+        "promoted_at": promoted_at,
+        "promotion_reason": promotion_reason,
+        "static_authority_sha256": value["static_authority_sha256"],
+        "dynamic_authority_sha256": value["dynamic_authority_sha256"],
+        "config_projection_sha256": value["config_projection_sha256"],
+        "plugin_inventory_sha256": value["plugin_inventory_sha256"],
+        "worker_runtime_bom_sha256": value["worker_runtime_bom_sha256"],
+        "authority_snapshot_sha256": value["authority_snapshot_sha256"],
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _load_manifest_generation_authority(
+    requested_path: Path,
+) -> tuple[dict[str, Any], str, Path, str, list[str]]:
+    """Resolve the current immutable generation through one atomic pointer.
+
+    Legacy and synthetic manifests remain directly readable for migration and
+    isolated tests. Once a manifest declares the 1.3 generation contract, a
+    missing or invalid pointer is an authority error rather than an implicit
+    fallback to the mutable compatibility copy.
+    """
+
+    is_active_path = requested_path.resolve(strict=False) == ACTIVE_CAPABILITIES_PATH.resolve(
+        strict=False
+    )
+    pointer_path = AUTHORITY_GENERATION_POINTER_PATH
+    if is_active_path and pointer_path.is_file():
+        try:
+            if pointer_path.is_symlink():
+                raise CapabilityDataError("capability generation pointer must not be a symlink")
+            pointer, _ = _load_json_compatible_yaml_with_authority(
+                pointer_path, "capability authority generation pointer"
+            )
+            generation_id = str(pointer.get("generation_id") or "").lower()
+            relative_manifest = str(pointer.get("manifest_path") or "")
+            expected_sha256 = str(pointer.get("manifest_sha256") or "").lower()
+            sequence = pointer.get("sequence")
+            previous_generation_id = pointer.get("previous_generation_id")
+            transaction_id = str(pointer.get("transaction_id") or "")
+            expected_relative_manifest = (
+                Path("generations") / f"generation-{generation_id}.json"
+            ).as_posix()
+            if (
+                pointer.get("schema_version") != "capability-authority-pointer-v1"
+                or AUTHORITY_GENERATION_ID_PATTERN.fullmatch(generation_id) is None
+                or SHA256_PATTERN.fullmatch(expected_sha256) is None
+                or relative_manifest != expected_relative_manifest
+                or not isinstance(sequence, int)
+                or isinstance(sequence, bool)
+                or sequence < 1
+                or (
+                    previous_generation_id is not None
+                    and AUTHORITY_GENERATION_ID_PATTERN.fullmatch(
+                        str(previous_generation_id).lower()
+                    )
+                    is None
+                )
+                or EXECUTION_REQUEST_ID_PATTERN.fullmatch(transaction_id) is None
+            ):
+                raise CapabilityDataError("capability generation pointer is structurally invalid")
+            routing_root = pointer_path.parent.resolve(strict=True)
+            generation_path = (routing_root / relative_manifest).resolve(strict=True)
+            generations_root = (routing_root / "generations").resolve(strict=True)
+            if (
+                (routing_root / "generations").is_symlink()
+                or (routing_root / relative_manifest).is_symlink()
+                or generation_path.parent != generations_root
+                or not generation_path.is_relative_to(routing_root)
+                or not generation_path.is_file()
+            ):
+                raise CapabilityDataError("capability generation path escapes or is missing")
+            data, authority_sha256 = _load_json_compatible_yaml_with_authority(
+                generation_path, "immutable capability generation"
+            )
+            if not hmac.compare_digest(expected_sha256, authority_sha256):
+                raise CapabilityDataError("immutable capability generation hash mismatch")
+            generation = data.get("authority_generation")
+            if (
+                not isinstance(generation, dict)
+                or str(generation.get("id") or "").lower() != generation_id
+                or authority_generation_id(generation) != generation_id
+                or generation.get("sequence") != sequence
+                or generation.get("previous_id") != previous_generation_id
+                or generation.get("transaction_id") != transaction_id
+                or str(data.get("snapshot_id") or "")
+                != f"authority-generation:{generation_id}"
+            ):
+                raise CapabilityDataError("immutable capability generation identity mismatch")
+            return data, authority_sha256, generation_path, "current", []
+        except (CapabilityDataError, OSError, RuntimeError, ValueError):
+            return {}, "", requested_path, "invalid", ["generation_pointer_invalid"]
+
+    data, authority_sha256 = _load_json_compatible_yaml_with_authority(
+        requested_path, "active capability manifest"
+    )
+    generation_declared = str(data.get("schema_version") or "") == "1.3" or isinstance(
+        data.get("authority_generation"), dict
+    )
+    if is_active_path and generation_declared:
+        return data, authority_sha256, requested_path, "missing", ["generation_pointer_missing"]
+    return data, authority_sha256, requested_path, "legacy", []
 
 
 def _load_json_compatible_yaml(path: Path, label: str) -> dict[str, Any]:
@@ -715,8 +1412,14 @@ def _normalize_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
     source_path = path or ACTIVE_CAPABILITIES_PATH
-    data, authority_sha256 = _load_json_compatible_yaml_with_authority(
-        source_path, "active capability manifest"
+    (
+        data,
+        authority_sha256,
+        authority_source_path,
+        generation_pointer_status,
+        generation_mismatches,
+    ) = _load_manifest_generation_authority(
+        source_path
     )
     if not data:
         return {
@@ -726,7 +1429,15 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
             "freshness_status": "missing",
             "source_hashes": {},
             "source_hashes_verified": False,
-            "source_hash_mismatches": ["manifest_missing"],
+            "static_source_hashes_verified": False,
+            "source_hash_mismatches": generation_mismatches or ["manifest_missing"],
+            "static_source_hash_mismatches": generation_mismatches or ["manifest_missing"],
+            "dynamic_source_hash_mismatches": [],
+            "dynamic_authority_status": "unavailable",
+            "dynamic_authority": {},
+            "worker_runtime_bom_status": "unavailable",
+            "authority_generation": {},
+            "generation_pointer_status": generation_pointer_status,
             "authority_sha256": "",
             "entries": [],
             "summary": {
@@ -736,7 +1447,8 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
                 "rejected_state_artifacts": 0,
                 "rejected_invalid": 0,
             },
-            "source": str(source_path),
+            "source": str(authority_source_path),
+            "compatibility_source": str(source_path),
         }
 
     raw_entries = data.get("entries")
@@ -744,12 +1456,57 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
         raise CapabilityDataError("active capability manifest entries must be an array")
 
     declared_freshness = normalize(data.get("freshness_status") or "fresh")
-    source_hash_mismatches = _source_hash_mismatches(data)
-    freshness = "stale" if source_hash_mismatches else declared_freshness
+    source_hash_mismatches = [*_source_hash_mismatches(data), *generation_mismatches]
+    static_source_mismatches = [
+        mismatch
+        for mismatch in source_hash_mismatches
+        if mismatch not in DYNAMIC_AUTHORITY_HASH_KEYS
+    ]
+    dynamic_source_mismatches = [
+        mismatch
+        for mismatch in source_hash_mismatches
+        if mismatch in DYNAMIC_AUTHORITY_HASH_KEYS
+    ]
+    dynamic_authority = {
+        "status": "current",
+        "observed_config_sha256": str(
+            (data.get("source_hashes") or {}).get(
+                CONFIG_CAPABILITY_SOURCE_HASH_KEY
+            )
+            or ""
+        ).upper(),
+        "observed_inventory_sha256": str(
+            (data.get("source_hashes") or {}).get("plugin-cache-inventory") or ""
+        ).upper(),
+        "worker_runtime_bom_status": "current",
+        "assessment_digest": "",
+        "changed_config_leaves": [],
+        "changed_packages": [],
+        "quarantined_packages": [],
+        "quarantined_capability_ids": [],
+        "reason_code": "DYNAMIC_AUTHORITY_CURRENT",
+    }
+    if not static_source_mismatches and dynamic_source_mismatches:
+        dynamic_authority = _dynamic_authority_assessment(
+            data, dynamic_source_mismatches
+        )
+    dynamic_scoped = dynamic_authority.get("status") in {"current", "degraded"}
+    if static_source_mismatches or not dynamic_scoped:
+        freshness = "stale"
+    elif dynamic_source_mismatches:
+        freshness = "degraded"
+    else:
+        freshness = declared_freshness
+    quarantined_capability_ids = {
+        str(item)
+        for item in dynamic_authority.get("quarantined_capability_ids", [])
+        if str(item)
+    }
     active_entries: list[dict[str, Any]] = []
     rejected_inactive = 0
     rejected_state_artifacts = 0
     rejected_invalid = 0
+    rejected_quarantined = 0
     for raw in raw_entries:
         if not isinstance(raw, dict):
             rejected_invalid += 1
@@ -760,6 +1517,9 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
             continue
         if is_state_artifact(entry):
             rejected_state_artifacts += 1
+            continue
+        if entry["id"] in quarantined_capability_ids:
+            rejected_quarantined += 1
             continue
         if freshness not in FRESH_STATES or not is_active_state(entry["state"]):
             rejected_inactive += 1
@@ -773,8 +1533,22 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
         "freshness_status": freshness,
         "declared_freshness_status": declared_freshness,
         "source_hashes": data.get("source_hashes") if isinstance(data.get("source_hashes"), dict) else {},
-        "source_hashes_verified": not source_hash_mismatches,
+        "source_hashes_verified": not static_source_mismatches and dynamic_scoped,
+        "static_source_hashes_verified": not static_source_mismatches,
         "source_hash_mismatches": source_hash_mismatches,
+        "static_source_hash_mismatches": static_source_mismatches,
+        "dynamic_source_hash_mismatches": dynamic_source_mismatches,
+        "dynamic_authority_status": str(dynamic_authority.get("status") or "unavailable"),
+        "dynamic_authority": dynamic_authority,
+        "worker_runtime_bom_status": str(
+            dynamic_authority.get("worker_runtime_bom_status") or "unavailable"
+        ),
+        "authority_generation": (
+            data.get("authority_generation")
+            if isinstance(data.get("authority_generation"), dict)
+            else {}
+        ),
+        "generation_pointer_status": generation_pointer_status,
         "authority_sha256": authority_sha256,
         "entries": active_entries,
         "summary": {
@@ -783,8 +1557,10 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
             "rejected_inactive": rejected_inactive,
             "rejected_state_artifacts": rejected_state_artifacts,
             "rejected_invalid": rejected_invalid,
+            "rejected_quarantined": rejected_quarantined,
         },
-        "source": str(source_path),
+        "source": str(authority_source_path),
+        "compatibility_source": str(source_path),
     }
 
 
@@ -1048,7 +1824,12 @@ def _normalize_capability_aliases(value: object) -> dict[str, list[str]]:
     return normalized
 
 
-def load_routing_policy(path: Path | None = None) -> dict[str, Any]:
+def load_routing_policy(
+    path: Path | None = None,
+    *,
+    capability_manifest_path: Path | None = None,
+    policy_schema_path: Path | None = None,
+) -> dict[str, Any]:
     source_path = path or ROUTING_POLICY_PATH
     data, authority_sha256 = _load_json_compatible_yaml_with_authority(
         source_path, "routing policy"
@@ -1070,6 +1851,33 @@ def load_routing_policy(path: Path | None = None) -> dict[str, Any]:
             "authority_sha256": "",
             "source": str(source_path),
         }
+
+    schema_source = policy_schema_path or ROUTING_POLICY_SCHEMA_PATH
+    policy_schema = _load_json_compatible_yaml(
+        schema_source, "routing policy schema"
+    )
+    manifest_source = capability_manifest_path or ACTIVE_CAPABILITIES_PATH
+    manifest_data, _, _, generation_status, generation_mismatches = (
+        _load_manifest_generation_authority(manifest_source)
+    )
+    if not policy_schema:
+        raise CapabilityDataError(
+            f"routing policy schema is unavailable: {schema_source}"
+        )
+    if not manifest_data:
+        details = ",".join(generation_mismatches) or generation_status
+        raise CapabilityDataError(
+            f"capability identity authority is unavailable for policy validation: {details}"
+        )
+    try:
+        _validate_routing_policy(
+            data,
+            policy_schema,
+            manifest_data,
+            label="routing policy",
+        )
+    except RoutingPolicyValidationError as exc:
+        raise CapabilityDataError(f"routing policy validation failed: {exc}") from exc
 
     raw_rules = data.get("rules")
     if not isinstance(raw_rules, list):
@@ -5076,9 +5884,12 @@ def _worker_capability_available(
     by_id: dict[str, dict[str, Any]],
     by_alias: dict[str, list[dict[str, Any]]],
     policy: dict[str, Any],
+    worker_runtime_bom_sha256: str = "",
 ) -> bool:
     upstream = str(rule.get("gateway_managed_upstream") or "").strip()
-    if upstream and not _gateway_managed_upstream_configured(upstream):
+    if upstream and not _gateway_managed_upstream_configured(
+        upstream, expected_bom_sha256=worker_runtime_bom_sha256
+    ):
         return False
     requirements = rule.get("requires_any_capabilities", [])
     if not requirements:
@@ -5090,25 +5901,2312 @@ def _worker_capability_available(
     return False
 
 
-def _gateway_managed_upstream_configured(server_id: str) -> bool:
-    """Verify the upstream is explicitly delegated to the singleton gateway."""
+def _worker_runtime_binding(
+    server_id: str, *, expected_bom_sha256: str
+) -> dict[str, Any] | None:
+    """Resolve one exact external-worker identity from the generation-bound BOM."""
+
+    expected = str(expected_bom_sha256 or "").lower()
+    if not expected:
+        return {}
+    try:
+        value, _ = _load_worker_runtime_bom(expected_sha256=expected)
+    except CapabilityDataError:
+        return None
+    runtimes = value["runtimes"]
+    binding = runtimes.get(server_id) if isinstance(runtimes, dict) else None
+    if not isinstance(binding, dict):
+        return None
+    return binding
+
+
+def _worker_projection_sha256(value: dict[str, Any]) -> str:
+    payload = (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        + b"\n"
+    )
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _worker_server_projection(
+    config: dict[str, Any], server_id: str
+) -> tuple[dict[str, Any], Path]:
+    servers = config.get("mcp_servers")
+    server = servers.get(server_id) if isinstance(servers, dict) else None
+    spec = WORKER_SERVER_SPECS.get(server_id)
+    if not isinstance(server, dict) or spec is None:
+        raise CapabilityDataError("configured worker is unavailable")
+    if (
+        set(server) - WORKER_EXECUTION_KEYS - WORKER_PRESENTATION_KEYS
+        or not WORKER_EXECUTION_KEYS.issubset(server)
+        or server.get("enabled") is not False
+        or server.get("gateway_managed") is not True
+    ):
+        raise CapabilityDataError("configured worker execution stanza is invalid")
+    env = server.get("env")
+    if not isinstance(env, dict) or set(env) != spec["env"]:
+        raise CapabilityDataError("configured worker environment is invalid")
+    if any(
+        not isinstance(key, str)
+        or not isinstance(value, str)
+        or not value
+        or len(value) > 4096
+        or any(ord(character) < 32 for character in value)
+        for key, value in env.items()
+    ):
+        raise CapabilityDataError("configured worker environment is invalid")
+    for timeout_key in ("startup_timeout_sec", "tool_timeout_sec"):
+        timeout = server.get(timeout_key)
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not 0 < float(timeout) <= 3600
+        ):
+            raise CapabilityDataError("configured worker timeout is invalid")
+    command = Path(str(server.get("command") or ""))
+    cwd = Path(str(server.get("cwd") or ""))
+    if not command.is_absolute() or not cwd.is_absolute():
+        raise CapabilityDataError("configured worker paths are invalid")
+    try:
+        command_resolved = command.resolve(strict=True)
+        root = cwd.resolve(strict=True)
+        root_key = (
+            "LOCAL_AGENT_STACK_ROOT"
+            if server_id == "local-agent-stack"
+            else "ANTIGRAVITY_ADAPTER_ROOT"
+        )
+        env_root = Path(env[root_key]).resolve(strict=True)
+        pycache_prefix = root.joinpath(
+            *str(spec["pycache_relative_path"]).split("/")
+        ).resolve(strict=True)
+        pycache_is_empty = not any(pycache_prefix.iterdir())
+        if server_id == "antigravity-adapter":
+            agy = Path(env["ANTIGRAVITY_AGY_EXECUTABLE"]).resolve(strict=True)
+            if not agy.is_file():
+                raise OSError("Antigravity executable is not a file")
+    except OSError as exc:
+        raise CapabilityDataError("configured worker path is unavailable") from exc
+    if (
+        not command_resolved.is_file()
+        or not root.is_dir()
+        or not command_resolved.is_relative_to(root)
+        or env_root != root
+        or server.get("args")
+        != [
+            "-I",
+            "-B",
+            "-X",
+            f"pycache_prefix={pycache_prefix}",
+            "-m",
+            str(spec["module"]),
+        ]
+        or _worker_is_link_or_reparse(pycache_prefix)
+        or not pycache_prefix.is_dir()
+        or not pycache_is_empty
+    ):
+        raise CapabilityDataError("configured worker path binding is invalid")
+    return {key: server[key] for key in sorted(WORKER_EXECUTION_KEYS)}, root
+
+
+def _worker_stable_bytes(path: Path) -> bytes:
+    try:
+        resolved = path.resolve(strict=True)
+        metadata = path.lstat()
+        if (
+            path.is_symlink()
+            or bool(getattr(metadata, "st_file_attributes", 0) & 0x400)
+            or not resolved.is_file()
+        ):
+            raise OSError("not a regular file")
+        before = resolved.stat()
+        first = resolved.read_bytes()
+        second = resolved.read_bytes()
+        after = resolved.stat()
+    except OSError as exc:
+        raise CapabilityDataError("worker artifact is unavailable") from exc
+    if (
+        first != second
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+    ):
+        raise CapabilityDataError("worker artifact changed during verification")
+    return first
+
+
+def _worker_is_link_or_reparse(path: Path) -> bool:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return True
+    return path.is_symlink() or bool(
+        getattr(metadata, "st_file_attributes", 0) & 0x400
+    )
+
+
+def _worker_source_inventory_sha256(root: Path, paths: list[Path]) -> str:
+    rows: list[dict[str, str]] = []
+    seen: set[Path] = set()
+    for path in paths:
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError as exc:
+            raise CapabilityDataError("worker source identity is incomplete") from exc
+        if (
+            resolved in seen
+            or not resolved.is_relative_to(root)
+            or not resolved.is_file()
+        ):
+            raise CapabilityDataError("worker source identity escaped its root")
+        seen.add(resolved)
+        rows.append(
+            {
+                "path": resolved.relative_to(root).as_posix(),
+                "sha256": hashlib.sha256(_worker_stable_bytes(resolved)).hexdigest(),
+            }
+        )
+    canonical = json.dumps(
+        rows,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _worker_dependency_path(value: Any, root: Path) -> Path:
+    if not isinstance(value, str) or not value:
+        raise CapabilityDataError("worker dependency path is invalid")
+    expanded = value.replace("${RUNTIME_ROOT}", str(root))
+    if "${USERPROFILE}" in expanded:
+        user_profile = os.environ.get("USERPROFILE", "")
+        if not user_profile:
+            raise CapabilityDataError("worker dependency environment is unavailable")
+        expanded = expanded.replace("${USERPROFILE}", user_profile)
+    if "${LOCALAPPDATA}" in expanded:
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        if not local_app_data:
+            raise CapabilityDataError("worker dependency environment is unavailable")
+        expanded = expanded.replace("${LOCALAPPDATA}", local_app_data)
+    path = Path(expanded)
+    return path if path.is_absolute() else root / path
+
+
+def _same_worker_path(left: Path | str, right: Path | str) -> bool:
+    try:
+        left_value = os.path.normcase(str(Path(left).resolve(strict=True)))
+        right_value = os.path.normcase(str(Path(right).resolve(strict=True)))
+    except OSError:
+        return False
+    return left_value == right_value
+
+
+def _worker_compact_json_sha256(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _probe_worker_pth_import_origins(
+    command: Path, modules: list[str], pycache_prefix: Path
+) -> dict[str, str]:
+    script = (
+        "import importlib.util,json,sys;"
+        "print(json.dumps({n:getattr(importlib.util.find_spec(n),'origin',None) "
+        "for n in sys.argv[1:]},sort_keys=True,separators=(',',':')))"
+    )
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    try:
+        completed = subprocess.run(
+            [
+                str(command),
+                "-I",
+                "-B",
+                "-X",
+                f"pycache_prefix={pycache_prefix}",
+                "-c",
+                script,
+                *modules,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            timeout=5.0,
+            check=False,
+            creationflags=creationflags,
+        )
+        value = json.loads(completed.stdout)
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        UnicodeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise CapabilityDataError("worker .pth import probe failed") from exc
+    if (
+        completed.returncode != 0
+        or completed.stderr
+        or not isinstance(value, dict)
+        or set(value) != set(modules)
+        or any(not isinstance(item, str) or not item for item in value.values())
+    ):
+        raise CapabilityDataError("worker .pth import probe is invalid")
+    return value
+
+
+def _worker_installed_distributions_identity(
+    site_packages: Path,
+    venv_root: Path,
+    source_root: Path,
+    command: Path,
+    pycache_prefix: Path,
+) -> dict[str, Any]:
+    try:
+        resolved_site = site_packages.resolve(strict=True)
+        resolved_venv = venv_root.resolve(strict=True)
+        resolved_source = source_root.resolve(strict=True)
+    except OSError as exc:
+        raise CapabilityDataError("worker site-packages is unavailable") from exc
+    if (
+        _worker_is_link_or_reparse(site_packages)
+        or not resolved_site.is_dir()
+        or not resolved_site.is_relative_to(resolved_venv)
+        or os.path.normcase(str(Path(os.path.abspath(site_packages))))
+        != os.path.normcase(str(resolved_site))
+    ):
+        raise CapabilityDataError("worker site-packages path is invalid")
+    distributions: list[dict[str, Any]] = []
+    names: set[str] = set()
+    all_owned_paths: set[str] = set()
+    try:
+        discovered = list(importlib.metadata.distributions(path=[str(resolved_site)]))
+    except (OSError, ValueError) as exc:
+        raise CapabilityDataError("worker distribution inventory is unavailable") from exc
+    for distribution in discovered:
+        name_value = distribution.metadata.get("Name")
+        name = (
+            re.sub(r"[-_.]+", "-", name_value).lower()
+            if isinstance(name_value, str)
+            else ""
+        )
+        version = distribution.version
+        distribution_input = Path(str(getattr(distribution, "_path", "")))
+        try:
+            distribution_path = distribution_input.resolve(strict=True)
+        except OSError as exc:
+            raise CapabilityDataError("worker distribution metadata is unavailable") from exc
+        if (
+            not name
+            or re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", name) is None
+            or name in names
+            or not isinstance(version, str)
+            or not version
+            or _worker_is_link_or_reparse(distribution_input)
+            or not distribution_path.is_dir()
+            or distribution_path.parent != resolved_site
+            or distribution_path.suffix.casefold() != ".dist-info"
+            or os.path.normcase(str(Path(os.path.abspath(distribution_input))))
+            != os.path.normcase(str(distribution_path))
+        ):
+            raise CapabilityDataError("worker distribution identity is invalid")
+        names.add(name)
+        record_path = distribution_path / "RECORD"
+        record_raw = _worker_stable_bytes(record_path)
+        try:
+            record_rows = csv.reader(
+                io.StringIO(record_raw.decode("utf-8"), newline="")
+            )
+            owned_paths: set[str] = set()
+            record_row_count = 0
+            for row in record_rows:
+                if len(row) != 3 or not row[0]:
+                    raise CapabilityDataError(
+                        "worker distribution RECORD row is invalid"
+                    )
+                located = Path(os.path.abspath(str(distribution.locate_file(row[0]))))
+                relative = located.relative_to(resolved_venv).as_posix()
+                key = relative.casefold()
+                if key in owned_paths:
+                    raise CapabilityDataError(
+                        "worker distribution RECORD contains a duplicate path"
+                    )
+                owned_paths.add(key)
+                all_owned_paths.add(key)
+                record_row_count += 1
+        except (UnicodeDecodeError, csv.Error, ValueError) as exc:
+            raise CapabilityDataError("worker distribution RECORD is invalid") from exc
+        distributions.append(
+            {
+                "name": name,
+                "version": version,
+                "record_path": record_path.relative_to(resolved_venv).as_posix(),
+                "record_sha256": hashlib.sha256(record_raw).hexdigest(),
+                "record_row_count": record_row_count,
+            }
+        )
+    distributions.sort(key=lambda row: row["name"])
+    if not distributions:
+        raise CapabilityDataError("worker distribution inventory is empty")
+    pth_rows: list[dict[str, Any]] = []
+    pth_import_modules: set[str] = set()
+    for pth_input in resolved_site.glob("*.pth"):
+        try:
+            pth = pth_input.resolve(strict=True)
+        except OSError as exc:
+            raise CapabilityDataError("worker .pth inventory is unavailable") from exc
+        relative = pth.relative_to(resolved_venv).as_posix()
+        record_owned = relative.casefold() in all_owned_paths
+        if (
+            _worker_is_link_or_reparse(pth_input)
+            or os.path.normcase(str(Path(os.path.abspath(pth_input))))
+            != os.path.normcase(str(pth))
+            or not pth.is_file()
+            or pth.parent != resolved_site
+            or (not record_owned and pth.name.casefold() != "_virtualenv.pth")
+        ):
+            raise CapabilityDataError("worker .pth inventory is unowned or ambiguous")
+        pth_raw = _worker_stable_bytes(pth)
+        try:
+            pth_text = pth_raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise CapabilityDataError("worker .pth file is not UTF-8") from exc
+        for line in pth_text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith("import "):
+                try:
+                    parsed = ast.parse(stripped, mode="exec")
+                except SyntaxError as exc:
+                    raise CapabilityDataError("worker .pth import row is invalid") from exc
+                for node in parsed.body:
+                    if not isinstance(node, ast.Import):
+                        raise CapabilityDataError(
+                            "worker .pth executable row is not a plain import"
+                        )
+                    pth_import_modules.update(alias.name for alias in node.names)
+                continue
+            target_input = Path(stripped)
+            try:
+                target = (
+                    target_input
+                    if target_input.is_absolute()
+                    else resolved_site / target_input
+                ).resolve(strict=True)
+            except OSError as exc:
+                raise CapabilityDataError("worker .pth target is unavailable") from exc
+            if not target.is_dir() or (
+                not target.is_relative_to(resolved_site)
+                and not _same_worker_path(target, resolved_source)
+            ):
+                raise CapabilityDataError("worker .pth target escaped its authority")
+        pth_rows.append(
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(pth_raw).hexdigest(),
+                "record_owned": record_owned,
+            }
+        )
+    pth_rows.sort(key=lambda row: row["path"].casefold())
+    if not pth_rows or "_virtualenv" not in pth_import_modules:
+        raise CapabilityDataError("worker .pth startup closure is incomplete")
+    modules = sorted(pth_import_modules)
+    origins = _probe_worker_pth_import_origins(command, modules, pycache_prefix)
+    pth_import_rows: list[dict[str, str]] = []
+    for module_name in modules:
+        try:
+            origin = Path(origins[module_name]).resolve(strict=True)
+            relative_origin = origin.relative_to(resolved_venv).as_posix()
+        except (OSError, ValueError) as exc:
+            raise CapabilityDataError("worker .pth import origin escaped its venv") from exc
+        pth_import_rows.append(
+            {
+                "module": module_name,
+                "origin": relative_origin,
+                "sha256": hashlib.sha256(_worker_stable_bytes(origin)).hexdigest(),
+            }
+        )
+    return {
+        "installed_distributions_count": len(distributions),
+        "installed_distributions_sha256": _worker_compact_json_sha256(distributions),
+        "pth_files_count": len(pth_rows),
+        "pth_files_sha256": _worker_compact_json_sha256(pth_rows),
+        "pth_imports_count": len(pth_import_rows),
+        "pth_imports_sha256": _worker_compact_json_sha256(pth_import_rows),
+    }
+
+
+def _worker_base_runtime_tree_identity(root: Path) -> dict[str, Any]:
+    try:
+        resolved_root = root.resolve(strict=True)
+        if _worker_is_link_or_reparse(root) or not resolved_root.is_dir():
+            raise OSError("base runtime root is invalid")
+        paths = list(resolved_root.rglob("*"))
+    except OSError as exc:
+        raise CapabilityDataError("worker base runtime tree is unavailable") from exc
+    rows: list[dict[str, str]] = []
+    seen_paths: set[str] = set()
+    for path in paths:
+        relative = path.relative_to(resolved_root)
+        key = relative.as_posix().casefold()
+        if key in seen_paths:
+            raise CapabilityDataError(
+                "worker base runtime tree has a case-insensitive duplicate"
+            )
+        seen_paths.add(key)
+        if _worker_is_link_or_reparse(path):
+            raise CapabilityDataError("worker base runtime tree contains a link")
+        if "__pycache__" in relative.parts:
+            continue
+        if path.is_file():
+            rows.append(
+                {
+                    "path": relative.as_posix(),
+                    "sha256": hashlib.sha256(_worker_stable_bytes(path)).hexdigest(),
+                }
+            )
+        elif not path.is_dir():
+            raise CapabilityDataError(
+                "worker base runtime tree contains an unsupported entry"
+            )
+    rows.sort(key=lambda row: row["path"].casefold())
+    if not rows:
+        raise CapabilityDataError("worker base runtime tree is empty")
+    return {
+        "base_runtime_tree_file_count": len(rows),
+        "base_runtime_tree_sha256": _worker_compact_json_sha256(rows),
+    }
+
+
+def _worker_site_packages_tree_identity(root: Path) -> dict[str, Any]:
+    """Bind every non-cache byte under one worker's effective site-packages."""
+    try:
+        resolved_root = root.resolve(strict=True)
+        if (
+            _worker_is_link_or_reparse(root)
+            or not resolved_root.is_dir()
+            or os.path.normcase(str(Path(os.path.abspath(root))))
+            != os.path.normcase(str(resolved_root))
+        ):
+            raise OSError("site-packages root is invalid")
+    except OSError as exc:
+        raise CapabilityDataError("worker site-packages tree is unavailable") from exc
+
+    rows: list[dict[str, str]] = []
+    seen_paths: set[str] = set()
+    pending = [resolved_root]
+    while pending:
+        directory = pending.pop()
+        try:
+            children = sorted(
+                directory.iterdir(),
+                key=lambda path: path.name.casefold(),
+            )
+        except OSError as exc:
+            raise CapabilityDataError(
+                "worker site-packages tree is unreadable"
+            ) from exc
+        for path in children:
+            try:
+                relative = path.relative_to(resolved_root)
+            except ValueError as exc:
+                raise CapabilityDataError(
+                    "worker site-packages entry escaped its root"
+                ) from exc
+            key = relative.as_posix().casefold()
+            if key in seen_paths:
+                raise CapabilityDataError(
+                    "worker site-packages tree has a case-insensitive duplicate"
+                )
+            seen_paths.add(key)
+            if _worker_is_link_or_reparse(path):
+                raise CapabilityDataError(
+                    "worker site-packages tree contains a link or reparse point"
+                )
+            if path.is_dir():
+                if relative.name != "__pycache__":
+                    pending.append(path)
+                continue
+            if not path.is_file():
+                raise CapabilityDataError(
+                    "worker site-packages tree contains an unsupported entry"
+                )
+            if "__pycache__" in relative.parts:
+                continue
+            rows.append(
+                {
+                    "path": relative.as_posix(),
+                    "sha256": hashlib.sha256(
+                        _worker_stable_bytes(path)
+                    ).hexdigest(),
+                }
+            )
+    rows.sort(key=lambda row: row["path"].casefold())
+    if not rows:
+        raise CapabilityDataError("worker site-packages tree is empty")
+    return {
+        "site_packages_tree_file_count": len(rows),
+        "site_packages_tree_sha256": _worker_compact_json_sha256(rows),
+    }
+
+
+def _parse_worker_pyvenv_config(raw: bytes) -> dict[str, str]:
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise CapabilityDataError("worker pyvenv.cfg is not UTF-8") from exc
+    values: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        key, separator, value = line.partition("=")
+        normalized_key = key.strip().casefold()
+        normalized_value = value.strip()
+        if (
+            not separator
+            or not normalized_key
+            or not normalized_value
+            or normalized_key in values
+        ):
+            raise CapabilityDataError("worker pyvenv.cfg is ambiguous")
+        values[normalized_key] = normalized_value
+    if (
+        not values.get("home")
+        or values.get("implementation") != "CPython"
+        or not values.get("version_info")
+        or values.get("include-system-site-packages", "").casefold() != "false"
+    ):
+        raise CapabilityDataError("worker pyvenv.cfg isolation is invalid")
+    return values
+
+
+def _probe_worker_python_execution(
+    command: Path, package: str, pycache_prefix: Path
+) -> dict[str, Any]:
+    script = (
+        "import importlib.util,json,platform,site,sys;"
+        "s=importlib.util.find_spec(sys.argv[1]);"
+        "print(json.dumps({'executable':sys.executable,'base_prefix':sys.base_prefix,"
+        "'version':platform.python_version(),'origin':getattr(s,'origin',None),"
+        "'locations':list(getattr(s,'submodule_search_locations',[]) or []),"
+        "'isolated':sys.flags.isolated,'no_user_site':sys.flags.no_user_site,"
+        "'user_site_enabled':site.ENABLE_USER_SITE,"
+        "'dont_write_bytecode':sys.dont_write_bytecode,"
+        "'pycache_prefix':sys.pycache_prefix},"
+        "sort_keys=True,separators=(',',':')))"
+    )
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    try:
+        completed = subprocess.run(
+            [
+                str(command),
+                "-I",
+                "-B",
+                "-X",
+                f"pycache_prefix={pycache_prefix}",
+                "-c",
+                script,
+                package,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            timeout=5.0,
+            check=False,
+            creationflags=creationflags,
+        )
+        value = json.loads(completed.stdout)
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        UnicodeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise CapabilityDataError("worker Python import probe failed") from exc
+    if (
+        completed.returncode != 0
+        or completed.stderr
+        or not isinstance(value, dict)
+        or set(value)
+        != {
+            "base_prefix",
+            "dont_write_bytecode",
+            "executable",
+            "isolated",
+            "locations",
+            "no_user_site",
+            "origin",
+            "pycache_prefix",
+            "user_site_enabled",
+            "version",
+        }
+        or not isinstance(value.get("locations"), list)
+    ):
+        raise CapabilityDataError("worker Python import probe is invalid")
+    return value
+
+
+def _validate_worker_python_execution_closure(
+    server_id: str,
+    identity: dict[str, Any],
+    root: Path,
+    command: Path,
+) -> dict[str, Any]:
+    closure = identity.get("python_execution_closure")
+    package = WORKER_IMPORT_PACKAGES.get(server_id)
+    if (
+        not isinstance(closure, dict)
+        or set(closure) != PYTHON_EXECUTION_CLOSURE_KEYS
+        or closure.get("schema_version") != PYTHON_EXECUTION_CLOSURE_SCHEMA
+        or package is None
+        or closure.get("import_package") != package
+        or closure.get("include_system_site_packages") is not False
+        or closure.get("isolated_mode") is not True
+        or closure.get("user_site_enabled") is not False
+        or closure.get("dont_write_bytecode") is not True
+        or closure.get("pycache_prefix_empty") is not True
+        or not isinstance(closure.get("pycache_prefix_path"), str)
+        or not Path(closure["pycache_prefix_path"]).is_absolute()
+        or closure.get("forbidden_environment_variables")
+        != PYTHON_FORBIDDEN_ENVIRONMENT_VARIABLES
+        or closure.get("child_environment_policy_id")
+        != WORKER_CHILD_ENVIRONMENT_POLICY_ID
+        or SEMVER_PATTERN.fullmatch(
+            str(closure.get("base_interpreter_version") or "")
+        )
+        is None
+        or any(
+            SHA256_PATTERN.fullmatch(str(closure.get(key) or "")) is None
+            for key in (
+                "venv_python_sha256",
+                "pyvenv_config_sha256",
+                "base_interpreter_sha256",
+                "editable_pth_sha256",
+                "base_runtime_tree_sha256",
+                "site_packages_tree_sha256",
+                "installed_distributions_sha256",
+                "pth_files_sha256",
+                "pth_imports_sha256",
+            )
+        )
+        or any(
+            isinstance(closure.get(key), bool)
+            or not isinstance(closure.get(key), int)
+            or closure[key] < 1
+            for key in (
+                "base_runtime_tree_file_count",
+                "site_packages_tree_file_count",
+                "installed_distributions_count",
+                "pth_files_count",
+                "pth_imports_count",
+            )
+        )
+        or any(
+            not isinstance(closure.get(key), str)
+            or not Path(closure[key]).is_absolute()
+            for key in ("base_runtime_tree_path", "site_packages_path")
+        )
+    ):
+        raise CapabilityDataError("worker Python execution closure is invalid")
+
+    command = command.resolve(strict=True)
+    venv_root = command.parent.parent
+    expected_venv_root = (root / ".venv").resolve(strict=True)
+    pyvenv_path = (venv_root / "pyvenv.cfg").resolve(strict=True)
+    spec = WORKER_SERVER_SPECS[server_id]
+    expected_pycache_prefix = root.joinpath(
+        *str(spec["pycache_relative_path"]).split("/")
+    ).resolve(strict=True)
+    try:
+        pycache_is_empty = not any(expected_pycache_prefix.iterdir())
+    except OSError as exc:
+        raise CapabilityDataError("worker Python cache prefix is unavailable") from exc
+    if (
+        command.name.casefold() != "python.exe"
+        or command.parent.name.casefold() != "scripts"
+        or not _same_worker_path(venv_root, expected_venv_root)
+        or not _same_worker_path(closure["venv_python_path"], command)
+        or not _same_worker_path(closure["pyvenv_config_path"], pyvenv_path)
+        or not _same_worker_path(
+            closure["pycache_prefix_path"], expected_pycache_prefix
+        )
+        or _worker_is_link_or_reparse(expected_pycache_prefix)
+        or not expected_pycache_prefix.is_dir()
+        or not pycache_is_empty
+    ):
+        raise CapabilityDataError("worker Python virtual environment path is invalid")
+    command_raw = _worker_stable_bytes(command)
+    pyvenv_raw = _worker_stable_bytes(pyvenv_path)
+    pyvenv = _parse_worker_pyvenv_config(pyvenv_raw)
+    expected_version_info = ".".join(
+        str(closure["base_interpreter_version"]).split(".")[:2]
+    )
+    if pyvenv.get("version_info") != expected_version_info:
+        raise CapabilityDataError("worker pyvenv.cfg version is invalid")
+    try:
+        base_interpreter = (Path(pyvenv["home"]) / "python.exe").resolve(strict=True)
+        base_runtime_root = Path(str(closure["base_runtime_tree_path"])).resolve(
+            strict=True
+        )
+    except OSError as exc:
+        raise CapabilityDataError("worker base interpreter is unavailable") from exc
+    if (
+        not base_interpreter.is_file()
+        or not _same_worker_path(
+            closure["base_interpreter_path"], base_interpreter
+        )
+        or not _same_worker_path(base_runtime_root, base_interpreter.parent)
+        or hashlib.sha256(command_raw).hexdigest()
+        != closure["venv_python_sha256"]
+        or hashlib.sha256(pyvenv_raw).hexdigest()
+        != closure["pyvenv_config_sha256"]
+        or hashlib.sha256(_worker_stable_bytes(base_interpreter)).hexdigest()
+        != closure["base_interpreter_sha256"]
+    ):
+        raise CapabilityDataError("worker Python interpreter bytes do not match identity")
+
+    site_packages = (venv_root / "Lib" / "site-packages").resolve(strict=True)
+    editable_path = Path(str(closure["editable_pth_path"])).resolve(strict=True)
+    source_root = (root / "src").resolve(strict=True)
+    import_origin = (source_root / package / "__init__.py").resolve(strict=True)
+    if (
+        editable_path.is_symlink()
+        or not editable_path.is_file()
+        or editable_path.parent != site_packages
+        or not editable_path.name.casefold().startswith("__editable__.")
+        or editable_path.suffix.casefold() != ".pth"
+        or not _same_worker_path(closure["editable_source_root"], source_root)
+        or not _same_worker_path(closure["import_origin"], import_origin)
+        or not _same_worker_path(closure["site_packages_path"], site_packages)
+        or not import_origin.is_file()
+    ):
+        raise CapabilityDataError("worker editable import path is invalid")
+    editable_raw = _worker_stable_bytes(editable_path)
+    try:
+        editable_lines = [
+            line.strip()
+            for line in editable_raw.decode("utf-8-sig").splitlines()
+            if line.strip()
+        ]
+    except UnicodeDecodeError as exc:
+        raise CapabilityDataError("worker editable .pth is not UTF-8") from exc
+    if (
+        len(editable_lines) != 1
+        or editable_lines[0].casefold().startswith("import ")
+        or not Path(editable_lines[0]).is_absolute()
+        or not _same_worker_path(editable_lines[0], source_root)
+        or hashlib.sha256(editable_raw).hexdigest()
+        != closure["editable_pth_sha256"]
+    ):
+        raise CapabilityDataError("worker editable .pth target does not match identity")
+
+    distribution_identity = _worker_installed_distributions_identity(
+        site_packages,
+        venv_root,
+        source_root,
+        command,
+        expected_pycache_prefix,
+    )
+    base_runtime_identity = _worker_base_runtime_tree_identity(base_runtime_root)
+    site_packages_tree_identity = _worker_site_packages_tree_identity(site_packages)
+    if any(
+        closure.get(key) != value
+        for key, value in {
+            **distribution_identity,
+            **base_runtime_identity,
+            **site_packages_tree_identity,
+        }.items()
+    ):
+        raise CapabilityDataError(
+            "worker Python dependency closure does not match current bytes"
+        )
+
+    probe = _probe_worker_python_execution(
+        command, package, expected_pycache_prefix
+    )
+    locations = probe.get("locations")
+    package_root = (source_root / package).resolve(strict=True)
+    if (
+        not _same_worker_path(probe.get("executable", ""), command)
+        or not _same_worker_path(
+            Path(str(probe.get("base_prefix") or "")) / "python.exe",
+            base_interpreter,
+        )
+        or probe.get("version") != closure["base_interpreter_version"]
+        or probe.get("isolated") != 1
+        or probe.get("no_user_site") != 1
+        or probe.get("user_site_enabled") is not False
+        or probe.get("dont_write_bytecode") is not True
+        or not _same_worker_path(
+            probe.get("pycache_prefix", ""), expected_pycache_prefix
+        )
+        or not _same_worker_path(probe.get("origin", ""), import_origin)
+        or not isinstance(locations, list)
+        or len(locations) != 1
+        or not _same_worker_path(locations[0], package_root)
+    ):
+        raise CapabilityDataError("worker Python import resolution does not match identity")
+    return dict(closure)
+
+
+def _antigravity_worker_source_paths(root: Path) -> list[Path]:
+    package_root = root / "src" / "antigravity_adapter"
+    try:
+        resolved_package = package_root.resolve(strict=True)
+        if package_root.is_symlink() or not resolved_package.is_dir():
+            raise OSError("package root is invalid")
+        entries = sorted(
+            package_root.rglob("*"),
+            key=lambda path: path.relative_to(package_root).as_posix().casefold(),
+        )
+    except OSError as exc:
+        raise CapabilityDataError("Antigravity source inventory is unavailable") from exc
+    seen: set[str] = set()
+    sources: list[Path] = []
+    for path in entries:
+        relative_path = path.relative_to(package_root)
+        if "__pycache__" in relative_path.parts:
+            continue
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+        if path.is_symlink() or bool(
+            attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            raise CapabilityDataError("Antigravity source inventory contains a link")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise CapabilityDataError(
+                "Antigravity source inventory contains a non-regular entry"
+            )
+        relative = relative_path.as_posix().casefold()
+        if relative in seen:
+            raise CapabilityDataError("Antigravity source inventory is ambiguous")
+        seen.add(relative)
+        sources.append(path)
+    if not sources or not {
+        "__init__.py",
+        "server.py",
+        "source_integrity.py",
+    }.issubset(seen):
+        raise CapabilityDataError("Antigravity source inventory is incomplete")
+    return sources
+
+
+def _validate_las_worker_artifacts(root: Path, identity: dict[str, Any]) -> None:
+    try:
+        package_root = root / "src" / "local_agent_stack"
+        paths = [root / "runtime-dependencies.lock.json"]
+        for path in package_root.rglob("*"):
+            relative = path.relative_to(package_root)
+            if "__pycache__" in relative.parts:
+                continue
+            if _worker_is_link_or_reparse(path):
+                raise CapabilityDataError(
+                    "local-agent-stack source inventory contains a link"
+                )
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise CapabilityDataError(
+                    "local-agent-stack source inventory contains a non-regular entry"
+                )
+            paths.append(path)
+        paths.sort(key=lambda path: path.relative_to(root).as_posix().casefold())
+    except OSError as exc:
+        raise CapabilityDataError("local-agent-stack source inventory is unavailable") from exc
+    if _worker_source_inventory_sha256(root, paths) != identity.get("source_sha256"):
+        raise CapabilityDataError("local-agent-stack source identity mismatch")
+    try:
+        lock = json.loads(
+            _worker_stable_bytes(root / "runtime-dependencies.lock.json").decode(
+                "utf-8-sig"
+            )
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CapabilityDataError("LAS dependency lock is invalid") from exc
+    lock_closure = lock.get("python_execution_closure") if isinstance(lock, dict) else None
+    identity_closure = identity.get("python_execution_closure")
+    closure_path_keys = {
+        "base_interpreter_path",
+        "base_runtime_tree_path",
+        "editable_pth_path",
+        "editable_source_root",
+        "import_origin",
+        "pycache_prefix_path",
+        "pyvenv_config_path",
+        "site_packages_path",
+        "venv_python_path",
+    }
+    closure_matches = (
+        isinstance(lock_closure, dict)
+        and isinstance(identity_closure, dict)
+        and set(lock_closure) == set(identity_closure)
+        and all(
+            _same_worker_path(
+                _worker_dependency_path(lock_closure[key], root),
+                identity_closure[key],
+            )
+            if key in closure_path_keys
+            else lock_closure[key] == identity_closure[key]
+            for key in lock_closure
+        )
+    )
+    if (
+        not isinstance(lock, dict)
+        or set(lock)
+        != {
+            "agent_memory",
+            "executables",
+            "files",
+            "hermes",
+            "lifecycle_supervisor",
+            "ollama",
+            "python_execution_closure",
+            "release_id",
+            "scheduler_contract",
+            "schema_version",
+            "startup_receipts",
+        }
+        or lock.get("schema_version")
+        != "local-agent-stack-runtime-dependencies-v2"
+        or lock.get("release_id") != identity.get("release_id")
+        or not closure_matches
+    ):
+        raise CapabilityDataError("LAS dependency lock is invalid")
+    hermes = lock.get("hermes") if isinstance(lock, dict) else None
+    identity_hermes = identity["nested_dependencies"]["hermes"]
+    if not isinstance(hermes, dict) or any(
+        hermes.get(key) != identity_hermes.get(key)
+        for key in ("distribution_version", "overlay_id", "api_source_sha256")
+    ):
+        raise CapabilityDataError("LAS Hermes identity mismatch")
+    for path_key, hash_key in (
+        ("api_source_path", "api_source_sha256"),
+        ("distribution_metadata_path", "distribution_metadata_sha256"),
+    ):
+        actual = hashlib.sha256(
+            _worker_stable_bytes(_worker_dependency_path(hermes.get(path_key), root))
+        ).hexdigest()
+        if actual != hermes.get(hash_key):
+            raise CapabilityDataError("LAS Hermes artifact mismatch")
+
+
+def _validate_antigravity_worker_artifacts(
+    root: Path, identity: dict[str, Any], projection: dict[str, Any]
+) -> None:
+    source_paths = _antigravity_worker_source_paths(root)
+    source_paths.extend([root / "dependency-lock.json", root / "pyproject.toml"])
+    if _worker_source_inventory_sha256(root, source_paths) != identity.get(
+        "source_sha256"
+    ):
+        raise CapabilityDataError("Antigravity source identity mismatch")
+    lock_raw = _worker_stable_bytes(root / "dependency-lock.json")
+    try:
+        lock = json.loads(lock_raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CapabilityDataError("Antigravity dependency lock is invalid") from exc
+    agy = lock.get("agy") if isinstance(lock, dict) else None
+    lock_closure = lock.get("python_execution_closure") if isinstance(lock, dict) else None
+    identity_closure = identity.get("python_execution_closure")
+    closure_path_keys = {
+        "base_interpreter_path",
+        "base_runtime_tree_path",
+        "editable_pth_path",
+        "editable_source_root",
+        "import_origin",
+        "pycache_prefix_path",
+        "pyvenv_config_path",
+        "site_packages_path",
+        "venv_python_path",
+    }
+    closure_matches = (
+        isinstance(lock_closure, dict)
+        and isinstance(identity_closure, dict)
+        and set(lock_closure) == set(identity_closure)
+        and all(
+            _same_worker_path(
+                _worker_dependency_path(lock_closure[key], root),
+                identity_closure[key],
+            )
+            if key in closure_path_keys
+            else lock_closure[key] == identity_closure[key]
+            for key in lock_closure
+        )
+    )
+    if (
+        not isinstance(lock, dict)
+        or set(lock) != {"schema_version", "python_execution_closure", "agy"}
+        or lock.get("schema_version") != "antigravity-adapter-dependency-lock-v2"
+        or not closure_matches
+        or not isinstance(agy, dict)
+        or set(agy) != {"version", "executable_sha256", "model_efforts"}
+        or not isinstance(agy.get("model_efforts"), dict)
+        or not agy["model_efforts"]
+    ):
+        raise CapabilityDataError("Antigravity dependency lock is invalid")
+    agy_raw = _worker_stable_bytes(
+        Path(projection["env"]["ANTIGRAVITY_AGY_EXECUTABLE"])
+    )
+    model_hash = hashlib.sha256(
+        json.dumps(
+            dict(sorted(agy["model_efforts"].items())),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    if (
+        identity.get("dependency_lock_sha256") != hashlib.sha256(lock_raw).hexdigest()
+        or identity.get("agy_version") != agy.get("version")
+        or identity.get("agy_executable_sha256") != hashlib.sha256(agy_raw).hexdigest()
+        or identity.get("agy_executable_sha256") != agy.get("executable_sha256")
+        or identity.get("agy_model_contract_sha256") != model_hash
+    ):
+        raise CapabilityDataError("Antigravity dependency identity mismatch")
+
+
+def _validate_worker_family_identity_document(
+    server_id: str,
+    identity: dict[str, Any],
+) -> dict[str, Any]:
+    compatibility = identity.get("catalogue_router_compatibility")
+    if server_id == "local-agent-stack":
+        if set(identity) != {
+            "schema_version",
+            "component",
+            "runtime_version",
+            "release_id",
+            "catalogue_router_compatibility",
+            "nested_dependencies",
+            "python_execution_closure",
+            "source_sha256",
+        } or not isinstance(compatibility, dict):
+            raise CapabilityDataError("local-agent-stack identity shape is invalid")
+        if set(compatibility) != {
+            "route_schema_version",
+            "route_registry_schema_version",
+            "authority_pointer_schema_version",
+            "manifest_schema_versions",
+        }:
+            raise CapabilityDataError("local-agent-stack compatibility is invalid")
+        nested = identity.get("nested_dependencies")
+        hermes = nested.get("hermes") if isinstance(nested, dict) else None
+        if not isinstance(nested, dict) or set(nested) != {"hermes"} or not isinstance(hermes, dict) or set(hermes) != {
+            "distribution_version",
+            "overlay_id",
+            "api_source_sha256",
+            "python_execution_closure",
+        }:
+            raise CapabilityDataError("local-agent-stack Hermes identity is invalid")
+        if (
+            identity.get("schema_version") != "local-agent-stack-runtime-identity-v2"
+            or identity.get("component") != server_id
+            or SEMVER_PATTERN.fullmatch(str(identity.get("runtime_version") or ""))
+            is None
+            or SEMVER_PATTERN.fullmatch(
+                str(hermes.get("distribution_version") or "")
+            )
+            is None
+            or not isinstance(hermes.get("overlay_id"), str)
+            or not hermes["overlay_id"]
+            or SHA256_PATTERN.fullmatch(
+                str(hermes.get("api_source_sha256") or "")
+            )
+            is None
+            or not isinstance(hermes.get("python_execution_closure"), dict)
+        ):
+            raise CapabilityDataError("local-agent-stack identity values are invalid")
+        manifests = compatibility.get("manifest_schema_versions")
+    elif server_id == "antigravity-adapter":
+        if set(identity) != {
+            "agy_executable_sha256",
+            "agy_model_contract_sha256",
+            "agy_version",
+            "authority_pointer_schema_version",
+            "component",
+            "dependency_lock_schema_version",
+            "dependency_lock_sha256",
+            "release_id",
+            "route_registry_schema_version",
+            "route_schema_version",
+            "runtime_version",
+            "schema_version",
+            "python_execution_closure",
+            "source_sha256",
+            "supported_manifest_schema_versions",
+        }:
+            raise CapabilityDataError("Antigravity adapter identity shape is invalid")
+        compatibility = identity
+        if (
+            identity.get("schema_version")
+            != "antigravity-adapter-runtime-identity-v3"
+            or identity.get("component") != server_id
+            or SEMVER_PATTERN.fullmatch(str(identity.get("runtime_version") or ""))
+            is None
+            or SEMVER_PATTERN.fullmatch(str(identity.get("agy_version") or ""))
+            is None
+            or identity.get("dependency_lock_schema_version")
+            != "antigravity-adapter-dependency-lock-v2"
+            or any(
+                SHA256_PATTERN.fullmatch(str(identity.get(key) or "")) is None
+                for key in (
+                    "agy_executable_sha256",
+                    "agy_model_contract_sha256",
+                    "dependency_lock_sha256",
+                )
+            )
+        ):
+            raise CapabilityDataError("Antigravity adapter identity values are invalid")
+        manifests = identity.get("supported_manifest_schema_versions")
+    else:
+        raise CapabilityDataError("worker identity family is unsupported")
+    release_id = identity.get("release_id")
+    if (
+        SHA256_PATTERN.fullmatch(str(identity.get("source_sha256") or "")) is None
+        or not isinstance(release_id, str)
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", release_id) is None
+        or not release_id.startswith(server_id + "-")
+        or compatibility.get("route_schema_version") != "3.0"
+        or compatibility.get("route_registry_schema_version")
+        != ROUTE_REGISTRY_SCHEMA_VERSION
+        or compatibility.get("authority_pointer_schema_version")
+        != "capability-authority-pointer-v1"
+        or not isinstance(manifests, list)
+        or len(manifests) != len(set(manifests))
+        or "1.3" not in manifests
+        or any(not isinstance(item, str) or not item for item in manifests)
+    ):
+        raise CapabilityDataError("worker runtime compatibility is invalid")
+    return compatibility
+
+
+def _validate_worker_family_identity(
+    server_id: str,
+    identity: dict[str, Any],
+    root: Path,
+    projection: dict[str, Any],
+) -> dict[str, Any]:
+    compatibility = _validate_worker_family_identity_document(server_id, identity)
+    if server_id == "local-agent-stack":
+        _validate_las_worker_artifacts(root, identity)
+    else:
+        _validate_antigravity_worker_artifacts(root, identity, projection)
+    _validate_worker_python_execution_closure(
+        server_id,
+        identity,
+        root,
+        Path(str(projection["command"])),
+    )
+    return compatibility
+
+
+def _gateway_source_identity(root: Path) -> tuple[str, list[dict[str, Any]]]:
+    records: list[dict[str, Any]] = []
+    for relative in sorted(
+        GATEWAY_SOURCE_RELATIVE_PATHS, key=lambda item: item.encode("utf-8")
+    ):
+        path = root.joinpath(*relative.split("/"))
+        payload = _worker_stable_bytes(path)
+        records.append(
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "size": len(payload),
+            }
+        )
+    digest = hashlib.sha256(GATEWAY_SOURCE_DOMAIN)
+    for record in records:
+        digest.update(record["path"].encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(record["size"]).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(record["sha256"]))
+    return digest.hexdigest(), records
+
+
+def _gateway_runtime_tree_identity(root: Path, *, domain: bytes) -> dict[str, Any]:
+    try:
+        resolved_root = root.resolve(strict=True)
+        if _worker_is_link_or_reparse(root) or not resolved_root.is_dir():
+            raise OSError("runtime tree root is invalid")
+        entries = list(resolved_root.rglob("*"))
+    except OSError as exc:
+        raise CapabilityDataError("gateway runtime tree is unavailable") from exc
+    relative_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for path in entries:
+        relative = path.relative_to(resolved_root)
+        key = relative.as_posix().casefold()
+        if key in seen_paths:
+            raise CapabilityDataError(
+                "gateway runtime tree has a case-insensitive duplicate"
+            )
+        seen_paths.add(key)
+        if _worker_is_link_or_reparse(path):
+            raise CapabilityDataError("gateway runtime tree contains a link")
+        if "__pycache__" in relative.parts:
+            continue
+        if path.is_file():
+            relative_paths.append(relative.as_posix())
+        elif not path.is_dir():
+            raise CapabilityDataError(
+                "gateway runtime tree contains an unsupported entry"
+            )
+    records: list[dict[str, Any]] = []
+    for relative in sorted(relative_paths, key=lambda item: item.encode("utf-8")):
+        payload = _worker_stable_bytes(
+            resolved_root.joinpath(*relative.split("/"))
+        )
+        records.append(
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "size": len(payload),
+            }
+        )
+    digest = hashlib.sha256(domain)
+    for record in records:
+        digest.update(record["path"].encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(record["size"]).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(record["sha256"]))
+    return {"file_count": len(records), "sha256": digest.hexdigest()}
+
+
+def _gateway_runtime_binding_valid(binding: Any) -> bool:
+    if not isinstance(binding, dict) or set(binding) != GATEWAY_RUNTIME_BINDING_KEYS:
+        return False
+    identity = binding.get("runtime_identity")
+    python_runtime = identity.get("python_runtime") if isinstance(identity, dict) else None
+    bytecode_cache = (
+        identity.get("python_bytecode_cache") if isinstance(identity, dict) else None
+    )
+    source_files = identity.get("source_files") if isinstance(identity, dict) else None
+    if (
+        binding.get("config_server_id") != GATEWAY_CONFIG_SERVER_ID
+        or binding.get("identity_relative_path")
+        != GATEWAY_RUNTIME_IDENTITY_RELATIVE_PATH
+        or SHA256_PATTERN.fullmatch(str(binding.get("identity_sha256") or ""))
+        is None
+        or SHA256_PATTERN.fullmatch(
+            str(binding.get("server_config_sha256") or "")
+        )
+        is None
+        or not isinstance(identity, dict)
+        or set(identity) != GATEWAY_RUNTIME_IDENTITY_KEYS
+        or identity.get("schema_version") != GATEWAY_RUNTIME_IDENTITY_SCHEMA
+        or identity.get("component") != GATEWAY_COMPONENT
+        or identity.get("release_id") != GATEWAY_RELEASE_ID
+        or identity.get("child_environment_policy_id")
+        != WORKER_CHILD_ENVIRONMENT_POLICY_ID
+        or identity.get("gateway_startup_environment_policy_id")
+        != GATEWAY_STARTUP_ENVIRONMENT_POLICY_ID
+        or identity.get("gateway_startup_python_flags")
+        != GATEWAY_REQUIRED_PYTHON_FLAGS
+        or not isinstance(bytecode_cache, dict)
+        or set(bytecode_cache) != {"must_be_empty", "prefix_path"}
+        or bytecode_cache.get("must_be_empty") is not True
+        or not isinstance(bytecode_cache.get("prefix_path"), str)
+        or not Path(bytecode_cache["prefix_path"]).is_absolute()
+        or identity.get("python_injection_environment_keys")
+        != PYTHON_FORBIDDEN_ENVIRONMENT_VARIABLES
+        or SHA256_PATTERN.fullmatch(str(identity.get("source_sha256") or ""))
+        is None
+        or not isinstance(source_files, list)
+        or [item.get("path") if isinstance(item, dict) else None for item in source_files]
+        != sorted(GATEWAY_SOURCE_RELATIVE_PATHS, key=lambda item: item.encode("utf-8"))
+        or any(
+            not isinstance(item, dict)
+            or set(item) != {"path", "sha256", "size"}
+            or SHA256_PATTERN.fullmatch(str(item.get("sha256") or "")) is None
+            or isinstance(item.get("size"), bool)
+            or not isinstance(item.get("size"), int)
+            or item["size"] < 0
+            for item in source_files
+        )
+        or not isinstance(python_runtime, dict)
+        or set(python_runtime) != GATEWAY_PYTHON_RUNTIME_KEYS
+        or SEMVER_PATTERN.fullmatch(str(python_runtime.get("version") or "")) is None
+        or any(
+            SHA256_PATTERN.fullmatch(str(python_runtime.get(key) or "")) is None
+            for key in (
+                "base_runtime_sha256",
+                "console_executable_sha256",
+                "dependency_lock_sha256",
+                "site_packages_sha256",
+                "windowless_executable_sha256",
+            )
+        )
+        or any(
+            isinstance(python_runtime.get(key), bool)
+            or not isinstance(python_runtime.get(key), int)
+            or python_runtime[key] < 1
+            for key in ("base_runtime_file_count", "site_packages_file_count")
+        )
+        or any(
+            not isinstance(python_runtime.get(key), str)
+            or not Path(python_runtime[key]).is_absolute()
+            for key in (
+                "base_root",
+                "console_executable_path",
+                "dependency_lock_path",
+                "site_packages_path",
+                "windowless_executable_path",
+            )
+        )
+    ):
+        return False
+    return True
+
+
+def _gateway_runtime_binding_deployed(
+    config: dict[str, Any], binding: dict[str, Any]
+) -> bool:
+    """Verify the immutable gateway bundle binding without rescanning large trees."""
+    if not _gateway_runtime_binding_valid(binding):
+        return False
+    servers = config.get("mcp_servers")
+    gateway_server = (
+        servers.get(GATEWAY_CONFIG_SERVER_ID) if isinstance(servers, dict) else None
+    )
+    if gateway_server != {"url": GATEWAY_CONFIG_URL} or not hmac.compare_digest(
+        _worker_projection_sha256(gateway_server),
+        str(binding["server_config_sha256"]),
+    ):
+        return False
+    identity_path = CONFIG_PATH.parent.joinpath(
+        *GATEWAY_RUNTIME_IDENTITY_RELATIVE_PATH.split("/")
+    )
+    try:
+        identity_raw = _worker_stable_bytes(identity_path)
+        parsed_identity = json.loads(identity_raw.decode("utf-8-sig"))
+    except (
+        OSError,
+        TypeError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        CapabilityDataError,
+    ):
+        return False
+    return bool(
+        isinstance(parsed_identity, dict)
+        and parsed_identity == binding["runtime_identity"]
+        and hmac.compare_digest(
+            hashlib.sha256(identity_raw).hexdigest(),
+            str(binding["identity_sha256"]),
+        )
+    )
+
+
+def _gateway_runtime_binding_current(
+    config: dict[str, Any], binding: dict[str, Any]
+) -> bool:
+    if not _gateway_runtime_binding_deployed(config, binding):
+        return False
+    servers = config.get("mcp_servers")
+    gateway_server = (
+        servers.get(GATEWAY_CONFIG_SERVER_ID) if isinstance(servers, dict) else None
+    )
+    return _gateway_runtime_binding_current_impl(config, binding, gateway_server)
+
+
+def _gateway_receipt_binding_sha256(receipt: dict[str, Any]) -> str:
+    upstream = receipt.get("upstream_config_sha256_by_server")
+    if not isinstance(upstream, dict):
+        return ""
+    lines = [GATEWAY_STARTUP_RECEIPT_BINDING_DOMAIN]
+    for name in GATEWAY_STARTUP_RECEIPT_BINDING_FIELDS:
+        value = receipt.get(name)
+        if isinstance(value, bool):
+            rendered = "True" if value else "False"
+        else:
+            rendered = str(value)
+        lines.append(f"{name}={rendered}")
+    for server_id in sorted(upstream):
+        lines.append(f"upstream={server_id}|{upstream[server_id]}")
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _gateway_task_action_sha256(identity: dict[str, Any]) -> str:
+    runtime = identity["python_runtime"]
+    cache = identity["python_bytecode_cache"]
+    identity_path = CONFIG_PATH.parent.joinpath(
+        *GATEWAY_RUNTIME_IDENTITY_RELATIVE_PATH.split("/")
+    ).resolve(strict=True)
+    gateway_root = identity_path.parent
+    executable = Path(runtime["windowless_executable_path"]).resolve(strict=True)
+    bootstrap = (gateway_root / "gateway_bootstrap.py").resolve(strict=True)
+    config = CONFIG_PATH.resolve(strict=True)
+    database = (
+        GATEWAY_STARTUP_RECEIPT_PATH.parent / "task-supervisor.sqlite3"
+    ).resolve(strict=True)
+    pycache = Path(cache["prefix_path"]).resolve(strict=True)
+    arguments = (
+        f'-I -S -B -X "pycache_prefix={pycache}" "{bootstrap}" '
+        f'--config "{config}" --database "{database}" '
+        "--host 127.0.0.1 --port 8765 --path /mcp"
+    )
+    payload = "\0".join((str(executable), arguments, str(gateway_root)))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _gateway_receipt_process_current(receipt: dict[str, Any]) -> bool:
+    """Verify the receipt still names the exact live Windows process generation."""
+
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class FileTime(ctypes.Structure):
+            _fields_ = [("low", wintypes.DWORD), ("high", wintypes.DWORD)]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.QueryFullProcessImageNameW.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        kernel32.GetProcessTimes.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(FileTime),
+            ctypes.POINTER(FileTime),
+            ctypes.POINTER(FileTime),
+            ctypes.POINTER(FileTime),
+        ]
+        kernel32.GetProcessTimes.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        process_id = receipt.get("process_id")
+        if isinstance(process_id, bool) or not isinstance(process_id, int) or process_id < 1:
+            return False
+        handle = kernel32.OpenProcess(0x1000, False, process_id)
+        if not handle:
+            return False
+        try:
+            size = wintypes.DWORD(32768)
+            buffer = ctypes.create_unicode_buffer(size.value)
+            if not kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                return False
+            creation = FileTime()
+            exit_time = FileTime()
+            kernel_time = FileTime()
+            user_time = FileTime()
+            if not kernel32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation),
+                ctypes.byref(exit_time),
+                ctypes.byref(kernel_time),
+                ctypes.byref(user_time),
+            ):
+                return False
+        finally:
+            kernel32.CloseHandle(handle)
+        expected_executable = Path(str(receipt["executable_path"])).resolve(strict=True)
+        actual_executable = Path(buffer.value).resolve(strict=True)
+        if not _same_worker_path(actual_executable, expected_executable):
+            return False
+        timestamp = dt.datetime.fromisoformat(
+            str(receipt["process_start_time_utc"]).replace("Z", "+00:00")
+        )
+        if timestamp.utcoffset() != dt.timedelta(0):
+            return False
+        epoch = dt.datetime(1970, 1, 1, tzinfo=dt.timezone.utc)
+        delta = timestamp.astimezone(dt.timezone.utc) - epoch
+        expected_microseconds = (
+            (delta.days * 86400 + delta.seconds) * 1_000_000
+            + delta.microseconds
+        )
+        actual_ticks = (creation.high << 32) | creation.low
+        actual_microseconds = (actual_ticks - 116444736000000000) // 10
+        return actual_microseconds == expected_microseconds
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
+
+
+def _gateway_startup_receipt_current(
+    config: dict[str, Any],
+    bom: dict[str, Any],
+    bom_sha256: str,
+    gateway_binding: dict[str, Any],
+    required_server_ids: set[str] | frozenset[str],
+) -> bool:
+    try:
+        raw = _worker_stable_bytes(GATEWAY_STARTUP_RECEIPT_PATH)
+        receipt = json.loads(raw.decode("utf-8-sig"))
+        identity = gateway_binding["runtime_identity"]
+        runtime = identity["python_runtime"]
+        runtime_identity_path = CONFIG_PATH.parent.joinpath(
+            *GATEWAY_RUNTIME_IDENTITY_RELATIVE_PATH.split("/")
+        ).resolve(strict=True)
+        bom_path = WORKER_RUNTIME_BOM_PATH.resolve(strict=True)
+        upstream = receipt.get("upstream_config_sha256_by_server")
+        servers = config.get("mcp_servers")
+        expected_upstreams = {
+            str(server_id)
+            for server_id, server in (servers.items() if isinstance(servers, dict) else ())
+            if isinstance(server, dict)
+            and server.get("gateway_managed") is True
+            and server.get("enabled") is False
+            and isinstance(server.get("command"), str)
+            and server["command"].strip()
+        }
+        recorded = dt.datetime.fromisoformat(
+            str(receipt.get("recorded_at_utc") or "").replace("Z", "+00:00")
+        )
+        started = dt.datetime.fromisoformat(
+            str(receipt.get("process_start_time_utc") or "").replace("Z", "+00:00")
+        )
+    except (
+        CapabilityDataError,
+        KeyError,
+        OSError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        return False
+    return bool(
+        isinstance(receipt, dict)
+        and set(receipt) == GATEWAY_STARTUP_RECEIPT_KEYS
+        and receipt.get("schema_version") == GATEWAY_STARTUP_RECEIPT_SCHEMA
+        and receipt.get("release_id") == identity.get("release_id")
+        and receipt.get("process_role") == "scheduled_windowless"
+        and receipt.get("managed_upstreams_absent_at_start") is True
+        and recorded.utcoffset() == dt.timedelta(0)
+        and started.utcoffset() == dt.timedelta(0)
+        and recorded >= started
+        and isinstance(upstream, dict)
+        and set(upstream) == expected_upstreams
+        and set(required_server_ids).issubset(upstream)
+        and all(
+            isinstance(server_id, str)
+            and SHA256_PATTERN.fullmatch(str(digest or "")) is not None
+            for server_id, digest in upstream.items()
+        )
+        and SHA256_PATTERN.fullmatch(
+            str(receipt.get("loaded_upstream_config_sha256") or "")
+        )
+        is not None
+        and hmac.compare_digest(
+            str(receipt.get("binding_sha256") or ""),
+            _gateway_receipt_binding_sha256(receipt),
+        )
+        and _same_worker_path(Path(str(receipt["runtime_identity_path"])), runtime_identity_path)
+        and hmac.compare_digest(
+            str(receipt["runtime_identity_sha256"]),
+            str(gateway_binding["identity_sha256"]),
+        )
+        and receipt.get("source_sha256") == identity.get("source_sha256")
+        and _same_worker_path(Path(str(receipt["worker_runtime_bom_path"])), bom_path)
+        and hmac.compare_digest(str(receipt["worker_runtime_bom_sha256"]), bom_sha256)
+        and _same_worker_path(
+            Path(str(receipt["executable_path"])),
+            Path(str(runtime["windowless_executable_path"])),
+        )
+        and hmac.compare_digest(
+            str(receipt["executable_sha256"]),
+            str(runtime["windowless_executable_sha256"]),
+        )
+        and receipt.get("child_environment_policy_id")
+        == identity.get("child_environment_policy_id")
+        and receipt.get("gateway_startup_environment_policy_id")
+        == identity.get("gateway_startup_environment_policy_id")
+        and hmac.compare_digest(
+            str(receipt.get("task_action_sha256") or ""),
+            _gateway_task_action_sha256(identity),
+        )
+        and _gateway_receipt_process_current(receipt)
+    )
+
+
+def _gateway_runtime_binding_current_impl(
+    config: dict[str, Any],
+    binding: dict[str, Any],
+    gateway_server: Any,
+) -> bool:
+    if gateway_server != {"url": GATEWAY_CONFIG_URL} or not hmac.compare_digest(
+        _worker_projection_sha256(gateway_server),
+        str(binding["server_config_sha256"]),
+    ):
+        return False
+    identity = binding["runtime_identity"]
+    python_runtime = identity["python_runtime"]
+    bytecode_cache = identity["python_bytecode_cache"]
+    identity_path = CONFIG_PATH.parent.joinpath(
+        *GATEWAY_RUNTIME_IDENTITY_RELATIVE_PATH.split("/")
+    )
+    gateway_root = identity_path.parent
+    try:
+        identity_raw = _worker_stable_bytes(identity_path)
+        parsed_identity = json.loads(identity_raw.decode("utf-8-sig"))
+        source_sha256, source_files = _gateway_source_identity(gateway_root)
+        local_app_data = Path(os.environ["LOCALAPPDATA"]).resolve(strict=True)
+        pycache_prefix = Path(bytecode_cache["prefix_path"]).resolve(strict=True)
+        expected_pycache_prefix = (
+            local_app_data / "Codex" / "stability" / "pycache" / "gateway"
+        ).resolve(strict=True)
+        pycache_is_empty = not any(pycache_prefix.iterdir())
+        base_root = Path(python_runtime["base_root"]).resolve(strict=True)
+        console = Path(python_runtime["console_executable_path"]).resolve(strict=True)
+        windowless = Path(python_runtime["windowless_executable_path"]).resolve(
+            strict=True
+        )
+        dependency_lock = Path(python_runtime["dependency_lock_path"]).resolve(
+            strict=True
+        )
+        site_packages = Path(python_runtime["site_packages_path"]).resolve(strict=True)
+        expected_dependency_lock = (gateway_root / "uv.lock").resolve(strict=True)
+        expected_site_packages = (
+            gateway_root / ".venv" / "Lib" / "site-packages"
+        ).resolve(strict=True)
+        base_runtime_identity = _gateway_runtime_tree_identity(
+            base_root, domain=GATEWAY_PYTHON_BASE_RUNTIME_DOMAIN
+        )
+        site_packages_identity = _gateway_runtime_tree_identity(
+            site_packages, domain=GATEWAY_SITE_PACKAGES_DOMAIN
+        )
+        console_sha256 = hashlib.sha256(_worker_stable_bytes(console)).hexdigest()
+        windowless_sha256 = hashlib.sha256(
+            _worker_stable_bytes(windowless)
+        ).hexdigest()
+        dependency_lock_sha256 = hashlib.sha256(
+            _worker_stable_bytes(dependency_lock)
+        ).hexdigest()
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        CapabilityDataError,
+    ):
+        return False
+    return bool(
+        isinstance(parsed_identity, dict)
+        and parsed_identity == identity
+        and hmac.compare_digest(
+            hashlib.sha256(identity_raw).hexdigest(),
+            str(binding["identity_sha256"]),
+        )
+        and source_files == identity["source_files"]
+        and hmac.compare_digest(source_sha256, str(identity["source_sha256"]))
+        and _same_worker_path(console, base_root / "python.exe")
+        and _same_worker_path(windowless, base_root / "pythonw.exe")
+        and _same_worker_path(pycache_prefix, expected_pycache_prefix)
+        and not _worker_is_link_or_reparse(pycache_prefix)
+        and pycache_prefix.is_dir()
+        and pycache_is_empty
+        and _same_worker_path(dependency_lock, expected_dependency_lock)
+        and _same_worker_path(site_packages, expected_site_packages)
+        and base_runtime_identity["file_count"]
+        == python_runtime["base_runtime_file_count"]
+        and hmac.compare_digest(
+            str(base_runtime_identity["sha256"]),
+            str(python_runtime["base_runtime_sha256"]),
+        )
+        and site_packages_identity["file_count"]
+        == python_runtime["site_packages_file_count"]
+        and hmac.compare_digest(
+            str(site_packages_identity["sha256"]),
+            str(python_runtime["site_packages_sha256"]),
+        )
+        and hmac.compare_digest(
+            console_sha256, str(python_runtime["console_executable_sha256"])
+        )
+        and hmac.compare_digest(
+            windowless_sha256,
+            str(python_runtime["windowless_executable_sha256"]),
+        )
+        and hmac.compare_digest(
+            dependency_lock_sha256,
+            str(python_runtime["dependency_lock_sha256"]),
+        )
+    )
+
+
+def _load_worker_runtime_bom(
+    path: Path | None = None, *, expected_sha256: str = ""
+) -> tuple[dict[str, Any], str]:
+    """Load and strictly validate the entire worker-runtime dependency authority."""
+
+    source = path or WORKER_RUNTIME_BOM_PATH
+    expected = str(expected_sha256 or "").lower()
+    if expected and SHA256_PATTERN.fullmatch(expected) is None:
+        raise CapabilityDataError("worker runtime BOM expected digest is invalid")
+    if not source.is_file() or source.is_symlink():
+        raise CapabilityDataError("worker runtime BOM is missing or linked")
+    try:
+        before = source.stat()
+        raw = source.read_bytes()
+        second = source.read_bytes()
+        after = source.stat()
+        value = json.loads(raw.decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CapabilityDataError("worker runtime BOM is unreadable") from exc
+    if (
+        raw != second
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+    ):
+        raise CapabilityDataError("worker runtime BOM changed during verification")
+    actual = hashlib.sha256(raw).hexdigest()
+    if expected and not hmac.compare_digest(actual, expected):
+        raise CapabilityDataError("worker runtime BOM digest mismatch")
+    if not isinstance(value, dict) or set(value) != {
+        "schema_version",
+        "gateway_runtime",
+        "runtimes",
+    }:
+        raise CapabilityDataError("worker runtime BOM root is invalid")
+    if not _gateway_runtime_binding_valid(value.get("gateway_runtime")):
+        raise CapabilityDataError("worker runtime BOM gateway binding is invalid")
+    runtimes = value.get("runtimes")
+    if value.get("schema_version") != WORKER_RUNTIME_BOM_SCHEMA or not isinstance(
+        runtimes, dict
+    ) or set(runtimes) != REQUIRED_WORKER_RUNTIME_SERVER_IDS:
+        raise CapabilityDataError("worker runtime BOM schema is invalid")
+    required = {
+        "config_server_id",
+        "identity_relative_path",
+        "identity_sha256",
+        "command_sha256",
+        "python_execution_closure",
+        "server_config_sha256",
+        "release_id",
+        "route_schema_version",
+        "route_registry_schema_version",
+    }
+    for server_id, binding in runtimes.items():
+        closure = (
+            binding.get("python_execution_closure")
+            if isinstance(binding, dict)
+            else None
+        )
+        if (
+            not isinstance(server_id, str)
+            or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,95}", server_id) is None
+            or not isinstance(binding, dict)
+            or set(binding) != required
+            or binding.get("config_server_id") != server_id
+            or binding.get("route_schema_version") != "3.0"
+            or binding.get("route_registry_schema_version")
+            != ROUTE_REGISTRY_SCHEMA_VERSION
+            or SHA256_PATTERN.fullmatch(str(binding.get("identity_sha256") or ""))
+            is None
+            or SHA256_PATTERN.fullmatch(str(binding.get("command_sha256") or ""))
+            is None
+            or not isinstance(closure, dict)
+            or set(closure) != PYTHON_EXECUTION_CLOSURE_KEYS
+            or closure.get("schema_version")
+            != PYTHON_EXECUTION_CLOSURE_SCHEMA
+            or closure.get("import_package")
+            != WORKER_IMPORT_PACKAGES.get(server_id)
+            or closure.get("include_system_site_packages") is not False
+            or closure.get("isolated_mode") is not True
+            or closure.get("user_site_enabled") is not False
+            or closure.get("dont_write_bytecode") is not True
+            or closure.get("pycache_prefix_empty") is not True
+            or closure.get("forbidden_environment_variables")
+            != PYTHON_FORBIDDEN_ENVIRONMENT_VARIABLES
+            or closure.get("child_environment_policy_id")
+            != WORKER_CHILD_ENVIRONMENT_POLICY_ID
+            or SEMVER_PATTERN.fullmatch(
+                str(closure.get("base_interpreter_version") or "")
+            )
+            is None
+            or any(
+                SHA256_PATTERN.fullmatch(str(closure.get(key) or "")) is None
+                for key in (
+                    "base_interpreter_sha256",
+                    "base_runtime_tree_sha256",
+                    "editable_pth_sha256",
+                    "site_packages_tree_sha256",
+                    "installed_distributions_sha256",
+                    "pth_files_sha256",
+                    "pth_imports_sha256",
+                    "pyvenv_config_sha256",
+                    "venv_python_sha256",
+                )
+            )
+            or any(
+                isinstance(closure.get(key), bool)
+                or not isinstance(closure.get(key), int)
+                or closure[key] < 1
+                for key in (
+                    "base_runtime_tree_file_count",
+                    "site_packages_tree_file_count",
+                    "installed_distributions_count",
+                    "pth_files_count",
+                    "pth_imports_count",
+                )
+            )
+            or any(
+                not isinstance(closure.get(key), str)
+                or not Path(closure[key]).is_absolute()
+                for key in (
+                    "base_interpreter_path",
+                    "base_runtime_tree_path",
+                    "editable_pth_path",
+                    "editable_source_root",
+                    "import_origin",
+                    "pyvenv_config_path",
+                    "pycache_prefix_path",
+                    "site_packages_path",
+                    "venv_python_path",
+                )
+            )
+            or SHA256_PATTERN.fullmatch(
+                str(binding.get("server_config_sha256") or "")
+            )
+            is None
+            or re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}",
+                str(binding.get("release_id") or ""),
+            )
+            is None
+        ):
+            raise CapabilityDataError("worker runtime BOM binding is invalid")
+        relative_identity = str(binding.get("identity_relative_path") or "")
+        relative_path = Path(relative_identity)
+        if (
+            relative_identity != "runtime-identity.json"
+            or len(relative_identity) > 160
+            or relative_path.is_absolute()
+            or re.match(r"^[A-Za-z]:", relative_identity)
+            or any(part == ".." for part in relative_path.parts)
+        ):
+            raise CapabilityDataError("worker runtime BOM identity path is invalid")
+    return value, actual
+
+
+def _gateway_managed_upstream_configured(
+    server_id: str,
+    *,
+    expected_bom_sha256: str = "",
+    verify_current_bytes: bool = False,
+    gateway_runtime_verified: bool = False,
+    require_process_generation: bool = True,
+    gateway_process_verified: bool = False,
+) -> bool:
+    """Verify deployed route binding; rescan bytes only at audit/execution boundaries."""
 
     try:
         with CONFIG_PATH.open("rb") as handle:
             config = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError):
         return False
-    servers = config.get("mcp_servers")
-    if not isinstance(servers, dict):
+    try:
+        projection, resolved_root = _worker_server_projection(config, server_id)
+    except CapabilityDataError:
         return False
-    server = servers.get(server_id)
-    if not isinstance(server, dict) or server.get("gateway_managed") is not True:
+    binding = _worker_runtime_binding(
+        server_id, expected_bom_sha256=expected_bom_sha256
+    )
+    if binding is None:
         return False
-    command = str(server.get("command") or "").strip()
-    cwd = str(server.get("cwd") or "").strip()
-    if not command or not cwd:
+    if not binding:
+        return True
+    try:
+        bom, _ = _load_worker_runtime_bom(
+            expected_sha256=str(expected_bom_sha256 or "").lower()
+        )
+    except CapabilityDataError:
         return False
-    return Path(command).is_file() and Path(cwd).is_dir()
+    gateway_binding = bom.get("gateway_runtime")
+    if (
+        not isinstance(gateway_binding, dict)
+        or not _gateway_runtime_binding_deployed(config, gateway_binding)
+        or (
+            verify_current_bytes
+            and not gateway_runtime_verified
+            and not _gateway_runtime_binding_current(config, gateway_binding)
+        )
+    ):
+        return False
+    if (
+        require_process_generation
+        and not gateway_process_verified
+        and not _gateway_startup_receipt_current(
+            config, bom, str(expected_bom_sha256 or "").lower(), gateway_binding, {server_id}
+        )
+    ):
+        return False
+    if not hmac.compare_digest(
+        _worker_projection_sha256(projection),
+        str(binding.get("server_config_sha256") or ""),
+    ):
+        return False
+    try:
+        command_sha256 = hashlib.sha256(
+            _worker_stable_bytes(Path(projection["command"]))
+        ).hexdigest()
+    except CapabilityDataError:
+        return False
+    if not hmac.compare_digest(
+        command_sha256, str(binding.get("command_sha256") or "")
+    ):
+        return False
+    relative_identity = str(binding.get("identity_relative_path") or "")
+    if relative_identity != "runtime-identity.json":
+        return False
+    try:
+        identity_path = (resolved_root / relative_identity).resolve(strict=True)
+    except OSError:
+        return False
+    if (
+        not identity_path.is_relative_to(resolved_root)
+        or not identity_path.is_file()
+        or identity_path.is_symlink()
+    ):
+        return False
+    try:
+        before = identity_path.stat()
+        identity_raw = identity_path.read_bytes()
+        identity_second = identity_path.read_bytes()
+        after = identity_path.stat()
+        identity = json.loads(identity_raw.decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if (
+        identity_raw != identity_second
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+        or not isinstance(identity, dict)
+    ):
+        return False
+    try:
+        compatibility = (
+            _validate_worker_family_identity(
+                server_id, identity, resolved_root, projection
+            )
+            if verify_current_bytes
+            else _validate_worker_family_identity_document(server_id, identity)
+        )
+    except CapabilityDataError:
+        return False
+    return bool(
+        hmac.compare_digest(
+            hashlib.sha256(identity_raw).hexdigest(),
+            str(binding["identity_sha256"]),
+        )
+        and isinstance(identity, dict)
+        and identity.get("release_id") == binding["release_id"]
+        and identity.get("python_execution_closure")
+        == binding["python_execution_closure"]
+        and compatibility.get("route_schema_version") == "3.0"
+        and compatibility.get("route_registry_schema_version")
+        == ROUTE_REGISTRY_SCHEMA_VERSION
+    )
+
+
+def worker_runtime_identity_status(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Report BOM validity and each configured worker identity independently."""
+
+    expected = str(
+        (manifest.get("source_hashes") or {}).get(WORKER_RUNTIME_BOM_SOURCE_HASH_KEY)
+        or ""
+    ).lower()
+    result: dict[str, Any] = {
+        "bom_status": "unavailable",
+        "bom_sha256": expected,
+        "gateway": {},
+        "components": {},
+    }
+    try:
+        bom, actual = _load_worker_runtime_bom(expected_sha256=expected)
+    except CapabilityDataError:
+        return result
+    result["bom_status"] = "current"
+    result["bom_sha256"] = actual
+    try:
+        with CONFIG_PATH.open("rb") as handle:
+            config = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        config = {}
+    gateway_binding = bom["gateway_runtime"]
+    gateway_current = _gateway_runtime_binding_current(config, gateway_binding)
+    process_current = gateway_current and _gateway_startup_receipt_current(
+        config,
+        bom,
+        actual,
+        gateway_binding,
+        REQUIRED_WORKER_RUNTIME_SERVER_IDS,
+    )
+    result["gateway"] = {
+        "release_id": gateway_binding["runtime_identity"]["release_id"],
+        "identity_sha256": gateway_binding["identity_sha256"],
+        "identity_binding_status": "current" if gateway_current else "unavailable",
+        "process_generation_status": (
+            "current" if process_current else "restart_required"
+            if gateway_current else "unavailable"
+        ),
+    }
+    reverse_families = {
+        server_id: family for family, server_id in WORKER_FAMILY_SERVER_IDS.items()
+    }
+    for server_id, binding in sorted(bom["runtimes"].items()):
+        current = gateway_current and _gateway_managed_upstream_configured(
+            server_id,
+            expected_bom_sha256=actual,
+            verify_current_bytes=True,
+            gateway_runtime_verified=True,
+            require_process_generation=False,
+        )
+        result["components"][server_id] = {
+            "worker_family": reverse_families.get(server_id, ""),
+            "release_id": binding["release_id"],
+            "identity_sha256": binding["identity_sha256"],
+            "identity_binding_status": "current" if current else "unavailable",
+            "admission_status": (
+                "current" if current and process_current else "restart_required"
+                if current else "unavailable"
+            ),
+        }
+    return result
+
+
+_HOOK_EVENT_KEY_LABELS = {
+    "UserPromptSubmit": "user_prompt_submit",
+    "SessionStart": "session_start",
+}
+_HOOK_EVENTS_WITHOUT_MATCHERS = {"UserPromptSubmit", "Stop"}
+_DEFAULT_HOOK_TIMEOUT_SECONDS = 600
+_DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT = 2_500
+
+
+def _command_hook_trust_hash(
+    event_name: str,
+    group: dict[str, Any],
+    hook: dict[str, Any],
+) -> str:
+    """Reproduce Codex's normalized command-hook trust fingerprint."""
+
+    event_label = _HOOK_EVENT_KEY_LABELS.get(event_name)
+    if event_label is None:
+        raise CapabilityDataError(f"unsupported hook event for trust hashing: {event_name}")
+    if hook.get("type") != "command":
+        raise CapabilityDataError("router hook handler must have type=command")
+
+    command = hook.get("command")
+    command_windows = hook.get("commandWindows")
+    if not isinstance(command, str):
+        raise CapabilityDataError("router hook command must be a string")
+    if command_windows is not None and not isinstance(command_windows, str):
+        raise CapabilityDataError("router hook commandWindows must be a string")
+    selected_command = command_windows if os.name == "nt" and command_windows is not None else command
+    if not selected_command.strip():
+        raise CapabilityDataError("router hook command must not be empty")
+
+    timeout = hook.get("timeout", _DEFAULT_HOOK_TIMEOUT_SECONDS)
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 0:
+        raise CapabilityDataError("router hook timeout must be a non-negative integer")
+    timeout = max(timeout, 1)
+
+    asynchronous = hook.get("async", False)
+    if not isinstance(asynchronous, bool):
+        raise CapabilityDataError("router hook async must be a Boolean")
+    if asynchronous:
+        raise CapabilityDataError(f"async {event_name} hooks are not executable")
+
+    normalized_handler: dict[str, Any] = {
+        "type": "command",
+        "command": selected_command,
+        "timeout": timeout,
+        "async": asynchronous,
+    }
+    if "statusMessage" in hook:
+        status_message = hook.get("statusMessage")
+        if status_message is not None and not isinstance(status_message, str):
+            raise CapabilityDataError("router hook statusMessage must be a string")
+        if status_message is not None:
+            normalized_handler["statusMessage"] = status_message
+    if "additionalContextLimit" in hook:
+        context_limit = hook.get("additionalContextLimit")
+        if (
+            isinstance(context_limit, bool)
+            or not isinstance(context_limit, int)
+            or context_limit < 0
+        ):
+            raise CapabilityDataError(
+                "router hook additionalContextLimit must be a non-negative integer"
+            )
+        if context_limit != _DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT:
+            normalized_handler["additionalContextLimit"] = context_limit
+
+    identity: dict[str, Any] = {
+        "event_name": event_label,
+        "hooks": [normalized_handler],
+    }
+    matcher = group.get("matcher")
+    if matcher is not None and not isinstance(matcher, str):
+        raise CapabilityDataError("router hook matcher must be a string")
+    if event_name not in _HOOK_EVENTS_WITHOUT_MATCHERS and matcher is not None:
+        identity["matcher"] = matcher
+    canonical = json.dumps(
+        identity,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+def hook_carrier_status(
+    *,
+    config_path: Path | None = None,
+    hooks_path: Path | None = None,
+    codex_home: Path | None = None,
+) -> dict[str, Any]:
+    """Report hook dispatch separately from canonical CLI router authority."""
+
+    home = (codex_home or CODEX_HOME).resolve(strict=False)
+    selected_config = config_path or CONFIG_PATH
+    selected_hooks = hooks_path or (home / "hooks.json")
+    unavailable = {
+        "status": "unavailable",
+        "feature_enabled": False,
+        "hooks_json_status": "unavailable",
+        "trust_state_status": "unavailable",
+        "user_prompt_router": "unavailable",
+        "session_start_recovery": "unavailable",
+    }
+    try:
+        config = tomllib.loads(selected_config.read_text(encoding="utf-8-sig"))
+        hook_config = json.loads(selected_hooks.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError, json.JSONDecodeError):
+        return unavailable
+    if not isinstance(config, dict) or not isinstance(hook_config, dict):
+        return unavailable
+    feature_enabled = (
+        isinstance(config.get("features"), dict)
+        and config["features"].get("hooks") is True
+    )
+    hooks_root = hook_config.get("hooks")
+    if not isinstance(hooks_root, dict):
+        return {**unavailable, "feature_enabled": feature_enabled}
+    hook_section = config.get("hooks")
+    state = hook_section.get("state", {}) if isinstance(hook_section, dict) else {}
+    if not isinstance(state, dict):
+        state = {}
+
+    required = {
+        "UserPromptSubmit": (
+            "user_prompt_submit",
+            "user_prompt_skill_router.py",
+            "user_prompt_router",
+        ),
+        "SessionStart": (
+            "session_start",
+            "capability_index_session_start.py",
+            "session_start_recovery",
+        ),
+    }
+    components: dict[str, str] = {}
+    trust_current = True
+    hooks_valid = True
+    resolved_hooks = selected_hooks.resolve(strict=False)
+    for event_name, (state_event, script_name, output_name) in required.items():
+        event_valid = True
+        matches: list[tuple[int, int, dict[str, Any], dict[str, Any]]] = []
+        groups = hooks_root.get(event_name)
+        if not isinstance(groups, list):
+            groups = []
+            event_valid = False
+        for group_index, group in enumerate(groups):
+            commands = group.get("hooks") if isinstance(group, dict) else None
+            if not isinstance(commands, list):
+                event_valid = False
+                continue
+            for hook_index, hook in enumerate(commands):
+                if not isinstance(hook, dict):
+                    event_valid = False
+                    continue
+                command = " ".join(
+                    str(hook.get(field) or "")
+                    for field in ("command", "commandWindows")
+                )
+                if script_name.casefold() not in command.casefold():
+                    continue
+                script_path = (home / "hooks" / script_name).resolve(strict=False)
+                if (
+                    not script_path.is_file()
+                    or str(script_path).casefold() not in command.casefold()
+                ):
+                    event_valid = False
+                    continue
+                matches.append((group_index, hook_index, group, hook))
+        if len(matches) != 1:
+            event_valid = False
+            hooks_valid = False
+            trust_current = False
+            components[output_name] = "unavailable"
+            continue
+
+        group_index, hook_index, group, hook = matches[0]
+        trust_key = f"{resolved_hooks}:{state_event}:{group_index}:{hook_index}"
+        trust = state.get(trust_key)
+        enabled = trust.get("enabled", True) if isinstance(trust, dict) else True
+        if not isinstance(enabled, bool):
+            enabled = False
+            trust_current = False
+        try:
+            expected_digest = _command_hook_trust_hash(event_name, group, hook)
+        except CapabilityDataError:
+            event_valid = False
+            expected_digest = None
+        digest = trust.get("trusted_hash") if isinstance(trust, dict) else None
+        exact_trust = (
+            enabled is True
+            and isinstance(digest, str)
+            and expected_digest is not None
+            and hmac.compare_digest(digest, expected_digest)
+        )
+        if not exact_trust:
+            trust_current = False
+        hooks_valid = hooks_valid and event_valid
+        components[output_name] = (
+            "current" if event_valid and exact_trust else "unavailable"
+        )
+    status = (
+        "current"
+        if feature_enabled and hooks_valid and trust_current
+        else "unavailable"
+    )
+    return {
+        "status": status,
+        "feature_enabled": feature_enabled,
+        "hooks_json_status": "current" if hooks_valid else "unavailable",
+        "trust_state_status": "current" if trust_current else "unavailable",
+        **components,
+    }
 
 
 def _load_live_config_inventory() -> dict[str, Any] | None:
@@ -5833,6 +8931,89 @@ def _issue_route_decision(
     raise RouteRegistryError(f"cannot issue route registry receipt: {path}: {last_error}")
 
 
+def _route_capability_ids(decision: dict[str, Any]) -> set[str]:
+    identifiers: set[str] = set()
+
+    def add_entry(value: object) -> None:
+        if isinstance(value, dict):
+            identifier = value.get("id")
+            if isinstance(identifier, str) and identifier:
+                identifiers.add(identifier)
+
+    add_entry(decision.get("primary"))
+    for item in decision.get("supports", []):
+        add_entry(item)
+    skills = decision.get("skills")
+    if isinstance(skills, dict):
+        add_entry(skills.get("primary"))
+        for item in skills.get("supports", []):
+            add_entry(item)
+    for fallback in decision.get("capability_fallbacks", []):
+        if not isinstance(fallback, dict):
+            continue
+        for key in ("requested_capability", "chosen_fallback", "selected_capability"):
+            identifier = fallback.get(key)
+            if isinstance(identifier, str) and identifier:
+                identifiers.add(identifier)
+    return identifiers
+
+
+def _selected_route_skill_hashes_current(decision: dict[str, Any]) -> bool:
+    """Recheck every projected skill byte source before a new worker admission."""
+
+    disposition = _normalize_execution_disposition(
+        decision.get("execution_disposition")
+    )
+    if not disposition or disposition["mode"] != "worker_support":
+        return True
+    skills = decision.get("skills")
+    if not isinstance(skills, dict):
+        return True
+    selected: list[dict[str, Any]] = []
+    primary = skills.get("primary")
+    if isinstance(primary, dict):
+        selected.append(primary)
+    supports = skills.get("supports")
+    if isinstance(supports, list):
+        selected.extend(item for item in supports if isinstance(item, dict))
+    for entry in selected:
+        source = str(entry.get("source_path") or "").strip()
+        is_absolute = bool(
+            Path(source).is_absolute() or re.match(r"^[A-Za-z]:[\\/]", source)
+        )
+        if not is_absolute or not _entry_hash_current(entry):
+            return False
+    return True
+
+
+def _route_worker_identity_current(
+    decision: dict[str, Any], current_manifest: dict[str, Any]
+) -> bool:
+    disposition = _normalize_execution_disposition(
+        decision.get("execution_disposition")
+    )
+    if not disposition or disposition["mode"] != "worker_support":
+        return True
+    families = disposition["eligible_worker_families"]
+    if len(families) != 1:
+        return False
+    family = families[0]
+    server_id = WORKER_FAMILY_SERVER_IDS.get(family)
+    if server_id is None:
+        return family == "terra"
+    if current_manifest.get("worker_runtime_bom_status") != "current":
+        return False
+    expected_bom_sha256 = str(
+        (current_manifest.get("source_hashes") or {}).get(
+            WORKER_RUNTIME_BOM_SOURCE_HASH_KEY
+        )
+        or ""
+    ).lower()
+    return _gateway_managed_upstream_configured(
+        server_id, expected_bom_sha256=expected_bom_sha256
+    )
+
+
 def verify_registered_route(
     decision: dict[str, Any],
     *,
@@ -5918,6 +9099,22 @@ def verify_registered_route(
         or current_manifest.get("source_hashes_verified") is not True
     ):
         base["status"] = "authority_unavailable"
+        return base
+    dynamic_authority = current_manifest.get("dynamic_authority")
+    dynamic_authority = dynamic_authority if isinstance(dynamic_authority, dict) else {}
+    quarantined_ids = {
+        str(item)
+        for item in dynamic_authority.get("quarantined_capability_ids", [])
+        if str(item)
+    }
+    if _route_capability_ids(decision) & quarantined_ids:
+        base["status"] = "capability_quarantined"
+        return base
+    if not _selected_route_skill_hashes_current(decision):
+        base["status"] = "capability_quarantined"
+        return base
+    if not _route_worker_identity_current(decision, current_manifest):
+        base["status"] = "capability_quarantined"
         return base
 
     path = _registry_path(registry_path)
@@ -6260,6 +9457,7 @@ def _select_support_workers(
     policy: dict[str, Any],
     by_id: dict[str, dict[str, Any]],
     by_alias: dict[str, list[dict[str, Any]]],
+    worker_runtime_bom_sha256: str = "",
 ) -> tuple[list[dict[str, Any]], list[str]]:
     flags = _classification_flags(classification)
     excluded_roles, exclusion_reasons = _worker_exclusions(prompt_lower, flags)
@@ -6299,7 +9497,13 @@ def _select_support_workers(
         role = str(configured_worker.get("role") or "")
         if role in excluded_roles:
             continue
-        if not _worker_capability_available(rule, by_id, by_alias, policy):
+        if not _worker_capability_available(
+            rule,
+            by_id,
+            by_alias,
+            policy,
+            worker_runtime_bom_sha256,
+        ):
             if role == "independent_challenger":
                 reason = "ANTIGRAVITY_SUPPORT_UNAVAILABLE"
             elif owner == "local_agent_stack":
@@ -6572,6 +9776,7 @@ def _derive_local_execution(
     policy: dict[str, Any],
     by_id: dict[str, dict[str, Any]],
     by_alias: dict[str, list[dict[str, Any]]],
+    worker_runtime_bom_sha256: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     local_workers = [
         worker
@@ -6598,7 +9803,13 @@ def _derive_local_execution(
                 recipe = str(candidate.get("recipe_id") or "")
                 if recipe not in {"memory_recall", "source_lookup"}:
                     continue
-                if not _worker_capability_available(candidate, by_id, by_alias, policy):
+                if not _worker_capability_available(
+                    candidate,
+                    by_id,
+                    by_alias,
+                    policy,
+                    worker_runtime_bom_sha256,
+                ):
                     unavailable_rule = True
                     continue
                 bundle_dependencies[recipe] = candidate
@@ -6622,7 +9833,11 @@ def _derive_local_execution(
                 None,
             )
             if selected_rule is not None and not _worker_capability_available(
-                selected_rule, by_id, by_alias, policy
+                selected_rule,
+                by_id,
+                by_alias,
+                policy,
+                worker_runtime_bom_sha256,
             ):
                 unavailable_rule = True
                 selected_rule = None
@@ -7100,6 +10315,12 @@ def resolve_route(
     rules = policy.get("rules") if isinstance(policy, dict) else []
     entries = entries if isinstance(entries, list) else []
     rules = rules if isinstance(rules, list) else []
+    worker_runtime_bom_sha256 = str(
+        ((manifest.get("source_hashes") or {}) if isinstance(manifest, dict) else {}).get(
+            WORKER_RUNTIME_BOM_SOURCE_HASH_KEY
+        )
+        or ""
+    ).lower()
     by_id, by_alias = _build_lookup(entries)
     prompt_lower = prompt.lower()
     max_supports = max(
@@ -7314,6 +10535,7 @@ def resolve_route(
         policy,
         by_id,
         by_alias,
+        worker_runtime_bom_sha256,
     )
     task_gate_worker_eligible = bool(eligible_worker_families) and all(
         _validated_worker_roles(classification, family) is not None
@@ -7340,6 +10562,7 @@ def resolve_route(
         policy,
         by_id,
         by_alias,
+        worker_runtime_bom_sha256,
     )
     local_operation_eligible = (
         _validated_local_operation_recipe(classification, exact_input) is not None
@@ -7520,6 +10743,8 @@ def resolve_route(
         reasons.append("NO_EXACT_CAPABILITY_MATCH")
     if normalize(manifest.get("freshness_status")) not in FRESH_STATES:
         reasons.append("CAPABILITY_SNAPSHOT_STALE")
+    elif normalize(manifest.get("freshness_status")) == "degraded":
+        reasons.append("CAPABILITY_AUTHORITY_DEGRADED")
     reasons.extend(worker_reasons)
     reasons.extend(local_reasons)
     reasons.extend(route_guard_reasons)

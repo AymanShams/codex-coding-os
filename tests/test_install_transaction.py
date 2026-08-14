@@ -1658,10 +1658,12 @@ class InstallTransactionTests(unittest.TestCase):
                 "hooks/capability-router/capability_index.py",
                 "capability-index",
                 "capability-routing/reference-runtime",
+                ".agents/skills/catalogue-router",
                 "Hooks",
                 "Hooks/Capability-Router/capability_index.py",
                 "Capability-Index",
                 "Capability-Routing/reference-runtime",
+                ".Agents/Skills/Catalogue-Router/scripts/query-catalogue.ps1",
             ):
                 with self.subTest(path=forbidden):
                     env.pack["support_items"].append(forbidden)
@@ -1700,6 +1702,110 @@ class InstallTransactionTests(unittest.TestCase):
                     "--refresh-capability-index",
                 ]
             )
+
+    def test_ordinary_install_relinquishes_catalogue_router_skill_ownership(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            router_skill = env.skills / "catalogue-router"
+            write_text(router_skill / "SKILL.md", "router-authority-owned\n")
+            write_text(
+                router_skill / "references/capability-catalogue.md",
+                "router-authority-owned evidence\n",
+            )
+            write_text(
+                router_skill / "scripts/query-catalogue.ps1",
+                "Write-Output 'router-authority-owned'\n",
+            )
+            before = {
+                path.relative_to(router_skill).as_posix(): sha(path)
+                for path in router_skill.rglob("*")
+                if path.is_file()
+            }
+
+            result = it.install(env.archive_options())
+            self.assertEqual(result["status"], "committed")
+            self.assertEqual(
+                before,
+                {
+                    path.relative_to(router_skill).as_posix(): sha(path)
+                    for path in router_skill.rglob("*")
+                    if path.is_file()
+                },
+            )
+            manifest = json.loads(
+                (env.codex / "coding-os/install-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertNotIn(
+                "catalogue-router",
+                {
+                    item["name"]
+                    for item in manifest["targets"]["managed_skills"]
+                },
+            )
+
+            uninstall = it.uninstall(
+                it.UninstallOptions(skills_root=env.skills, codex_home=env.codex)
+            )
+            self.assertEqual(uninstall["status"], "uninstalled")
+            self.assertEqual(
+                before,
+                {
+                    path.relative_to(router_skill).as_posix(): sha(path)
+                    for path in router_skill.rglob("*")
+                    if path.is_file()
+                },
+            )
+
+    def test_ordinary_bundle_rejects_catalogue_router_as_managed_skill(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            write_text(
+                env.source / ".agents/skills/catalogue-router/SKILL.md",
+                "---\nname: catalogue-router\ndescription: forbidden owner\n---\n",
+            )
+            env.pack["bundled_skills"].append(
+                {
+                    "name": "catalogue-router",
+                    "category": "routing",
+                    "required": True,
+                    "source": "local",
+                }
+            )
+            write_text(
+                env.source / "pack.manifest.json",
+                json.dumps(env.pack, indent=2) + "\n",
+            )
+            with self.assertRaisesRegex(
+                it.BundleError,
+                "router authority-owned skill cannot enter the ordinary install bundle",
+            ):
+                it.build_bundle_manifest(env.source)
+
+    def test_previous_install_manifest_relinquishes_catalogue_router_record(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            root = Path(raw)
+            skills = root / "skills"
+            previous = {
+                "manifest_version": 3,
+                "targets": {
+                    "managed_skills": [
+                        {
+                            "name": "alpha",
+                            "path": str(skills / "alpha"),
+                            "sha256": "a" * 64,
+                        },
+                        {
+                            "name": "catalogue-router",
+                            "path": str(skills / "catalogue-router"),
+                            "sha256": "b" * 64,
+                        },
+                    ]
+                },
+            }
+            records = it._previous_skill_records(previous, skills.resolve(strict=False))
+            self.assertEqual([record["name"] for record in records], ["alpha"])
 
     def test_faults_before_pointer_roll_back_and_pointer_fault_retains_new_bundle(self) -> None:
         precommit_phases = [

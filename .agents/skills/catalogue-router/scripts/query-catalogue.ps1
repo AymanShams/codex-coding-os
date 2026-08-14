@@ -106,7 +106,7 @@ if ($BacklogOnly) {
         exit 1
     }
     $lines = Get-Content -LiteralPath $Catalogue
-    $start = ($lines | Select-String -Pattern '^## Candidate Backlog:' | Select-Object -First 1).LineNumber
+    $start = ($lines | Select-String -Pattern '^## Candidate Backlog\s*:?\s*$' | Select-Object -First 1).LineNumber
     if (-not $start) {
         exit 0
     }
@@ -117,7 +117,11 @@ if ($BacklogOnly) {
     } else {
         $searchLines = $tail
     }
-    $searchLines | Select-String -Pattern $Query -Context 2,2
+    $searchLines | Select-String -Pattern $Query -Context 2,2 | ForEach-Object {
+        $_.Context.PreContext
+        $_.Line
+        $_.Context.PostContext
+    }
     exit 0
 }
 

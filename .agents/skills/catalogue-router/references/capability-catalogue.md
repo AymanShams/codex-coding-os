@@ -1,6 +1,8 @@
 # Coding OS Capability Catalogue
 
-This catalogue is the portable routing source bundled with `codex-coding-os`.
+This catalogue is optional historical reference evidence owned by the dedicated
+router-authority deployment. It is not live routing authority and is not
+installed by the ordinary Coding OS transaction.
 
 ## Fast Router
 
@@ -56,7 +58,6 @@ This catalogue is the portable routing source bundled with `codex-coding-os`.
 - `ai-coding-discipline`
 - `artifact-system-designer`
 - `artifact-validation-workflow`
-- `catalogue-router`
 - `chat-export-capability-miner`
 - `cli-creator`
 - `code-review-graph`

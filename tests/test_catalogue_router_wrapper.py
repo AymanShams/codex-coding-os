@@ -89,6 +89,7 @@ class CatalogueRouterWrapperTests(unittest.TestCase):
             "execution_disposition",
             "requires_live_dependencies",
             "retired non-live",
+            "historical discovery evidence only",
         ):
             self.assertIn(required, skill)
 
@@ -169,6 +170,16 @@ class CatalogueRouterWrapperTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 2)
         self.assertIn("cannot be combined", completed.stderr)
+
+    def test_backlog_only_reads_router_owned_evidence_without_calling_cli(self) -> None:
+        completed = self._run_wrapper(
+            "-Query",
+            "Full external broad skill packs",
+            "-BacklogOnly",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("Full external broad skill packs", completed.stdout)
+        self.assertNotIn('"argv"', completed.stdout)
 
 
 if __name__ == "__main__":

@@ -8,16 +8,83 @@
     "generated_at",
     "snapshot_id",
     "freshness_status",
+    "authority_generation",
     "source_hashes",
     "entries"
   ],
   "properties": {
-    "schema_version": { "type": "string", "minLength": 1 },
+    "schema_version": { "const": "1.3" },
     "generated_at": { "type": "string", "format": "date-time" },
     "snapshot_id": { "type": "string", "minLength": 1 },
     "freshness_status": {
       "type": "string",
-      "enum": ["fresh", "current", "live", "valid", "verified", "stale"]
+      "enum": ["fresh", "current", "degraded", "live", "valid", "verified", "stale"]
+    },
+    "authority_generation": {
+      "type": "object",
+      "required": [
+        "id",
+        "sequence",
+        "previous_id",
+        "transaction_id",
+        "promoted_at",
+        "promotion_reason",
+        "static_authority_sha256",
+        "dynamic_authority_sha256",
+        "config_projection_sha256",
+        "plugin_inventory_sha256",
+        "worker_runtime_bom_sha256",
+        "authority_snapshot_sha256"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "previous_id": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "transaction_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,160}$"
+        },
+        "promoted_at": { "type": "string", "format": "date-time" },
+        "promotion_reason": {
+          "enum": [
+            "coherent_app_update",
+            "compound_app_primary_runtime_update",
+            "primary_runtime_bundle_update",
+            "worker_runtime_bom_update",
+            "scoped_config_update",
+            "updater_bound_plugin_update",
+            "operator_rebaseline"
+          ]
+        },
+        "static_authority_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "dynamic_authority_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "config_projection_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "plugin_inventory_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "worker_runtime_bom_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "authority_snapshot_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
     },
     "source_hashes": {
       "type": "object",
@@ -52,6 +119,14 @@
           "sha256": {
             "type": "string",
             "pattern": "^$|^[A-Fa-f0-9]{64}$"
+          },
+          "hash_scope": {
+            "type": "string",
+            "enum": [
+              "file-sha256",
+              "text-sha256",
+              "capability-config-v2"
+            ]
           },
           "families": {
             "type": "array",

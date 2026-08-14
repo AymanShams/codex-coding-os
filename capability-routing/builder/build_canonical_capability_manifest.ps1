@@ -11,8 +11,14 @@ param(
     [string]$PluginInventoryJsonPath = '',
     [string]$RouterPythonExe = '',
     [string]$ConfigFingerprintModulePath = '',
+    [string]$WorkerRuntimeBomPath = '',
     [string]$ExpectedAuthoritySnapshotSha256 = '',
-    [string]$GeneratedAt = ''
+    [string]$GeneratedAt = '',
+    [string]$PreviousGenerationId = '',
+    [long]$GenerationSequence = 1,
+    [string]$AuthorityTransactionId = '',
+    [ValidateSet('coherent_app_update', 'compound_app_primary_runtime_update', 'primary_runtime_bundle_update', 'worker_runtime_bom_update', 'scoped_config_update', 'updater_bound_plugin_update', 'operator_rebaseline')]
+    [string]$PromotionReason = 'operator_rebaseline'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -100,9 +106,9 @@ function Get-CapabilityConfigAuthority {
     catch {
         throw "Capability config fingerprint returned invalid JSON: $($_.Exception.Message)"
     }
-    if ([string]$Authority.projection_schema -ne 'capability-config-v1' -or
-        [string]$Authority.source_hash_key -ne 'config-capability-projection-v1' -or
-        [string]$Authority.hash_scope -ne 'capability-config-v1' -or
+    if ([string]$Authority.projection_schema -ne 'capability-config-v2' -or
+        [string]$Authority.source_hash_key -ne 'config-capability-projection-v2' -or
+        [string]$Authority.hash_scope -ne 'capability-config-v2' -or
         [string]$Authority.sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
         [string]$Authority.raw_sha256 -notmatch '^[A-Fa-f0-9]{64}$') {
         throw 'Capability config fingerprint returned an invalid authority contract.'
@@ -129,8 +135,15 @@ function Get-RecoveryAuthorityReceipt {
     catch {
         throw "Capability recovery snapshot returned invalid JSON: $($_.Exception.Message)"
     }
-    if ([string]$Receipt.schema_version -ne 'capability-authority-receipt-v2' -or
+    if ([string]$Receipt.schema_version -ne 'capability-authority-receipt-v3' -or
         [string]$Receipt.snapshot_sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
+        [string]$Receipt.bundled_marketplace_origin.schema_version -ne 'bundled-marketplace-origin-v1' -or
+        [string]$Receipt.bundled_marketplace_origin.app_version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$' -or
+        [string]$Receipt.bundled_marketplace_origin.authority_projection_sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
+        $null -eq $Receipt.remote_plugin_catalog_entries -or
+        [string]$Receipt.primary_runtime_bundle_origin.schema_version -ne 'primary-runtime-bundle-origin-v1' -or
+        [string]$Receipt.primary_runtime_bundle_origin.bundle_version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$' -or
+        [string]$Receipt.primary_runtime_bundle_origin.authority_projection_sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
         -not [bool]$Receipt.app_identity.coherent) {
         throw 'Capability recovery snapshot returned an invalid authority receipt.'
     }
@@ -346,79 +359,6 @@ function Get-PassiveSkillInventory {
     return [pscustomobject]@{ rows = @($Rows); missing = @() }
 }
 
-function Assert-PassiveCacheObjectWithinRoot {
-    param(
-        [System.IO.FileSystemInfo]$Item,
-        [string]$ResolvedCacheRoot
-    )
-    $CandidatePath = $Item.FullName
-    if ($Item.LinkType) {
-        $ResolvedTarget = $Item.ResolveLinkTarget($true)
-        if (-not $ResolvedTarget) {
-            throw "Plugin cache link target could not be resolved: $($Item.FullName)"
-        }
-        $CandidatePath = $ResolvedTarget.FullName
-    }
-    $Root = [System.IO.Path]::GetFullPath($ResolvedCacheRoot).TrimEnd('\', '/')
-    $Candidate = [System.IO.Path]::GetFullPath($CandidatePath).TrimEnd('\', '/')
-    $RootPrefix = $Root + [System.IO.Path]::DirectorySeparatorChar
-    if ($Candidate -ne $Root -and -not $Candidate.StartsWith($RootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Plugin cache authority path resolves outside the cache root: $($Item.FullName)"
-    }
-}
-
-function Get-PluginCacheInventoryHash {
-    param([string]$CodexHomePath)
-    $Rows = [System.Collections.Generic.List[string]]::new()
-    $CacheRoot = Join-Path $CodexHomePath 'plugins\cache'
-    if (Test-Path -LiteralPath $CacheRoot -PathType Container) {
-        $ResolvedCacheRoot = (Resolve-Path -LiteralPath $CacheRoot).Path
-        foreach ($Marketplace in Get-ChildItem -LiteralPath $CacheRoot -Directory | Sort-Object Name) {
-            Assert-PassiveCacheObjectWithinRoot -Item $Marketplace -ResolvedCacheRoot $ResolvedCacheRoot
-            foreach ($Plugin in Get-ChildItem -LiteralPath $Marketplace.FullName -Directory | Sort-Object Name) {
-                Assert-PassiveCacheObjectWithinRoot -Item $Plugin -ResolvedCacheRoot $ResolvedCacheRoot
-                if ($Plugin.Name -like 'plugin-install-*') { continue }
-                foreach ($Version in Get-ChildItem -LiteralPath $Plugin.FullName -Directory | Sort-Object Name) {
-                    Assert-PassiveCacheObjectWithinRoot -Item $Version -ResolvedCacheRoot $ResolvedCacheRoot
-                    $PackageManifestPath = Join-Path $Version.FullName '.codex-plugin\plugin.json'
-                    if (-not (Test-Path -LiteralPath $PackageManifestPath -PathType Leaf)) { continue }
-                    $RelativeRoot = ([System.IO.Path]::GetRelativePath($CacheRoot, $Version.FullName) -replace '\\', '/').ToLowerInvariant()
-                    $Rows.Add("ROOT`t$RelativeRoot`t0`t$($Version.LastWriteTimeUtc.Ticks)")
-                    foreach ($RelativeFile in @('.codex-plugin\plugin.json', '.app.json', '.mcp.json')) {
-                        $Path = Join-Path $Version.FullName $RelativeFile
-                        if (Test-Path -LiteralPath $Path -PathType Leaf) {
-                            $AuthorityDirectory = Get-Item -LiteralPath (Split-Path -Parent $Path)
-                            Assert-PassiveCacheObjectWithinRoot -Item $AuthorityDirectory -ResolvedCacheRoot $ResolvedCacheRoot
-                            $File = Get-Item -LiteralPath $Path
-                            Assert-PassiveCacheObjectWithinRoot -Item $File -ResolvedCacheRoot $ResolvedCacheRoot
-                            $Relative = ([System.IO.Path]::GetRelativePath($CacheRoot, $File.FullName) -replace '\\', '/').ToLowerInvariant()
-                            $Rows.Add("FILE`t$Relative`t$($File.Length)`t$($File.LastWriteTimeUtc.Ticks)")
-                        }
-                    }
-                    $SkillsRoot = Join-Path $Version.FullName 'skills'
-                    if (Test-Path -LiteralPath $SkillsRoot -PathType Container) {
-                        $SkillsDirectory = Get-Item -LiteralPath $SkillsRoot
-                        Assert-PassiveCacheObjectWithinRoot -Item $SkillsDirectory -ResolvedCacheRoot $ResolvedCacheRoot
-                        foreach ($SkillDirectory in Get-ChildItem -LiteralPath $SkillsRoot -Directory | Sort-Object Name) {
-                            Assert-PassiveCacheObjectWithinRoot -Item $SkillDirectory -ResolvedCacheRoot $ResolvedCacheRoot
-                            $SkillPath = Join-Path $SkillDirectory.FullName 'SKILL.md'
-                            if (Test-Path -LiteralPath $SkillPath -PathType Leaf) {
-                                $File = Get-Item -LiteralPath $SkillPath
-                                Assert-PassiveCacheObjectWithinRoot -Item $File -ResolvedCacheRoot $ResolvedCacheRoot
-                                $Relative = ([System.IO.Path]::GetRelativePath($CacheRoot, $File.FullName) -replace '\\', '/').ToLowerInvariant()
-                                $Rows.Add("FILE`t$Relative`t$($File.Length)`t$($File.LastWriteTimeUtc.Ticks)")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    [string[]]$CanonicalRows = @($Rows)
-    [Array]::Sort($CanonicalRows, [System.StringComparer]::Ordinal)
-    return Get-TextSha256 -Text ($CanonicalRows -join "`n")
-}
-
 function Get-PluginManifestPath {
     param([string]$SourcePath)
     if (-not $SourcePath) { return '' }
@@ -554,22 +494,19 @@ if (-not $SkillsCsvPath -or -not $PluginsCsvPath -or -not $ToolsCsvPath) {
 }
 if (-not $ConfigPath) { $ConfigPath = Join-Path $CodexHome 'config.toml' }
 $HooksPath = Join-Path $CodexHome 'hooks.json'
-$AgentsPath = Join-Path $CodexHome 'AGENTS.md'
-$GatePath = Join-Path $CodexHome 'docs\context\task-routing-gate.md'
 $RouterPath = Join-Path $CodexHome 'skills\catalogue-router\SKILL.md'
 $CapabilityIndexPath = Join-Path $CodexHome 'hooks\capability_index.py'
+$RoutingPolicyValidationPath = Join-Path $CodexHome 'hooks\routing_policy_validation.py'
 $DefaultConfigFingerprintModulePath = Join-Path $CodexHome 'hooks\capability_config_fingerprint.py'
 if (-not $ConfigFingerprintModulePath) { $ConfigFingerprintModulePath = $DefaultConfigFingerprintModulePath }
 $CapabilityIndexCliPath = Join-Path $CodexHome 'hooks\capability_index_cli.py'
 $PromptRouterPath = Join-Path $CodexHome 'hooks\user_prompt_skill_router.py'
 $SessionStartPath = Join-Path $CodexHome 'hooks\capability_index_session_start.py'
-$CommonModulePath = Join-Path $CodexHome 'hooks\_common.py'
 $HookIoModulePath = Join-Path $CodexHome 'hooks\_hook_io.py'
 $RecoveryModulePath = Join-Path $CodexHome 'hooks\capability_manifest_recovery.py'
 $InstalledBuilderPath = $PSCommandPath
 $AuthorityReceiptSchemaPath = Join-Path $CodexHome 'capability-routing\authority-receipt.schema.json'
 $CatalogueQueryPath = Join-Path $CodexHome 'skills\catalogue-router\scripts\query-catalogue.ps1'
-$DependencyGuardPath = Join-Path $CodexHome 'tools\dependency-readiness\ensure-node-dependencies.ps1'
 $DependencyReadinessReadmePath = Join-Path $CodexHome 'tools\dependency-readiness\README.md'
 $RoutingDir = Join-Path $CodexHome 'capability-routing'
 if (-not $ManifestPath) { $ManifestPath = Join-Path $RoutingDir 'active-capabilities.json' }
@@ -579,6 +516,9 @@ $ActiveCapabilitiesSchemaPath = Join-Path $RoutingDir 'active-capabilities.schem
 $ProjectScopeMapPath = Join-Path $RoutingDir 'project-scope-map.json'
 $ProjectScopeMapSchemaPath = Join-Path $RoutingDir 'project-scope-map.schema.json'
 $RouteDecisionSchemaPath = Join-Path $RoutingDir 'route-decision.schema.json'
+if (-not $WorkerRuntimeBomPath) { $WorkerRuntimeBomPath = Join-Path $RoutingDir 'worker-runtime-bom.json' }
+$WorkerRuntimeBomSchemaPath = Join-Path $RoutingDir 'worker-runtime-bom.schema.json'
+$WorkerRuntimeBomPromoterPath = Join-Path $RoutingDir 'promote_worker_runtime_bom.py'
 
 foreach ($RequiredCsv in @($SkillsCsvPath, $PluginsCsvPath, $ToolsCsvPath)) {
     if (-not (Test-Path -LiteralPath $RequiredCsv -PathType Leaf)) {
@@ -673,7 +613,7 @@ foreach ($Row in $McpRows) {
         $McpEvidenceByName[$NormalizedName] = [pscustomobject]@{
             source_path = $ConfigPath
             sha256 = $ConfigCapabilityHash
-            hash_scope = 'capability-config-v1'
+            hash_scope = 'capability-config-v2'
         }
     }
 }
@@ -763,7 +703,7 @@ if ($CallableMcpByName.ContainsKey($GatewayKey)) {
         $McpEvidenceByName[$ManagedKey] = [pscustomobject]@{
             source_path = $ConfigPath
             sha256 = $ConfigCapabilityHash
-            hash_scope = 'capability-config-v1'
+            hash_scope = 'capability-config-v2'
         }
     }
 }
@@ -873,6 +813,7 @@ foreach ($LiveSkill in @($LiveSkillInventory.rows)) {
         version = Get-VersionFromPath -Path ([string]$LiveSkill.path)
         source_path = [string]$LiveSkill.path
         sha256 = $SkillHash
+        hash_scope = 'file-sha256'
         families = @($Families | Select-Object -Unique)
         description = $Description
         activation_basis = [string]$LiveSkill.activation_basis
@@ -956,6 +897,7 @@ foreach ($PluginName in @($PluginRoots.Keys | Sort-Object)) {
         version = if ([string]$ManifestData.version) { [string]$ManifestData.version } else { [string]$Plugin.version }
         source_path = [string]$Plugin.manifest_path
         sha256 = Get-RequiredSha256 -Path ([string]$Plugin.manifest_path) -Label "plugin $PluginName"
+        hash_scope = 'file-sha256'
         families = @($Families | Select-Object -Unique)
         description = $Description
         activation_basis = [string]$Plugin.activation_basis
@@ -1047,6 +989,7 @@ foreach ($Row in $DatedToolRows) {
             version = 'runtime'
             source_path = [string]$App.source_path
             sha256 = [string]$App.sha256
+            hash_scope = 'file-sha256'
             families = @([string]$Row.surface_type, [string]$Row.activation_profile | Where-Object { $_ } | Select-Object -Unique)
             description = $Description
             activation_basis = 'enabled-live-plugin-mandatory-app-dated-metadata-only'
@@ -1109,23 +1052,16 @@ if ($ExpectedAuthoritySnapshotSha256 -and
     throw 'Recovery authority no longer matches the expected stable snapshot.'
 }
 
-$SourceHashes = [ordered]@{
-    'hooks.json' = Get-Sha256OrEmpty -Path $HooksPath
-}
-if (-not $SourceHashes['hooks.json']) {
-    throw "Required manifest source is missing: hooks.json -> $HooksPath"
-}
+$SourceHashes = [ordered]@{}
 Add-SourceHash -Target $SourceHashes -Name 'config.toml' -Path $ConfigPath
 $SourceHashes[$ConfigCapabilitySourceHashKey] = $ConfigCapabilityHash
-Add-SourceHash -Target $SourceHashes -Name 'AGENTS.md' -Path $AgentsPath
-Add-SourceHash -Target $SourceHashes -Name 'task-routing-gate.md' -Path $GatePath
 Add-SourceHash -Target $SourceHashes -Name 'catalogue-router.SKILL.md' -Path $RouterPath
 Add-SourceHash -Target $SourceHashes -Name 'capability_index.py' -Path $CapabilityIndexPath
+Add-SourceHash -Target $SourceHashes -Name 'routing_policy_validation.py' -Path $RoutingPolicyValidationPath
 Add-SourceHash -Target $SourceHashes -Name 'capability_config_fingerprint.py' -Path $ConfigFingerprintModulePath
 Add-SourceHash -Target $SourceHashes -Name 'capability_index_cli.py' -Path $CapabilityIndexCliPath
 Add-SourceHash -Target $SourceHashes -Name 'user_prompt_skill_router.py' -Path $PromptRouterPath
 Add-SourceHash -Target $SourceHashes -Name 'capability_index_session_start.py' -Path $SessionStartPath
-Add-SourceHash -Target $SourceHashes -Name '_common.py' -Path $CommonModulePath
 Add-SourceHash -Target $SourceHashes -Name '_hook_io.py' -Path $HookIoModulePath
 Add-SourceHash -Target $SourceHashes -Name 'capability_manifest_recovery.py' -Path $RecoveryModulePath
 Add-SourceHash -Target $SourceHashes -Name 'capability-manifest-builder.ps1' -Path $InstalledBuilderPath
@@ -1137,7 +1073,9 @@ Add-SourceHash -Target $SourceHashes -Name 'active-capabilities.schema.json' -Pa
 Add-SourceHash -Target $SourceHashes -Name 'project-scope-map.json' -Path $ProjectScopeMapPath
 Add-SourceHash -Target $SourceHashes -Name 'project-scope-map.schema.json' -Path $ProjectScopeMapSchemaPath
 Add-SourceHash -Target $SourceHashes -Name 'route-decision.schema.json' -Path $RouteDecisionSchemaPath
-Add-SourceHash -Target $SourceHashes -Name 'ensure-node-dependencies.ps1' -Path $DependencyGuardPath
+Add-SourceHash -Target $SourceHashes -Name 'worker-runtime-bom.json' -Path $WorkerRuntimeBomPath
+Add-SourceHash -Target $SourceHashes -Name 'worker-runtime-bom.schema.json' -Path $WorkerRuntimeBomSchemaPath
+Add-SourceHash -Target $SourceHashes -Name 'promote_worker_runtime_bom.py' -Path $WorkerRuntimeBomPromoterPath
 Add-SourceHash -Target $SourceHashes -Name 'dependency-readiness.README.md' -Path $DependencyReadinessReadmePath -Required $false
 Add-SourceHash -Target $SourceHashes -Name 'universal-skills-2026-07-25.csv' -Path $SkillsCsvPath
 Add-SourceHash -Target $SourceHashes -Name 'universal-plugins-2026-07-25.csv' -Path $PluginsCsvPath
@@ -1153,18 +1091,77 @@ if ($GeneratedAt) {
 else {
     $GeneratedTimestamp = [DateTimeOffset]::UtcNow
 }
+$PreviousGenerationId = $PreviousGenerationId.Trim().ToLowerInvariant()
+if ($PreviousGenerationId -and $PreviousGenerationId -notmatch '^[a-f0-9]{64}$') {
+    throw 'PreviousGenerationId must be empty or a lowercase SHA-256 value.'
+}
+if ($GenerationSequence -lt 1) {
+    throw 'GenerationSequence must be at least 1.'
+}
+if (-not $AuthorityTransactionId) {
+    $SnapshotPrefix = ([string]$FinalRecoveryAuthority.snapshot_sha256).Substring(0, 24).ToLowerInvariant()
+    $AuthorityTransactionId = "implicit-$SnapshotPrefix"
+}
+if ($AuthorityTransactionId -notmatch '^[A-Za-z0-9._:-]{1,160}$') {
+    throw 'AuthorityTransactionId is invalid.'
+}
+$StaticAuthorityPayload = [ordered]@{
+    required_source_hashes = [ordered]@{}
+}
+foreach ($Name in @($FinalRecoveryAuthority.required_source_hashes.PSObject.Properties.Name | Sort-Object)) {
+    if ($Name -eq 'worker-runtime-bom.json') { continue }
+    $StaticAuthorityPayload.required_source_hashes[$Name] = ([string]$FinalRecoveryAuthority.required_source_hashes.PSObject.Properties[$Name].Value).ToLowerInvariant()
+}
+$StaticAuthoritySha256 = (Get-TextSha256 -Text ($StaticAuthorityPayload | ConvertTo-Json -Depth 20 -Compress)).ToLowerInvariant()
+$ConfigProjectionSha256 = ([string]$FinalRecoveryAuthority.config_projection_sha256).ToLowerInvariant()
+$PluginInventorySha256 = ([string]$FinalRecoveryAuthority.plugin_cache_inventory_sha256).ToLowerInvariant()
+$WorkerRuntimeBomSha256 = ([string]$FinalRecoveryAuthority.required_source_hashes.'worker-runtime-bom.json').ToLowerInvariant()
+$DynamicAuthorityPayload = [ordered]@{
+    config_projection_sha256 = $ConfigProjectionSha256
+    plugin_inventory_sha256 = $PluginInventorySha256
+    worker_runtime_bom_sha256 = $WorkerRuntimeBomSha256
+}
+$DynamicAuthoritySha256 = (Get-TextSha256 -Text ($DynamicAuthorityPayload | ConvertTo-Json -Depth 10 -Compress)).ToLowerInvariant()
+$GenerationIdentityPayload = [ordered]@{
+    sequence = $GenerationSequence
+    previous_id = if ($PreviousGenerationId) { $PreviousGenerationId } else { $null }
+    transaction_id = $AuthorityTransactionId
+    promoted_at = $GeneratedTimestamp.ToString('o')
+    promotion_reason = $PromotionReason
+    static_authority_sha256 = $StaticAuthoritySha256
+    dynamic_authority_sha256 = $DynamicAuthoritySha256
+    config_projection_sha256 = $ConfigProjectionSha256
+    plugin_inventory_sha256 = $PluginInventorySha256
+    worker_runtime_bom_sha256 = $WorkerRuntimeBomSha256
+    authority_snapshot_sha256 = ([string]$FinalRecoveryAuthority.snapshot_sha256).ToLowerInvariant()
+}
+$GenerationId = (Get-TextSha256 -Text ($GenerationIdentityPayload | ConvertTo-Json -Depth 20 -Compress)).ToLowerInvariant()
 $Manifest = [ordered]@{
-    schema_version = '1.2'
+    schema_version = '1.3'
     generated_at = $GeneratedTimestamp.ToString('o')
-    snapshot_id = "universal-capabilities-live-authority-$($GeneratedTimestamp.ToString('yyyy-MM-dd'))"
+    snapshot_id = "authority-generation:$GenerationId"
     freshness_status = 'fresh'
+    authority_generation = [ordered]@{
+        id = $GenerationId
+        sequence = $GenerationSequence
+        previous_id = if ($PreviousGenerationId) { $PreviousGenerationId } else { $null }
+        transaction_id = $AuthorityTransactionId
+        promoted_at = $GeneratedTimestamp.ToString('o')
+        promotion_reason = $PromotionReason
+        static_authority_sha256 = $StaticAuthoritySha256
+        dynamic_authority_sha256 = $DynamicAuthoritySha256
+        config_projection_sha256 = $ConfigProjectionSha256
+        plugin_inventory_sha256 = $PluginInventorySha256
+        worker_runtime_bom_sha256 = $WorkerRuntimeBomSha256
+        authority_snapshot_sha256 = ([string]$FinalRecoveryAuthority.snapshot_sha256).ToLowerInvariant()
+    }
     authority_model = [ordered]@{
-        activation = @('passive-current-skill-roots', 'live-plugin-list', 'live-mcp-list', 'live-config-component-state', 'existing-current-source', 'plugin-cache-inventory', 'authority-receipt-v2')
+        activation = @('passive-current-skill-roots', 'live-plugin-list', 'live-mcp-list', 'live-config-component-state', 'existing-current-source', 'plugin-cache-inventory', 'authority-receipt-v3')
         metadata_only = @('universal-skills-2026-07-25.csv', 'universal-plugins-2026-07-25.csv', 'universal-tool-families-and-mcps-2026-07-25.csv')
         fail_closed = $true
     }
     config_fingerprint = [ordered]@{
-        projection_schema = 'capability-config-v1'
+        projection_schema = 'capability-config-v2'
         sha256 = $ConfigCapabilityHash
         raw_sha256 = $ConfigHash
     }

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "8f6074dc86caa94929642b5db92c52e9101fbd8b1d1fe4d582ef807a877dff52",
+  "aggregate_sha256": "3c4e14d3c46d1968f95b11bdd750cab19d3dff24e20406adeb89a03ae978ade0",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -30,21 +30,6 @@
       "path": ".agents/skills/artifact-validation-workflow/agents/openai.yaml",
       "sha256": "e0b4778b0dc3755fbecadc507d30378c267df4d25505598f4afe78b607866035",
       "size": 273
-    },
-    {
-      "path": ".agents/skills/catalogue-router/SKILL.md",
-      "sha256": "7183cf3b8c1ce5e5e702a68b84f54b02504fb9676afd410f461a801fe9f06519",
-      "size": 16116
-    },
-    {
-      "path": ".agents/skills/catalogue-router/references/capability-catalogue.md",
-      "sha256": "89aa35ac118f315f2cf2e832cfff705dbd98fe175b00b254d10d4e367eaf5796",
-      "size": 10417
-    },
-    {
-      "path": ".agents/skills/catalogue-router/scripts/query-catalogue.ps1",
-      "sha256": "55af664dc457e021a319a1ccca5c3f0d275f1e1b30e0fa17a29c26efbee72599",
-      "size": 5869
     },
     {
       "path": ".agents/skills/chat-export-capability-miner/SKILL.md",
@@ -2198,8 +2183,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "8dfc9a05e35e1f7816dc8a5a0dd4d590d973ae241fbfb00664c7713d8899c516",
-      "size": 23076
+      "sha256": "115a22a749b290102fb4a513534ba0726e3c42cf64c6d77e9cb9e0e580bab02b",
+      "size": 24477
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2233,8 +2218,8 @@
     },
     {
       "path": "THIRD_PARTY_SKILLS.md",
-      "sha256": "71b1deee5b431317d225c8376d5a0a6c30cb7042884220c0539ebe049127fd2c",
-      "size": 9931
+      "sha256": "f0c4c4f384f25a04f737ed67d2a774f3ef27ea7a2675cbe2ad26c11c42bcbd75",
+      "size": 10136
     },
     {
       "path": "case-state.schema.json",
@@ -2277,6 +2262,11 @@
       "size": 6656
     },
     {
+      "path": "docs/architecture/adr/0005-immutable-router-authority-generations.md",
+      "sha256": "11179549109f2c5be489bef1cd57a3baefa72e3ccb9baa9a69fa13279479f83d",
+      "size": 4305
+    },
+    {
       "path": "docs/campaign-engine.md",
       "sha256": "88334d90bb7902efbe952b85dac287dc279d3320bd40173fa387acc654633a04",
       "size": 3699
@@ -2308,12 +2298,12 @@
     },
     {
       "path": "docs/full-skill-inventory.md",
-      "sha256": "6fdbfe997a9510023ca142c039818a2c1c5d9cdcff72b7a2ce4df0656ec027d6",
-      "size": 6169
+      "sha256": "4e993a5924f79d7e57808e3a6a089d901d4010a94738577f37e3462eb8e0b3d1",
+      "size": 6485
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "b1efc03c244bab15d5136597550115462485aad244a4f523b963965a1b12f5a7",
+      "sha256": "3f3658f64c0279217e6aae85a2a7f31777aec968aec314fbef8e0e2d929bf385",
       "size": 7935
     },
     {
@@ -2343,8 +2333,8 @@
     },
     {
       "path": "docs/publishing-checklist.md",
-      "sha256": "d4f6d9ec27deb60d4fa056a7321f957cbe22c98e6d2bc6d16b039eb36b78c354",
-      "size": 8729
+      "sha256": "db5c6ae5ab4738aa96760a4c64a8696b47dcd0f081b1d7bf203f8556257b5d2c",
+      "size": 8746
     },
     {
       "path": "docs/review-doctrine.md",
@@ -2378,8 +2368,8 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "ddc4d12183a05252a6ebb57db440c1f5f7b827101082113daa79f370297d1559",
-      "size": 27261
+      "sha256": "5dbe4ff9f7d51677af43baba33098f17796babd22636d57feb41016d55c6d000",
+      "size": 27165
     },
     {
       "path": "pack.schema.json",
@@ -2503,8 +2493,8 @@
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "db5a7f280e3e1ce57759dd83c0a775127d087c4a6df65e1bd31a8ce03a9de4e5",
-      "size": 190766
+      "sha256": "ff3ae15016e68885f6ba6aedfc408003fc076d206c97bbccf0416231f58b17ff",
+      "size": 191436
     },
     {
       "path": "scripts/json-schema-validation.ps1",
@@ -2513,8 +2503,8 @@
     },
     {
       "path": "scripts/package.ps1",
-      "sha256": "70c1be612b8c658a2248cd4346aaf6a0f9c6d9acced7172dd0b052799d2c85c5",
-      "size": 9687
+      "sha256": "af52c243b9c958cceb093d52b96ff621eefd67135579090629aea854bfb1e7bf",
+      "size": 10385
     },
     {
       "path": "scripts/release-safety-scan.ps1",
@@ -2782,6 +2772,11 @@
       "size": 52
     },
     {
+      "path": "tests/fixtures/routing-policy-reviewed-capability-candidate.json",
+      "sha256": "a9170efdf078ace46b1bb702ebdcf465b3dadd755b0d0f67e60ae25bd9408fd8",
+      "size": 8987
+    },
+    {
       "path": "tests/install-transaction-faults.ps1",
       "sha256": "16d8ed1c4cb3e899610ee7b2132b78c7db522f77ae3cff644e5205d7e143019e",
       "size": 3755
@@ -2848,18 +2843,18 @@
     },
     {
       "path": "tests/test_capability_manifest_builder.py",
-      "sha256": "901ea894aa9869b72904e9aa6b83c6c22545e6affaabd443ceeaeb7444e3268f",
-      "size": 12886
+      "sha256": "f120879d1554eadb8311c2fbf7bd375b5fe274b107b6059ec2a70e762636f71e",
+      "size": 19308
     },
     {
       "path": "tests/test_capability_manifest_recovery.py",
-      "sha256": "884f0d128c38516dfd570ba9868b7cf959d8b16a11337e632ba0c870a3a64da4",
-      "size": 55966
+      "sha256": "de8eecbf89730a567f456594dc911d97954b0d3c34472aac2e4cdf456a1d4f7f",
+      "size": 190778
     },
     {
       "path": "tests/test_catalogue_router_wrapper.py",
-      "sha256": "90848c919497b65a0c3fa1ca65fc8f7129efa3feab43c3419eb678c610074d38",
-      "size": 5824
+      "sha256": "94570606f1432cc23c5a90a3b74650113951e80d710301a01f103c9fa24216db",
+      "size": 6306
     },
     {
       "path": "tests/test_documentation_contracts.py",
@@ -2868,8 +2863,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "8b40171fdb3f60b2a153c4f0e2fbca9a686cc4ab139ca31edf0e1c15ff144bfe",
-      "size": 124296
+      "sha256": "b36af5dbfb2ba1f4cfefc359155b8b531bc53dc8a1c0d0ae1b6eb0ea74fb1f13",
+      "size": 128612
     },
     {
       "path": "tests/test_local_security_skill_parity.py",
@@ -2888,8 +2883,8 @@
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "acf9d4559ad99a5134a6f8fa316b5317893ab7f07eebb4b634de5cbf5b241aa6",
-      "size": 19086
+      "sha256": "0e972a6d87d264d770be59b233e9fce8e6c8926336dfea8c5589c4c0cf6d285f",
+      "size": 20376
     },
     {
       "path": "tests/test_reducer_mutation_gate.py",
@@ -2898,8 +2893,18 @@
     },
     {
       "path": "tests/test_repository_capability_router.py",
-      "sha256": "7ab2b311d53be9d338654f1344e3c1dbf977976ff207032fa42901a029877034",
-      "size": 142072
+      "sha256": "550691fcb692eb62e7e9a0b8f1a6bd53756d50d4bcb5f05a4c91872568967918",
+      "size": 216368
+    },
+    {
+      "path": "tests/test_router_authority_deployment.py",
+      "sha256": "026c7f9b3b540b9857663b7d2c9904290f438120a9e44f0bfa63c8e07ab79973",
+      "size": 18270
+    },
+    {
+      "path": "tests/test_routing_policy_materializer.py",
+      "sha256": "5169093649092afdac95ae7207bb2109dcc1d70780582a2d32c733fec67a7f6e",
+      "size": 27284
     },
     {
       "path": "tests/test_security_capability_routing.py",
@@ -2922,6 +2927,11 @@
       "size": 5325
     },
     {
+      "path": "tests/test_worker_runtime_bom_promotion.py",
+      "sha256": "d027fdb8558012623f5a01f74557f1a0cc304a959be8528d13aae40634f8fd18",
+      "size": 33906
+    },
+    {
       "path": "universal/AGENTS.automation-case-policy.md",
       "sha256": "054fffcb676d6c2b151cb9367ee33196706ba09f0768d49c5abf32aef7a663e5",
       "size": 947
@@ -2939,7 +2949,7 @@
   ],
   "package": {
     "name": "codex-coding-os",
-    "version": "1.2.1"
+    "version": "1.3.0"
   },
   "protocol": "CCOS-INSTALL-BUNDLE-v1"
 }

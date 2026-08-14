@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0",
-  "decision_snapshot": "codex-coding-os-v1.2.1-semantic-router-2026-08-13",
+  "decision_snapshot": "codex-coding-os-v1.3.0-semantic-router-2026-08-15",
   "max_supports": 2,
   "max_worker_supports": 2,
   "capability_aliases": {

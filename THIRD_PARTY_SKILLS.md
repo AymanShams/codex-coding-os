@@ -23,7 +23,7 @@ The bundled skills are full local skill folders, including references, assets, a
 
 | Area | Bundled skills |
 |---|---|
-| Master routing and continuity | `codex-coding-os-master`, `catalogue-router`, `project-session-continuity` |
+| Master routing and continuity | `codex-coding-os-master`, `project-session-continuity` |
 | Idea to project docs | `new-project-documentation-system`, `create-prd`, `product-strategy`, `customer-journey-map`, `working-backwards` |
 | Docs and artifact systems | `technical-docs-pack`, `artifact-system-designer`, `artifact-validation-workflow`, `ssot-drafter`, `ssot-auditor`, `process-docs`, `support-docs` |
 | Planning and critique | `wbs-artifact-planner`, `pre-mortem`, `deep-critic`, `evidence-checker` |
@@ -32,6 +32,10 @@ The bundled skills are full local skill folders, including references, assets, a
 | Security | `security-best-practices`, `security-threat-model`, `security-ownership-map`, `defensive-security-checklist`, `postgres-security-best-practices` |
 | Platform and repo tooling | `vercel-optimize`, `code-review-graph`, `vexor-cli` |
 | Local document intake | `doc`, `pdf` |
+
+`catalogue-router` is intentionally outside this ordinary bundled-skill
+inventory. The dedicated router-authority transaction is its only install and
+update owner, including its evidence-only historical catalogue reference.
 
 ## Codex-managed plugins are not bundled
 

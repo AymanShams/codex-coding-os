@@ -77,6 +77,7 @@ CODEX_MANAGED_PLUGIN_SKILL_DIRECTORIES = frozenset(
 CODEX_MANAGED_PLUGIN_SKILL_DIRECTORY_KEYS = frozenset(
     name.casefold() for name in CODEX_MANAGED_PLUGIN_SKILL_DIRECTORIES
 )
+ROUTER_AUTHORITY_OWNED_SKILL_DIRECTORIES = frozenset({"catalogue-router"})
 MANIFEST_VERSION = 3
 JOURNAL_VERSION = 1
 PHASES = (
@@ -609,6 +610,10 @@ def _inventory_paths(root: Path, pack: dict[str, Any]) -> list[str]:
         name = _normalize_relative(skill["name"])
         if "/" in name:
             raise BundleError(f"bundled skill name must be one path segment: {name}")
+        if name.casefold() in ROUTER_AUTHORITY_OWNED_SKILL_DIRECTORIES:
+            raise BundleError(
+                f"router authority-owned skill cannot enter the ordinary install bundle: {name}"
+            )
         if name.casefold() in CODEX_MANAGED_PLUGIN_SKILL_DIRECTORY_KEYS:
             raise BundleError(
                 f"Codex-managed plugin skill bodies cannot be bundled: {name}"
@@ -632,6 +637,8 @@ def _inventory_paths(root: Path, pack: dict[str, Any]) -> list[str]:
             or normalized_key.startswith(retired_router_prefix)
             or normalized_key.startswith("capability-index/")
             or normalized_key.startswith("capability-routing/")
+            or normalized_key == ".agents/skills/catalogue-router"
+            or normalized_key.startswith(".agents/skills/catalogue-router/")
         ):
             raise BundleError(
                 f"routing reference source cannot be installed as support payload: {normalized}"
@@ -1725,6 +1732,8 @@ def _previous_skill_records(previous: dict[str, Any] | None, skills_root: Path) 
         if key in seen:
             raise OwnershipError(f"previous install duplicates managed skill name: {name}")
         seen.add(key)
+        if key in ROUTER_AUTHORITY_OWNED_SKILL_DIRECTORIES:
+            continue
         normalized.append({**record, "name": name, "path": str(path)})
     return normalized
 
@@ -2464,6 +2473,9 @@ def _verify_split_payload_layout(
         relative = _normalize_relative(str(entry.get("path", "")))
         if relative.startswith(skill_prefix):
             projected = relative[len(skill_prefix) :]
+            owner = PurePosixPath(projected).parts[0].casefold()
+            if owner in ROUTER_AUTHORITY_OWNED_SKILL_DIRECTORIES:
+                continue
             target = skills_root.joinpath(*PurePosixPath(projected).parts)
         else:
             target = support_root.joinpath(*PurePosixPath(relative).parts)
