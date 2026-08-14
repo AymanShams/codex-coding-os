@@ -68,6 +68,11 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         cls.pack_manifest = json.loads(
             (cls.repo_root / "pack.manifest.json").read_text(encoding="utf-8")
         )
+        cls.bundle_manifest = json.loads(
+            (cls.repo_root / "install-bundle.manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
         cls.trufflehog_allowlist = json.loads(
             (
                 cls.repo_root
@@ -212,6 +217,17 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         self.assertIn("install_transaction.py --json build-bundle", self.publishing_checklist)
         self.assertIn("package.ps1", self.publishing_checklist)
         self.assertIn("install-uninstall-smoke.ps1", self.publishing_checklist)
+
+    def test_release_package_requires_every_router_deployment_writer(self) -> None:
+        package_script = (self.repo_root / "scripts" / "package.ps1").read_text(
+            encoding="utf-8"
+        )
+        for writer in (
+            "capability-routing/deployment/deploy_router_authority.py",
+            "capability-routing/deployment/materialize_routing_policy.py",
+            "capability-routing/deployment/promote_worker_runtime_bom.py",
+        ):
+            self.assertIn(f'"{writer}"', package_script)
 
     def test_public_docs_use_real_packaging_and_installer_help_commands(self) -> None:
         self.assertNotIn("scripts/package.sh", self.public_docs)
@@ -388,6 +404,21 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         listed = set(re.findall(r"^- `([^`]+)`$", section, re.MULTILINE))
         declared = {item["name"] for item in self.pack_manifest["bundled_skills"]}
         self.assertEqual(listed, declared)
+
+    def test_catalogue_router_is_not_owned_by_the_ordinary_install_bundle(self) -> None:
+        declared = {item["name"] for item in self.pack_manifest["bundled_skills"]}
+        self.assertNotIn("catalogue-router", declared)
+        bundle_paths = {
+            item["path"].replace("\\", "/")
+            for item in self.bundle_manifest["entries"]
+        }
+        self.assertFalse(
+            any(
+                path == ".agents/skills/catalogue-router"
+                or path.startswith(".agents/skills/catalogue-router/")
+                for path in bundle_paths
+            )
+        )
 
     def test_history_scanner_allowlist_is_exact_and_auditable(self) -> None:
         self.assertEqual(self.trufflehog_allowlist["schema_version"], 1)

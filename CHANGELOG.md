@@ -4,6 +4,26 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-15
+
+### Added
+
+- Added immutable Catalogue Router manifest generations, compare-and-swap pointer promotion, durable update transactions, and idempotent recovery receipts.
+- Added a separate explicit source-to-live router deployment transaction while preserving the ordinary Coding OS installer quarantine.
+- Added an exact worker runtime bill of materials for Local Agent Stack and Antigravity release identities.
+- Added isolated and compound recovery lanes for scheduled `openai-primary-runtime` bundle replacement, bound to an exact five-package byte-coherent detached bundle and cache projection.
+
+### Changed
+
+- Split static authority failure from provable dynamic drift. Static mismatches still deny the complete router, while package, app-surface, and worker-runtime drift are isolated to their verified dependency closures.
+- Added component-level status output so manifest authority, plugin inventory, configuration projection, and worker identity failures cannot collapse into one ambiguous stale flag.
+- Retained route schema 3.0 and registry schema 3 while binding each new manifest to an immutable generation.
+
+### Fixed
+
+- Preserved the Word document critique hotfix while integrating generation and dynamic-authority behavior.
+- Prevented operator transaction replay, pointer promotion failure, and terminal-receipt write failure from producing ambiguous success.
+
 ## [1.2.1] - 2026-08-13
 
 ### Fixed

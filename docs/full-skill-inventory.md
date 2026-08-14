@@ -9,7 +9,6 @@ The machine-readable source of truth for validation is `pack.manifest.json`.
 | Skill | Treatment | Notes |
 |---|---|---|
 | `codex-coding-os-master` | Pack master | Top-level workflow router for Codex software work |
-| `catalogue-router` | Full portable local skill | Uses bundled `references/capability-catalogue.md` |
 | `chat-export-capability-miner` | Full portable local skill | Mines prior AI chat exports for reusable skills, plugins, MCPs, tools, and workflow candidates |
 | `ai-coding-discipline` | Full portable local skill | Karpathy-inspired coding discipline, generalized for sensitive data |
 | `new-project-documentation-system` | Full portable local skill | Includes references and AGENTS/CLAUDE/handoff assets |
@@ -54,6 +53,15 @@ The machine-readable source of truth for validation is `pack.manifest.json`.
 | `code-review-graph` | Full portable local skill | Graph-backed code review entrypoints |
 | `vexor-cli` | Full local skill | CLI helper guidance |
 | `external-skill-overlay-pack` | Pack master | External source handling and overlays |
+
+## Router-authority-owned skill
+
+`catalogue-router` is not an ordinary Coding OS bundled skill. Its live skill
+body, query wrapper, and historical evidence reference are installed and
+updated only by the dedicated router-authority deployment transaction. The
+reference remains evidence-only and cannot select a route. Ordinary Coding OS
+install, upgrade, and uninstall operations neither write nor remove these
+files.
 
 ## Codex-managed security and provider skills
 

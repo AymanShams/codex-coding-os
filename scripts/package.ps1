@@ -9,6 +9,9 @@ $Parent = Split-Path -Parent $RepoRoot
 $ManifestPath = Join-Path $RepoRoot "pack.manifest.json"
 $Validate = Join-Path $RepoRoot "scripts\validate-pack.ps1"
 $RequiredDormantRoutingFiles = @(
+  ".agents/skills/catalogue-router/SKILL.md",
+  ".agents/skills/catalogue-router/references/capability-catalogue.md",
+  ".agents/skills/catalogue-router/scripts/query-catalogue.ps1",
   "capability-routing/README.md",
   "capability-routing/requirements-test.txt",
   "capability-routing/provenance.json",
@@ -17,16 +20,24 @@ $RequiredDormantRoutingFiles = @(
   "capability-routing/route-decision.schema.json",
   "capability-routing/routing-policy.schema.json",
   "capability-routing/routing-policy.yaml",
+  "capability-routing/routing-policy-overlay.schema.json",
+  "capability-routing/routing-policy.deployment-overlay.example.json",
+  "capability-routing/worker-runtime-bom.schema.json",
+  "capability-routing/worker-runtime-bom.example.json",
   "capability-routing/project-scope-map.schema.json",
   "capability-routing/project-scope-map.example.json",
   "capability-routing/builder/build_canonical_capability_manifest.ps1",
-  "capability-routing/reference-runtime/_common.py",
+  "capability-routing/deployment/deploy_router_authority.py",
+  "capability-routing/deployment/materialize_routing_policy.py",
+  "capability-routing/deployment/promote_worker_runtime_bom.py",
+  "capability-routing/deployment/router-authority.bundle.json",
   "capability-routing/reference-runtime/_hook_io.py",
   "capability-routing/reference-runtime/capability_config_fingerprint.py",
   "capability-routing/reference-runtime/capability_index.py",
   "capability-routing/reference-runtime/capability_index_cli.py",
   "capability-routing/reference-runtime/capability_index_session_start.py",
   "capability-routing/reference-runtime/capability_manifest_recovery.py",
+  "capability-routing/reference-runtime/routing_policy_validation.py",
   "capability-routing/reference-runtime/user_prompt_skill_router.py"
 )
 $RequiredRepositorySecuritySkills = @(

@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.codex/capability-worker-runtime-bom-v1.schema.json",
+  "title": "Catalogue Router Worker Runtime Bill of Materials",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "gateway_runtime", "runtimes"],
+  "properties": {
+    "schema_version": {
+      "const": "capability-worker-runtime-bom-v1"
+    },
+    "gateway_runtime": {
+      "$ref": "#/$defs/gatewayRuntimeBinding"
+    },
+    "runtimes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["antigravity-adapter", "local-agent-stack"],
+      "properties": {
+        "antigravity-adapter": { "$ref": "#/$defs/runtime" },
+        "local-agent-stack": { "$ref": "#/$defs/runtime" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "gatewayRuntimeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config_server_id",
+        "identity_relative_path",
+        "identity_sha256",
+        "runtime_identity",
+        "server_config_sha256"
+      ],
+      "properties": {
+        "config_server_id": { "const": "codex-stability-gateway" },
+        "identity_relative_path": {
+          "const": "tools/codex-stability/runtime-identity.json"
+        },
+        "identity_sha256": { "$ref": "#/$defs/sha256" },
+        "runtime_identity": { "$ref": "#/$defs/gatewayRuntimeIdentity" },
+        "server_config_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "gatewayRuntimeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "child_environment_policy_id",
+        "component",
+        "gateway_startup_environment_policy_id",
+        "gateway_startup_python_flags",
+        "python_bytecode_cache",
+        "python_injection_environment_keys",
+        "python_runtime",
+        "release_id",
+        "schema_version",
+        "source_files",
+        "source_sha256"
+      ],
+      "properties": {
+        "child_environment_policy_id": {
+          "const": "codex-stability-child-env-v1"
+        },
+        "component": { "const": "codex-stability-gateway" },
+        "gateway_startup_environment_policy_id": {
+          "const": "codex-stability-gateway-startup-v1"
+        },
+        "gateway_startup_python_flags": {
+          "const": { "dont_write_bytecode": 1, "isolated": 1, "no_site": 1, "no_user_site": 1 }
+        },
+        "python_bytecode_cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["must_be_empty", "prefix_path"],
+          "properties": {
+            "must_be_empty": { "const": true },
+            "prefix_path": { "$ref": "#/$defs/absoluteWindowsPath" }
+          }
+        },
+        "python_injection_environment_keys": {
+          "const": [
+            "PYTHONHOME",
+            "PYTHONINSPECT",
+            "PYTHONPATH",
+            "PYTHONPYCACHEPREFIX",
+            "PYTHONSTARTUP",
+            "PYTHONUSERBASE"
+          ]
+        },
+        "python_runtime": { "$ref": "#/$defs/gatewayPythonRuntime" },
+        "release_id": { "const": "codex-stability-gateway-1.0.1" },
+        "schema_version": {
+          "const": "codex-stability-gateway-runtime-identity-v1"
+        },
+        "source_files": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/gatewaySourceFile" }
+        },
+        "source_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "gatewayPythonRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_root",
+        "base_runtime_file_count",
+        "base_runtime_sha256",
+        "console_executable_path",
+        "console_executable_sha256",
+        "dependency_lock_path",
+        "dependency_lock_sha256",
+        "site_packages_file_count",
+        "site_packages_path",
+        "site_packages_sha256",
+        "version",
+        "windowless_executable_path",
+        "windowless_executable_sha256"
+      ],
+      "properties": {
+        "base_root": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "base_runtime_file_count": { "type": "integer", "minimum": 1 },
+        "base_runtime_sha256": { "$ref": "#/$defs/sha256" },
+        "console_executable_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "console_executable_sha256": { "$ref": "#/$defs/sha256" },
+        "dependency_lock_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "dependency_lock_sha256": { "$ref": "#/$defs/sha256" },
+        "site_packages_file_count": { "type": "integer", "minimum": 1 },
+        "site_packages_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "site_packages_sha256": { "$ref": "#/$defs/sha256" },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        },
+        "windowless_executable_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "windowless_executable_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "gatewaySourceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config_server_id",
+        "identity_relative_path",
+        "identity_sha256",
+        "command_sha256",
+        "python_execution_closure",
+        "server_config_sha256",
+        "release_id",
+        "route_schema_version",
+        "route_registry_schema_version"
+      ],
+      "properties": {
+        "config_server_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,95}$"
+        },
+        "identity_relative_path": {
+          "type": "string",
+          "pattern": "^(?![A-Za-z]:|[/\\\\]|.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).{1,160}$"
+        },
+        "identity_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "command_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "python_execution_closure": {
+          "$ref": "#/$defs/pythonExecutionClosure"
+        },
+        "server_config_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "release_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "route_schema_version": {
+          "const": "3.0"
+        },
+        "route_registry_schema_version": {
+          "const": 3
+        }
+      }
+    },
+    "pythonExecutionClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "venv_python_path",
+        "venv_python_sha256",
+        "pyvenv_config_path",
+        "pyvenv_config_sha256",
+        "include_system_site_packages",
+        "base_interpreter_path",
+        "base_interpreter_version",
+        "base_interpreter_sha256",
+        "base_runtime_tree_path",
+        "base_runtime_tree_file_count",
+        "base_runtime_tree_sha256",
+        "site_packages_path",
+        "site_packages_tree_file_count",
+        "site_packages_tree_sha256",
+        "installed_distributions_count",
+        "installed_distributions_sha256",
+        "pth_files_count",
+        "pth_files_sha256",
+        "pth_imports_count",
+        "pth_imports_sha256",
+        "editable_pth_path",
+        "editable_pth_sha256",
+        "editable_source_root",
+        "import_package",
+        "import_origin",
+        "isolated_mode",
+        "user_site_enabled",
+        "dont_write_bytecode",
+        "pycache_prefix_path",
+        "pycache_prefix_empty",
+        "forbidden_environment_variables",
+        "child_environment_policy_id"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "python-venv-execution-closure-v1"
+        },
+        "venv_python_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "venv_python_sha256": { "$ref": "#/$defs/sha256" },
+        "pyvenv_config_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "pyvenv_config_sha256": { "$ref": "#/$defs/sha256" },
+        "include_system_site_packages": { "const": false },
+        "base_interpreter_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "base_interpreter_version": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        },
+        "base_interpreter_sha256": { "$ref": "#/$defs/sha256" },
+        "base_runtime_tree_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "base_runtime_tree_file_count": { "type": "integer", "minimum": 1 },
+        "base_runtime_tree_sha256": { "$ref": "#/$defs/sha256" },
+        "site_packages_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "site_packages_tree_file_count": { "type": "integer", "minimum": 1 },
+        "site_packages_tree_sha256": { "$ref": "#/$defs/sha256" },
+        "installed_distributions_count": { "type": "integer", "minimum": 1 },
+        "installed_distributions_sha256": { "$ref": "#/$defs/sha256" },
+        "pth_files_count": { "type": "integer", "minimum": 1 },
+        "pth_files_sha256": { "$ref": "#/$defs/sha256" },
+        "pth_imports_count": { "type": "integer", "minimum": 1 },
+        "pth_imports_sha256": { "$ref": "#/$defs/sha256" },
+        "editable_pth_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "editable_pth_sha256": { "$ref": "#/$defs/sha256" },
+        "editable_source_root": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "import_package": {
+          "enum": ["antigravity_adapter", "local_agent_stack"]
+        },
+        "import_origin": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "isolated_mode": { "const": true },
+        "user_site_enabled": { "const": false },
+        "dont_write_bytecode": { "const": true },
+        "pycache_prefix_path": { "$ref": "#/$defs/absoluteWindowsPath" },
+        "pycache_prefix_empty": { "const": true },
+        "forbidden_environment_variables": {
+          "const": [
+            "PYTHONHOME",
+            "PYTHONINSPECT",
+            "PYTHONPATH",
+            "PYTHONPYCACHEPREFIX",
+            "PYTHONSTARTUP",
+            "PYTHONUSERBASE"
+          ]
+        },
+        "child_environment_policy_id": {
+          "const": "codex-stability-child-env-v1"
+        }
+      }
+    },
+    "absoluteWindowsPath": {
+      "type": "string",
+      "pattern": "^[A-Za-z]:\\\\[^\\r\\n]{1,4093}$"
+    }
+  }
+}

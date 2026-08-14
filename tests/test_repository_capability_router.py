@@ -30,6 +30,8 @@ _ROUTER_ENV = {
     "CODEX_CAPABILITY_ROUTING_DIR": _IMPORT_ROOT / "routing",
     "CODEX_ACTIVE_CAPABILITIES_PATH": _IMPORT_ROOT / "active-capabilities.json",
     "CODEX_ROUTING_POLICY_PATH": ROUTING_ROOT / "routing-policy.yaml",
+    "CODEX_ROUTING_POLICY_SCHEMA_PATH": ROUTING_ROOT
+    / "routing-policy.schema.json",
     "CODEX_CONFIG_PATH": _IMPORT_ROOT / "config.toml",
     "CODEX_ROUTE_DECISION_SCHEMA_PATH": ROUTING_ROOT / "route-decision.schema.json",
     "CODEX_ROUTE_DECISION_REGISTRY_PATH": _IMPORT_ROOT / "route-decisions.sqlite3",
@@ -82,19 +84,35 @@ def capability_entry(identifier: str) -> dict[str, object]:
 
 
 def policy_capability_entries(policy: dict[str, object]) -> list[dict[str, object]]:
-    references: set[str] = set()
+    references: set[str] = set(policy.get("capability_aliases", {}))
+    for control in policy.get("live_dependency_controls", {}).values():
+        references.update(control.get("manifest_any", []))
+    for section in ("worker_rules", "local_execution_rules"):
+        for rule in policy.get(section, []):
+            references.update(rule.get("requires_any_capabilities", []))
     for rule in policy["rules"]:
         references.add(rule["primary"])
         references.update(rule.get("supports", []))
         references.update(
-            item for item in rule.get("requires", []) if not item.startswith("prompt:")
+            item.removeprefix("active:")
+            for item in rule.get("requires", [])
+            if not item.casefold().startswith("prompt:")
         )
-        references.update(rule.get("requires_live_dependencies", []))
+        references.update(
+            item.removeprefix("capability:")
+            for item in rule.get("forbids", [])
+            if not item.casefold().startswith("prompt:")
+        )
         fallback = rule.get("dependency_fallback") or {}
         if fallback.get("selected_capability"):
             references.add(fallback["selected_capability"])
         references.update(fallback.get("supports", []))
         references.update(fallback.get("equivalent_capabilities", []))
+    for override in policy.get("explicit_overrides", []):
+        references.add(override["target"])
+        for field in ("requires_primary", "winner"):
+            if override.get(field):
+                references.add(override[field])
     return [capability_entry(reference) for reference in sorted(references)]
 
 
@@ -112,6 +130,7 @@ def synthetic_manifest(
         "freshness_status": "fresh",
         "source_hashes_verified": True,
         "entries": list(by_id.values()),
+        "suppressed_capabilities": [],
     }
 
 
@@ -178,18 +197,36 @@ def complete_classification(
 class RepositoryCapabilityRouterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="ccos-router-test-")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.codex_home = self.root / "codex-home"
         self.routing_dir = self.codex_home / "capability-routing"
         self.routing_dir.mkdir(parents=True)
         self.manifest_path = self.routing_dir / "active-capabilities.json"
         self.policy_path = self.routing_dir / "routing-policy.yaml"
+        self.policy_schema_path = self.routing_dir / "routing-policy.schema.json"
         self.config_path = self.codex_home / "config.toml"
         self.schema_path = self.routing_dir / "route-decision.schema.json"
         self.registry = self.routing_dir / "route-decisions.sqlite3"
         self.project_map_path = self.routing_dir / "project-scope-map.json"
+        self.generation_pointer_path = self.routing_dir / "current-generation.json"
+        self.worker_runtime_bom_path = self.routing_dir / "worker-runtime-bom.json"
+        self.worker_python_probes: dict[str, dict[str, object]] = {}
+        self.worker_pth_probes: dict[str, dict[str, str]] = {}
+        self.local_app_data = self.root / "localappdata"
+        self.local_app_data.mkdir()
         self.policy_path.write_text(
             (ROUTING_ROOT / "routing-policy.yaml").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        self.policy_schema_path.write_text(
+            (ROUTING_ROOT / "routing-policy.schema.json").read_text(
+                encoding="utf-8"
+            ),
+            encoding="utf-8",
+        )
+        raw_policy = json.loads(self.policy_path.read_text(encoding="utf-8"))
+        self.manifest_path.write_text(
+            json.dumps(synthetic_manifest(raw_policy), ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
         self.schema_path.write_text(
@@ -213,17 +250,46 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.patches = ExitStack()
+        self.patches.enter_context(
+            mock.patch.object(
+                index,
+                "_probe_worker_python_execution",
+                side_effect=self._worker_python_probe,
+            )
+        )
+        self.patches.enter_context(
+            mock.patch.object(
+                index,
+                "_probe_worker_pth_import_origins",
+                side_effect=self._worker_pth_probe,
+            )
+        )
+        self.patches.enter_context(
+            mock.patch.dict(os.environ, {"LOCALAPPDATA": str(self.local_app_data)})
+        )
         for name, value in {
             "CODEX_HOME": self.codex_home,
             "ROUTING_DIR": self.routing_dir,
             "ACTIVE_CAPABILITIES_PATH": self.manifest_path,
             "ROUTING_POLICY_PATH": self.policy_path,
+            "ROUTING_POLICY_SCHEMA_PATH": self.policy_schema_path,
             "CONFIG_PATH": self.config_path,
             "ROUTE_DECISION_SCHEMA_PATH": self.schema_path,
             "ROUTE_DECISION_REGISTRY_PATH": self.registry,
             "PROJECT_SCOPE_MAP_PATH": self.project_map_path,
+            "AUTHORITY_GENERATION_POINTER_PATH": self.generation_pointer_path,
+            "WORKER_RUNTIME_BOM_PATH": self.worker_runtime_bom_path,
+            "GATEWAY_STARTUP_RECEIPT_PATH": self.local_app_data
+            / "Codex"
+            / "stability"
+            / "gateway-startup-receipt.json",
         }.items():
             self.patches.enter_context(mock.patch.object(index, name, value))
+        self.patches.enter_context(
+            mock.patch.object(
+                index, "_gateway_receipt_process_current", return_value=True
+            )
+        )
 
     def tearDown(self) -> None:
         self.patches.close()
@@ -244,22 +310,7 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             return index.verify_registered_route(decision, **kwargs)
 
     def _enable_local_gateway(self) -> None:
-        command = self.root / "synthetic-gateway.exe"
-        command.write_bytes(b"synthetic gateway")
-        gateway_cwd = self.root / "gateway-cwd"
-        gateway_cwd.mkdir()
-        self.config_path.write_text(
-            "\n".join(
-                [
-                    "[mcp_servers.local-agent-stack]",
-                    "gateway_managed = true",
-                    f"command = '{command}'",
-                    f"cwd = '{gateway_cwd}'",
-                    "",
-                ]
-            ),
-            encoding="utf-8",
-        )
+        self._install_worker_runtime_fixture()
 
     def test_policy_and_schema_contracts_are_valid_and_public_safe(self) -> None:
         policy = json.loads((ROUTING_ROOT / "routing-policy.yaml").read_text("utf-8"))
@@ -334,6 +385,70 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         )
         self.assertEqual(
             set(example_map["projects"]), {"generic", "sample_project"}
+        )
+
+    def test_runtime_policy_loader_rejects_schema_and_semantic_corruption(self) -> None:
+        raw = json.loads(self.policy_path.read_text(encoding="utf-8"))
+        invalid_type = copy.deepcopy(raw)
+        invalid_type["max_supports"] = {"not": "an integer"}
+        self.policy_path.write_text(
+            json.dumps(invalid_type) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(index.CapabilityDataError, "schema validation"):
+            index.load_routing_policy(self.policy_path)
+
+        missing_profile = copy.deepcopy(raw)
+        missing_profile["default_execution_profile"] = "does-not-exist"
+        self.policy_path.write_text(
+            json.dumps(missing_profile) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(index.CapabilityDataError, "not declared"):
+            index.load_routing_policy(self.policy_path)
+
+        invalid_worker = copy.deepcopy(raw)
+        invalid_worker["worker_rules"][0]["worker"]["model"] = (
+            "schema-valid-but-unapproved-model"
+        )
+        self.policy_path.write_text(
+            json.dumps(invalid_worker) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(index.CapabilityDataError, "worker contract"):
+            index.load_routing_policy(self.policy_path)
+
+    def test_runtime_policy_validation_requires_jsonschema(self) -> None:
+        with mock.patch.dict(sys.modules, {"jsonschema": None}):
+            with self.assertRaisesRegex(
+                index.CapabilityDataError,
+                "jsonschema is required",
+            ):
+                index.load_routing_policy(self.policy_path)
+
+    def test_declared_suppressed_primary_is_valid_but_not_routable(self) -> None:
+        manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        suppressed_id = "skill:create-prd"
+        manifest["entries"] = [
+            row for row in manifest["entries"] if row["id"] != suppressed_id
+        ]
+        manifest["suppressed_capabilities"].append({"id": suppressed_id})
+        self.manifest_path.write_text(
+            json.dumps(manifest) + "\n",
+            encoding="utf-8",
+        )
+
+        policy = index.load_routing_policy(self.policy_path)
+        with mock.patch.object(index, "_entry_hash_current", return_value=True):
+            decision = index.resolve_route(
+                "create a prd",
+                manifest=manifest,
+                policy=policy,
+            )
+        primary = decision.get("primary")
+        self.assertNotEqual(
+            primary.get("id") if isinstance(primary, dict) else None,
+            suppressed_id,
         )
 
     def test_semantic_intent_gates_are_bounded_to_the_requested_workflow(self) -> None:
@@ -1847,6 +1962,38 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 self.assertEqual(index._prompt_critique_state(prompt)[:2], (True, True))
                 self.assertEqual(first_rule_id(prompt), "security-best-practices-review")
 
+        word_document_cases = {
+            "Critique this Word document, do not edit it.": "deep-critique",
+            "Critique this Word file for weak assumptions.": "deep-critique",
+            "Critique this Word report, do not edit it.": "deep-critique",
+            "Critique this Word memo, do not edit it.": "deep-critique",
+            "Critique the attached Word memo, do not edit it.": "deep-critique",
+            "Critique my Word policy for weak assumptions.": "deep-critique",
+            "Critique the Microsoft Word proposal for flawed logic.": "deep-critique",
+            "Critique this Word document for grammar only.":
+                "create-or-edit-word-document",
+            "Critique this Word document. Instead, summarize it.":
+                "create-or-edit-word-document",
+            "Critique this Word document and also summarize it.": "deep-critique",
+            "Critique the word authorization.": None,
+            "Critique the word document as a verb.": None,
+            "Critique the word report as a noun.": None,
+            "Critique the word file in this sentence.": None,
+            "Critique the word memo.": None,
+            "Critique the word policy.": None,
+            "Critique the phrase weak assumptions.": None,
+            "Critique the phrase foo. Then create a PDF file.":
+                "standard-pdf-work",
+            "Critique the phrase foo and then create a Word document.":
+                "create-or-edit-word-document",
+            "Create a PDF file. Then critique the phrase foo.": None,
+        }
+        for prompt, expected_rule in word_document_cases.items():
+            with self.subTest(family="word-document-vs-linguistic-mention", prompt=prompt):
+                self.assertEqual(first_rule_id(prompt), expected_rule)
+                if "grammar only" in prompt.lower():
+                    self.assertEqual(index._prompt_critique_state(prompt)[:2], (False, False))
+
         mention_cases = {
             "Critique the phrase supplied PDF for weak assumptions.": "deep-critique",
             "Review a history essay that mentions the supplied PDF for weak assumptions.":
@@ -2025,6 +2172,352 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         self.assertFalse(loaded["source_hashes_verified"])
         self.assertEqual(loaded["entries"], [])
 
+    def test_plugin_drift_quarantines_only_recorded_package_closure(self) -> None:
+        manifest_path = self.root / "plugin-drift.json"
+        baseline_rows = {
+            "ROOT\tmarket/alpha/1.0.0": "A" * 64,
+            "FILE\tmarket/alpha/1.0.0/.codex-plugin/plugin.json": "B" * 64,
+            "ROOT\tmarket/beta/1.0.0": "C" * 64,
+            "FILE\tmarket/beta/1.0.0/.codex-plugin/plugin.json": "D" * 64,
+        }
+        payload = {
+            "schema_version": "1.2",
+            "generated_at": "2026-08-14T00:00:00Z",
+            "snapshot_id": "selective-quarantine",
+            "freshness_status": "fresh",
+            "source_hashes": {
+                "plugin-cache-inventory": "1" * 64,
+            },
+            "authority_receipt": {
+                "config_projection_sha256": "2" * 64,
+                "config_leaf_hashes": {},
+                "plugin_cache_inventory_sha256": "1" * 64,
+                "plugin_cache_row_hashes": baseline_rows,
+                "plugin_capability_surfaces": {
+                    "market/alpha/1.0.0": [
+                        {"id": "skill:alpha", "kind": "skill"}
+                    ],
+                    "market/beta/1.0.0": [
+                        {"id": "skill:beta", "kind": "skill"}
+                    ],
+                },
+            },
+            "entries": [active_entry("skill:alpha"), active_entry("skill:beta")],
+        }
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        current_rows = {
+            "ROOT\tmarket/alpha/1.1.0": "E" * 64,
+            "FILE\tmarket/alpha/1.1.0/.codex-plugin/plugin.json": "F" * 64,
+            "ROOT\tmarket/beta/1.0.0": "C" * 64,
+            "FILE\tmarket/beta/1.0.0/.codex-plugin/plugin.json": "D" * 64,
+        }
+        with mock.patch.object(
+            index, "_source_hash_mismatches", return_value=["plugin-cache-inventory"]
+        ), mock.patch.object(
+            index,
+            "_plugin_cache_row_hashes",
+            return_value=(current_rows, "9" * 64),
+        ):
+            loaded = index.load_active_capabilities(manifest_path)
+
+        self.assertEqual(loaded["freshness_status"], "degraded")
+        self.assertTrue(loaded["source_hashes_verified"])
+        self.assertEqual([entry["id"] for entry in loaded["entries"]], ["skill:beta"])
+        self.assertEqual(
+            loaded["dynamic_authority"]["quarantined_capability_ids"],
+            ["skill:alpha"],
+        )
+        self.assertEqual(loaded["summary"]["rejected_quarantined"], 1)
+
+    def test_plugin_inventory_detects_same_size_same_mtime_content_drift(self) -> None:
+        package = (
+            self.codex_home
+            / "plugins"
+            / "cache"
+            / "market"
+            / "alpha"
+            / "1.0.0"
+        )
+        manifest = package / ".codex-plugin" / "plugin.json"
+        skill = package / "skills" / "alpha" / "SKILL.md"
+        manifest.parent.mkdir(parents=True)
+        skill.parent.mkdir(parents=True)
+        manifest.write_text('{"name":"alpha","version":"1.0.0"}', encoding="utf-8")
+        skill.write_text("first-byte-contract", encoding="utf-8")
+        before_stat = skill.stat()
+        first = index._plugin_cache_inventory_hash(self.codex_home)
+
+        skill.write_text("other-byte-contract", encoding="utf-8")
+        os.utime(skill, ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns))
+        second = index._plugin_cache_inventory_hash(self.codex_home)
+
+        self.assertEqual(skill.stat().st_size, before_stat.st_size)
+        self.assertNotEqual(first, second)
+
+    def test_entry_hash_verification_enforces_exact_hash_scope(self) -> None:
+        source = self.root / "entry-source.txt"
+        source.write_text("source contract", encoding="utf-8")
+        original_stat = source.stat()
+        file_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        url = "https://developers.openai.com/mcp"
+        url_digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+        self.assertTrue(
+            index._entry_hash_current(
+                {
+                    "source_path": str(source.resolve()),
+                    "sha256": file_digest,
+                    "hash_scope": "file-sha256",
+                }
+            )
+        )
+        self.assertTrue(
+            index._entry_hash_current(
+                {
+                    "source_path": str(source.resolve()),
+                    "sha256": file_digest,
+                    "hash_scope": "",
+                }
+            )
+        )
+        self.assertTrue(
+            index._entry_hash_current(
+                {
+                    "source_path": url,
+                    "sha256": url_digest,
+                    "hash_scope": "text-sha256",
+                }
+            )
+        )
+
+        source.write_text("mutate contract", encoding="utf-8")
+        os.utime(
+            source,
+            ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+        )
+        self.assertEqual(source.stat().st_size, original_stat.st_size)
+        invalid_entries = (
+            {
+                "source_path": str(source.resolve()),
+                "sha256": file_digest,
+                "hash_scope": "file-sha256",
+            },
+            {
+                "source_path": url,
+                "sha256": "0" * 64,
+                "hash_scope": "text-sha256",
+            },
+            {
+                "source_path": f"{url}/changed",
+                "sha256": url_digest,
+                "hash_scope": "text-sha256",
+            },
+            {
+                "source_path": url,
+                "sha256": url_digest,
+                "hash_scope": "file-sha256",
+            },
+            {
+                "source_path": "relative/source.txt",
+                "sha256": file_digest,
+                "hash_scope": "file-sha256",
+            },
+            {
+                "source_path": "/unsupported/windows/path",
+                "sha256": file_digest,
+                "hash_scope": "file-sha256",
+            },
+            {
+                "source_path": r"\\server\share\missing.txt",
+                "sha256": file_digest,
+                "hash_scope": "file-sha256",
+            },
+            {
+                "source_path": str(self.root / "missing.txt"),
+                "sha256": file_digest,
+                "hash_scope": "file-sha256",
+            },
+        )
+        for entry in invalid_entries:
+            with self.subTest(entry=entry):
+                self.assertFalse(index._entry_hash_current(entry))
+
+        symlink = self.root / "entry-source-link.txt"
+        try:
+            symlink.symlink_to(source)
+        except OSError:
+            pass
+        else:
+            self.assertFalse(
+                index._entry_hash_current(
+                    {
+                        "source_path": str(symlink),
+                        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                        "hash_scope": "file-sha256",
+                    }
+                )
+            )
+
+    def test_plugin_install_metadata_backfill_does_not_change_authority(self) -> None:
+        plugin_root = (
+            self.codex_home
+            / "plugins"
+            / "cache"
+            / "openai-curated-remote"
+            / "alpha"
+        )
+        package = plugin_root / "1.0.0"
+        manifest = package / ".codex-plugin" / "plugin.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('{"name":"alpha","version":"1.0.0"}', encoding="utf-8")
+        first = index._plugin_cache_inventory_hash(self.codex_home)
+
+        # The first-party Codex sync currently writes this schema-v1 receipt at
+        # the plugin root, alongside version directories.
+        (plugin_root / ".codex-remote-plugin-install.json").write_text(
+            '{"schema_version":1,"remote_plugin_id":"plugins~alpha"}',
+            encoding="utf-8",
+        )
+        second = index._plugin_cache_inventory_hash(self.codex_home)
+
+        # A future version-local receipt must also remain outside the bounded
+        # routing-authority file set.
+        (package / ".codex-remote-plugin-install.json").write_text(
+            '{"schema_version":2,"remote_plugin_id":"plugins~alpha"}',
+            encoding="utf-8",
+        )
+        third = index._plugin_cache_inventory_hash(self.codex_home)
+
+        self.assertEqual(first, second)
+        self.assertEqual(second, third)
+
+    def test_unproven_dynamic_dependency_closure_fails_globally_closed(self) -> None:
+        manifest_path = self.root / "malformed-closure.json"
+        payload = {
+            "schema_version": "1.2",
+            "generated_at": "2026-08-14T00:00:00Z",
+            "snapshot_id": "malformed-closure",
+            "freshness_status": "fresh",
+            "source_hashes": {"plugin-cache-inventory": "1" * 64},
+            "authority_receipt": {
+                "config_projection_sha256": "2" * 64,
+                "config_leaf_hashes": {},
+                "plugin_cache_inventory_sha256": "1" * 64,
+                "plugin_cache_row_hashes": {
+                    "ROOT\tmarket/alpha/1.0.0": "A" * 64
+                },
+                "plugin_capability_surfaces": {},
+            },
+            "entries": [active_entry("skill:alpha")],
+        }
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        with mock.patch.object(
+            index, "_source_hash_mismatches", return_value=["plugin-cache-inventory"]
+        ):
+            loaded = index.load_active_capabilities(manifest_path)
+        self.assertEqual(loaded["freshness_status"], "stale")
+        self.assertFalse(loaded["source_hashes_verified"])
+        self.assertEqual(loaded["dynamic_authority_status"], "unscoped")
+        self.assertEqual(loaded["entries"], [])
+
+    def test_known_app_config_drift_quarantines_only_affected_surfaces(self) -> None:
+        manifest_path = self.root / "app-config-drift.json"
+        changed_leaf = "/mcp_servers/node_repl/runtime/command"
+        payload = {
+            "schema_version": "1.2",
+            "generated_at": "2026-08-14T00:00:00Z",
+            "snapshot_id": "app-config-drift",
+            "freshness_status": "fresh",
+            "source_hashes": {
+                index.CONFIG_CAPABILITY_SOURCE_HASH_KEY: "1" * 64,
+            },
+            "authority_receipt": {
+                "config_projection_sha256": "1" * 64,
+                "config_leaf_hashes": {changed_leaf: "A" * 64},
+                "config_capability_surfaces": {
+                    changed_leaf: {
+                        "change_class": "runtime_identity",
+                        "control_kind": "app_runtime",
+                        "control_key": "node_repl",
+                        "capability_ids": ["plugin:browser", "mcp:node_repl"],
+                        "required_capability_ids": ["mcp:node_repl"],
+                    }
+                },
+                "plugin_cache_inventory_sha256": "2" * 64,
+                "plugin_cache_row_hashes": {
+                    "ROOT\topenai-bundled/browser/1.0.0": "B" * 64
+                },
+                "plugin_capability_surfaces": {
+                    "openai-bundled/browser/1.0.0": [
+                        {"id": "plugin:browser", "kind": "plugin"}
+                    ]
+                },
+            },
+            "entries": [
+                {**active_entry("plugin:browser"), "kind": "plugin"},
+                {**active_entry("mcp:node_repl"), "kind": "mcp"},
+                active_entry("skill:unaffected"),
+            ],
+        }
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        with mock.patch.object(
+            index,
+            "_source_hash_mismatches",
+            return_value=[index.CONFIG_CAPABILITY_SOURCE_HASH_KEY],
+        ), mock.patch.object(
+            index,
+            "_capability_config_authority",
+            return_value={
+                "sha256": "9" * 64,
+                "projection_leaf_hashes": {changed_leaf: "C" * 64},
+            },
+        ):
+            loaded = index.load_active_capabilities(manifest_path)
+        self.assertEqual(loaded["freshness_status"], "degraded")
+        self.assertEqual(
+            [entry["id"] for entry in loaded["entries"]],
+            ["skill:unaffected"],
+        )
+        self.assertEqual(
+            set(loaded["dynamic_authority"]["quarantined_capability_ids"]),
+            {"plugin:browser", "mcp:node_repl"},
+        )
+
+    def test_worker_bom_drift_disables_workers_without_disabling_router(self) -> None:
+        manifest_path = self.root / "worker-bom-drift.json"
+        payload = {
+            "schema_version": "1.2",
+            "generated_at": "2026-08-14T00:00:00Z",
+            "snapshot_id": "worker-bom-drift",
+            "freshness_status": "fresh",
+            "source_hashes": {index.WORKER_RUNTIME_BOM_SOURCE_HASH_KEY: "1" * 64},
+            "authority_receipt": {
+                "config_projection_sha256": "2" * 64,
+                "config_leaf_hashes": {},
+                "plugin_cache_inventory_sha256": "3" * 64,
+                "plugin_cache_row_hashes": {
+                    "ROOT\tmarket/alpha/1.0.0": "A" * 64
+                },
+                "plugin_capability_surfaces": {
+                    "market/alpha/1.0.0": [
+                        {"id": "skill:alpha", "kind": "skill"}
+                    ]
+                },
+            },
+            "entries": [active_entry("skill:alpha")],
+        }
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        with mock.patch.object(
+            index,
+            "_source_hash_mismatches",
+            return_value=[index.WORKER_RUNTIME_BOM_SOURCE_HASH_KEY],
+        ):
+            loaded = index.load_active_capabilities(manifest_path)
+        self.assertEqual(loaded["freshness_status"], "degraded")
+        self.assertTrue(loaded["source_hashes_verified"])
+        self.assertEqual(loaded["worker_runtime_bom_status"], "changed")
+        self.assertEqual([entry["id"] for entry in loaded["entries"]], ["skill:alpha"])
+
     def test_authority_key_coverage_and_runtime_inventory_tamper_fail_closed(
         self,
     ) -> None:
@@ -2096,6 +2589,368 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         capability_changed = index.capability_config_fingerprint(config)
         self.assertEqual(first, presentation_only)
         self.assertNotEqual(first, capability_changed)
+
+    def test_config_projection_ignores_only_proven_non_routing_fields(self) -> None:
+        config = self.root / "config.toml"
+        baseline = """
+[features]
+hooks = true
+js_repl = false
+[marketplaces.openai-bundled]
+last_updated = 2026-08-14T10:00:00Z
+source_type = "local"
+source = "C:\\\\bundle"
+[apps.connector_example.tools."github.create_branch"]
+approval_mode = "approve"
+[hooks.state.router]
+trusted_hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"""
+        config.write_text(baseline, encoding="utf-8")
+        first = index.capability_config_fingerprint(config)
+        config.write_text(
+            baseline.replace("10:00:00Z", "11:00:00Z").replace(
+                'approval_mode = "approve"', 'approval_mode = "never"'
+            ),
+            encoding="utf-8",
+        )
+        non_routing = index.capability_config_fingerprint(config)
+        self.assertEqual(first, non_routing)
+
+        config.write_text(
+            baseline.replace(
+                'approval_mode = "approve"',
+                'approval_mode = "approve"\nenabled = false',
+            ),
+            encoding="utf-8",
+        )
+        self.assertNotEqual(first, index.capability_config_fingerprint(config))
+
+        config.write_text(
+            baseline.replace("sha256:aaaa", "sha256:bbbb").replace(
+                'source = "C:\\\\bundle"', 'source = "C:\\\\other-bundle"'
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(first, index.capability_config_fingerprint(config))
+
+        config.write_text(
+            baseline + "\n[hooks.inline_router]\nenabled = true\n",
+            encoding="utf-8",
+        )
+        self.assertNotEqual(first, index.capability_config_fingerprint(config))
+
+    def test_unclassified_feature_fails_config_authority_closed(self) -> None:
+        config = self.root / "config.toml"
+        config.write_text("[features]\nfuture_unknown = true\n", encoding="utf-8")
+        with self.assertRaises(index.CapabilityDataError):
+            index.capability_config_fingerprint(config)
+
+    def test_current_app_capability_gates_are_projected_but_approvals_are_not(
+        self,
+    ) -> None:
+        config = self.root / "config.toml"
+        baseline = """
+[apps.connector_example]
+enabled = true
+approvals_reviewer = "user"
+default_tools_approval_mode = "approve"
+default_tools_enabled = true
+destructive_enabled = false
+open_world_enabled = false
+[apps.connector_example.tools.read]
+approval_mode = "approve"
+enabled = true
+"""
+        config.write_text(baseline, encoding="utf-8")
+        first = index.capability_config_fingerprint(config)
+        config.write_text(
+            baseline.replace(
+                'approvals_reviewer = "user"', 'approvals_reviewer = "admin"'
+            )
+            .replace(
+                'default_tools_approval_mode = "approve"',
+                'default_tools_approval_mode = "never"',
+            )
+            .replace('approval_mode = "approve"', 'approval_mode = "never"'),
+            encoding="utf-8",
+        )
+        self.assertEqual(first, index.capability_config_fingerprint(config))
+
+        for source, replacement in (
+            ("default_tools_enabled = true", "default_tools_enabled = false"),
+            ("destructive_enabled = false", "destructive_enabled = true"),
+            ("open_world_enabled = false", "open_world_enabled = true"),
+        ):
+            with self.subTest(gate=source.split(" =", 1)[0]):
+                config.write_text(
+                    baseline.replace(source, replacement), encoding="utf-8"
+                )
+                self.assertNotEqual(first, index.capability_config_fingerprint(config))
+
+        config.write_text(
+            baseline.replace(
+                "destructive_enabled = false", 'destructive_enabled = "no"'
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(index.CapabilityDataError):
+            index.capability_config_fingerprint(config)
+
+    def test_mcp_tool_enablement_is_projected_but_approval_mode_is_not(self) -> None:
+        config = self.root / "config.toml"
+        baseline = """
+[mcp_servers.sample]
+enabled = true
+command = "sample.exe"
+[mcp_servers.sample.tools.read]
+approval_mode = "approve"
+enabled = true
+"""
+        config.write_text(baseline, encoding="utf-8")
+        first = index.capability_config_fingerprint(config)
+        config.write_text(
+            baseline.replace('approval_mode = "approve"', 'approval_mode = "never"'),
+            encoding="utf-8",
+        )
+        self.assertEqual(first, index.capability_config_fingerprint(config))
+
+        config.write_text(
+            baseline.replace(
+                'approval_mode = "approve"\nenabled = true',
+                'approval_mode = "approve"\nenabled = false',
+            ),
+            encoding="utf-8",
+        )
+        self.assertNotEqual(first, index.capability_config_fingerprint(config))
+
+        config.write_text(
+            baseline.replace(
+                'approval_mode = "approve"',
+                'approval_mode = "approve"\nfuture_gate = true',
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(index.CapabilityDataError):
+            index.capability_config_fingerprint(config)
+
+    def test_gateway_managed_mcp_must_remain_disabled_for_direct_registration(
+        self,
+    ) -> None:
+        config = self.root / "config.toml"
+        valid = """
+[mcp_servers.worker]
+enabled = false
+gateway_managed = true
+command = "worker.exe"
+"""
+        config.write_text(valid, encoding="utf-8")
+        index.capability_config_fingerprint(config)
+
+        for invalid in (
+            valid.replace("enabled = false", "enabled = true"),
+            valid.replace("enabled = false\n", ""),
+        ):
+            with self.subTest(invalid=invalid):
+                config.write_text(invalid, encoding="utf-8")
+                with self.assertRaises(index.CapabilityDataError):
+                    index.capability_config_fingerprint(config)
+
+    def test_hook_carrier_status_is_separate_and_requires_trust_state(self) -> None:
+        home = self.root / "hook-home"
+        hooks_dir = home / "hooks"
+        hooks_dir.mkdir(parents=True)
+        for name in (
+            "user_prompt_skill_router.py",
+            "capability_index_session_start.py",
+        ):
+            (hooks_dir / name).write_text("# fixture\n", encoding="utf-8")
+        hooks_path = home / "hooks.json"
+        hook_config = {
+            "hooks": {
+                "UserPromptSubmit": [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": str(
+                                    (hooks_dir / "user_prompt_skill_router.py").resolve()
+                                ),
+                                "commandWindows": str(
+                                    (hooks_dir / "user_prompt_skill_router.py").resolve()
+                                ),
+                                "timeout": 10,
+                                "statusMessage": "Checking skill routing hints",
+                            }
+                        ]
+                    }
+                ],
+                "SessionStart": [
+                    {
+                        "matcher": "startup|resume|clear|compact",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": str(
+                                    (
+                                        hooks_dir
+                                        / "capability_index_session_start.py"
+                                    ).resolve()
+                                ),
+                                "commandWindows": str(
+                                    (
+                                        hooks_dir
+                                        / "capability_index_session_start.py"
+                                    ).resolve()
+                                ),
+                                "timeout": 180,
+                                "statusMessage": "Refreshing capability index",
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+        hooks_path.write_text(json.dumps(hook_config), encoding="utf-8")
+        prompt_key = f"{hooks_path.resolve()}:user_prompt_submit:0:0"
+        session_key = f"{hooks_path.resolve()}:session_start:0:0"
+        prompt_hash = index._command_hook_trust_hash(
+            "UserPromptSubmit",
+            hook_config["hooks"]["UserPromptSubmit"][0],
+            hook_config["hooks"]["UserPromptSubmit"][0]["hooks"][0],
+        )
+        session_hash = index._command_hook_trust_hash(
+            "SessionStart",
+            hook_config["hooks"]["SessionStart"][0],
+            hook_config["hooks"]["SessionStart"][0]["hooks"][0],
+        )
+        config = home / "config.toml"
+
+        def write_config(
+            *,
+            feature_enabled: bool = True,
+            prompt_digest: str | None = prompt_hash,
+            session_digest: str | None = session_hash,
+            prompt_enabled: bool | None = None,
+        ) -> None:
+            rows = [
+                "[features]",
+                f"hooks = {'true' if feature_enabled else 'false'}",
+                "[hooks.state]",
+            ]
+            if prompt_digest is not None:
+                enabled = (
+                    ""
+                    if prompt_enabled is None
+                    else f", enabled = {'true' if prompt_enabled else 'false'}"
+                )
+                rows.append(
+                    f"'{prompt_key}' = {{ trusted_hash = '{prompt_digest}'{enabled} }}"
+                )
+            if session_digest is not None:
+                rows.append(
+                    f"'{session_key}' = {{ trusted_hash = '{session_digest}' }}"
+                )
+            config.write_text("\n".join(rows), encoding="utf-8")
+
+        write_config()
+
+        current = index.hook_carrier_status(
+            config_path=config, hooks_path=hooks_path, codex_home=home
+        )
+        self.assertEqual(current["status"], "current")
+        self.assertEqual(current["trust_state_status"], "current")
+
+        write_config(feature_enabled=False)
+        unavailable = index.hook_carrier_status(
+            config_path=config, hooks_path=hooks_path, codex_home=home
+        )
+        self.assertEqual(unavailable["status"], "unavailable")
+        self.assertFalse(unavailable["feature_enabled"])
+
+        write_config(prompt_enabled=False)
+        disabled = index.hook_carrier_status(
+            config_path=config, hooks_path=hooks_path, codex_home=home
+        )
+        self.assertEqual(disabled["status"], "unavailable")
+        self.assertEqual(disabled["user_prompt_router"], "unavailable")
+
+        write_config(prompt_digest=None)
+        missing_trust = index.hook_carrier_status(
+            config_path=config, hooks_path=hooks_path, codex_home=home
+        )
+        self.assertEqual(missing_trust["trust_state_status"], "unavailable")
+
+        for mutate in (
+            lambda value: value["hooks"]["UserPromptSubmit"][0]["hooks"][0].update(
+                {"commandWindows": str((hooks_dir / "user_prompt_skill_router.py").resolve()) + " --changed"}
+            ),
+            lambda value: value["hooks"]["SessionStart"][0].update(
+                {"matcher": "startup|resume"}
+            ),
+            lambda value: value["hooks"]["SessionStart"][0]["hooks"][0].update(
+                {"timeout": 181}
+            ),
+        ):
+            with self.subTest(mutate=mutate):
+                changed = copy.deepcopy(hook_config)
+                mutate(changed)
+                hooks_path.write_text(json.dumps(changed), encoding="utf-8")
+                write_config()
+                status = index.hook_carrier_status(
+                    config_path=config, hooks_path=hooks_path, codex_home=home
+                )
+                self.assertEqual(status["status"], "unavailable")
+                self.assertEqual(status["trust_state_status"], "unavailable")
+
+        duplicate = copy.deepcopy(hook_config)
+        duplicate["hooks"]["UserPromptSubmit"].append(
+            copy.deepcopy(duplicate["hooks"]["UserPromptSubmit"][0])
+        )
+        hooks_path.write_text(json.dumps(duplicate), encoding="utf-8")
+        write_config()
+        duplicate_status = index.hook_carrier_status(
+            config_path=config, hooks_path=hooks_path, codex_home=home
+        )
+        self.assertEqual(duplicate_status["status"], "unavailable")
+        self.assertEqual(duplicate_status["user_prompt_router"], "unavailable")
+
+    def test_hook_trust_hash_matches_first_party_windows_reference(self) -> None:
+        prompt_group = {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": 'python3 -B "$HOME/.codex/hooks/user_prompt_skill_router.py"',
+                    "commandWindows": '"C:\\Users\\Ayman Shams\\AppData\\Local\\Programs\\Python\\Python314\\python.exe" -B "C:\\Users\\Ayman Shams\\.codex\\hooks\\user_prompt_skill_router.py"',
+                    "statusMessage": "Checking skill routing hints",
+                    "timeout": 10,
+                }
+            ]
+        }
+        session_group = {
+            "matcher": "startup|resume|clear|compact",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": 'python3 -B "$HOME/.codex/hooks/capability_index_session_start.py"',
+                    "commandWindows": '"C:\\Users\\Ayman Shams\\AppData\\Local\\Programs\\Python\\Python314\\python.exe" -B "C:\\Users\\Ayman Shams\\.codex\\hooks\\capability_index_session_start.py"',
+                    "statusMessage": "Refreshing capability index",
+                    "timeout": 180,
+                }
+            ],
+        }
+        with mock.patch.object(index.os, "name", "nt"):
+            self.assertEqual(
+                index._command_hook_trust_hash(
+                    "UserPromptSubmit", prompt_group, prompt_group["hooks"][0]
+                ),
+                "sha256:b50ef0b4535b927cb91ce2981ede9a5882fedb244de27315b55dd0c6e495519e",
+            )
+            self.assertEqual(
+                index._command_hook_trust_hash(
+                    "SessionStart", session_group, session_group["hooks"][0]
+                ),
+                "sha256:e2b1080df8e723ac2aa05408e7ba3113169fc49bfc9b220d880d6282d5e5e358",
+            )
 
     def test_project_scope_map_is_external_bounded_and_fail_closed(self) -> None:
         project_root = self.root / "sample-project"
@@ -2278,11 +3133,12 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
     def test_registered_route_is_bound_to_current_manifest_and_policy_bytes(self) -> None:
         policy = index.load_routing_policy(self.policy_path)
         manifest = synthetic_manifest(policy)
-        decision = index.resolve_route(
-            "synthetic authority-bound request",
-            manifest=manifest,
-            policy=policy,
-        )
+        with mock.patch.object(index, "_entry_hash_current", return_value=True):
+            decision = index.resolve_route(
+                "Implement Supabase RLS policies for this database",
+                manifest=manifest,
+                policy=policy,
+            )
         self.assertEqual(decision["schema_version"], "3.0")
         self.assertRegex(decision["manifest_authority_sha256"], r"^[a-f0-9]{64}$")
         self.assertRegex(decision["policy_authority_sha256"], r"^[a-f0-9]{64}$")
@@ -2305,6 +3161,25 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                     decision, registry_path=self.registry
                 )["status"],
                 "registered",
+            )
+
+        quarantined_manifest = {
+            **matching_manifest,
+            "freshness_status": "degraded",
+            "dynamic_authority": {
+                "quarantined_capability_ids": [decision["primary"]["id"]]
+            },
+        }
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=quarantined_manifest
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=matching_policy
+        ):
+            self.assertEqual(
+                index.verify_registered_route(
+                    decision, registry_path=self.registry
+                )["status"],
+                "capability_quarantined",
             )
 
         changed_manifest = {
@@ -2418,7 +3293,10 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                 "snapshot_id": "exact-byte-test",
                 "freshness_status": "fresh",
                 "source_hashes": {},
-                "entries": [],
+                "entries": policy_capability_entries(
+                    json.loads(self.policy_path.read_text(encoding="utf-8"))
+                ),
+                "suppressed_capabilities": [],
             }
             self.manifest_path.write_text(
                 json.dumps(manifest_payload, indent=2) + "\n", encoding="utf-8"
@@ -2434,6 +3312,849 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
             hashlib.sha256(self.policy_path.read_bytes()).hexdigest(),
         )
 
+    def test_generation_pointer_ignores_compatibility_copy_and_detects_tamper(self) -> None:
+        generation_id = ""
+        generation_dir = self.routing_dir / "generations"
+        generation_dir.mkdir()
+        generation_path = generation_dir / f"generation-{generation_id}.json"
+        generation_payload = {
+            "schema_version": "1.3",
+            "generated_at": "2026-08-14T00:00:00Z",
+            "snapshot_id": f"authority-generation:{generation_id}",
+            "freshness_status": "fresh",
+            "authority_generation": {
+                "id": "0" * 64,
+                "sequence": 1,
+                "previous_id": None,
+                "transaction_id": "test-generation",
+                "promoted_at": "2026-08-14T00:00:00Z",
+                "promotion_reason": "operator_rebaseline",
+                "static_authority_sha256": "b" * 64,
+                "dynamic_authority_sha256": "c" * 64,
+                "config_projection_sha256": "d" * 64,
+                "plugin_inventory_sha256": "e" * 64,
+                "worker_runtime_bom_sha256": "f" * 64,
+                "authority_snapshot_sha256": "1" * 64,
+            },
+            "source_hashes": {},
+            "entries": [active_entry("skill:immutable")],
+        }
+        generation_id = index.authority_generation_id(
+            generation_payload["authority_generation"]
+        )
+        generation_payload["authority_generation"]["id"] = generation_id
+        generation_payload["snapshot_id"] = f"authority-generation:{generation_id}"
+        generation_path = generation_dir / f"generation-{generation_id}.json"
+        generation_path.write_text(json.dumps(generation_payload), encoding="utf-8")
+        manifest_sha256 = hashlib.sha256(generation_path.read_bytes()).hexdigest()
+        self.generation_pointer_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "capability-authority-pointer-v1",
+                    "generation_id": generation_id,
+                    "sequence": 1,
+                    "previous_generation_id": None,
+                    "manifest_path": generation_path.relative_to(self.routing_dir).as_posix(),
+                    "manifest_sha256": manifest_sha256,
+                    "transaction_id": "test-generation",
+                    "promoted_at": "2026-08-14T00:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.manifest_path.write_text('{"tampered":true}\n', encoding="utf-8")
+        with mock.patch.object(index, "_source_hash_mismatches", return_value=[]):
+            loaded = index.load_active_capabilities()
+        self.assertEqual(loaded["generation_pointer_status"], "current")
+        self.assertEqual(loaded["source"], str(generation_path.resolve()))
+        self.assertEqual([entry["id"] for entry in loaded["entries"]], ["skill:immutable"])
+
+        generation_path.write_text('{"tampered":true}\n', encoding="utf-8")
+        failed = index.load_active_capabilities()
+        self.assertEqual(failed["freshness_status"], "missing")
+        self.assertEqual(failed["generation_pointer_status"], "invalid")
+        self.assertIn("generation_pointer_invalid", failed["source_hash_mismatches"])
+
+    def _worker_python_probe(
+        self, command: Path, package: str, pycache_prefix: Path
+    ) -> dict[str, object]:
+        value = self.worker_python_probes.get(package)
+        if value is None:
+            raise index.CapabilityDataError("synthetic worker probe is unavailable")
+        return copy.deepcopy(value)
+
+    def _worker_pth_probe(
+        self, command: Path, modules: list[str], pycache_prefix: Path
+    ) -> dict[str, str]:
+        package = (
+            "local_agent_stack"
+            if "local-agent-stack" in str(command)
+            else "antigravity_adapter"
+        )
+        value = self.worker_pth_probes.get(package)
+        if value is None or set(value) != set(modules):
+            raise index.CapabilityDataError("synthetic .pth probe is unavailable")
+        return copy.deepcopy(value)
+
+    def _install_worker_python_closure(
+        self,
+        root: Path,
+        command: Path,
+        package: str,
+        base_python_home: Path,
+        base_python: Path,
+    ) -> dict[str, object]:
+        pyvenv = root / ".venv" / "pyvenv.cfg"
+        pyvenv.write_text(
+            "\n".join(
+                (
+                    f"home = {base_python_home}",
+                    "implementation = CPython",
+                    "version_info = 3.11",
+                    "include-system-site-packages = false",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        site_packages = root / ".venv" / "Lib" / "site-packages"
+        site_packages.mkdir(parents=True, exist_ok=True)
+        editable = site_packages / f"__editable__.{package}-test.pth"
+        source_root = (root / "src").resolve()
+        editable.write_text(str(source_root) + "\n", encoding="utf-8")
+        virtualenv_pth = site_packages / "_virtualenv.pth"
+        virtualenv_module = site_packages / "_virtualenv.py"
+        installed_module = site_packages / "fixture_dependency.py"
+        virtualenv_pth.write_text("import _virtualenv\n", encoding="utf-8")
+        virtualenv_module.write_text("# synthetic bootstrap\n", encoding="utf-8")
+        installed_module.write_text("VALUE = 'trusted'\n", encoding="utf-8")
+        dist_info = site_packages / f"fixture_{package}-1.0.0.dist-info"
+        dist_info.mkdir(exist_ok=True)
+        (dist_info / "METADATA").write_text(
+            f"Name: fixture-{package}\nVersion: 1.0.0\n",
+            encoding="utf-8",
+        )
+        (dist_info / "RECORD").write_text(
+            "\n".join(
+                (
+                    f"{editable.name},,",
+                    f"{installed_module.name},,",
+                    f"{dist_info.name}/METADATA,,",
+                    f"{dist_info.name}/RECORD,,",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        origin = source_root / package / "__init__.py"
+        server_id = (
+            "local-agent-stack"
+            if package == "local_agent_stack"
+            else "antigravity-adapter"
+        )
+        spec = index.WORKER_SERVER_SPECS[server_id]
+        pycache_prefix = root.joinpath(
+            *str(spec["pycache_relative_path"]).split("/")
+        )
+        pycache_prefix.mkdir(parents=True, exist_ok=True)
+        self.worker_pth_probes[package] = {
+            "_virtualenv": str(virtualenv_module.resolve())
+        }
+        distributions = index._worker_installed_distributions_identity(
+            site_packages,
+            root / ".venv",
+            source_root,
+            command,
+            pycache_prefix,
+        )
+        base_runtime = index._worker_base_runtime_tree_identity(base_python_home)
+        site_packages_tree = index._worker_site_packages_tree_identity(site_packages)
+        closure: dict[str, object] = {
+            "schema_version": index.PYTHON_EXECUTION_CLOSURE_SCHEMA,
+            "venv_python_path": str(command.resolve()),
+            "venv_python_sha256": hashlib.sha256(
+                command.read_bytes()
+            ).hexdigest(),
+            "pyvenv_config_path": str(pyvenv.resolve()),
+            "pyvenv_config_sha256": hashlib.sha256(
+                pyvenv.read_bytes()
+            ).hexdigest(),
+            "include_system_site_packages": False,
+            "base_interpreter_path": str(base_python.resolve()),
+            "base_interpreter_version": "3.11.15",
+            "base_interpreter_sha256": hashlib.sha256(
+                base_python.read_bytes()
+            ).hexdigest(),
+            "base_runtime_tree_path": str(base_python_home.resolve()),
+            **base_runtime,
+            "site_packages_path": str(site_packages.resolve()),
+            **site_packages_tree,
+            **distributions,
+            "editable_pth_path": str(editable.resolve()),
+            "editable_pth_sha256": hashlib.sha256(
+                editable.read_bytes()
+            ).hexdigest(),
+            "editable_source_root": str(source_root),
+            "import_package": package,
+            "import_origin": str(origin.resolve(strict=False)),
+            "isolated_mode": True,
+            "user_site_enabled": False,
+            "dont_write_bytecode": True,
+            "pycache_prefix_path": str(pycache_prefix.resolve()),
+            "pycache_prefix_empty": True,
+            "forbidden_environment_variables": list(
+                index.PYTHON_FORBIDDEN_ENVIRONMENT_VARIABLES
+            ),
+            "child_environment_policy_id": (
+                index.WORKER_CHILD_ENVIRONMENT_POLICY_ID
+            ),
+        }
+        self.worker_python_probes[package] = {
+            "executable": str(command.resolve()),
+            "base_prefix": str(base_python_home.resolve()),
+            "version": "3.11.15",
+            "origin": str(origin.resolve(strict=False)),
+            "locations": [str((source_root / package).resolve(strict=False))],
+            "isolated": 1,
+            "no_user_site": 1,
+            "user_site_enabled": False,
+            "dont_write_bytecode": True,
+            "pycache_prefix": str(pycache_prefix.resolve()),
+        }
+        return closure
+
+    def _install_gateway_runtime_fixture(
+        self, base_python_home: Path, base_python: Path
+    ) -> dict[str, object]:
+        gateway_root = self.codex_home / "tools" / "codex-stability"
+        gateway_root.mkdir(parents=True, exist_ok=True)
+        for relative in index.GATEWAY_SOURCE_RELATIVE_PATHS:
+            gateway_root.joinpath(*relative.split("/")).write_text(
+                f"# {relative}\n", encoding="utf-8"
+            )
+        gateway_site = gateway_root / ".venv" / "Lib" / "site-packages"
+        gateway_site.mkdir(parents=True, exist_ok=True)
+        (gateway_site / "gateway_dependency.py").write_text(
+            "# gateway dependency\n", encoding="utf-8"
+        )
+        dependency_lock = gateway_root / "uv.lock"
+        dependency_lock.write_text("fixture gateway lock\n", encoding="utf-8")
+        pycache_prefix = (
+            self.local_app_data / "Codex" / "stability" / "pycache" / "gateway"
+        )
+        pycache_prefix.mkdir(parents=True, exist_ok=True)
+        source_sha256, source_files = index._gateway_source_identity(gateway_root)
+        base_identity = index._gateway_runtime_tree_identity(
+            base_python_home,
+            domain=index.GATEWAY_PYTHON_BASE_RUNTIME_DOMAIN,
+        )
+        site_identity = index._gateway_runtime_tree_identity(
+            gateway_site,
+            domain=index.GATEWAY_SITE_PACKAGES_DOMAIN,
+        )
+        windowless = base_python_home / "pythonw.exe"
+        identity: dict[str, object] = {
+            "child_environment_policy_id": (
+                index.WORKER_CHILD_ENVIRONMENT_POLICY_ID
+            ),
+            "component": index.GATEWAY_COMPONENT,
+            "gateway_startup_environment_policy_id": (
+                index.GATEWAY_STARTUP_ENVIRONMENT_POLICY_ID
+            ),
+            "gateway_startup_python_flags": dict(
+                index.GATEWAY_REQUIRED_PYTHON_FLAGS
+            ),
+            "python_bytecode_cache": {
+                "must_be_empty": True,
+                "prefix_path": str(pycache_prefix.resolve()),
+            },
+            "python_injection_environment_keys": list(
+                index.PYTHON_FORBIDDEN_ENVIRONMENT_VARIABLES
+            ),
+            "python_runtime": {
+                "base_root": str(base_python_home.resolve()),
+                "base_runtime_file_count": base_identity["file_count"],
+                "base_runtime_sha256": base_identity["sha256"],
+                "console_executable_path": str(base_python.resolve()),
+                "console_executable_sha256": hashlib.sha256(
+                    base_python.read_bytes()
+                ).hexdigest(),
+                "dependency_lock_path": str(dependency_lock.resolve()),
+                "dependency_lock_sha256": hashlib.sha256(
+                    dependency_lock.read_bytes()
+                ).hexdigest(),
+                "site_packages_file_count": site_identity["file_count"],
+                "site_packages_path": str(gateway_site.resolve()),
+                "site_packages_sha256": site_identity["sha256"],
+                "version": "3.11.15",
+                "windowless_executable_path": str(windowless.resolve()),
+                "windowless_executable_sha256": hashlib.sha256(
+                    windowless.read_bytes()
+                ).hexdigest(),
+            },
+            "release_id": index.GATEWAY_RELEASE_ID,
+            "schema_version": index.GATEWAY_RUNTIME_IDENTITY_SCHEMA,
+            "source_files": source_files,
+            "source_sha256": source_sha256,
+        }
+        identity_path = gateway_root / "runtime-identity.json"
+        identity_path.write_text(json.dumps(identity) + "\n", encoding="utf-8")
+        return {
+            "config_server_id": index.GATEWAY_CONFIG_SERVER_ID,
+            "identity_relative_path": index.GATEWAY_RUNTIME_IDENTITY_RELATIVE_PATH,
+            "identity_sha256": hashlib.sha256(identity_path.read_bytes()).hexdigest(),
+            "runtime_identity": identity,
+            "server_config_sha256": index._worker_projection_sha256(
+                {"url": index.GATEWAY_CONFIG_URL}
+            ),
+        }
+
+    def _install_worker_runtime_fixture(self) -> tuple[dict, dict[str, Path]]:
+        roots = {
+            "local-agent-stack": self.root / "local-agent-stack",
+            "antigravity-adapter": self.root / "antigravity-adapter",
+        }
+        commands: dict[str, Path] = {}
+        for server_id, root in roots.items():
+            command = root / ".venv" / "Scripts" / "python.exe"
+            command.parent.mkdir(parents=True, exist_ok=True)
+            command.write_bytes(server_id.encode("utf-8"))
+            commands[server_id] = command
+        base_python_home = self.root / "base-python"
+        base_python_home.mkdir(exist_ok=True)
+        base_python = base_python_home / "python.exe"
+        base_python.write_bytes(b"base Python")
+        (base_python_home / "pythonw.exe").write_bytes(b"base Python windowless")
+        agy = self.root / "agy.exe"
+        agy.write_bytes(b"agy")
+        hermes_api = self.root / "hermes" / "api_server.py"
+        hermes_metadata = self.root / "hermes" / "METADATA"
+        hermes_api.parent.mkdir(exist_ok=True)
+        hermes_api.write_bytes(b"hermes api")
+        hermes_metadata.write_bytes(b"Version: 0.19.0\n")
+        las_root = roots["local-agent-stack"]
+        for path, payload in (
+            (las_root / "pyproject.toml", b"[project]\nname='las'\n"),
+            (las_root / "uv.lock", b"fixture\n"),
+            (las_root / "vendor" / "versions.json", b"{}\n"),
+            (las_root / "src" / "local_agent_stack" / "__init__.py", b"# las\n"),
+            (las_root / "src" / "local_agent_stack" / "server.py", b"# server\n"),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+        for directory in (las_root / "config" / "schemas", las_root / "scripts"):
+            directory.mkdir(parents=True, exist_ok=True)
+        preliminary_agy_package = (
+            roots["antigravity-adapter"] / "src" / "antigravity_adapter"
+        )
+        preliminary_agy_package.mkdir(parents=True, exist_ok=True)
+        (preliminary_agy_package / "__init__.py").write_text(
+            "# antigravity\n", encoding="utf-8"
+        )
+        python_closures = {
+            "local-agent-stack": self._install_worker_python_closure(
+                las_root,
+                commands["local-agent-stack"],
+                "local_agent_stack",
+                base_python_home,
+                base_python,
+            ),
+            "antigravity-adapter": self._install_worker_python_closure(
+                roots["antigravity-adapter"],
+                commands["antigravity-adapter"],
+                "antigravity_adapter",
+                base_python_home,
+                base_python,
+            ),
+        }
+        hermes_lock = {
+            "distribution_version": "0.19.0",
+            "distribution_metadata_path": str(hermes_metadata),
+            "distribution_metadata_sha256": hashlib.sha256(
+                hermes_metadata.read_bytes()
+            ).hexdigest(),
+            "api_source_path": str(hermes_api),
+            "api_source_sha256": hashlib.sha256(hermes_api.read_bytes()).hexdigest(),
+            "overlay_id": "test-overlay",
+        }
+        (las_root / "runtime-dependencies.lock.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "local-agent-stack-runtime-dependencies-v2",
+                    "release_id": "local-agent-stack-test",
+                    "python_execution_closure": python_closures[
+                        "local-agent-stack"
+                    ],
+                    "files": [],
+                    "executables": {},
+                    "ollama": {},
+                    "hermes": hermes_lock,
+                    "agent_memory": {},
+                    "scheduler_contract": {},
+                    "startup_receipts": [],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        las_source_sha = index._worker_source_inventory_sha256(
+            las_root.resolve(),
+            [
+                las_root / "pyproject.toml",
+                las_root / "uv.lock",
+                las_root / "runtime-dependencies.lock.json",
+                las_root / "vendor" / "versions.json",
+                las_root / "src" / "local_agent_stack" / "__init__.py",
+                las_root / "src" / "local_agent_stack" / "server.py",
+            ],
+        )
+        agy_root = roots["antigravity-adapter"]
+        agy_lock = {
+            "schema_version": "antigravity-adapter-dependency-lock-v2",
+            "python_execution_closure": python_closures[
+                "antigravity-adapter"
+            ],
+            "agy": {
+                "version": "1.1.13",
+                "executable_sha256": hashlib.sha256(agy.read_bytes()).hexdigest(),
+                "model_efforts": {"gemini-3.1-pro-high": "high"},
+            },
+        }
+        agy_lock_path = agy_root / "dependency-lock.json"
+        agy_lock_path.write_text(json.dumps(agy_lock, indent=2) + "\n", encoding="utf-8")
+        (agy_root / "pyproject.toml").write_bytes(b"[project]\nname='agy'\n")
+        agy_package = agy_root / "src" / "antigravity_adapter"
+        agy_package.mkdir(parents=True, exist_ok=True)
+        antigravity_fixture_files = (
+            "__init__.py",
+            "config.py",
+            "dependency_identity.py",
+            "locking.py",
+            "receipts.py",
+            "route_authority.py",
+            "runner.py",
+            "runtime_identity.py",
+            "server.py",
+            "service.py",
+            "source_integrity.py",
+            "windows_job.py",
+        )
+        for name in antigravity_fixture_files:
+            (agy_package / name).write_text(f"# {name}\n", encoding="utf-8")
+        agy_source_sha = index._worker_source_inventory_sha256(
+            agy_root.resolve(),
+            [
+                *(agy_package / name for name in antigravity_fixture_files),
+                agy_lock_path,
+                agy_root / "pyproject.toml",
+            ],
+        )
+        model_contract_sha = hashlib.sha256(
+            json.dumps(
+                agy_lock["agy"]["model_efforts"],
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        identities = {
+            "local-agent-stack": {
+                "schema_version": "local-agent-stack-runtime-identity-v2",
+                "component": "local-agent-stack",
+                "runtime_version": "0.2.0",
+                "release_id": "local-agent-stack-test",
+                "catalogue_router_compatibility": {
+                    "route_schema_version": "3.0",
+                    "route_registry_schema_version": 3,
+                    "authority_pointer_schema_version": "capability-authority-pointer-v1",
+                    "manifest_schema_versions": ["1.2", "1.3"],
+                },
+                "nested_dependencies": {
+                    "hermes": {
+                        "distribution_version": "0.19.0",
+                        "overlay_id": "test-overlay",
+                        "api_source_sha256": hermes_lock["api_source_sha256"],
+                    }
+                },
+                "python_execution_closure": python_closures[
+                    "local-agent-stack"
+                ],
+                "source_sha256": las_source_sha,
+            },
+            "antigravity-adapter": {
+                "schema_version": "antigravity-adapter-runtime-identity-v3",
+                "component": "antigravity-adapter",
+                "runtime_version": "2.1.0",
+                "release_id": "antigravity-adapter-test",
+                "route_schema_version": "3.0",
+                "route_registry_schema_version": 3,
+                "authority_pointer_schema_version": "capability-authority-pointer-v1",
+                "supported_manifest_schema_versions": ["1.2", "1.3"],
+                "agy_version": "1.1.13",
+                "agy_executable_sha256": agy_lock["agy"]["executable_sha256"],
+                "agy_model_contract_sha256": model_contract_sha,
+                "dependency_lock_schema_version": "antigravity-adapter-dependency-lock-v2",
+                "dependency_lock_sha256": hashlib.sha256(
+                    agy_lock_path.read_bytes()
+                ).hexdigest(),
+                "python_execution_closure": python_closures[
+                    "antigravity-adapter"
+                ],
+                "source_sha256": agy_source_sha,
+            },
+        }
+        identity_paths: dict[str, Path] = {}
+        for server_id, identity in identities.items():
+            path = roots[server_id] / "runtime-identity.json"
+            path.write_text(json.dumps(identity) + "\n", encoding="utf-8")
+            identity_paths[server_id] = path
+        self.config_path.write_text(
+            "\n".join(
+                [
+                    "[mcp_servers.local-agent-stack]",
+                    "enabled = false",
+                    "gateway_managed = true",
+                    f"command = '{commands['local-agent-stack']}'",
+                    "args = ['-I', '-B', '-X', "
+                    f"'pycache_prefix={python_closures['local-agent-stack']['pycache_prefix_path']}', "
+                    "'-m', 'local_agent_stack.server']",
+                    f"cwd = '{roots['local-agent-stack']}'",
+                    "startup_timeout_sec = 60.0",
+                    "tool_timeout_sec = 660.0",
+                    f"env = {{ LOCAL_AGENT_STACK_ROOT = '{roots['local-agent-stack']}' }}",
+                    "",
+                    "[mcp_servers.antigravity-adapter]",
+                    "enabled = false",
+                    "gateway_managed = true",
+                    f"command = '{commands['antigravity-adapter']}'",
+                    "args = ['-I', '-B', '-X', "
+                    f"'pycache_prefix={python_closures['antigravity-adapter']['pycache_prefix_path']}', "
+                    "'-m', 'antigravity_adapter.server']",
+                    f"cwd = '{roots['antigravity-adapter']}'",
+                    "startup_timeout_sec = 30.0",
+                    "tool_timeout_sec = 620.0",
+                    f"env = {{ ANTIGRAVITY_ADAPTER_ROOT = '{roots['antigravity-adapter']}', ANTIGRAVITY_AGY_EXECUTABLE = '{agy}' }}",
+                    "",
+                    "[mcp_servers.codex-stability-gateway]",
+                    f"url = '{index.GATEWAY_CONFIG_URL}'",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        import tomllib
+
+        config = tomllib.loads(self.config_path.read_text(encoding="utf-8"))
+        runtimes = {}
+        for server_id in sorted(roots):
+            projection, _ = index._worker_server_projection(config, server_id)
+            identity_path = identity_paths[server_id]
+            runtimes[server_id] = {
+                "config_server_id": server_id,
+                "identity_relative_path": "runtime-identity.json",
+                "identity_sha256": hashlib.sha256(identity_path.read_bytes()).hexdigest(),
+                "command_sha256": hashlib.sha256(commands[server_id].read_bytes()).hexdigest(),
+                "python_execution_closure": python_closures[server_id],
+                "server_config_sha256": index._worker_projection_sha256(projection),
+                "release_id": identities[server_id]["release_id"],
+                "route_schema_version": "3.0",
+                "route_registry_schema_version": 3,
+            }
+        gateway_runtime = self._install_gateway_runtime_fixture(
+            base_python_home, base_python
+        )
+        bom = {
+            "schema_version": index.WORKER_RUNTIME_BOM_SCHEMA,
+            "gateway_runtime": gateway_runtime,
+            "runtimes": runtimes,
+        }
+        self.worker_runtime_bom_path.write_text(json.dumps(bom) + "\n", encoding="utf-8")
+        receipt_path = index.GATEWAY_STARTUP_RECEIPT_PATH
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        (receipt_path.parent / "task-supervisor.sqlite3").write_bytes(b"fixture")
+        gateway_identity = gateway_runtime["runtime_identity"]
+        runtime_identity_path = self.codex_home.joinpath(
+            *index.GATEWAY_RUNTIME_IDENTITY_RELATIVE_PATH.split("/")
+        ).resolve(strict=True)
+        bom_sha256 = hashlib.sha256(
+            self.worker_runtime_bom_path.read_bytes()
+        ).hexdigest()
+        upstream = {
+            server_id: hashlib.sha256(server_id.encode("utf-8")).hexdigest()
+            for server_id in sorted(index.REQUIRED_WORKER_RUNTIME_SERVER_IDS)
+        }
+        receipt = {
+            "schema_version": index.GATEWAY_STARTUP_RECEIPT_SCHEMA,
+            "release_id": gateway_identity["release_id"],
+            "process_role": "scheduled_windowless",
+            "process_id": 4242,
+            "process_start_time_utc": "2026-08-15T00:00:00.0000000+00:00",
+            "executable_path": gateway_identity["python_runtime"][
+                "windowless_executable_path"
+            ],
+            "executable_sha256": gateway_identity["python_runtime"][
+                "windowless_executable_sha256"
+            ],
+            "runtime_identity_path": str(runtime_identity_path),
+            "runtime_identity_sha256": gateway_runtime["identity_sha256"],
+            "source_sha256": gateway_identity["source_sha256"],
+            "worker_runtime_bom_path": str(
+                self.worker_runtime_bom_path.resolve(strict=True)
+            ),
+            "worker_runtime_bom_sha256": bom_sha256,
+            "loaded_upstream_config_sha256": "d" * 64,
+            "upstream_config_sha256_by_server": upstream,
+            "task_action_sha256": index._gateway_task_action_sha256(
+                gateway_identity
+            ),
+            "child_environment_policy_id": gateway_identity[
+                "child_environment_policy_id"
+            ],
+            "gateway_startup_environment_policy_id": gateway_identity[
+                "gateway_startup_environment_policy_id"
+            ],
+            "managed_upstreams_absent_at_start": True,
+            "recorded_at_utc": "2026-08-15T00:00:01.0000000+00:00",
+        }
+        receipt["binding_sha256"] = index._gateway_receipt_binding_sha256(
+            receipt
+        )
+        receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+        return bom, identity_paths
+
+    def test_gateway_process_generation_receipt_is_required_and_bound(self) -> None:
+        self._install_worker_runtime_fixture()
+        bom_sha256 = hashlib.sha256(
+            self.worker_runtime_bom_path.read_bytes()
+        ).hexdigest()
+        self.assertTrue(
+            index._gateway_managed_upstream_configured(
+                "local-agent-stack", expected_bom_sha256=bom_sha256
+            )
+        )
+        receipt = index.GATEWAY_STARTUP_RECEIPT_PATH
+        original = receipt.read_bytes()
+        receipt.unlink()
+        self.assertFalse(
+            index._gateway_managed_upstream_configured(
+                "local-agent-stack", expected_bom_sha256=bom_sha256
+            )
+        )
+        receipt.write_bytes(original)
+        value = json.loads(original)
+        value["worker_runtime_bom_sha256"] = "0" * 64
+        receipt.write_text(json.dumps(value) + "\n", encoding="utf-8")
+        self.assertFalse(
+            index._gateway_managed_upstream_configured(
+                "local-agent-stack", expected_bom_sha256=bom_sha256
+            )
+        )
+
+    def test_worker_runtime_bom_binds_config_and_family_identity_bytes(self) -> None:
+        bom, identity_paths = self._install_worker_runtime_fixture()
+        bom_sha256 = hashlib.sha256(self.worker_runtime_bom_path.read_bytes()).hexdigest()
+        for server_id in index.REQUIRED_WORKER_RUNTIME_SERVER_IDS:
+            self.assertTrue(
+                index._gateway_managed_upstream_configured(
+                    server_id,
+                    expected_bom_sha256=bom_sha256,
+                    verify_current_bytes=True,
+                )
+            )
+        fake_identity = json.loads(
+            identity_paths["local-agent-stack"].read_text(encoding="utf-8")
+        )
+        fake_identity["source_sha256"] = "f" * 64
+        identity_paths["local-agent-stack"].write_text(
+            json.dumps(fake_identity) + "\n", encoding="utf-8"
+        )
+        bom["runtimes"]["local-agent-stack"]["identity_sha256"] = hashlib.sha256(
+            identity_paths["local-agent-stack"].read_bytes()
+        ).hexdigest()
+        self.worker_runtime_bom_path.write_text(
+            json.dumps(bom) + "\n", encoding="utf-8"
+        )
+        fake_bom_sha256 = hashlib.sha256(
+            self.worker_runtime_bom_path.read_bytes()
+        ).hexdigest()
+        self.assertFalse(
+            index._gateway_managed_upstream_configured(
+                "local-agent-stack",
+                expected_bom_sha256=fake_bom_sha256,
+                verify_current_bytes=True,
+            )
+        )
+        _, identity_paths = self._install_worker_runtime_fixture()
+        bom_sha256 = hashlib.sha256(self.worker_runtime_bom_path.read_bytes()).hexdigest()
+        identity_paths["local-agent-stack"].write_text(
+            '{"tampered":true}\n', encoding="utf-8"
+        )
+        self.assertFalse(
+            index._gateway_managed_upstream_configured(
+                "local-agent-stack",
+                expected_bom_sha256=bom_sha256,
+                verify_current_bytes=True,
+            )
+        )
+        self._install_worker_runtime_fixture()
+        bom_sha256 = hashlib.sha256(self.worker_runtime_bom_path.read_bytes()).hexdigest()
+        self.config_path.write_text(
+            self.config_path.read_text(encoding="utf-8").replace(
+                "enabled = false", "enabled = true", 1
+            ),
+            encoding="utf-8",
+        )
+        self.assertFalse(
+            index._gateway_managed_upstream_configured(
+                "local-agent-stack",
+                expected_bom_sha256=bom_sha256,
+                verify_current_bytes=True,
+            )
+        )
+
+    def test_worker_and_gateway_runtime_tree_tamper_fail_closed(self) -> None:
+        self._install_worker_runtime_fixture()
+        bom_sha256 = hashlib.sha256(
+            self.worker_runtime_bom_path.read_bytes()
+        ).hexdigest()
+
+        def assert_byte_tamper_rejected(path: Path, label: str) -> None:
+            original = path.read_bytes()
+            metadata = path.stat()
+            changed = bytes([original[0] ^ 1]) + original[1:]
+            path.write_bytes(changed)
+            os.utime(path, ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
+            try:
+                self.assertFalse(
+                    index._gateway_managed_upstream_configured(
+                        "local-agent-stack",
+                        expected_bom_sha256=bom_sha256,
+                        verify_current_bytes=True,
+                    ),
+                    label,
+                )
+            finally:
+                path.write_bytes(original)
+                os.utime(path, ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
+
+        assert_byte_tamper_rejected(
+            self.root
+            / "local-agent-stack"
+            / ".venv"
+            / "Lib"
+            / "site-packages"
+            / "fixture_dependency.py",
+            "same-size worker dependency tamper must be detected",
+        )
+        assert_byte_tamper_rejected(
+            self.codex_home
+            / "tools"
+            / "codex-stability"
+            / ".venv"
+            / "Lib"
+            / "site-packages"
+            / "gateway_dependency.py",
+            "same-size gateway dependency tamper must be detected",
+        )
+        assert_byte_tamper_rejected(
+            self.root / "base-python" / "python.exe",
+            "same-size base interpreter tamper must be detected",
+        )
+
+        worker_site = (
+            self.root
+            / "local-agent-stack"
+            / ".venv"
+            / "Lib"
+            / "site-packages"
+        )
+        for suffix in (".py", ".pyc"):
+            with self.subTest(suffix=suffix):
+                shadow = worker_site / f"unowned_shadow{suffix}"
+                shadow.write_bytes(b"unowned executable bytes")
+                try:
+                    self.assertFalse(
+                        index._gateway_managed_upstream_configured(
+                            "local-agent-stack",
+                            expected_bom_sha256=bom_sha256,
+                            verify_current_bytes=True,
+                        )
+                    )
+                finally:
+                    shadow.unlink()
+
+        gateway_cache = (
+            self.local_app_data / "Codex" / "stability" / "pycache" / "gateway"
+        )
+        cached = gateway_cache / "unexpected.pyc"
+        cached.write_bytes(b"cached bytecode")
+        try:
+            self.assertFalse(
+                index._gateway_managed_upstream_configured(
+                    "local-agent-stack",
+                    expected_bom_sha256=bom_sha256,
+                    verify_current_bytes=True,
+                )
+            )
+        finally:
+            cached.unlink()
+
+    def test_route_time_binding_defers_full_tree_scan_to_ingress(self) -> None:
+        self._install_worker_runtime_fixture()
+        bom_sha256 = hashlib.sha256(
+            self.worker_runtime_bom_path.read_bytes()
+        ).hexdigest()
+        with mock.patch.object(
+            index,
+            "_gateway_runtime_binding_current",
+            side_effect=AssertionError("route-time gateway tree rescan"),
+        ), mock.patch.object(
+            index,
+            "_validate_worker_family_identity",
+            side_effect=AssertionError("route-time worker tree rescan"),
+        ):
+            self.assertTrue(
+                index._gateway_managed_upstream_configured(
+                    "local-agent-stack", expected_bom_sha256=bom_sha256
+                )
+            )
+
+    def test_worker_runtime_bom_rejects_malformed_document_closure(self) -> None:
+        valid, _ = self._install_worker_runtime_fixture()
+        loaded, _ = index._load_worker_runtime_bom(self.worker_runtime_bom_path)
+        self.assertEqual(loaded, valid)
+
+        binding = valid["runtimes"]["local-agent-stack"]
+        antigravity_binding = valid["runtimes"]["antigravity-adapter"]
+        malformed = [
+            {**valid, "unexpected": True},
+            {"schema_version": index.WORKER_RUNTIME_BOM_SCHEMA, "runtimes": {}},
+            {
+                "schema_version": index.WORKER_RUNTIME_BOM_SCHEMA,
+                "runtimes": {
+                    "local-agent-stack": {
+                        **binding,
+                        "identity_relative_path": "../runtime-identity.json",
+                    },
+                    "antigravity-adapter": antigravity_binding,
+                },
+            },
+            {
+                "schema_version": index.WORKER_RUNTIME_BOM_SCHEMA,
+                "runtimes": {
+                    "local-agent-stack": {**binding, "extra": "unbound"},
+                    "antigravity-adapter": antigravity_binding,
+                },
+            },
+        ]
+        for value in malformed:
+            with self.subTest(value=value):
+                self.worker_runtime_bom_path.write_text(
+                    json.dumps(value), encoding="utf-8"
+                )
+                with self.assertRaises(index.CapabilityDataError):
+                    index._load_worker_runtime_bom(self.worker_runtime_bom_path)
+
     def test_stale_or_missing_authority_fails_before_registry_issuance(self) -> None:
         policy = index.load_routing_policy(self.policy_path)
         stale_manifest = synthetic_manifest(policy)
@@ -2441,8 +4162,6 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         stale_manifest["source_hashes_verified"] = False
         stale_manifest["authority_sha256"] = "a" * 64
         stale_manifest["source"] = str(self.manifest_path)
-        self.manifest_path.write_text("{}", encoding="utf-8")
-
         with mock.patch.object(index, "load_active_capabilities", return_value=stale_manifest):
             decision = index.resolve_route("stale authority probe", policy=policy)
         self.assertEqual(decision["issuance"]["status"], "failed")
@@ -3075,7 +4794,13 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
         }
         with mock.patch.object(
             index, "load_active_capabilities", return_value=matching_manifest
-        ), mock.patch.object(index, "load_routing_policy", return_value=matching_policy):
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=matching_policy
+        ), mock.patch.object(
+            index, "_selected_route_skill_hashes_current", return_value=True
+        ), mock.patch.object(
+            index, "_route_worker_identity_current", return_value=True
+        ):
             self.assertTrue(
                 index._route_execution_ready_with_runtime(
                     admitted,
@@ -3093,6 +4818,66 @@ class RepositoryCapabilityRouterTests(unittest.TestCase):
                     task_input=wrong_input,
                     registry_path=self.registry,
                 )
+            )
+
+        changed_bom_manifest = {
+            **matching_manifest,
+            "worker_runtime_bom_status": "changed",
+            "source_hashes": {
+                index.WORKER_RUNTIME_BOM_SOURCE_HASH_KEY: "a" * 64
+            },
+        }
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=changed_bom_manifest
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=matching_policy
+        ), mock.patch.object(
+            index, "_selected_route_skill_hashes_current", return_value=True
+        ):
+            self.assertEqual(
+                index.verify_registered_route(
+                    admitted, registry_path=self.registry
+                )["status"],
+                "capability_quarantined",
+            )
+
+        identity_drift_manifest = {
+            **matching_manifest,
+            "worker_runtime_bom_status": "current",
+            "source_hashes": {
+                index.WORKER_RUNTIME_BOM_SOURCE_HASH_KEY: "a" * 64
+            },
+        }
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=identity_drift_manifest
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=matching_policy
+        ), mock.patch.object(
+            index, "_selected_route_skill_hashes_current", return_value=True
+        ), mock.patch.object(
+            index, "_gateway_managed_upstream_configured", return_value=False
+        ):
+            self.assertEqual(
+                index.verify_registered_route(
+                    admitted, registry_path=self.registry
+                )["status"],
+                "capability_quarantined",
+            )
+
+        with mock.patch.object(
+            index, "load_active_capabilities", return_value=identity_drift_manifest
+        ), mock.patch.object(
+            index, "load_routing_policy", return_value=matching_policy
+        ), mock.patch.object(
+            index, "_selected_route_skill_hashes_current", return_value=False
+        ), mock.patch.object(
+            index, "_route_worker_identity_current", return_value=True
+        ):
+            self.assertEqual(
+                index.verify_registered_route(
+                    admitted, registry_path=self.registry
+                )["status"],
+                "capability_quarantined",
             )
             tampered = copy.deepcopy(admitted)
             tampered["decision_digest"] = "0" * 64

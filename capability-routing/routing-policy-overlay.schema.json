@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.codex/catalogue-routing-policy-overlay-v1.schema.json",
+  "title": "Catalogue Router deployment policy overlay",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "overlay_id", "operations"],
+  "properties": {
+    "schema_version": {
+      "const": "catalogue-routing-policy-overlay-v1"
+    },
+    "overlay_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/set" },
+          { "$ref": "#/$defs/insertUnique" },
+          { "$ref": "#/$defs/insertObjectUnique" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "pointer": {
+      "type": "string",
+      "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*$"
+    },
+    "set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "path", "value"],
+      "properties": {
+        "op": { "const": "set" },
+        "path": { "$ref": "#/$defs/pointer" },
+        "value": true
+      }
+    },
+    "insertUnique": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "path", "select", "member_path", "value"],
+      "properties": {
+        "op": { "const": "insert_unique" },
+        "path": { "$ref": "#/$defs/pointer" },
+        "select": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "equals"],
+          "properties": {
+            "key": { "type": "string", "minLength": 1 },
+            "equals": { "type": ["string", "number", "boolean"] }
+          }
+        },
+        "member_path": { "$ref": "#/$defs/pointer" },
+        "value": true,
+        "before": true,
+        "after": true
+      },
+      "not": { "required": ["before", "after"] }
+    },
+    "insertObjectUnique": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "path", "unique_key", "value"],
+      "properties": {
+        "op": { "const": "insert_object_unique" },
+        "path": { "$ref": "#/$defs/pointer" },
+        "unique_key": { "type": "string", "minLength": 1 },
+        "value": { "type": "object" },
+        "before_key_value": { "type": ["string", "number", "boolean"] },
+        "after_key_value": { "type": ["string", "number", "boolean"] }
+      },
+      "not": { "required": ["before_key_value", "after_key_value"] }
+    }
+  }
+}

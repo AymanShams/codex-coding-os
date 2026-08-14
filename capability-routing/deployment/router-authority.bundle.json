@@ -1,0 +1,94 @@
+{
+  "entries": [
+    {
+      "source": "capability-routing/active-capabilities.schema.json",
+      "target": "capability-routing/active-capabilities.schema.json"
+    },
+    {
+      "source": "capability-routing/authority-receipt.schema.json",
+      "target": "capability-routing/authority-receipt.schema.json"
+    },
+    {
+      "source": "capability-routing/builder/build_canonical_capability_manifest.ps1",
+      "target": "capability-routing/builder/build_canonical_capability_manifest.ps1"
+    },
+    {
+      "source": "capability-routing/deployment/materialize_routing_policy.py",
+      "target": "capability-routing/materialize_routing_policy.py"
+    },
+    {
+      "source": "capability-routing/deployment/promote_worker_runtime_bom.py",
+      "target": "capability-routing/promote_worker_runtime_bom.py"
+    },
+    {
+      "source": "capability-routing/project-scope-map.schema.json",
+      "target": "capability-routing/project-scope-map.schema.json"
+    },
+    {
+      "source": "capability-routing/reference-runtime/_hook_io.py",
+      "target": "hooks/_hook_io.py"
+    },
+    {
+      "source": "capability-routing/reference-runtime/capability_config_fingerprint.py",
+      "target": "hooks/capability_config_fingerprint.py"
+    },
+    {
+      "source": "capability-routing/reference-runtime/capability_index.py",
+      "target": "hooks/capability_index.py"
+    },
+    {
+      "source": "capability-routing/reference-runtime/capability_index_cli.py",
+      "target": "hooks/capability_index_cli.py"
+    },
+    {
+      "source": "capability-routing/reference-runtime/capability_index_session_start.py",
+      "target": "hooks/capability_index_session_start.py"
+    },
+    {
+      "source": "capability-routing/reference-runtime/capability_manifest_recovery.py",
+      "target": "hooks/capability_manifest_recovery.py"
+    },
+    {
+      "source": "capability-routing/reference-runtime/routing_policy_validation.py",
+      "target": "hooks/routing_policy_validation.py"
+    },
+    {
+      "source": "capability-routing/reference-runtime/user_prompt_skill_router.py",
+      "target": "hooks/user_prompt_skill_router.py"
+    },
+    {
+      "source": "capability-routing/route-decision.schema.json",
+      "target": "capability-routing/route-decision.schema.json"
+    },
+    {
+      "source": "capability-routing/routing-policy.yaml",
+      "target": "capability-routing/policy-base/routing-policy.yaml"
+    },
+    {
+      "source": "capability-routing/routing-policy-overlay.schema.json",
+      "target": "capability-routing/routing-policy-overlay.schema.json"
+    },
+    {
+      "source": "capability-routing/routing-policy.schema.json",
+      "target": "capability-routing/routing-policy.schema.json"
+    },
+    {
+      "source": "capability-routing/worker-runtime-bom.schema.json",
+      "target": "capability-routing/worker-runtime-bom.schema.json"
+    },
+    {
+      "source": ".agents/skills/catalogue-router/SKILL.md",
+      "target": "skills/catalogue-router/SKILL.md"
+    },
+    {
+      "source": ".agents/skills/catalogue-router/references/capability-catalogue.md",
+      "target": "skills/catalogue-router/references/capability-catalogue.md"
+    },
+    {
+      "source": ".agents/skills/catalogue-router/scripts/query-catalogue.ps1",
+      "target": "skills/catalogue-router/scripts/query-catalogue.ps1"
+    }
+  ],
+  "preconditions": [],
+  "schema_version": "catalogue-router-deployment-spec-v1"
+}

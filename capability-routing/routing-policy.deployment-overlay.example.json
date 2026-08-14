@@ -1,0 +1,36 @@
+{
+  "schema_version": "catalogue-routing-policy-overlay-v1",
+  "overlay_id": "universal-router-current-delta-2026-08-13",
+  "operations": [
+    {
+      "op": "set",
+      "path": "/decision_snapshot",
+      "value": "universal-router-authority-v1.3.0-2026-08-15-reviewed"
+    },
+    {
+      "op": "insert_unique",
+      "path": "/rules",
+      "select": {
+        "key": "id",
+        "equals": "deep-critique"
+      },
+      "member_path": "/match_any",
+      "value": "review the healpath code of conduct",
+      "before": "review the code of conduct"
+    },
+    {
+      "op": "insert_object_unique",
+      "path": "/explicit_overrides",
+      "unique_key": "id",
+      "value": {
+        "id": "healpath-skill-project-scope",
+        "target": "skill:healpath-knowledge-layer",
+        "action": "suppress",
+        "requires_primary": "",
+        "winner": "",
+        "reason": "The universal copy is disabled. The project-local copy is available only inside the HealPath workspace."
+      },
+      "before_key_value": "document-skills-migration-fallback"
+    }
+  ]
+}

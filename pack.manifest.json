@@ -1,6 +1,6 @@
 {
   "$schema": "pack.schema.json",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "package_name": "codex-coding-os",
   "display_name": "Codex Coding OS",
   "release_status": "public-release",
@@ -535,7 +535,6 @@
     { "name": "ai-coding-discipline", "category": "coding-discipline", "required": true, "source": "local" },
     { "name": "artifact-system-designer", "category": "documentation", "required": true, "source": "local" },
     { "name": "artifact-validation-workflow", "category": "validation", "required": true, "source": "local" },
-    { "name": "catalogue-router", "category": "routing", "required": true, "source": "local" },
     { "name": "chat-export-capability-miner", "category": "capability-mining", "required": true, "source": "local" },
     { "name": "cli-creator", "category": "tooling", "required": true, "source": "local" },
     { "name": "code-review-graph", "category": "code-review", "required": true, "source": "local" },
