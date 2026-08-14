@@ -4488,10 +4488,15 @@ def authority_is_quiet(codex_home: Path, quiet_seconds: float = 15.0) -> bool:
     paths = [codex_home / "config.toml"]
     cache_root = codex_home / "plugins" / "cache"
     if cache_root.is_dir():
-        paths.extend(cache_root.rglob("*"))
+        paths.extend(
+            path
+            for path in cache_root.rglob("*")
+            if path.is_file()
+            and path.name.casefold() != ".codex-remote-plugin-install.json"
+        )
     catalog_root = codex_home / REMOTE_PLUGIN_CATALOG_RELATIVE
     if catalog_root.is_dir():
-        paths.extend(catalog_root.rglob("*"))
+        paths.extend(path for path in catalog_root.rglob("*") if path.is_file())
     newest = 0
     try:
         for path in paths:
