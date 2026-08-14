@@ -467,10 +467,6 @@ def validate_policy_semantics(
             override["target"],
             f"override {override['id']} target",
         )
-        if target not in declared_capabilities and not target.startswith("provider:"):
-            raise RoutingPolicyValidationError(
-                f"override {override['id']} target is not a declared capability manifest entry: {target}"
-            )
         target_key = target.casefold()
         if target_key in override_targets:
             raise RoutingPolicyValidationError(
