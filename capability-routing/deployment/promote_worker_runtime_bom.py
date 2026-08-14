@@ -552,6 +552,11 @@ def _expand_identity_path(value: Any, root: Path) -> Path:
     if not isinstance(value, str) or not value:
         raise BomValidationError("worker dependency path is invalid")
     expanded = value.replace("${RUNTIME_ROOT}", str(root))
+    user_profile = os.environ.get("USERPROFILE", "")
+    if "${USERPROFILE}" in expanded:
+        if not user_profile:
+            raise BomValidationError("USERPROFILE is unavailable")
+        expanded = expanded.replace("${USERPROFILE}", user_profile)
     local_app_data = os.environ.get("LOCALAPPDATA", "")
     if "${LOCALAPPDATA}" in expanded:
         if not local_app_data:
@@ -1279,23 +1284,24 @@ def _worker_site_packages_tree_identity(root: Path) -> dict[str, Any]:
 
 def _validate_las_artifacts(root: Path, identity: Mapping[str, Any]) -> None:
     try:
-        paths = [
-            root / "pyproject.toml",
-            root / "uv.lock",
-            root / "runtime-dependencies.lock.json",
-            root / "vendor" / "versions.json",
-        ]
-        paths.extend(sorted((root / "config").glob("*.json")))
-        paths.extend(sorted((root / "config").glob("*.yaml")))
-        paths.extend(sorted((root / "config" / "schemas").glob("*.json")))
-        paths.extend(
-            sorted(
-                path
-                for path in (root / "scripts").iterdir()
-                if path.is_file() and path.suffix.lower() in {".ps1", ".py", ".vbs"}
-            )
-        )
-        paths.extend(sorted((root / "src" / "local_agent_stack").rglob("*.py")))
+        package_root = root / "src" / "local_agent_stack"
+        paths = [root / "runtime-dependencies.lock.json"]
+        for path in package_root.rglob("*"):
+            relative = path.relative_to(package_root)
+            if "__pycache__" in relative.parts:
+                continue
+            if _is_link_or_reparse(path):
+                raise BomValidationError(
+                    "local-agent-stack source inventory contains a link"
+                )
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise BomValidationError(
+                    "local-agent-stack source inventory contains a non-regular entry"
+                )
+            paths.append(path)
+        paths.sort(key=lambda path: path.relative_to(root).as_posix().casefold())
     except OSError as exc:
         raise BomValidationError("local-agent-stack source inventory is unavailable") from exc
     if _source_inventory_sha256(root, paths) != identity.get("source_sha256"):
@@ -1305,6 +1311,33 @@ def _validate_las_artifacts(root: Path, identity: Mapping[str, Any]) -> None:
         _read_stable_regular_file(lock_path, "LAS runtime dependency lock"),
         "LAS runtime dependency lock",
     )
+    lock_closure = lock.get("python_execution_closure")
+    identity_closure = identity.get("python_execution_closure")
+    closure_path_keys = {
+        "base_interpreter_path",
+        "base_runtime_tree_path",
+        "editable_pth_path",
+        "editable_source_root",
+        "import_origin",
+        "pycache_prefix_path",
+        "pyvenv_config_path",
+        "site_packages_path",
+        "venv_python_path",
+    }
+    closure_matches = (
+        isinstance(lock_closure, dict)
+        and isinstance(identity_closure, Mapping)
+        and set(lock_closure) == set(identity_closure)
+        and all(
+            _same_resolved_path(
+                _expand_identity_path(lock_closure[key], root),
+                identity_closure[key],
+            )
+            if key in closure_path_keys
+            else lock_closure[key] == identity_closure[key]
+            for key in lock_closure
+        )
+    )
     if (
         set(lock)
         != {
@@ -1312,6 +1345,7 @@ def _validate_las_artifacts(root: Path, identity: Mapping[str, Any]) -> None:
             "executables",
             "files",
             "hermes",
+            "lifecycle_supervisor",
             "ollama",
             "python_execution_closure",
             "release_id",
@@ -1322,8 +1356,7 @@ def _validate_las_artifacts(root: Path, identity: Mapping[str, Any]) -> None:
         or lock.get("schema_version")
         != "local-agent-stack-runtime-dependencies-v2"
         or lock.get("release_id") != identity.get("release_id")
-        or lock.get("python_execution_closure")
-        != identity.get("python_execution_closure")
+        or not closure_matches
     ):
         raise BomValidationError("local-agent-stack dependency lock is invalid")
     hermes = lock.get("hermes")
@@ -1355,11 +1388,37 @@ def _validate_antigravity_artifacts(
     )
     lock = _load_json_bytes(lock_raw, "Antigravity dependency lock")
     agy = lock.get("agy")
+    lock_closure = lock.get("python_execution_closure")
+    identity_closure = identity.get("python_execution_closure")
+    closure_path_keys = {
+        "base_interpreter_path",
+        "base_runtime_tree_path",
+        "editable_pth_path",
+        "editable_source_root",
+        "import_origin",
+        "pycache_prefix_path",
+        "pyvenv_config_path",
+        "site_packages_path",
+        "venv_python_path",
+    }
+    closure_matches = (
+        isinstance(lock_closure, dict)
+        and isinstance(identity_closure, Mapping)
+        and set(lock_closure) == set(identity_closure)
+        and all(
+            _same_resolved_path(
+                _expand_identity_path(lock_closure[key], root),
+                identity_closure[key],
+            )
+            if key in closure_path_keys
+            else lock_closure[key] == identity_closure[key]
+            for key in lock_closure
+        )
+    )
     if (
         set(lock) != {"schema_version", "python_execution_closure", "agy"}
         or lock.get("schema_version") != "antigravity-adapter-dependency-lock-v2"
-        or lock.get("python_execution_closure")
-        != identity.get("python_execution_closure")
+        or not closure_matches
         or not isinstance(agy, dict)
         or set(agy) != {"version", "executable_sha256", "model_efforts"}
         or not isinstance(agy.get("model_efforts"), dict)
@@ -1422,6 +1481,7 @@ def _validate_family_identity(
             "distribution_version",
             "overlay_id",
             "api_source_sha256",
+            "python_execution_closure",
         }:
             raise BomValidationError("local-agent-stack Hermes identity is invalid")
         if (
@@ -1432,6 +1492,7 @@ def _validate_family_identity(
             or not isinstance(hermes.get("overlay_id"), str)
             or not hermes["overlay_id"]
             or SHA256_RE.fullmatch(str(hermes.get("api_source_sha256") or "")) is None
+            or not isinstance(hermes.get("python_execution_closure"), dict)
         ):
             raise BomValidationError("local-agent-stack identity values are invalid")
         manifests = compatibility.get("manifest_schema_versions")
