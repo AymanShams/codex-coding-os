@@ -412,11 +412,18 @@ def validate_policy_semantics(
                     f"{section} contains duplicate priority {rule['priority']}"
                 )
             priorities.add(rule["priority"])
-            for value in rule["requires_any_capabilities"]:
-                _require_declared_capability(
+            alternatives = [
+                _capability_reference(
                     value,
-                    declared_capabilities,
                     f"{section} rule {rule['id']} capability alternative",
+                )
+                for value in rule["requires_any_capabilities"]
+            ]
+            if alternatives and not any(
+                value in declared_capabilities for value in alternatives
+            ):
+                raise RoutingPolicyValidationError(
+                    f"{section} rule {rule['id']} has no declared capability alternative"
                 )
             if section == "worker_rules":
                 worker = rule["worker"]
