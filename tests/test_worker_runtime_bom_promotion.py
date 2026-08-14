@@ -727,14 +727,23 @@ class WorkerRuntimeBomPromotionTests(unittest.TestCase):
                 finally:
                     shadow.unlink()
 
-    def test_added_antigravity_python_module_is_in_source_identity(self) -> None:
-        added = self.antigravity / "src" / "antigravity_adapter" / "injected.py"
-        added.write_text("# newly imported bytes\n", encoding="utf-8")
-        with self.assertRaisesRegex(
-            promotion.BomValidationError,
-            "source identity does not match bytes",
+    def test_added_antigravity_executable_file_is_in_source_identity(self) -> None:
+        package = self.antigravity / "src" / "antigravity_adapter"
+        for suffix, payload in (
+            (".py", b"# newly imported bytes\n"),
+            (".pyc", b"sourceless executable bytes"),
         ):
-            self.render()
+            with self.subTest(suffix=suffix):
+                added = package / f"injected{suffix}"
+                added.write_bytes(payload)
+                try:
+                    with self.assertRaisesRegex(
+                        promotion.BomValidationError,
+                        "source identity does not match bytes",
+                    ):
+                        self.render()
+                finally:
+                    added.unlink()
 
     def test_cross_family_and_hollow_identities_are_rejected(self) -> None:
         las_identity = self.las / "runtime-identity.json"

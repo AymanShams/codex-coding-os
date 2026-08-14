@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -883,11 +884,21 @@ def _antigravity_source_paths(root: Path) -> list[Path]:
     seen: set[str] = set()
     sources: list[Path] = []
     for path in entries:
-        if path.is_symlink():
-            raise BomValidationError("Antigravity source inventory contains a link")
-        if not path.is_file() or path.suffix.casefold() != ".py":
+        relative_path = path.relative_to(package_root)
+        if "__pycache__" in relative_path.parts:
             continue
-        relative = path.relative_to(package_root).as_posix().casefold()
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+        if path.is_symlink() or bool(
+            attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            raise BomValidationError("Antigravity source inventory contains a link")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise BomValidationError(
+                "Antigravity source inventory contains a non-regular entry"
+            )
+        relative = relative_path.as_posix().casefold()
         if relative in seen:
             raise BomValidationError("Antigravity source inventory is ambiguous")
         seen.add(relative)
