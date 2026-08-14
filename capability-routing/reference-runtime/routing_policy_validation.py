@@ -311,9 +311,8 @@ def validate_policy_semantics(
                 f"live dependency control {dependency_id} probe target contradicts its id"
             )
         for value in control["manifest_any"]:
-            _require_declared_capability(
+            _capability_reference(
                 value,
-                declared_capabilities,
                 f"live dependency control {dependency_id} manifest reference",
             )
 
