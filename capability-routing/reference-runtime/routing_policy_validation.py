@@ -170,6 +170,21 @@ def _require_declared_capability(
     return reference
 
 
+def _require_declared_or_optional_app_support(
+    value: Any,
+    declared_capabilities: frozenset[str],
+    label: str,
+) -> str:
+    reference = _capability_reference(value, label)
+    if reference not in declared_capabilities and not reference.startswith(
+        "tool-family:app:"
+    ):
+        raise RoutingPolicyValidationError(
+            f"{label} is not a declared capability manifest entry: {reference}"
+        )
+    return reference
+
+
 def _validate_unique_policy_ids(policy: Mapping[str, Any]) -> None:
     identifiers: dict[str, str] = {}
     for section in (
@@ -325,7 +340,7 @@ def validate_policy_semantics(
             f"rule {rule_id} primary",
         )
         supports = [
-            _require_declared_capability(
+            _require_declared_or_optional_app_support(
                 value,
                 declared_capabilities,
                 f"rule {rule_id} support",
