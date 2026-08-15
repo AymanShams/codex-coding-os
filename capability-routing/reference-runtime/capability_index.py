@@ -382,6 +382,13 @@ DYNAMIC_AUTHORITY_HASH_KEYS = frozenset(
         WORKER_RUNTIME_BOM_SOURCE_HASH_KEY,
     }
 )
+BUNDLED_MARKETPLACE_NAME = "openai-bundled"
+BUNDLED_MARKETPLACE_ROOT = (
+    CODEX_HOME / ".tmp" / "bundled-marketplaces" / BUNDLED_MARKETPLACE_NAME
+)
+BUNDLED_MARKETPLACE_CACHE_ROOT = (
+    CODEX_HOME / "plugins" / "cache" / BUNDLED_MARKETPLACE_NAME
+)
 ROUTE_REGISTRY_COLUMNS = (
     "decision_id",
     "decision_digest",
@@ -699,6 +706,374 @@ def _plugin_package_name(package: str) -> str | None:
     return parts[1].casefold()
 
 
+def _canonical_payload_sha256(value: object) -> str:
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _capability_safe_name(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9._-]+", "-", value.casefold()).strip("-.")
+    if not normalized:
+        raise CapabilityDataError("bundled capability name is empty")
+    return normalized
+
+
+def _stable_json_object(path: Path, containment_root: Path) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise CapabilityDataError("bundled authority JSON is unavailable")
+    resolved_root = containment_root.resolve(strict=True)
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(resolved_root):
+        raise CapabilityDataError("bundled authority JSON escapes its root")
+    before = resolved.stat()
+    raw = resolved.read_bytes()
+    after = resolved.stat()
+    if before.st_size != after.st_size or before.st_mtime_ns != after.st_mtime_ns:
+        raise CapabilityDataError("bundled authority JSON changed during read")
+    try:
+        value = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise CapabilityDataError("bundled authority JSON is malformed") from exc
+    if not isinstance(value, dict):
+        raise CapabilityDataError("bundled authority JSON must be an object")
+    return value
+
+
+def _effective_skill_name(skill_file: Path, fallback_name: str) -> str:
+    try:
+        lines = skill_file.read_text(encoding="utf-8").splitlines()[:80]
+    except (OSError, UnicodeError) as exc:
+        raise CapabilityDataError("bundled skill metadata is unreadable") from exc
+    name = fallback_name
+    if lines and lines[0].strip() == "---":
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            match = re.fullmatch(r"name:\s*(.+?)\s*", line)
+            if match:
+                name = match.group(1).strip().strip('"').strip("'")
+    if not name:
+        raise CapabilityDataError("bundled skill name is empty")
+    return name
+
+
+def _bundled_package_surface(
+    package_root: Path, containment_root: Path
+) -> tuple[str, dict[str, dict[str, str]]]:
+    resolved_containment = containment_root.resolve(strict=True)
+    resolved_package = package_root.resolve(strict=True)
+    if (
+        containment_root.is_symlink()
+        or package_root.is_symlink()
+        or not resolved_package.is_dir()
+        or not resolved_package.is_relative_to(resolved_containment)
+    ):
+        raise CapabilityDataError("bundled package path is invalid")
+
+    surface: dict[str, dict[str, str]] = {}
+
+    def add(kind: str, identifier: str, source: Path) -> None:
+        if identifier in surface or source.is_symlink() or not source.is_file():
+            raise CapabilityDataError("bundled capability authority is ambiguous")
+        resolved_source = source.resolve(strict=True)
+        if not resolved_source.is_relative_to(resolved_package):
+            raise CapabilityDataError("bundled capability authority escapes its package")
+        before = resolved_source.stat()
+        raw = resolved_source.read_bytes()
+        after = resolved_source.stat()
+        if before.st_size != after.st_size or before.st_mtime_ns != after.st_mtime_ns:
+            raise CapabilityDataError("bundled capability authority changed during read")
+        surface[identifier] = {
+            "kind": kind,
+            "relative_path": resolved_source.relative_to(resolved_package).as_posix(),
+            "source_path": str(resolved_source),
+            "sha256": hashlib.sha256(raw).hexdigest().upper(),
+        }
+
+    manifest_path = package_root / ".codex-plugin" / "plugin.json"
+    manifest = _stable_json_object(manifest_path, package_root)
+    plugin_name = manifest.get("name")
+    if not isinstance(plugin_name, str) or not plugin_name:
+        raise CapabilityDataError("bundled plugin identity is incomplete")
+    add("plugin", f"plugin:{plugin_name}", manifest_path)
+
+    skills_root = package_root / "skills"
+    if skills_root.exists():
+        if skills_root.is_symlink() or not skills_root.is_dir():
+            raise CapabilityDataError("bundled skills root is invalid")
+        for skill_directory in sorted(
+            skills_root.iterdir(), key=lambda item: item.name.casefold()
+        ):
+            skill_file = skill_directory / "SKILL.md"
+            if skill_directory.is_symlink():
+                raise CapabilityDataError("bundled skill path is invalid")
+            if skill_directory.is_dir() and skill_file.is_file():
+                skill_name = _effective_skill_name(skill_file, skill_directory.name)
+                add("skill", f"skill:{plugin_name}:{skill_name}", skill_file)
+
+    app_path = package_root / ".app.json"
+    if app_path.is_file():
+        apps = _stable_json_object(app_path, package_root).get("apps")
+        if not isinstance(apps, dict):
+            raise CapabilityDataError("bundled app authority is malformed")
+        for app_name in apps:
+            if not isinstance(app_name, str):
+                raise CapabilityDataError("bundled app identity is malformed")
+            add(
+                "tool-family",
+                f"tool-family:app:{_capability_safe_name(app_name)}",
+                app_path,
+            )
+
+    mcp_path = package_root / ".mcp.json"
+    if mcp_path.is_file():
+        servers = _stable_json_object(mcp_path, package_root).get("mcpServers")
+        if not isinstance(servers, dict):
+            raise CapabilityDataError("bundled MCP authority is malformed")
+        for server_name in servers:
+            if not isinstance(server_name, str):
+                raise CapabilityDataError("bundled MCP identity is malformed")
+            add("mcp", f"mcp:{_capability_safe_name(server_name)}", mcp_path)
+    return plugin_name.casefold(), dict(sorted(surface.items()))
+
+
+def _coherent_bundled_app_runtime_binding(
+    data: dict[str, Any],
+    *,
+    changed_packages: set[str],
+    changed_config_leaves: set[str],
+    current_config_sha256: str,
+) -> dict[str, Any] | None:
+    """Bind a version-independent first-party app cohort to current exact bytes."""
+
+    try:
+        receipt = data.get("authority_receipt")
+        if not isinstance(receipt, dict):
+            return None
+        origin = receipt.get("bundled_marketplace_origin")
+        baseline_surfaces = receipt.get("plugin_capability_surfaces")
+        if (
+            not isinstance(origin, dict)
+            or origin.get("schema_version") != "bundled-marketplace-origin-v1"
+            or not isinstance(origin.get("packages"), dict)
+            or not isinstance(baseline_surfaces, dict)
+        ):
+            return None
+        packages = origin["packages"]
+        materialization = _stable_json_object(
+            BUNDLED_MARKETPLACE_ROOT / ".materialization-key",
+            BUNDLED_MARKETPLACE_ROOT,
+        )
+        if (
+            materialization.get("version") != 1
+            or materialization.get("marketplaceName") != BUNDLED_MARKETPLACE_NAME
+            or not isinstance(materialization.get("appVersion"), str)
+            or not materialization["appVersion"]
+            or not isinstance(materialization.get("bundleId"), str)
+            or not materialization["bundleId"]
+            or not isinstance(materialization.get("plugins"), list)
+        ):
+            return None
+        current_versions: dict[str, str] = {}
+        for item in materialization["plugins"]:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"name", "version"}
+                or not isinstance(item.get("name"), str)
+                or not isinstance(item.get("version"), str)
+            ):
+                return None
+            name = item["name"].casefold()
+            if not name or name in current_versions or not item["version"]:
+                return None
+            current_versions[name] = item["version"]
+        if set(current_versions) != {str(name).casefold() for name in packages}:
+            return None
+
+        changed_names = {
+            str(name).casefold()
+            for name, package in packages.items()
+            if isinstance(package, dict)
+            and current_versions.get(str(name).casefold())
+            != str(package.get("plugin_version") or "")
+        }
+        observed_names: set[str] = set()
+        for package in changed_packages:
+            parts = package.replace("\\", "/").strip("/").split("/")
+            if len(parts) != 3 or parts[0].casefold() != BUNDLED_MARKETPLACE_NAME:
+                return None
+            observed_names.add(parts[1].casefold())
+        if not changed_names or observed_names != changed_names:
+            return None
+
+        entry_overrides: dict[str, dict[str, str]] = {}
+        runtime_bindings: list[dict[str, Any]] = []
+        recognized_ids: set[str] = set()
+        for raw_name in sorted(changed_names):
+            package = packages.get(raw_name)
+            if not isinstance(package, dict):
+                return None
+            current_version = current_versions[raw_name]
+            bundle_relative = package.get("bundle_package")
+            baseline_cache_packages = package.get("cache_packages")
+            if (
+                not isinstance(bundle_relative, str)
+                or not isinstance(baseline_cache_packages, list)
+                or not baseline_cache_packages
+            ):
+                return None
+            bundle_package_root = BUNDLED_MARKETPLACE_ROOT / Path(bundle_relative)
+            cache_package_root = (
+                BUNDLED_MARKETPLACE_CACHE_ROOT / raw_name / current_version
+            )
+            bundle_name, bundle_surface = _bundled_package_surface(
+                bundle_package_root, BUNDLED_MARKETPLACE_ROOT
+            )
+            cache_name, cache_surface = _bundled_package_surface(
+                cache_package_root, BUNDLED_MARKETPLACE_CACHE_ROOT
+            )
+            if bundle_name != raw_name or cache_name != raw_name:
+                return None
+            comparable_bundle = {
+                identifier: {
+                    "kind": item["kind"],
+                    "relative_path": item["relative_path"].casefold(),
+                    "sha256": item["sha256"],
+                }
+                for identifier, item in bundle_surface.items()
+            }
+            comparable_cache = {
+                identifier: {
+                    "kind": item["kind"],
+                    "relative_path": item["relative_path"].casefold(),
+                    "sha256": item["sha256"],
+                }
+                for identifier, item in cache_surface.items()
+            }
+            if comparable_bundle != comparable_cache:
+                return None
+
+            baseline_surface: set[tuple[str, str]] = set()
+            for baseline_package in baseline_cache_packages:
+                raw_surface = baseline_surfaces.get(baseline_package)
+                if not isinstance(raw_surface, list):
+                    return None
+                baseline_surface.update(
+                    (str(item.get("kind") or ""), str(item.get("id") or ""))
+                    for item in raw_surface
+                    if isinstance(item, dict)
+                )
+            current_surface = {
+                (item["kind"], identifier)
+                for identifier, item in cache_surface.items()
+            }
+            if baseline_surface != current_surface:
+                return None
+
+            if any(
+                str(item).casefold().endswith("/latest")
+                for item in baseline_cache_packages
+            ):
+                latest_name, latest_surface = _bundled_package_surface(
+                    BUNDLED_MARKETPLACE_CACHE_ROOT / raw_name / "latest",
+                    BUNDLED_MARKETPLACE_CACHE_ROOT,
+                )
+                comparable_latest = {
+                    identifier: {
+                        "kind": item["kind"],
+                        "relative_path": item["relative_path"].casefold(),
+                        "sha256": item["sha256"],
+                    }
+                    for identifier, item in latest_surface.items()
+                }
+                if latest_name != raw_name or comparable_latest != comparable_cache:
+                    return None
+
+            authority_projection = {
+                item["relative_path"].casefold(): item["sha256"].lower()
+                for item in cache_surface.values()
+            }
+            capability_ids = sorted(cache_surface)
+            recognized_ids.update(capability_ids)
+            binding = {
+                "binding_id": f"{BUNDLED_MARKETPLACE_NAME}:{raw_name}",
+                "provider": BUNDLED_MARKETPLACE_NAME,
+                "package": raw_name,
+                "version": current_version,
+                "bundle_id": materialization["bundleId"],
+                "capability_ids": capability_ids,
+                "authority_sha256": _canonical_payload_sha256(authority_projection),
+                "config_projection_sha256": "",
+            }
+            binding["binding_sha256"] = _canonical_payload_sha256(binding)
+            runtime_bindings.append(binding)
+            for identifier, item in cache_surface.items():
+                entry_overrides[identifier] = {
+                    "version": current_version,
+                    "source_path": item["source_path"],
+                    "sha256": item["sha256"],
+                    "hash_scope": "file-sha256",
+                }
+
+        if changed_config_leaves:
+            config_surfaces = _config_capability_surface_bindings(receipt)
+            if config_surfaces is None or not current_config_sha256:
+                return None
+            config_capability_ids: set[str] = set()
+            allowed_ids = recognized_ids | {"mcp:node_repl"}
+            for pointer in changed_config_leaves:
+                control = config_surfaces.get(pointer)
+                if (
+                    control is None
+                    or control.get("control_key") != "node_repl"
+                    or control.get("control_kind") not in {"app_runtime", "mcp_runtime"}
+                    or not set(control.get("capability_ids", [])).issubset(allowed_ids)
+                    or not set(control.get("required_capability_ids", [])).issubset(
+                        allowed_ids
+                    )
+                ):
+                    return None
+                config_capability_ids.update(control["capability_ids"])
+            recognized_ids.update(config_capability_ids)
+            config_binding = {
+                "binding_id": f"{BUNDLED_MARKETPLACE_NAME}:node-repl",
+                "provider": BUNDLED_MARKETPLACE_NAME,
+                "package": "node_repl",
+                "version": materialization["appVersion"],
+                "bundle_id": materialization["bundleId"],
+                "capability_ids": sorted(config_capability_ids),
+                "authority_sha256": current_config_sha256.lower(),
+                "config_projection_sha256": current_config_sha256.lower(),
+            }
+            config_binding["binding_sha256"] = _canonical_payload_sha256(
+                config_binding
+            )
+            runtime_bindings.append(config_binding)
+            if "mcp:node_repl" in config_capability_ids:
+                entry_overrides["mcp:node_repl"] = {
+                    "source_path": str(CONFIG_PATH.resolve(strict=True)),
+                    "sha256": current_config_sha256.upper(),
+                    "hash_scope": CONFIG_CAPABILITY_HASH_SCOPE,
+                }
+
+        return {
+            "entry_overrides": dict(sorted(entry_overrides.items())),
+            "runtime_bindings": sorted(
+                runtime_bindings, key=lambda item: item["binding_id"]
+            ),
+            "recognized_capability_ids": sorted(recognized_ids),
+            "recognized_packages": sorted(changed_packages),
+        }
+    except (CapabilityDataError, OSError, RuntimeError, ValueError):
+        return None
+
+
 def _config_capability_surface_bindings(
     receipt: dict[str, Any],
 ) -> dict[str, dict[str, Any]] | None:
@@ -781,6 +1156,8 @@ def _dynamic_authority_assessment(
         "changed_packages": [],
         "quarantined_packages": [],
         "quarantined_capability_ids": [],
+        "entry_overrides": {},
+        "runtime_bindings": [],
         "reason_code": "DYNAMIC_DEPENDENCY_CLOSURE_UNPROVEN",
     }
     mismatch_set = {str(item) for item in mismatches}
@@ -862,6 +1239,7 @@ def _dynamic_authority_assessment(
         )
 
     changed_config_leaves: set[str] = set()
+    current_config_sha256 = ""
     observed_config_sha256 = str(receipt.get("config_projection_sha256") or "").upper()
     if CONFIG_CAPABILITY_SOURCE_HASH_KEY in mismatch_set:
         config_surfaces = _config_capability_surface_bindings(receipt)
@@ -876,6 +1254,7 @@ def _dynamic_authority_assessment(
             return unavailable
         current_leaves = current_config.get("projection_leaf_hashes")
         observed_config_sha256 = str(current_config.get("sha256") or "").upper()
+        current_config_sha256 = observed_config_sha256
         if not isinstance(current_leaves, dict):
             return unavailable
         changed_config_leaves = {
@@ -892,6 +1271,22 @@ def _dynamic_authority_assessment(
             if binding["control_kind"] == "global_runtime":
                 return unavailable
             quarantined_ids.update(binding["capability_ids"])
+
+    bundled_runtime = None
+    if "plugin-cache-inventory" in mismatch_set:
+        bundled_runtime = _coherent_bundled_app_runtime_binding(
+            data,
+            changed_packages=changed_packages,
+            changed_config_leaves=changed_config_leaves,
+            current_config_sha256=current_config_sha256,
+        )
+    if bundled_runtime is not None:
+        quarantined_packages.difference_update(
+            bundled_runtime["recognized_packages"]
+        )
+        quarantined_ids.difference_update(
+            bundled_runtime["recognized_capability_ids"]
+        )
 
     for package in quarantined_packages:
         quarantined_ids.update(
@@ -912,6 +1307,12 @@ def _dynamic_authority_assessment(
         "changed_packages": sorted(changed_packages),
         "quarantined_packages": sorted(quarantined_packages),
         "quarantined_capability_ids": sorted(quarantined_ids),
+        "entry_overrides": (
+            bundled_runtime["entry_overrides"] if bundled_runtime is not None else {}
+        ),
+        "runtime_bindings": (
+            bundled_runtime["runtime_bindings"] if bundled_runtime is not None else []
+        ),
     }
     assessment_digest = hashlib.sha256(
         json.dumps(
@@ -922,7 +1323,14 @@ def _dynamic_authority_assessment(
             allow_nan=False,
         ).encode("utf-8")
     ).hexdigest()
-    if mismatch_set == {"plugin-cache-inventory"}:
+    if (
+        bundled_runtime is not None
+        and not quarantined_packages
+        and not quarantined_ids
+        and worker_bom_status == "current"
+    ):
+        reason_code = "BUNDLED_APP_RUNTIME_BOUND"
+    elif mismatch_set == {"plugin-cache-inventory"}:
         reason_code = "PLUGIN_PACKAGE_QUARANTINED"
     elif mismatch_set == {CONFIG_CAPABILITY_SOURCE_HASH_KEY}:
         reason_code = "CONFIG_SURFACE_QUARANTINED"
@@ -931,7 +1339,11 @@ def _dynamic_authority_assessment(
     else:
         reason_code = "DYNAMIC_AUTHORITY_SCOPED"
     return {
-        "status": "degraded",
+        "status": (
+            "current"
+            if reason_code == "BUNDLED_APP_RUNTIME_BOUND"
+            else "degraded"
+        ),
         **assessment_payload,
         "assessment_digest": assessment_digest,
         "reason_code": reason_code,
@@ -1484,6 +1896,8 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
         "changed_packages": [],
         "quarantined_packages": [],
         "quarantined_capability_ids": [],
+        "entry_overrides": {},
+        "runtime_bindings": [],
         "reason_code": "DYNAMIC_AUTHORITY_CURRENT",
     }
     if not static_source_mismatches and dynamic_source_mismatches:
@@ -1493,7 +1907,7 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
     dynamic_scoped = dynamic_authority.get("status") in {"current", "degraded"}
     if static_source_mismatches or not dynamic_scoped:
         freshness = "stale"
-    elif dynamic_source_mismatches:
+    elif dynamic_source_mismatches and dynamic_authority.get("status") != "current":
         freshness = "degraded"
     else:
         freshness = declared_freshness
@@ -1507,11 +1921,16 @@ def load_active_capabilities(path: Path | None = None) -> dict[str, Any]:
     rejected_state_artifacts = 0
     rejected_invalid = 0
     rejected_quarantined = 0
+    entry_overrides = dynamic_authority.get("entry_overrides")
+    entry_overrides = entry_overrides if isinstance(entry_overrides, dict) else {}
     for raw in raw_entries:
         if not isinstance(raw, dict):
             rejected_invalid += 1
             continue
-        entry = _normalize_entry(raw)
+        identifier = str(raw.get("id") or raw.get("capability_id") or "")
+        override = entry_overrides.get(identifier)
+        effective_raw = {**raw, **override} if isinstance(override, dict) else raw
+        entry = _normalize_entry(effective_raw)
         if not entry:
             rejected_invalid += 1
             continue
@@ -8955,7 +9374,50 @@ def _route_capability_ids(decision: dict[str, Any]) -> set[str]:
             identifier = fallback.get(key)
             if isinstance(identifier, str) and identifier:
                 identifiers.add(identifier)
+    for identifier in decision.get("requires", []):
+        if isinstance(identifier, str) and identifier:
+            identifiers.add(identifier)
     return identifiers
+
+
+def _selected_dynamic_runtime_bindings(
+    manifest: dict[str, Any], decision: dict[str, Any]
+) -> list[dict[str, Any]]:
+    dynamic = manifest.get("dynamic_authority")
+    if not isinstance(dynamic, dict):
+        return []
+    bindings = dynamic.get("runtime_bindings")
+    if not isinstance(bindings, list):
+        return []
+    route_ids = _route_capability_ids(decision)
+    selected: list[dict[str, Any]] = []
+    for binding in bindings:
+        if not isinstance(binding, dict):
+            continue
+        capability_ids = {
+            str(identifier)
+            for identifier in binding.get("capability_ids", [])
+            if isinstance(identifier, str) and identifier
+        }
+        if route_ids & capability_ids:
+            selected.append(json.loads(json.dumps(binding, sort_keys=True)))
+    return sorted(selected, key=lambda item: str(item.get("binding_id") or ""))
+
+
+def _route_dynamic_runtime_bindings_current(
+    decision: dict[str, Any], current_manifest: dict[str, Any]
+) -> bool:
+    supplied = decision.get("dynamic_runtime_bindings", [])
+    if not isinstance(supplied, list):
+        return False
+    expected = _selected_dynamic_runtime_bindings(current_manifest, decision)
+    try:
+        return hmac.compare_digest(
+            json.dumps(supplied, sort_keys=True, separators=(",", ":")),
+            json.dumps(expected, sort_keys=True, separators=(",", ":")),
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _selected_route_skill_hashes_current(decision: dict[str, Any]) -> bool:
@@ -9111,6 +9573,9 @@ def verify_registered_route(
         base["status"] = "capability_quarantined"
         return base
     if not _selected_route_skill_hashes_current(decision):
+        base["status"] = "capability_quarantined"
+        return base
+    if not _route_dynamic_runtime_bindings_current(decision, current_manifest):
         base["status"] = "capability_quarantined"
         return base
     if not _route_worker_identity_current(decision, current_manifest):
@@ -10121,6 +10586,9 @@ def _build_decision(
         "primary": public_primary,
         "supports": public_supports,
     }
+    decision["dynamic_runtime_bindings"] = _selected_dynamic_runtime_bindings(
+        manifest, decision
+    )
     digest = _decision_digest(decision)
     decision["decision_id"] = digest
     decision["decision_digest"] = digest
