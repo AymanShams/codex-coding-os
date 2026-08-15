@@ -229,8 +229,6 @@ def main() -> int:
         }
         decision = resolve_route(
             args.query,
-            manifest=manifest,
-            policy=policy,
             classification=classification,
             task_text=args.task_text,
             task_input=task_input,

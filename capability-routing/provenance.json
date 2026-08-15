@@ -61,7 +61,7 @@
     "capability-routing/reference-runtime/_hook_io.py": "6a4965f9c01c5d1a1b32b1cf94b1c57542674e0195b5e252805d5b0bfb251b15",
     "capability-routing/reference-runtime/capability_config_fingerprint.py": "51a0cbeb95f49a4de8675cc0aa5f8f12fbb61b542623b3fe3203fedc8f469811",
     "capability-routing/reference-runtime/capability_index.py": "75a1423e619306663460c99dd0cb2d60de862b7f13d04c6efeb198c42a8732d5",
-    "capability-routing/reference-runtime/capability_index_cli.py": "01761ab04003e4c68162dfda4f02b7d798d43621e1aac2a40e6507806cdc8776",
+    "capability-routing/reference-runtime/capability_index_cli.py": "9953b16fed2b1bd35628a438c98a2884f892a03e85aefb4bf0a42394196fb733",
     "capability-routing/reference-runtime/capability_index_session_start.py": "974797433a5c6cad3ba9edf9b03cc35bc8f838b011906b4d23918ddcd04e7b62",
     "capability-routing/reference-runtime/capability_manifest_recovery.py": "fb7b0c5c767386501f604855d561ade9fdefd055e915166e3e3758bd7781c85c",
     "capability-routing/reference-runtime/routing_policy_validation.py": "17040ac785e92ac8503f2bc32de6a4d094da58f04056063c305772e020dead33",
