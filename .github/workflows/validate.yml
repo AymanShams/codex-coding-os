@@ -89,16 +89,18 @@ jobs:
           baseline="$(git rev-parse HEAD^)"
           journey="$RUNNER_TEMP/supported-install-journey"
           mkdir -p "$journey/output"
+          cp "$PWD/tests/supported_install_journey.py" "$journey/supported_install_journey.py"
           git archive --format=zip --output="$journey/baseline.zip" "$baseline"
           git archive --format=zip --output="$journey/candidate.zip" "$candidate"
           account_profile="$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')"
           bwrap --unshare-user --uid "$(id -u)" --gid "$(id -g)" --ro-bind / / \
             --tmpfs "$account_profile" --tmpfs /tmp --proc /proc --dev /dev \
+            --ro-bind "$journey" /mnt --chdir /mnt \
             --bind "$journey/output" /var/tmp --setenv HOME "$account_profile" --unsetenv CODEX_HOME --unsetenv SKILLS_ROOT \
             --unsetenv PYTHONPATH --setenv PYTHONDONTWRITEBYTECODE 1 \
-            python3 -B "$PWD/tests/supported_install_journey.py" \
-            --baseline-archive "$journey/baseline.zip" --baseline-commit "$baseline" \
-            --candidate-archive "$journey/candidate.zip" --candidate-commit "$candidate"
+            python3 -B /mnt/supported_install_journey.py \
+            --baseline-archive /mnt/baseline.zip --baseline-commit "$baseline" \
+            --candidate-archive /mnt/candidate.zip --candidate-commit "$candidate"
 
   product-acceptance:
     strategy:

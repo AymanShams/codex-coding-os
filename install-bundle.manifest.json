@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "aad63759a6c28aa69f34995a1c29079e6d6447b696600bf71ed83e532c5b8dd2",
+  "aggregate_sha256": "efa4d3f680cddd2f523ef4dafd6db1d622270f35452aa105fccc00abc722500b",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2178,8 +2178,8 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "63247285653e4aae13ef81c495b98abf7b940d7a575242b34949e1034d3664d5",
-      "size": 10181
+      "sha256": "ab07e332b9b51a68e9488c13711b39da6290ec68c481a5f56f0d9caca15f2333",
+      "size": 10309
     },
     {
       "path": "CHANGELOG.md",
@@ -2928,8 +2928,8 @@
     },
     {
       "path": "tests/test_public_install_docs.py",
-      "sha256": "0e972a6d87d264d770be59b233e9fce8e6c8926336dfea8c5589c4c0cf6d285f",
-      "size": 20376
+      "sha256": "6a9611efa890151a33e0abe25d0609df331a03e4a66058d087ccd7f7fbf81010",
+      "size": 21910
     },
     {
       "path": "tests/test_reducer_mutation_gate.py",
