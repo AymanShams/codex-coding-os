@@ -1,18 +1,70 @@
 """Controlled process-boundary cases using disposable product and engine state."""
 
 from dataclasses import replace
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from scripts.agent.campaign_engine import evidence
 from tests.test_campaign_runtime_components import git, make_repo
+
+
+def retain_boundary_failure(root, receipt, started_at, failed_at):
+    """Capture a failed first launch in CI, without running the command again."""
+    destination = os.environ.get("CCOS_BOUNDARY_DIAGNOSTICS")
+    if os.environ.get("GITHUB_ACTIONS") != "true" or not destination:
+        return None
+    output = Path(destination)
+    output.mkdir(parents=True, exist_ok=True)
+    report = {
+        "started_at_utc": started_at, "failed_at_utc": failed_at,
+        "cwd_supplied": str(root), "cwd_resolved": str(root.resolve(strict=True)),
+        "receipt": receipt.to_dict(), "native_logs": [], "directories": [],
+        "access_observed": "after failed launch, before fixture cleanup",
+    }
+    if os.name == "nt":
+        log_root = Path(os.environ["USERPROFILE"]) / ".codex" / ".sandbox"
+        # Only native text logs, never account configuration or credential files.
+        for path in sorted(log_root.glob("*.log"))[:8]:
+            try:
+                with path.open("rb") as handle:
+                    data = handle.read(1024 * 1024)
+                report["native_logs"].append({
+                    "path": str(path), "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "bytes_captured": len(data), "truncated": path.stat().st_size > len(data),
+                    "text": data.decode("utf-8", errors="replace"),
+                })
+            except OSError as exc:
+                report["native_logs"].append({"path": str(path), "error": str(exc)})
+    for path in (root, *root.parents)[:8]:
+        item = {"path": str(path), "observed_at_utc": datetime.now(timezone.utc).isoformat()}
+        try:
+            stat = path.stat()
+            item.update(resolved=str(path.resolve(strict=True)), device=stat.st_dev,
+                        inode=stat.st_ino, mode=stat.st_mode,
+                        file_attributes=getattr(stat, "st_file_attributes", None),
+                        reparse_tag=getattr(path.lstat(), "st_reparse_tag", None))
+            if os.name == "nt":
+                access = subprocess.run(["icacls.exe", str(path)], stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    errors="replace", timeout=5, check=False)
+                item.update(icacls_exit=access.returncode, icacls_stdout=access.stdout[:16384],
+                            icacls_stderr=access.stderr[:4096])
+        except (OSError, subprocess.SubprocessError) as exc:
+            item["error"] = str(exc)
+        report["directories"].append(item)
+    path = output / "first-boundary-failure.json"
+    path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 class ValidationBoundaryTests(unittest.TestCase):
@@ -47,11 +99,18 @@ class ValidationBoundaryTests(unittest.TestCase):
                     read_code += f"; assert os.environ[{name!r}] == {os.environ[name]!r}"
             approved = self.command(root, head, read_code)
             # No skip: a supported validation environment must provision its boundary.
+            started_at = datetime.now(timezone.utc).isoformat()
             try:
                 passed = evidence.execute_trusted_command(approved)
             except evidence.ValidationFailure as exc:
+                failed_at = datetime.now(timezone.utc).isoformat()
+                try:
+                    retained = retain_boundary_failure(root, exc.evidence, started_at, failed_at)
+                    diagnostic = f"\nDiagnostic: {retained}" if retained else ""
+                except Exception as diagnostic_error:
+                    diagnostic = f"\nDiagnostic capture failed: {diagnostic_error}"
                 self.fail("Required validation boundary could not execute an approved read: "
-                          + exc.evidence.stderr[:2000])
+                          + exc.evidence.stderr[:2000] + diagnostic)
             self.assertTrue(passed.passed)
             self.assertEqual(passed.execution_boundary, "READ_ONLY")
             self.assertEqual(passed.boundary_executable_sha256,
@@ -162,6 +221,40 @@ class SavedValidationInputTests(unittest.TestCase):
                                   environment={name: str(self.base)})
                 with self.assertRaisesRegex(evidence.EvidenceError, "cannot override the host " + name):
                     evidence.execute_trusted_command(command)
+
+
+class RetainedBoundaryDiagnosticTests(unittest.TestCase):
+    def test_failure_capture_is_inert_outside_explicit_ci(self):
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "CCOS_BOUNDARY_DIAGNOSTICS": "unused"}):
+            with patch.object(Path, "mkdir", side_effect=AssertionError("must not write")):
+                self.assertIsNone(retain_boundary_failure(Path.cwd(), None, "start", "failure"))
+
+    def test_failure_capture_retains_identity_and_bounded_logs_without_native_launch(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            root = base / "product"
+            root.mkdir()
+            log_root = base / ".codex" / ".sandbox"
+            log_root.mkdir(parents=True)
+            (log_root / "sandbox.2026-09-12.log").write_bytes(b"x" * (1024 * 1024 + 1))
+            (log_root / "not-a-log.json").write_text("must not collect", encoding="utf-8")
+            receipt = SimpleNamespace(to_dict=lambda: {"passed": False, "exit_code": 1})
+            access = SimpleNamespace(returncode=0, stdout="read access fixture", stderr="")
+            with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "USERPROFILE": str(base),
+                                         "CCOS_BOUNDARY_DIAGNOSTICS": str(base / "output")}):
+                with patch.object(subprocess, "run", return_value=access) as commands:
+                    output = retain_boundary_failure(root, receipt, "start", "failure")
+            result = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(result["cwd_resolved"], str(root.resolve()))
+            self.assertEqual(result["receipt"], receipt.to_dict())
+            self.assertEqual(result["failed_at_utc"], "failure")
+            self.assertTrue(result["directories"])
+            self.assertTrue(all(call.args[0][0] == "icacls.exe" for call in commands.call_args_list))
+            if os.name == "nt":
+                self.assertEqual(len(result["native_logs"]), 1)
+                self.assertTrue(result["native_logs"][0]["truncated"])
+                self.assertEqual(result["native_logs"][0]["bytes_captured"], 1024 * 1024)
+            self.assertNotIn("must not collect", output.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
