@@ -96,6 +96,15 @@ codex sandbox setup --elevated --current-user --codex-home "$env:USERPROFILE\.co
 if ($LASTEXITCODE -ne 0) { throw 'Windows validation sandbox provisioning failed.' }
 ```
 
+For Codex 0.154.0, finish directory-read setup with the public
+`scripts/prepare_windows_validation_boundary.py` command in
+[Getting Started](getting-started.md#install-an-exact-source-commit).
+The native setup request delegates read grants to a background helper. This
+bounded completion check binds one fresh setup request to its exact directory,
+native source hashes, and appended log generation before validation begins.
+It preserves a receipt on success or failure, runs no model turn or project
+command, and never retries. Existing account provisioning is required.
+
 Before the first campaign, run the paired product-file read and denied-write
 test documented in [Getting Started](getting-started.md#verify-the-installed-runtime)
 from the verified package source. `doctor` verifies the runtime and store and
@@ -131,6 +140,13 @@ Different identifiers are not merged through text similarity.
 Recovery consumes already attested completed worker results and reconciles
 uncertain effects through their existing identifiers. It does not restart an
 uncertain writer. Cancellation, attempts, and expenditure survive restart.
+If the supervisor is recreated while the original native host connection
+survives, it can collect the same read-only review turn. Recovery verifies the
+process creation identity, live connection, frozen candidate, source bindings,
+authority and complete active review cohort. It starts no new turn and spends
+no new attempt. Losing that connection or any required cohort member fences the
+affected work. This branch does not reconnect a lost native process or replace
+a writer.
 
 ## Evidence
 

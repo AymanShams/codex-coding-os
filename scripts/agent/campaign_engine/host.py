@@ -1046,6 +1046,7 @@ class NativeCodexHost:
         self.probe_write_denial_canary = bool(probe_write_denial_canary)
         self.usage_recorder = usage_recorder
         self._bindings: dict[str, ActorBinding] = {}
+        self._native_identities: dict[str, Mapping[str, Any]] = {}
         self._transports: dict[str, Any] = {}
         self._action_authorities: dict[str, ActionAuthority] = {}
         self._review_candidate_identities: dict[str, Mapping[str, str]] = {}
@@ -1531,6 +1532,7 @@ class NativeCodexHost:
                 bound_before_turn=True,
             )
             self._bindings[lease.lease_id] = binding
+            self._native_identities[lease.lease_id] = dict(native_identity)
             self._transports[lease.lease_id] = transport
             with self._host_lock:
                 self._interrupted.discard(lease.lease_id)
@@ -1607,6 +1609,41 @@ class NativeCodexHost:
         updated = replace(current, turn_id=turn_id, lease_consumed=True)
         self._bindings[lease_id] = updated
         return updated
+
+    def recover_read_only_actor(
+        self, lease_id: str, *, native_identity: Mapping[str, Any],
+        current_epochs: CurrentEpochs,
+    ) -> ActorBinding:
+        """Reuse a surviving connection and turn, never create or resume a turn."""
+        with self._host_lock:
+            binding = self._bindings.get(lease_id)
+            transport = self._transports.get(lease_id)
+            if (binding is None or transport is None or lease_id in self._interrupted
+                    or binding.lease.role not in {"REVIEWER", "CLOSURE_REVIEWER"}
+                    or not binding.bound_before_turn or not binding.lease_consumed
+                    or not binding.turn_id or binding.sandbox_type != "read-only"
+                    or binding.lease.allowed_paths):
+                raise HostAuthorityError("original started read-only connection is unavailable")
+            if (self._native_identities.get(lease_id) != dict(native_identity)
+                    or native_identity.get("thread_id") != binding.native_thread_id
+                    or native_identity.get("lease_digest") != binding.lease.payload_digest):
+                raise HostAuthorityError("original native identity changed")
+            process = getattr(transport, "process", None)
+            expected_process = native_identity.get("host_process_identity")
+            if (process is None or process.poll() is not None
+                    or not isinstance(expected_process, Mapping)
+                    or process.pid != native_identity.get("host_pid")
+                    or process_identity(process.pid) != dict(expected_process)):
+                raise HostAuthorityError("original native process is not verifiably alive")
+            reader = getattr(transport, "reader", None)
+            if reader is None or not reader.is_alive():
+                raise HostAuthorityError("original native connection reader is unavailable")
+            epochs = current_epochs(binding.lease.campaign_id, binding.lease.node_id)
+            if any(epochs.get(key) != getattr(binding.lease, key) for key in
+                   ("authority_epoch", "cancellation_epoch", "fencing_epoch")):
+                raise LateResultError("read-only recovery authority changed")
+            self._require_review_candidate(binding)
+            return binding
 
     def collect_terminal_receipt(
         self,

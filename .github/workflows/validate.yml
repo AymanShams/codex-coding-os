@@ -86,7 +86,11 @@ jobs:
       - name: Test campaign runtime components
         run: python -B -m unittest tests.test_campaign_runtime_components -v
       - name: Test deterministic campaign supervisor
-        run: python -B -m unittest tests.test_campaign_supervisor -v
+        run: python -B -m unittest tests.test_campaign_supervisor tests.test_campaign_read_only_recovery -v
+      - name: Test native journey evidence without model execution
+        run: python -B -m unittest tests.test_native_product_journey -v
+      - name: Test Windows setup completion contract without provisioning
+        run: python -B -m unittest tests.test_windows_validation_setup -v
       - name: Replay campaign incidents and cross-layer conformance
         run: python -B -m unittest tests.test_campaign_incident_conformance -v
       - name: Test executable campaign CLI
@@ -182,6 +186,18 @@ jobs:
           & $Binary[0].FullName sandbox setup --elevated --current-user --codex-home $BoundaryCodexHome
           if ($LASTEXITCODE -ne 0) { throw 'Windows validation sandbox provisioning failed.' }
           $Binary[0].DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Complete native Windows directory-read setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Diagnostics = Join-Path $env:RUNNER_TEMP 'validation-boundary-diagnostics'
+          $Identity = Get-Content -Raw (Join-Path $Diagnostics 'native-package-identity.json') | ConvertFrom-Json
+          python -B scripts/prepare_windows_validation_boundary.py `
+            --codex-executable $Identity.executable `
+            --expected-codex-sha256 $Identity.executable_sha256 `
+            --cwd $env:TEMP `
+            --output (Join-Path $Diagnostics 'native-read-setup.json')
+          if ($LASTEXITCODE -ne 0) { throw 'Windows native directory-read setup did not complete.' }
       - name: Verify validation containment and accepted local delivery
         env:
           CCOS_BOUNDARY_DIAGNOSTICS: ${{ runner.temp }}/validation-boundary-diagnostics

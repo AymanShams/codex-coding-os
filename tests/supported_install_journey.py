@@ -5,7 +5,9 @@ Run through bubblewrap with a read-only host root, tmpfs at the actual account
 profile and /tmp, and one writable /var/tmp artifact mount. Preserve the host
 UID/GID so the installed validation boundary can create its own namespace.
 Inputs must be exact git archive ZIPs.
-No runtime path injection, native model call, or canonical router activation.
+Native model turns require explicit --native opt-in and a read-only auth.json
+mount at the canonical account path. The default journey uses scripted turns.
+No runtime path injection or canonical router activation.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def disposable_account():
+def disposable_account(*, native=False):
     require(sys.platform.startswith("linux"), "Linux account namespace required")
     mappings = [tuple(map(int, line.split())) for line in Path("/proc/self/uid_map").read_text().splitlines()]
     require(os.getuid() != 0 and len(mappings) == 1
@@ -58,7 +60,14 @@ def disposable_account():
     require(os.environ.get("HOME") == str(ACCOUNT_PROFILE), "HOME must match the actual OS profile")
     require(os.environ.get("CODEX_HOME", str(CODEX)) == str(CODEX), "Unexpected CODEX_HOME")
     require(not os.environ.get("SKILLS_ROOT"), "SKILLS_ROOT override is not allowed")
-    require(not CODEX.exists() or not any(CODEX.iterdir()), "Canonical Codex home must start empty")
+    existing = {path.name for path in CODEX.iterdir()} if CODEX.exists() else set()
+    if native:
+        require(existing == {"auth.json"}, "Native entry requires only read-only auth.json in the fresh Codex home")
+        require((CODEX / "auth.json").is_file()
+                and "ro" in mounts.get(str(CODEX / "auth.json"), ([], ""))[0],
+                "Native authentication must be an exact read-only file mount")
+    else:
+        require(not existing, "Canonical Codex home must start empty")
     return {"uid": os.getuid(), "uid_map": mappings, "os_profile": str(ACCOUNT_PROFILE),
             "codex_home": str(CODEX), "state_db": str(STATE), "root_read_only": True,
             "profile_and_temp_filesystem": "tmpfs"}
@@ -101,7 +110,7 @@ def install(source):
                      "--expected-bundle-sha256", source["bundle_sha256"]], cwd=ACCOUNT_PROFILE)
 
 
-def installed_delivery(source, report):
+def installed_delivery(source, report, *, native_options=None):
     # Namespace-package search order puts the actual installed scripts first.
     # Test expectations come from the exact candidate archive. Assert every
     # loaded engine module's physical path before and after executing fixtures.
@@ -121,6 +130,11 @@ def installed_delivery(source, report):
         return result
 
     module_sources()
+    if native_options is not None:
+        from tests.native_product_journey import run_native_product_journey
+        run_native_product_journey(source, INSTALLED, cli, report, **native_options)
+        report["installed_engine_modules"] = module_sources()
+        return
     pin = json.loads((INSTALLED / "install-manifest.json").read_text())["runtime_pin"]
 
     class InstalledDelivery(BoundedContinuationTests):
@@ -192,11 +206,16 @@ def main():
     parser.add_argument("--baseline-commit", required=True)
     parser.add_argument("--candidate-archive", type=Path, required=True)
     parser.add_argument("--candidate-commit", required=True)
+    parser.add_argument("--native", action="store_true", help="Run actual authenticated native model turns")
+    parser.add_argument("--native-model", default="gpt-5.6-sol")
+    parser.add_argument("--native-effort", default="medium", choices=("low", "medium", "high", "max"))
+    parser.add_argument("--worker-timeout", type=int, default=180)
     parser.add_argument("--output", type=Path, default=Path("/var/tmp/supported-install-journey.json"))
     args = parser.parse_args()
     require(args.output.parent.resolve() == Path("/var/tmp"), "Receipt must go to the dedicated /var/tmp mount")
-    account = disposable_account()  # Reject non-disposable execution before any write.
-    report = {"protocol": "ccos-supported-install-journey-v1", "status": "failed", "account": account}
+    account = disposable_account(native=args.native)  # Reject non-disposable execution before any write.
+    report = {"protocol": "ccos-supported-install-journey-v1", "status": "failed", "account": account,
+              "wrapper_sha256": sha256(__file__)}
     try:
         require(args.baseline_commit != args.candidate_commit, "Upgrade requires distinct committed sources")
         with tempfile.TemporaryDirectory(prefix="supported-install-", dir="/tmp") as temp:
@@ -219,7 +238,9 @@ def main():
             prerequisite = report["upgraded_doctor"]["entry_prerequisites"]["canonical_router"]
             require(prerequisite["available"] is False, "Fixture unexpectedly has a canonical router")
             report["routed_skill_entry"] = {"status": "prerequisite_blocked", "prerequisite": prerequisite}
-            installed_delivery(candidate, report)
+            installed_delivery(candidate, report, native_options=(
+                {"model": args.native_model, "reasoning_effort": args.native_effort,
+                 "worker_timeout": args.worker_timeout} if args.native else None))
             pointer = CODEX / ".coding-os-install/current.json"
             before = sha256(pointer)
             report["reinstall"] = install(candidate)
@@ -241,8 +262,10 @@ def main():
         raise
     finally:
         args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    usage = report.get("native_journey", {}).get("model_usage", {})
     print(json.dumps({"status": report["status"], "receipt": str(args.output),
-                      "routed_skill_entry": "prerequisite_blocked", "native_model_usage": "not_measured"}))
+                      "routed_skill_entry": "prerequisite_blocked",
+                      "native_model_usage": usage.get("status", "not_measured")}))
 
 
 if __name__ == "__main__":

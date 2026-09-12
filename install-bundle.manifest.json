@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "efa4d3f680cddd2f523ef4dafd6db1d622270f35452aa105fccc00abc722500b",
+  "aggregate_sha256": "fcef112dadf749ea02a9bf8fb84f7b5db01c525d966af35ccc1ee3490a1d4760",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -73,8 +73,8 @@
     },
     {
       "path": ".agents/skills/codex-coding-os-master/SKILL.md",
-      "sha256": "36c69b1ce998130e26c1cc9ef64b6e06ae45b77e2c658a4b69a230c89fb729a0",
-      "size": 3265
+      "sha256": "e8538221e57e6e5f4ca6ba924c0b15d6890d9dbc7a18df52f314a925626043c5",
+      "size": 3954
     },
     {
       "path": ".agents/skills/codex-design-artifacts/SKILL.md",
@@ -2178,8 +2178,8 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "ab07e332b9b51a68e9488c13711b39da6290ec68c481a5f56f0d9caca15f2333",
-      "size": 10309
+      "sha256": "9cbc9442119954a0524a65569ac8fce6bc0406f76878a05a4fcf0834260bbb33",
+      "size": 14674
     },
     {
       "path": "CHANGELOG.md",
@@ -2268,8 +2268,8 @@
     },
     {
       "path": "docs/campaign-engine.md",
-      "sha256": "f8428abaeb200c0173e5f3c1acbb7511c968a64a9781417d8eaba8e8552c632a",
-      "size": 9899
+      "sha256": "32021388f86769c4ea1700a95215de3108a4eaccc800c55423dcc49d36674980",
+      "size": 10949
     },
     {
       "path": "docs/case-state-contract.md",
@@ -2303,8 +2303,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "03353ea7fae6c0fb9a85d0214f32ad3aa3ff13df13cd3b05deb6d575727d5860",
-      "size": 12144
+      "sha256": "0de6895c54818397af90350367c98a60c00cd7ff31fa798cef81963ebb973518",
+      "size": 13650
     },
     {
       "path": "docs/license-strategy.md",
@@ -2423,8 +2423,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/host.py",
-      "sha256": "cfe1b4a6167b9f1a842643a464725a22621e8e65ea2414d9cc6b5addcdd42b4d",
-      "size": 94003
+      "sha256": "c18521d04bde80aea05425130f96392998b110c7937bc164cd94775aa6fb1f00",
+      "size": 96455
     },
     {
       "path": "scripts/agent/campaign_engine/legacy.py",
@@ -2448,13 +2448,13 @@
     },
     {
       "path": "scripts/agent/campaign_engine/store.py",
-      "sha256": "0c94c9ff7525953d8f38642f257522d2321ac25a5f67637c35e2a34f3e3f833d",
-      "size": 126051
+      "sha256": "5a90aabf69582e9a5c2b3271f8ecbf1fba8334f508e205d3bb9583edf25877d9",
+      "size": 128455
     },
     {
       "path": "scripts/agent/campaign_engine/supervisor.py",
-      "sha256": "65999f262945c604c03fc2b08c9c12feaee216431240400346c5a9cdbecdc494",
-      "size": 113404
+      "sha256": "d98a897afc7db1194a2404decfebee2b897ec739730be45dd029472ef71ceace",
+      "size": 116791
     },
     {
       "path": "scripts/agent/case_state.py",
@@ -2510,6 +2510,11 @@
       "path": "scripts/prepare_linux_validation_boundary.sh",
       "sha256": "ea576e9cae75caccbd19bf2435c1a589cd2205b8c4b9cff2a187206da1477218",
       "size": 1811
+    },
+    {
+      "path": "scripts/prepare_windows_validation_boundary.py",
+      "sha256": "9978b846f18a27eb15c68caa3cceb7ad4fd855a4c5e8e30ebc573dfafb713168",
+      "size": 9537
     },
     {
       "path": "scripts/release-safety-scan.ps1",
@@ -2807,14 +2812,19 @@
       "size": 2430
     },
     {
+      "path": "tests/native_product_journey.py",
+      "sha256": "70f8439858af8a61602a09bc2ac4aa5913b35acbf8e60c0dd4d9b9bcfbcd01aa",
+      "size": 25347
+    },
+    {
       "path": "tests/supported_install_journey.py",
-      "sha256": "433aade6ff6224d5c1c29116d537aa816c0d27473331380a0e6de78ac5200352",
-      "size": 14216
+      "sha256": "7bfd5a2f43bc36997971a985949e3816eeec907091e24a54bd8e8bc480a52536",
+      "size": 15774
     },
     {
       "path": "tests/test_campaign_acceptance_sources.py",
-      "sha256": "1576df00830415e9ed84edc21055e228ac93aec567d2cba2861d2631af5ad707",
-      "size": 3598
+      "sha256": "932279eac418bd1a7141090c564a898c44f81ec49b6e3eb0b05fc9fb1f502a05",
+      "size": 7774
     },
     {
       "path": "tests/test_campaign_bounded_continuation.py",
@@ -2852,6 +2862,11 @@
       "size": 15008
     },
     {
+      "path": "tests/test_campaign_read_only_recovery.py",
+      "sha256": "888529034629db97670e68e23173efc7a689ff5a62538b35f86e856110e549fc",
+      "size": 24326
+    },
+    {
       "path": "tests/test_campaign_runtime_components.py",
       "sha256": "9cb35d1a0be62e1ac16add29d9b4f60277ce8855159ffd5821bf0cf728a2ffb0",
       "size": 83296
@@ -2873,8 +2888,8 @@
     },
     {
       "path": "tests/test_campaign_validation_boundary.py",
-      "sha256": "e2e497868e23b0d12b5b653d5d8787ba4516511c24808640aace7e436b543a4e",
-      "size": 9957
+      "sha256": "c0faa0bfaa742c04a71449d529fa6de2677908e47a729db8cad0338eca213017",
+      "size": 15471
     },
     {
       "path": "tests/test_capability_manifest_builder.py",
@@ -2910,6 +2925,11 @@
       "path": "tests/test_local_security_skill_parity.py",
       "sha256": "866c479d991b7a9b62294a97da1b562d9ebf76a43af95711fde155a2af6d38f9",
       "size": 5881
+    },
+    {
+      "path": "tests/test_native_product_journey.py",
+      "sha256": "59f95dece849436957aafba017e55181b33ecb39bfcdfcd9089d7a9d259c5ddd",
+      "size": 5525
     },
     {
       "path": "tests/test_plugin_manifest_boundaries.py",
@@ -2970,6 +2990,11 @@
       "path": "tests/test_validation_evidence.py",
       "sha256": "f57dab9425dd7d22767e7644ad3223fe835fc65310c41d170e5ff9bf3b1ffbac",
       "size": 5325
+    },
+    {
+      "path": "tests/test_windows_validation_setup.py",
+      "sha256": "b0f93a4c3b48f17949a96f60eedbd873f8a647f57704c9458c743f83b5337d2e",
+      "size": 9758
     },
     {
       "path": "tests/test_worker_runtime_bom_promotion.py",

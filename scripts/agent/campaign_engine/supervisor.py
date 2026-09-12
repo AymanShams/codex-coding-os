@@ -2230,7 +2230,7 @@ class DeterministicSupervisor:
                 try:
                     terminate_verified_process_tree(
                         pid,
-                        identity.get("native_identity")
+                        identity["native_identity"].get("host_process_identity")
                         if isinstance(identity.get("native_identity"), Mapping)
                         else None,
                     )
@@ -2254,6 +2254,7 @@ class DeterministicSupervisor:
         orphaned = self.store.list_active_actor_identities()
         reattached: list[str] = []
         uncertain = []
+        surviving: dict[str, WorkerRuntime] = {}
         for identity in orphaned:
             lease_id = str(identity["lease_id"])
             try:
@@ -2281,8 +2282,11 @@ class DeterministicSupervisor:
                 self._workers.pop(lease_id, None)
                 reattached.append(lease_id)
             except Exception:
-                # Any uncertainty follows the existing orphan-fencing path.
-                uncertain.append(identity)
+                try:
+                    surviving[lease_id] = self._reattach_read_only(identity)
+                except Exception:
+                    # A lost connection or an uncertain writer remains fenced.
+                    uncertain.append(identity)
         affected = sorted(
             {
                 str(item["actor"]["campaign_id"])
@@ -2291,20 +2295,29 @@ class DeterministicSupervisor:
                 and item["actor"].get("campaign_id")
             }
         )
+        # A surviving cohort member cannot keep running after another member
+        # makes the same campaign fail. Retain only complete observable work.
+        surviving = {lease_id: runtime for lease_id, runtime in surviving.items()
+                     if runtime.lease.campaign_id not in affected}
         for identity in orphaned:
-            self._workers.pop(str(identity["lease_id"]), None)
+            lease_id = str(identity["lease_id"])
+            if lease_id in surviving:
+                continue
+            self._workers.pop(lease_id, None)
+            self.host.interrupt(lease_id)
             pid = identity.get("host_pid")
             if isinstance(pid, int) and pid > 0:
                 try:
                     terminate_verified_process_tree(
                         pid,
-                        identity.get("native_identity")
+                        identity["native_identity"].get("host_process_identity")
                         if isinstance(identity.get("native_identity"), Mapping)
                         else None,
                     )
                 except (OSError, subprocess.SubprocessError):
                     pass
-        recovered = self.store.recover_after_restart()
+        recovered = self.store.recover_after_restart(retained_lease_ids=tuple(surviving))
+        self._workers.update(surviving)
         failed_nodes: list[dict[str, str]] = []
         for campaign_id in affected:
             snapshot = self.store.get_snapshot(campaign_id)
@@ -2333,9 +2346,52 @@ class DeterministicSupervisor:
             **recovered,
             "orphaned_actor_identities": len(orphaned),
             "reattached_terminal_leases": reattached,
+            "reattached_read_only_leases": sorted(surviving),
             "failed_nodes": failed_nodes,
             "reconciled": reconciled,
         }
+
+    def _reattach_read_only(self, identity: Mapping[str, Any]) -> WorkerRuntime:
+        """Reuse a surviving host connection, never create a replacement turn."""
+
+        lease_id = str(identity["lease_id"])
+        if self.store.get_evidence(_stable_id("receipt", lease_id)) is not None:
+            raise SupervisorError("a rejected terminal receipt cannot become running work")
+        lease = self.store.get_lease(lease_id)
+        actor = self.store.get_actor(lease.actor_id)
+        snapshot = self.store.get_snapshot(actor.campaign_id)
+        node = snapshot.node(str(actor.node_id))
+        expected_state = {
+            ActorRole.REVIEWER: NodeState.CHECKS_AND_REVIEW,
+            ActorRole.CLOSURE_REVIEWER: NodeState.CLOSURE,
+        }.get(actor.role)
+        native_identity = identity.get("native_identity")
+        if (expected_state is None or actor.can_write
+                or snapshot.state is not CampaignState.RUNNING
+                or snapshot.active_node_id != actor.node_id or node.state is not expected_state
+                or actor.principal_id not in snapshot.spec.required_review_cohort
+                or identity.get("lease_state") != "ACTIVE"
+                or not isinstance(native_identity, Mapping)
+                or canonical_json_digest(native_identity) != identity.get("identity_digest")):
+            raise SupervisorError("read-only recovery requires an active exact review binding")
+        self._check_deadline(snapshot, node)
+        self._verify_sources(snapshot, node.node_id)
+        expected_lease = self._host_lease(
+            snapshot, node.node_id, actor.role, actor, lease, reviewer_id=actor.principal_id,
+        )
+        recover = getattr(self.host, "recover_read_only_actor", None)
+        if recover is None:
+            raise SupervisorError("host cannot prove a surviving read-only connection")
+        binding = recover(lease_id, native_identity=native_identity,
+                          current_epochs=self.store.current_epochs)
+        if (binding.lease != expected_lease
+                or binding.native_thread_id != actor.native_thread_id
+                or binding.native_thread_id != native_identity.get("thread_id")
+                or binding.native_source_digest != native_identity.get("source_digest")
+                or not binding.bound_before_turn or not binding.lease_consumed
+                or not binding.turn_id):
+            raise SupervisorError("surviving read-only binding differs from stored authority")
+        return WorkerRuntime(binding.lease, actor.role, actor.principal_id)
 
     def step(self, campaign_id: str) -> SupervisorDecision:
         try:

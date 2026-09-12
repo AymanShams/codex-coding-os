@@ -21,6 +21,29 @@ describes the backend. The [official setup command](https://github.com/openai/co
 provisions it and saves the configuration. Having `codex` on `PATH` alone does
 not establish product-file read access.
 
+Codex 0.154.0 performs directory-read grants in a background helper after the
+setup request returns. From the verified Coding OS package source, finish this
+setup before the first validation. Use the executable from the checksum-verified
+official native package, with its sibling `codex-resources` directory intact:
+
+```powershell
+$NativeCodex = (Get-Command codex.exe -CommandType Application).Source
+$NativeDigest = (Get-FileHash -LiteralPath $NativeCodex -Algorithm SHA256).Hash.ToLowerInvariant()
+python -B scripts/prepare_windows_validation_boundary.py `
+  --codex-executable $NativeCodex --expected-codex-sha256 $NativeDigest `
+  --cwd (Get-Location).Path --output "$env:TEMP/coding-os-native-read-setup.json"
+if ($LASTEXITCODE -ne 0) { throw 'Windows native directory-read setup did not complete.' }
+```
+
+The command checks the initialized backend, makes one public
+[`windowsSandbox/setupStart` request](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server/src/request_processors/windows_sandbox_processor.rs),
+and waits up to 60 seconds for fresh native read-grant completion matching the
+exact helper binary and directory. It runs no model turn or project command.
+The JSON receipt retains the source hashes, setup result, log generation, and
+failure details. Missing, conflicting, or incomplete evidence stops setup.
+This completion check supports the Codex 0.154.0 package layout and log contract.
+The paired file-access test below must still pass before starting a campaign.
+
 Linux must also permit Bubblewrap to create unprivileged user namespaces.
 On Ubuntu 24.04 and later, an administrator may need to grant `userns` to the
 installed Bubblewrap executable through an application-specific AppArmor

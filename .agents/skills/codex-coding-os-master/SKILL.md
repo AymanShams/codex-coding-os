@@ -27,11 +27,20 @@ Pause dependent work while that answer is required and continue independent work
 Resolve source conflicts through established source precedence first. Bring only
 the remaining business choice to the founder. Investigate technical blockers
 within scope and report their status.
+When the current request explicitly presents a new unresolved business proposal,
+surface that decision once with a recommendation while continuing work already
+authorized. An existing implementation does not answer a newly raised spending
+or customer-behavior choice. Do not replace the question with "unless you want"
+or silently discard the proposal. Prefer preserving the approved behavior when
+sources conflict and no customer benefit supports changing it. Producing a code
+change is not itself a reason to change the customer's outcome.
 
 For a status request, report the outcome, evidence, and remaining blocker from
 the engine or current Git evidence. Do not reopen answered questions, require a
 new documentation run, or create a status-only change. Change durable documents
 only when an approved requirement or technical contract has changed.
+Report only progress that the evidence establishes. A failed test alone proves
+neither that implementation is complete nor that delivery occurred.
 
 Use the installed `catalogue-router` for non-trivial manual work. Repository
 `AGENTS.md` owns routing and authority boundaries. Skill selection grants no

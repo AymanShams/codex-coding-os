@@ -2705,23 +2705,54 @@ class CampaignStore:
                 )
             ]
 
-    def recover_after_restart(self) -> dict[str, int]:
+    def recover_after_restart(self, *, retained_lease_ids: Iterable[str] = ()) -> dict[str, int]:
+        retained = tuple(retained_lease_ids)
+        if len(set(retained)) != len(retained):
+            raise StoreError("read-only recovery contains duplicate leases")
         with closing(self._connect()) as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                for lease_id in retained:
+                    row = connection.execute(
+                        "SELECT l.*, a.role, a.can_write, a.used, a.identity_digest, "
+                        "a.native_thread_id, a.authority_epoch, a.native_identity_json, "
+                        "a.actor_json, a.bound_request_id "
+                        "FROM leases l JOIN actors a ON a.actor_id=l.actor_id WHERE l.lease_id=?",
+                        (lease_id,),
+                    ).fetchone()
+                    if (row is None or row["state"] != "ACTIVE" or row["can_write"]
+                            or not row["used"] or not row["identity_digest"] or not row["bound_request_id"]
+                            or row["role"] not in {"REVIEWER", "CLOSURE_REVIEWER"}
+                            or row["native_thread_id"] == "UNBOUND"):
+                        raise StoreError("only an active bound read-only reviewer may survive recovery")
+                    snapshot = self._load_snapshot(connection, str(row["campaign_id"]))
+                    node = snapshot.node(str(row["node_id"]))
+                    expected_state = NodeState.CHECKS_AND_REVIEW if row["role"] == "REVIEWER" else NodeState.CLOSURE
+                    identity = json.loads(str(row["native_identity_json"]))
+                    actor = json.loads(str(row["actor_json"]))
+                    if (snapshot.state != CampaignState.RUNNING or node.state != expected_state
+                            or snapshot.active_node_id != node.node_id
+                            or actor.get("principal_id") not in snapshot.spec.required_review_cohort
+                            or row["authority_epoch"] != snapshot.authority_epoch
+                            or row["cancellation_epoch"] != snapshot.cancellation_epoch
+                            or row["fencing_epoch"] != node.fencing_epoch
+                            or canonical_json_digest(identity) != row["identity_digest"]):
+                        raise StoreError("read-only recovery state or identity changed")
+                    active = {str(item[0]) for item in connection.execute(
+                        "SELECT lease_id FROM leases WHERE campaign_id=? AND state='ACTIVE'",
+                        (snapshot.spec.campaign_id,),
+                    )}
+                    if not active.issubset(retained):
+                        raise StoreError("read-only recovery must retain the complete active cohort")
                 ambiguous = connection.execute(
                     "UPDATE external_effect_outbox SET state='AMBIGUOUS' WHERE state='EXECUTING'"
                 ).rowcount
-                # A supervisor restart loses the in-memory transport that owns
-                # every active native lease.  Keeping such a lease active would
-                # leave an unauditable writer or reviewer and a permanent
-                # resource lock.  Recovery therefore fences every orphaned
-                # active lease.  The supervisor then fails the exact affected
-                # node through the reducer instead of silently redispatching a
-                # second implementation or review generation.
-                invalidated = connection.execute(
-                    "UPDATE leases SET state='INVALIDATED' WHERE state='ACTIVE'"
-                ).rowcount
+                # Only connections verified by the supervisor and native host
+                # survive. Every other active lease remains an orphan.
+                query = "UPDATE leases SET state='INVALIDATED' WHERE state='ACTIVE'"
+                if retained:
+                    query += " AND lease_id NOT IN (" + ",".join("?" for _ in retained) + ")"
+                invalidated = connection.execute(query, retained).rowcount
                 connection.execute(
                     """
                     UPDATE resource_locks SET lease_id=NULL
