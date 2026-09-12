@@ -43,7 +43,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install the validation boundary
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor
+          bash scripts/prepare_linux_validation_boundary.sh
       - name: Test campaign model and reducer
         run: python -B -m unittest tests.test_campaign_model_reducer -v
       - name: Test reducer mutation-gate receipt evaluation
@@ -91,7 +94,7 @@ jobs:
           account_profile="$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')"
           bwrap --unshare-user --uid "$(id -u)" --gid "$(id -g)" --ro-bind / / \
             --tmpfs "$account_profile" --tmpfs /tmp --proc /proc --dev /dev \
-            --bind "$journey/output" /out --setenv HOME "$account_profile" --unsetenv CODEX_HOME --unsetenv SKILLS_ROOT \
+            --bind "$journey/output" /var/tmp --setenv HOME "$account_profile" --unsetenv CODEX_HOME --unsetenv SKILLS_ROOT \
             --unsetenv PYTHONPATH --setenv PYTHONDONTWRITEBYTECODE 1 \
             python3 -B "$PWD/tests/supported_install_journey.py" \
             --baseline-archive "$journey/baseline.zip" --baseline-commit "$baseline" \
@@ -115,7 +118,10 @@ jobs:
           python-version: "3.12"
       - name: Install Linux validation boundary
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor
+          bash scripts/prepare_linux_validation_boundary.sh
       - name: Install pinned Windows validation boundary
         if: runner.os == 'Windows'
         shell: pwsh
@@ -134,6 +140,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Codex boundary extraction failed.' }
           $Binary = @(Get-ChildItem -LiteralPath $BoundaryRoot -Recurse -Filter codex.exe)
           if ($Binary.Count -ne 1) { throw 'Expected exactly one Codex binary.' }
+          $BoundaryCodexHome = Join-Path $env:USERPROFILE '.codex'
+          & $Binary[0].FullName sandbox setup --elevated --current-user --codex-home $BoundaryCodexHome
+          if ($LASTEXITCODE -ne 0) { throw 'Windows validation sandbox provisioning failed.' }
           $Binary[0].DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: Verify validation containment and accepted local delivery
         run: python -B -m unittest tests.test_campaign_validation_boundary tests.test_campaign_bounded_continuation -v

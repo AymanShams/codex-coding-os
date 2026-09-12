@@ -7,6 +7,34 @@ also require a compatible, authenticated Codex CLI. Campaign validation needs
 Codex's read-only sandbox on Windows, Bubblewrap on Linux, or `sandbox-exec`
 on macOS. GitHub delivery additionally needs authenticated `gh`.
 
+Windows requires an initialized native `elevated` Codex sandbox. With Codex CLI
+0.154.0 or a compatible version installed, open PowerShell as Administrator and
+run its setup once for the account that will run campaigns:
+
+```powershell
+codex sandbox setup --elevated --current-user --codex-home "$env:USERPROFILE\.codex"
+if ($LASTEXITCODE -ne 0) { throw 'Windows validation sandbox provisioning failed.' }
+```
+
+The [native Windows sandbox documentation](https://learn.chatgpt.com/docs/windows/windows-sandbox)
+describes the backend. The [official setup command](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/cli/src/sandbox_setup.rs)
+provisions it and saves the configuration. Having `codex` on `PATH` alone does
+not establish product-file read access.
+
+Linux must also permit Bubblewrap to create unprivileged user namespaces.
+On Ubuntu 24.04 and later, an administrator may need to grant `userns` to the
+installed Bubblewrap executable through an application-specific AppArmor
+profile, as described in the [Ubuntu release notes](https://documentation.ubuntu.com/release-notes/24.04/).
+Verify the prerequisite before starting a campaign:
+
+```bash
+bwrap --ro-bind / / --proc /proc --dev /dev --unshare-pid \
+  --die-with-parent --chdir "$PWD" -- /usr/bin/true
+```
+
+The command must exit successfully. Keep the read-only mounts and the host's
+system-wide namespace restrictions in place.
+
 The routed skill entry requires a separately installed canonical universal
 router. The package does not install or activate that router. `doctor` reports
 its pointer, manifest hash, and CLI availability separately from engine
@@ -153,8 +181,20 @@ Use `--live-host-probe` when the native Codex host is available and a live
 bind-before-turn proof is required.
 
 The default diagnostic runs no model turns. The live probe runs bounded model
-turns in a disposable repository. A previous successful probe does not prove
-that a new project's required tools or acceptance flow work.
+turns in a disposable repository. `doctor` checks runtime and store integrity,
+router prerequisites, and optionally the native host. It does not verify
+validation file access.
+
+Before the first campaign, run the existing paired boundary test from the root
+of the verified package source checkout or extracted release ZIP:
+
+```powershell
+python -B -m unittest tests.test_campaign_validation_boundary.ValidationBoundaryTests.test_supported_boundary_reads_product_and_denies_engine_state_write -v
+```
+
+This test must pass. It reads a disposable product file and verifies that a
+write to a separate engine-state marker is denied. A previous successful probe
+does not prove that a new project's required tools or acceptance flow work.
 
 ## Admit a campaign
 

@@ -2,7 +2,7 @@
 """Public installer journey, restricted to a disposable Linux account namespace.
 
 Run through bubblewrap with a read-only host root, tmpfs at the actual account
-profile and /tmp, and one writable /out artifact directory. Preserve the host
+profile and /tmp, and one writable /var/tmp artifact mount. Preserve the host
 UID/GID so the installed validation boundary can create its own namespace.
 Inputs must be exact git archive ZIPs.
 No runtime path injection, native model call, or canonical router activation.
@@ -192,9 +192,9 @@ def main():
     parser.add_argument("--baseline-commit", required=True)
     parser.add_argument("--candidate-archive", type=Path, required=True)
     parser.add_argument("--candidate-commit", required=True)
-    parser.add_argument("--output", type=Path, default=Path("/out/supported-install-journey.json"))
+    parser.add_argument("--output", type=Path, default=Path("/var/tmp/supported-install-journey.json"))
     args = parser.parse_args()
-    require(args.output.parent.resolve() == Path("/out"), "Receipt must go to the dedicated /out mount")
+    require(args.output.parent.resolve() == Path("/var/tmp"), "Receipt must go to the dedicated /var/tmp mount")
     account = disposable_account()  # Reject non-disposable execution before any write.
     report = {"protocol": "ccos-supported-install-journey-v1", "status": "failed", "account": account}
     try:

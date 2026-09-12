@@ -42,7 +42,11 @@ class ValidationBoundaryTests(unittest.TestCase):
             marker.write_text("retained", encoding="utf-8")
             approved = self.command(root, head, "from pathlib import Path; assert Path('src/one.txt').read_text().strip() == 'one'")
             # No skip: a supported validation environment must provision its boundary.
-            passed = evidence.execute_trusted_command(approved)
+            try:
+                passed = evidence.execute_trusted_command(approved)
+            except evidence.ValidationFailure as exc:
+                self.fail("Required validation boundary could not execute an approved read: "
+                          + exc.evidence.stderr[:2000])
             self.assertTrue(passed.passed)
             self.assertEqual(passed.execution_boundary, "READ_ONLY")
             self.assertEqual(passed.boundary_executable_sha256,
@@ -113,7 +117,7 @@ class SavedValidationInputTests(unittest.TestCase):
         source = shutil.which("cmd.exe" if os.name == "nt" else "true")
         self.assertIsNotNone(source)
         executable = self.base / ("validator.exe" if os.name == "nt" else "validator")
-        shutil.copy2(source, executable)
+        shutil.copy(source, executable)
         command = replace(self.command, executable=str(executable),
                           arguments=("/d", "/c", "exit", "0") if os.name == "nt" else ())
         receipt = evidence.execute_trusted_command(command)

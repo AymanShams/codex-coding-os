@@ -87,10 +87,27 @@ events, runtime installations, telemetry, and legacy archive records.
 
 Campaign validation uses a read-only process boundary. Windows uses the native
 Codex `:read-only` profile, Linux uses Bubblewrap, and macOS uses `sandbox-exec`.
+Windows requires an initialized `elevated` backend. In PowerShell opened as
+Administrator for the account that will run campaigns, provision it once with
+the [official Codex setup command](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/cli/src/sandbox_setup.rs):
+
+```powershell
+codex sandbox setup --elevated --current-user --codex-home "$env:USERPROFILE\.codex"
+if ($LASTEXITCODE -ne 0) { throw 'Windows validation sandbox provisioning failed.' }
+```
+
+Before the first campaign, run the paired product-file read and denied-write
+test documented in [Getting Started](getting-started.md#verify-the-installed-runtime)
+from the verified package source. `doctor` verifies the runtime and store and
+can probe the native host, but it does not verify validation file access.
+
 The required launcher must exist and start successfully. There is no unconfined
 fallback. Commands that need to write build outputs or caches are outside this
 validation mode. The standalone trusted-command utility still supports ordinary
 process execution, which does not carry the campaign containment guarantee.
+Linux hosts must permit Bubblewrap's unprivileged user namespaces. Ubuntu hosts
+may require the executable-specific AppArmor prerequisite and launch check in
+[Getting Started](getting-started.md). A missing host prerequisite stops validation.
 
 A correction policy can recognize one failed Python `unittest` assertion tied
 to an approved acceptance scenario. The persisted command receipt, clean exact

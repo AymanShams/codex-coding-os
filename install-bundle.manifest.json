@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "67e1b446da824c97f59f5c0dce2feb58a6c35269dce199d228916456b0f33205",
+  "aggregate_sha256": "0987844398e2bbe2283ea055c8a0168b4f757acab5e2e29c3b79d745f27e6f25",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2178,8 +2178,8 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "5a91bac6faf1629503ae18968c0788e2941f8f145c0c5a016ebf33b08d0893f8",
-      "size": 9735
+      "sha256": "63247285653e4aae13ef81c495b98abf7b940d7a575242b34949e1034d3664d5",
+      "size": 10181
     },
     {
       "path": "CHANGELOG.md",
@@ -2268,8 +2268,8 @@
     },
     {
       "path": "docs/campaign-engine.md",
-      "sha256": "d891db4ef07022db107b8eb9d83d749894a1f42edb17c65e6f3369bc0d863ca3",
-      "size": 8601
+      "sha256": "c7bd253f66110ab8c1af08690f81b016da79be5a0ad931d5bc22303ea5c8da1a",
+      "size": 9626
     },
     {
       "path": "docs/case-state-contract.md",
@@ -2303,8 +2303,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "7b4b104de02c40410379c67f7a8b0127b19bb59396aba62a2f88638ecc20e8c1",
-      "size": 10151
+      "sha256": "03353ea7fae6c0fb9a85d0214f32ad3aa3ff13df13cd3b05deb6d575727d5860",
+      "size": 12144
     },
     {
       "path": "docs/license-strategy.md",
@@ -2505,6 +2505,11 @@
       "path": "scripts/package.ps1",
       "sha256": "af52c243b9c958cceb093d52b96ff621eefd67135579090629aea854bfb1e7bf",
       "size": 10385
+    },
+    {
+      "path": "scripts/prepare_linux_validation_boundary.sh",
+      "sha256": "ea576e9cae75caccbd19bf2435c1a589cd2205b8c4b9cff2a187206da1477218",
+      "size": 1811
     },
     {
       "path": "scripts/release-safety-scan.ps1",
@@ -2803,8 +2808,8 @@
     },
     {
       "path": "tests/supported_install_journey.py",
-      "sha256": "f186146f0cd0bd8e710e07ce8a2a7f71ba3dc278fb9e93e59a2a2d6547d11c8b",
-      "size": 14204
+      "sha256": "433aade6ff6224d5c1c29116d537aa816c0d27473331380a0e6de78ac5200352",
+      "size": 14216
     },
     {
       "path": "tests/test_campaign_acceptance_sources.py",
@@ -2868,8 +2873,8 @@
     },
     {
       "path": "tests/test_campaign_validation_boundary.py",
-      "sha256": "9d186fc9ab852be46478d428e525d79425aa67e1cb306b284b929fdf1245214a",
-      "size": 8378
+      "sha256": "7713520bb8cbcad2275f189a57da1fc0cfa61335b63f70689c284f87317c1f48",
+      "size": 8602
     },
     {
       "path": "tests/test_capability_manifest_builder.py",
