@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, replace
 import ast
 import inspect
+import hashlib
 import random
 import unittest
 
@@ -33,6 +34,7 @@ from scripts.agent.campaign_engine import (
     reduce,
 )
 import scripts.agent.campaign_engine.reducer as reducer_module
+from scripts.agent.campaign_engine.model import FindingOrigin, unique_findings
 
 
 def spec_dict(
@@ -118,6 +120,26 @@ def make_spec(**kwargs) -> CampaignSpec:
     return CampaignSpec.from_dict(spec_dict(**kwargs))
 
 
+def correction_payload(snapshot) -> dict:
+    command = snapshot.spec.required_validation_commands[0]
+    policy = dict(command.correction_policy)
+    evidence = {
+        "protocol_version": "ccos-validation-execution-v1", "execution_boundary": "READ_ONLY",
+        "candidate_head": "d" * 40, "head_after": "d" * 40,
+        "arguments": command.arguments, "passed": False, "exit_code": 1,
+        "required_exit_code": 0, "timed_out": False, "output_limited": False,
+        "status_before_sha256": hashlib.sha256(b"").hexdigest(),
+        "status_after_sha256": hashlib.sha256(b"").hexdigest(),
+        "stderr": f"FAIL: test_result ({policy['test_id']})\nRan 1 test in 0.001s\nFAILED (failures=1)\n",
+    }
+    evidence["evidence_sha256"] = canonical_json_digest(evidence)
+    return {"correction": {**policy, "command_id": command.command_id,
+        "candidate_head": evidence["candidate_head"], "evidence_id": "failed-unit",
+        "evidence_digest": evidence["evidence_sha256"], "failure_evidence": evidence,
+        "specification_digest": snapshot.spec.specification_digest,
+        "authority_epoch": snapshot.authority_epoch, "cancellation_epoch": snapshot.cancellation_epoch}}
+
+
 class Events:
     def __init__(self) -> None:
         self.sequence = 0
@@ -194,6 +216,24 @@ def candidate_snapshot():
 
 
 class CampaignModelTests(unittest.TestCase):
+    def test_same_finding_identity_deduplicates_wording_without_losing_evidence(self) -> None:
+        first = {"finding_id": "F-1", "title": "Wrong output", "blocking": True,
+                 "details": {"invariant": "exact result", "evidence": "actual differs"}}
+        second = {**first, "title": "Output differs"}
+        one = unique_findings([first, second], origin=FindingOrigin.REVIEW)
+        two = unique_findings([second, first], origin=FindingOrigin.REVIEW)
+        self.assertEqual(one, two)
+        self.assertEqual(len(one), 1)
+        self.assertEqual(dict(one[0].details), first["details"])
+        self.assertTrue(one[0].blocking)
+
+    def test_same_finding_identity_cannot_deduplicate_conflicting_material_evidence(self) -> None:
+        first = {"finding_id": "F-1", "title": "Defect", "blocking": True,
+                 "details": {"invariant": "exact result", "evidence": "actual differs"}}
+        for conflicting in ({**first, "blocking": False}, {**first, "details": {"evidence": "different"}}):
+            with self.subTest(conflicting=conflicting), self.assertRaisesRegex(TransitionError, "conflicting"):
+                unique_findings([first, conflicting], origin=FindingOrigin.REVIEW)
+
     def test_parent_reviewer_validator_and_supervisor_actors_are_write_denied(self) -> None:
         for role in (
             ActorRole.PARENT,
@@ -438,6 +478,15 @@ class CampaignReducerTests(unittest.TestCase):
 
     def test_one_validation_correction_only(self) -> None:
         events, snapshot = running_snapshot()
+        raw = snapshot.spec.to_dict()
+        raw.pop("specification_digest")
+        policy = {"adapter": "unittest", "expectation_id": "accepted", "test_id": "test.App.test_result"}
+        raw["required_validation_commands"][0]["correction_policy"] = policy
+        raw["nodes"][0]["acceptance_scenarios"] = [{
+            "scenario_id": "accepted", "expectation": "correct result", "validation_command_id": "unit",
+            "sources": [{"path": "requirements.md", "requirement_id": "result", "sha256": "a" * 64}],
+        }]
+        snapshot = replace(snapshot, spec=CampaignSpec.from_dict(raw))
         snapshot, _ = events.apply(
             snapshot,
             EventType.ADMIT_NODE,
@@ -447,7 +496,8 @@ class CampaignReducerTests(unittest.TestCase):
         snapshot, _ = events.apply(snapshot, EventType.START_IMPLEMENTATION, node_id="node-1")
         snapshot, _ = events.apply(snapshot, EventType.IMPLEMENTATION_COMPLETED, node_id="node-1")
         snapshot, _ = events.apply(
-            snapshot, EventType.REQUEST_VALIDATION_CORRECTION, node_id="node-1"
+            snapshot, EventType.REQUEST_VALIDATION_CORRECTION, node_id="node-1",
+            payload=correction_payload(snapshot),
         )
         snapshot, _ = events.apply(snapshot, EventType.IMPLEMENTATION_COMPLETED, node_id="node-1")
         with self.assertRaisesRegex(TransitionError, "already been used"):
@@ -562,6 +612,13 @@ class CampaignReducerTests(unittest.TestCase):
         self.assertEqual(snapshot.state, CampaignState.FAILED)
         self.assertEqual(snapshot.node("node-1").state, NodeState.FAILED_EXACT_NODE)
         self.assertIn("new=NEW-1", snapshot.failure_reason or "")
+
+    def test_frozen_blocker_cannot_be_relabelled_as_closure_observation(self) -> None:
+        with self.assertRaisesRegex(TransitionError, "relabel"):
+            self._repair_closure(closure_findings=[{
+                "finding_id": "F-1", "title": "now called optional", "blocking": False,
+                "details": {"observation": "claimed optional"},
+            }])
 
     def test_exact_revision_authority_cancellation_and_fencing(self) -> None:
         events, snapshot = running_snapshot(mode="AUTOMATED")

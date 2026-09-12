@@ -48,6 +48,10 @@ class RuntimePinError(AdmissionError):
     pass
 
 
+class SourceDriftError(AdmissionError):
+    """A declared acceptance dependency no longer matches its approved content."""
+
+
 def _canonical_json(value: Any) -> bytes:
     return json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -566,10 +570,93 @@ def verify_installed_runtime(
     )
 
 
+def acceptance_source_content(root: str | Path, source: Mapping[str, Any]) -> bytes:
+    """Read one exact file or Markdown section without loading unrelated documents."""
+
+    repository = Path(root).resolve(strict=True)
+    relative = normalize_allowed_path(str(source.get("path", "")))
+    path = repository / relative
+    try:
+        path.resolve(strict=True).relative_to(repository)
+        data = path.read_bytes()
+    except (OSError, ValueError) as exc:
+        raise SourceDriftError(f"acceptance source is unavailable: {relative}") from exc
+    section = source.get("section")
+    if section is None:
+        return data
+    try:
+        lines = data.decode("utf-8").splitlines(keepends=True)
+    except UnicodeError as exc:
+        raise SourceDriftError(f"acceptance section requires UTF-8: {relative}") from exc
+    headings: list[tuple[int, int, str]] = []
+    fence: str | None = None
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        marker = re.match(r"(`{3,}|~{3,})", stripped)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = None
+            continue
+        if fence is not None:
+            continue
+        heading = re.match(r"^ {0,3}(#{1,6})[ \t]+(.+?)\s*$", line)
+        if heading:
+            title = re.sub(r"[ \t]+#+$", "", heading.group(2)).strip()
+            headings.append((index, len(heading.group(1)), title))
+    matches = [item for item in headings if item[2] == section]
+    if len(matches) != 1:
+        raise SourceDriftError(f"acceptance section is missing or ambiguous: {relative} / {section}")
+    start, level, _ = matches[0]
+    end = next((index for index, depth, _ in headings if index > start and depth <= level), len(lines))
+    return "".join(lines[start:end]).encode("utf-8")
+
+
+def verify_acceptance_sources(
+    spec: Mapping[str, Any], *, node_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Verify only dependencies declared by the affected acceptance scenarios."""
+
+    verified: list[dict[str, Any]] = []
+    identities: dict[str, tuple[str, str | None, str]] = {}
+    for node in spec.get("nodes", ()):
+        if node_id is not None and node.get("node_id") != node_id:
+            continue
+        for scenario in node.get("acceptance_scenarios", ()):
+            for source in scenario["sources"]:
+                try:
+                    digest = _sha256_bytes(acceptance_source_content(spec["worktree"], source))
+                except (AdmissionError, OSError) as exc:
+                    raise SourceDriftError(f"acceptance source unavailable for {node['node_id']}/{scenario['scenario_id']}: {source['path']}: {exc}") from exc
+                if digest != source["sha256"]:
+                    raise SourceDriftError(
+                        f"acceptance source changed for {node['node_id']}/{scenario['scenario_id']}: "
+                        f"{source['requirement_id']} ({source['path']})"
+                    )
+                identity = (source["path"], source.get("section"), digest)
+                previous = identities.setdefault(source["requirement_id"], identity)
+                if previous != identity:
+                    raise SourceDriftError(f"conflicting source identities for {source['requirement_id']}")
+                verified.append({"node_id": node["node_id"], "scenario_id": scenario["scenario_id"],
+                                 "requirement_id": source["requirement_id"], "path": source["path"],
+                                 "section": source.get("section"), "sha256": digest})
+    return verified
+
+
 def admit_campaign_spec(
     spec: Mapping[str, Any], *, installed_root: str | Path
 ) -> dict[str, Any]:
     """Verify the exact repository and installed runtime fields of one spec."""
+
+    # This is the actual mediated host surface, not a second capability catalogue.
+    from .host import _dynamic_tool_specs
+    available_tools = {item["name"] for item in _dynamic_tool_specs(True)}
+    for node in spec.get("nodes", ()):
+        missing = sorted(set(node.get("required_tools", ())) - available_tools)
+        if missing:
+            raise AdmissionError(f"required host tools unavailable for {node['node_id']}: {missing}")
 
     repository = spec.get("repository")
     if not isinstance(repository, Mapping):
@@ -735,6 +822,7 @@ def admit_campaign_spec(
         "algorithm": "ED25519",
         "public_key_sha256": _sha256_bytes(authorization_public_key),
     }
+    acceptance_sources = verify_acceptance_sources(spec)
     return {
         "protocol_version": RUNTIME_PROTOCOL_VERSION,
         "repository": repo_evidence.to_dict(),
@@ -742,6 +830,7 @@ def admit_campaign_spec(
         "allowed_paths": normalized_paths,
         "validation_commands": admitted_commands,
         "human_authorization_verifier": authorization_verifier,
+        "acceptance_sources": acceptance_sources,
         "admission_sha256": _sha256_bytes(
             _canonical_json(
                 {
@@ -750,6 +839,7 @@ def admit_campaign_spec(
                     "allowed_paths": normalized_paths,
                     "validation_commands": admitted_commands,
                     "human_authorization_verifier": authorization_verifier,
+                    "acceptance_sources": acceptance_sources,
                 }
             )
         ),

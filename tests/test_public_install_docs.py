@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
+import shlex
 import sys
 import unittest
 from unittest import mock
@@ -288,6 +289,29 @@ class PublicInstallDocumentationTests(unittest.TestCase):
             "python -B -m unittest tests.test_trufflehog_result_gate -v",
             self.validation_workflow,
         )
+
+    def test_ci_journey_inputs_survive_masking_the_runner_profile(self) -> None:
+        step = self.validation_workflow.split(
+            "- name: Exercise public installation in a disposable account namespace", 1
+        )[1].split("\n  product-acceptance:", 1)[0]
+        setup, command = step.split("bwrap ", 1)
+        arguments = shlex.split(command.replace("\\\n", " "))
+        mounts = [(index, arguments[index + 1], arguments[index + 2])
+                  for index, argument in enumerate(arguments) if argument == "--ro-bind"]
+        staged = [(index, target) for index, source, target in mounts if source == "$journey"]
+        self.assertEqual(len(staged), 1, "Journey inputs need one explicit read-only mount")
+        mount_index, mount_target = staged[0]
+        self.assertGreater(mount_index, arguments.index("$account_profile"))
+        root = PurePosixPath(mount_target)
+        self.assertNotEqual(root, PurePosixPath("/"))
+        consumed = [arguments[arguments.index("python3") + 2]]
+        consumed += [arguments[arguments.index(flag) + 1]
+                     for flag in ("--baseline-archive", "--candidate-archive")]
+        for path in consumed:
+            self.assertTrue(PurePosixPath(path).is_relative_to(root), path)
+        self.assertEqual(PurePosixPath(arguments[arguments.index("--chdir") + 1]), root)
+        wrapper = PurePosixPath(consumed[0]).relative_to(root)
+        self.assertIn(f'cp "$PWD/tests/supported_install_journey.py" "$journey/{wrapper}"', setup)
 
     def test_manifest_declares_the_legacy_retirement_contract(self) -> None:
         self.assertEqual(

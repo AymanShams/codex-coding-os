@@ -15,6 +15,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass
@@ -138,6 +139,7 @@ class TrustedCommand:
     expected_working_tree: str
     expected_status_sha256: str | None = None
     required_exit_code: int = 0
+    execution_boundary: str = "PROCESS"
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "TrustedCommand":
@@ -173,6 +175,7 @@ class TrustedCommand:
                 else None
             ),
             required_exit_code=int(raw.get("required_exit_code", 0)),
+            execution_boundary=str(raw.get("execution_boundary", "PROCESS")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -204,6 +207,10 @@ class CommandEvidence:
     passed: bool
     duration_ms: int
     evidence_sha256: str
+    execution_boundary: str = "PROCESS"
+    boundary_executable: str | None = None
+    boundary_executable_sha256: str | None = None
+    environment_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -288,6 +295,22 @@ def _command_environment(spec: TrustedCommand) -> dict[str, str]:
     return environment
 
 
+def _effective_command_environment(spec: TrustedCommand) -> dict[str, str]:
+    environment = _command_environment(spec)
+    if os.name == "nt" and spec.execution_boundary == "READ_ONLY":
+        # Native sandbox bootstrap needs the host profile and temporary paths.
+        # Stripping TEMP/TMP makes it fall back to the profile as a temp directory.
+        for name in ("USERPROFILE", "TEMP", "TMP"):
+            value = os.environ.get(name)
+            if not value or not Path(value).is_dir():
+                raise EvidenceError(f"Windows read-only validation requires the host {name}")
+            if environment.get(name, value) != value:
+                raise EvidenceError(f"Windows read-only validation cannot override the host {name}")
+            environment[name] = value
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
+
+
 def _assert_worktree_condition(
     condition: str, status_text: str, expected_digest: str | None
 ) -> str:
@@ -301,6 +324,31 @@ def _assert_worktree_condition(
     else:
         raise EvidenceError("expected_working_tree must be CLEAN or EXACT_STATUS")
     return digest
+
+
+def validation_boundary_command(
+    executable: Path, arguments: Sequence[str], cwd: Path, boundary: str
+) -> tuple[list[str], Path | None]:
+    """Use an OS-enforced read-only process boundary for campaign validation."""
+
+    if boundary == "PROCESS":
+        return [str(executable), *arguments], None
+    if boundary != "READ_ONLY":
+        raise EvidenceError("unknown validation execution boundary")
+    if os.name == "nt":
+        launcher = _resolve_executable("codex", cwd)
+        return [str(launcher), "sandbox", "-P", ":read-only", "-C", str(cwd),
+                "--", str(executable), *arguments], launcher
+    if sys.platform == "darwin":
+        launcher = _resolve_executable("sandbox-exec", cwd)
+        return [str(launcher), "-p", "(version 1)(allow default)(deny file-write*)",
+                str(executable), *arguments], launcher
+    if sys.platform.startswith("linux"):
+        launcher = _resolve_executable("bwrap", cwd)
+        return [str(launcher), "--ro-bind", "/", "/",
+                "--proc", "/proc", "--dev", "/dev", "--unshare-pid", "--die-with-parent",
+                "--chdir", str(cwd), "--", str(executable), *arguments], launcher
+    raise EvidenceError("read-only validation is unavailable on this platform")
 
 
 def execute_trusted_command(spec: TrustedCommand | Mapping[str, Any]) -> CommandEvidence:
@@ -322,14 +370,19 @@ def execute_trusted_command(spec: TrustedCommand | Mapping[str, Any]) -> Command
         spec.expected_working_tree, status_before, spec.expected_status_sha256
     )
     executable = _resolve_executable(spec.executable, cwd)
-    environment = _command_environment(spec)
+    argv, boundary_executable = validation_boundary_command(
+        executable, spec.arguments, cwd, spec.execution_boundary
+    )
+    environment = _effective_command_environment(spec)
+    executable_sha256 = _sha256(executable.read_bytes())
+    boundary_sha256 = _sha256(boundary_executable.read_bytes()) if boundary_executable else None
     creationflags = 0
     start_new_session = os.name != "nt"
     if os.name == "nt":
         creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
     started = time.monotonic()
     process = subprocess.Popen(
-        (str(executable), *spec.arguments),
+        argv,
         cwd=cwd,
         env=environment,
         stdin=subprocess.DEVNULL,
@@ -380,6 +433,11 @@ def execute_trusted_command(spec: TrustedCommand | Mapping[str, Any]) -> Command
     )
     if head_after != spec.candidate_head:
         raise HeadRaceError("candidate head changed during validation execution")
+    if _sha256(executable.read_bytes()) != executable_sha256 or (
+        boundary_executable is not None
+        and _sha256(boundary_executable.read_bytes()) != boundary_sha256
+    ):
+        raise EvidenceError("validation executable or boundary changed during execution")
     passed = (
         not timed_out
         and not output_limited
@@ -389,10 +447,11 @@ def execute_trusted_command(spec: TrustedCommand | Mapping[str, Any]) -> Command
     body = {
         "protocol_version": "ccos-validation-execution-v1",
         "executable": str(executable),
-        "executable_sha256": _sha256(executable.read_bytes()),
+        "executable_sha256": executable_sha256,
         "arguments": spec.arguments,
         "working_directory": str(cwd),
         "environment_names": tuple(sorted(environment)),
+        "environment_sha256": _sha256(_canonical_json(environment)),
         "timeout_seconds": spec.timeout_seconds,
         "output_limit_bytes": spec.output_limit_bytes,
         "candidate_head": spec.candidate_head,
@@ -409,6 +468,9 @@ def execute_trusted_command(spec: TrustedCommand | Mapping[str, Any]) -> Command
         "required_exit_code": spec.required_exit_code,
         "passed": passed,
         "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
+        "execution_boundary": spec.execution_boundary,
+        "boundary_executable": str(boundary_executable) if boundary_executable else None,
+        "boundary_executable_sha256": boundary_sha256,
     }
     body["evidence_sha256"] = _sha256(_canonical_json(body))
     evidence = CommandEvidence(**body)
@@ -425,6 +487,69 @@ def execute_trusted_command(spec: TrustedCommand | Mapping[str, Any]) -> Command
             evidence=evidence,
         )
     return evidence
+
+
+def verify_command_evidence(
+    spec: TrustedCommand | Mapping[str, Any],
+    receipt: CommandEvidence | Mapping[str, Any],
+) -> CommandEvidence:
+    """Verify saved passing evidence against current inputs without running it again.
+
+    The caller still owns current Git-head and source validation. This check
+    binds the approved command, installed executable and boundary bytes, and
+    effective environment to the previous measured result.
+    """
+    if not isinstance(spec, TrustedCommand):
+        spec = TrustedCommand.from_dict(spec)
+    try:
+        saved = receipt if isinstance(receipt, CommandEvidence) else CommandEvidence(**dict(receipt))
+        payload = saved.to_dict()
+        digest = payload.pop("evidence_sha256")
+        if digest != _sha256(_canonical_json(payload)):
+            raise EvidenceError("validation receipt digest differs")
+        if (
+            saved.protocol_version != "ccos-validation-execution-v1"
+            or saved.passed is not True
+            or saved.timed_out is not False
+            or saved.output_limited is not False
+            or saved.exit_code != spec.required_exit_code
+        ):
+            raise EvidenceError("validation receipt is not a passing measured result")
+        cwd = Path(spec.working_directory).expanduser().resolve(strict=True)
+        executable = _resolve_executable(spec.executable, cwd)
+        _, boundary = validation_boundary_command(executable, spec.arguments, cwd, spec.execution_boundary)
+        environment = _effective_command_environment(spec)
+        expected = {
+            "executable": str(executable),
+            "executable_sha256": _sha256(executable.read_bytes()),
+            "arguments": spec.arguments,
+            "working_directory": str(cwd),
+            "environment_names": tuple(sorted(environment)),
+            "environment_sha256": _sha256(_canonical_json(environment)),
+            "timeout_seconds": spec.timeout_seconds,
+            "output_limit_bytes": spec.output_limit_bytes,
+            "candidate_head": spec.candidate_head,
+            "head_after": spec.candidate_head,
+            "required_exit_code": spec.required_exit_code,
+            "execution_boundary": spec.execution_boundary,
+            "boundary_executable": str(boundary) if boundary else None,
+            "boundary_executable_sha256": _sha256(boundary.read_bytes()) if boundary else None,
+        }
+        for name, value in expected.items():
+            # JSON arrays survive persistence as lists instead of tuples.
+            actual = tuple(payload[name]) if isinstance(value, tuple) else payload[name]
+            if actual != value:
+                raise EvidenceError(f"validation receipt {name} differs from current command inputs")
+        expected_status = (
+            _sha256(b"") if spec.expected_working_tree == "CLEAN" else spec.expected_status_sha256
+        )
+        if spec.expected_working_tree not in {"CLEAN", "EXACT_STATUS"} or not expected_status:
+            raise EvidenceError("validation worktree condition is unavailable")
+        if saved.status_before_sha256 != expected_status or saved.status_after_sha256 != expected_status:
+            raise EvidenceError("validation receipt worktree condition differs")
+        return saved
+    except (OSError, TypeError, ValueError, KeyError) as exc:
+        raise EvidenceError("validation receipt or current command inputs are unavailable") from exc
 
 
 def exact_repository_evidence(

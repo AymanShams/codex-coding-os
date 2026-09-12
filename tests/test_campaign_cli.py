@@ -542,6 +542,136 @@ class CampaignCliTests(unittest.TestCase):
         self.assertEqual(denied["code"], "AdmissionError")
         self.assertIn("signature verifier", denied["message"])
 
+    def proposed_product_change(self) -> dict:
+        (self.repo / "requirements.md").write_text(
+            "# Product\n\n## REQ-EXPORT\nExport the complete order total.\n\n"
+            "## REQ-COLOR\nUse the existing colors.\n", encoding="utf-8"
+        )
+        raw = self.spec.to_dict()
+        raw.pop("specification_digest")
+        raw["nodes"][0]["acceptance_scenarios"] = [{
+            "scenario_id": "export-total", "expectation": "Export the complete order total",
+            "validation_command_id": "unit", "sources": [{
+                "path": "requirements.md", "requirement_id": "REQ-EXPORT", "section": "REQ-EXPORT",
+            }],
+        }]
+        for key in ("git_root", "worktree", "repository_remote", "branch", "base_sha",
+                    "installed_source_commit", "installed_bundle_digest", "install_transaction"):
+            raw.pop(key)
+        raw["required_validation_commands"][0].pop("working_directory")
+        return raw
+
+    def test_prepare_binds_existing_sources_without_starting_or_overwriting(self) -> None:
+        raw = self.proposed_product_change()
+        draft = self.root / "proposed.json"
+        output = self.root / "prepared.json"
+        draft.write_text(json.dumps(raw), encoding="utf-8")
+        code, result = self.run_cli("prepare", "--spec", str(draft),
+                                    "--repository", str(self.repo), "--output", str(output))
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["state"], "PROPOSED")
+        self.assertFalse(self.state_db.exists())
+        prepared = CampaignSpec.from_dict(json.loads(output.read_text(encoding="utf-8")))
+        source = prepared.nodes[0].acceptance_scenarios[0]["sources"][0]
+        self.assertEqual(source["sha256"], hashlib.sha256(
+            admission.acceptance_source_content(self.repo, source)).hexdigest())
+        self.assertEqual(prepared.base_sha, self.base_sha)
+        before = output.read_bytes()
+        code, _ = self.run_cli("prepare", "--spec", str(draft),
+                               "--repository", str(self.repo), "--output", str(output))
+        self.assertEqual(code, cli.EXIT_FAILED)
+        self.assertEqual(output.read_bytes(), before)
+
+    def test_prepare_rejects_conflicting_identity_and_changed_declared_source(self) -> None:
+        raw = self.proposed_product_change()
+        raw["branch"] = "another-branch"
+        draft = self.root / "proposed.json"
+        output = self.root / "prepared.json"
+        draft.write_text(json.dumps(raw), encoding="utf-8")
+        code, result = self.run_cli("prepare", "--spec", str(draft),
+                                    "--repository", str(self.repo), "--output", str(output))
+        self.assertEqual(code, cli.EXIT_FAILED)
+        self.assertIn("conflicts", result["message"])
+        raw.pop("branch")
+        raw["nodes"][0]["acceptance_scenarios"][0]["sources"][0]["sha256"] = "0" * 64
+        draft.write_text(json.dumps(raw), encoding="utf-8")
+        code, result = self.run_cli("prepare", "--spec", str(draft),
+                                    "--repository", str(self.repo), "--output", str(output))
+        self.assertEqual(code, cli.EXIT_FAILED)
+        self.assertIn("source changed", result["message"])
+        self.assertFalse(output.exists())
+
+    def test_source_drift_is_scoped_and_approval_rechecks_relevant_meaning(self) -> None:
+        raw = self.proposed_product_change()
+        draft = self.root / "proposed.json"
+        output = self.root / "prepared.json"
+        draft.write_text(json.dumps(raw), encoding="utf-8")
+        code, result = self.run_cli("prepare", "--spec", str(draft),
+                                    "--repository", str(self.repo), "--output", str(output))
+        self.assertEqual(code, 0, result)
+        prepared = json.loads(output.read_text(encoding="utf-8"))
+        path = self.repo / "requirements.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("existing colors", "blue colors"), encoding="utf-8")
+        self.assertEqual(len(admission.verify_acceptance_sources(prepared)), 1)
+        code, result = self.run_cli("admit", "--spec", str(output))
+        self.assertEqual(code, 0, result)
+        path.write_text(path.read_text(encoding="utf-8").replace("complete order total", "subtotal only"), encoding="utf-8")
+        with self.assertRaises(admission.SourceDriftError):
+            admission.verify_acceptance_sources(prepared)
+        code, result = self.run_cli("approve", "--campaign-id", "cli-campaign",
+                                    "--specification-digest", prepared["specification_digest"])
+        self.assertEqual(code, cli.EXIT_FAILED)
+        self.assertIn("REQ-EXPORT", result["message"])
+
+    def test_source_sections_ignore_code_examples_and_reject_ambiguous_headings(self) -> None:
+        path = self.repo / "requirements.md"
+        path.write_text("```md\n## Rule\nExample only\n```\n## Rule\nActual\n## Next\nOther\n", encoding="utf-8", newline="\n")
+        source = {"path": "requirements.md", "section": "Rule"}
+        self.assertEqual(admission.acceptance_source_content(self.repo, source), b"## Rule\nActual\n")
+        path.write_text(path.read_text(encoding="utf-8") + "## Rule\nConflicting\n", encoding="utf-8")
+        with self.assertRaises(admission.SourceDriftError):
+            admission.acceptance_source_content(self.repo, source)
+
+    def test_status_renders_current_outcome_without_a_repository_change(self) -> None:
+        self.admit()
+        before = git(self.repo, "status", "--porcelain")
+        _, first = self.run_cli("status", "--campaign-id", "cli-campaign")
+        _, second = self.run_cli("status", "--campaign-id", "cli-campaign")
+        self.assertEqual(first["campaigns"], second["campaigns"])
+        self.assertEqual(first["campaigns"][0]["summary"]["status"], "Awaiting approval")
+        self.assertEqual(git(self.repo, "status", "--porcelain"), before)
+
+
+    def test_required_browser_is_rejected_before_campaign_creation(self):
+        raw = self.proposed_product_change()
+        proposal = self.root / "proposed.json"
+        raw["nodes"][0]["required_tools"] = ["browser_navigate"]
+        proposal.write_text(json.dumps(raw), encoding="utf-8")
+        code, result = self.run_cli("prepare", "--spec", str(proposal),
+                                    "--repository", str(self.repo), "--output", str(self.root / "prepared.json"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("required host tools unavailable", result["message"])
+        self.assertFalse((self.root / "prepared.json").exists())
+
+    def test_required_supported_tools_ignore_unrelated_missing_plugins(self):
+        raw = self.proposed_product_change()
+        proposal = self.root / "proposed.json"
+        raw["nodes"][0]["required_tools"] = ["campaign_read_file", "campaign_apply_patch", "campaign_commit"]
+        proposal.write_text(json.dumps(raw), encoding="utf-8")
+        code, result = self.run_cli("prepare", "--spec", str(proposal),
+                                    "--repository", str(self.repo), "--output", str(self.root / "prepared.json"))
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["state"], "PROPOSED")
+
+    def test_doctor_distinguishes_missing_entry_router_from_verified_engine(self):
+        code, result = self.run_cli("doctor")
+        self.assertEqual(code, 0, result)
+        prerequisite = result["entry_prerequisites"]["canonical_router"]
+        self.assertFalse(prerequisite["available"])
+        self.assertEqual(prerequisite["required_for"], "routed skill entry")
+        self.assertEqual(prerequisite["route_admission"], "not_checked")
+        self.assertTrue(result["runtime_pin"])
+
 
 if __name__ == "__main__":
     unittest.main()

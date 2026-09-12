@@ -33,6 +33,8 @@ from scripts.agent.campaign_engine.model import (
     EffectState,
     Event,
     EventType,
+    Evidence,
+    EvidenceKind,
     NodeState,
     TransitionError,
     canonical_json_digest,
@@ -704,9 +706,20 @@ class CampaignIncidentConformanceTests(unittest.TestCase):
 
     def test_state_loops_cannot_regenerate_work_or_resume_after_stop(self) -> None:
         repository, base_sha = self.new_repository("state-loop-denial")
-        spec, snapshot = self.create_approved(
-            "state-loop-denial", repository, base_sha, mode="MANUAL"
-        )
+        from tests.test_campaign_model_reducer import correction_payload
+        raw = self.make_spec("state-loop-denial", repository, base_sha, mode="MANUAL").to_dict()
+        raw.pop("specification_digest")
+        raw["required_validation_commands"][0]["arguments"] = ["-B", "-m", "unittest"]
+        raw["required_validation_commands"][0]["correction_policy"] = {
+            "adapter": "unittest", "expectation_id": "incident", "test_id": "test_incident.Check.test_result"}
+        raw["nodes"][0]["acceptance_scenarios"] = [{
+            "scenario_id": "incident", "expectation": "the frozen result is correct",
+            "validation_command_id": "unit", "sources": [{
+                "path": "src/app.txt", "requirement_id": "incident", "sha256": "a" * 64}]}]
+        spec = CampaignSpec.from_dict(raw)
+        snapshot = self.store.create_campaign(spec)
+        snapshot = self.apply(snapshot, EventType.APPROVE,
+                              payload={"specification_digest": spec.specification_digest})
         snapshot = self.apply(snapshot, EventType.START)
         snapshot = self.apply(
             snapshot,
@@ -717,14 +730,23 @@ class CampaignIncidentConformanceTests(unittest.TestCase):
         for event_type in (
             EventType.START_IMPLEMENTATION,
             EventType.IMPLEMENTATION_COMPLETED,
-            EventType.REQUEST_VALIDATION_CORRECTION,
-            EventType.IMPLEMENTATION_COMPLETED,
         ):
             snapshot = self.apply(
                 snapshot,
                 event_type,
                 node_id="node-1",
             )
+        payload = correction_payload(snapshot)
+        correction = payload["correction"]
+        self.store.record_evidence(Evidence(
+            evidence_id=correction["evidence_id"], campaign_id=spec.campaign_id,
+            node_id="node-1", kind=EvidenceKind.VALIDATION,
+            digest=correction["evidence_digest"], payload=correction["failure_evidence"],
+            candidate_head=correction["candidate_head"],
+        ))
+        snapshot = self.apply(snapshot, EventType.REQUEST_VALIDATION_CORRECTION,
+                              node_id="node-1", payload=payload)
+        snapshot = self.apply(snapshot, EventType.IMPLEMENTATION_COMPLETED, node_id="node-1")
         before = snapshot
         with self.assertRaisesRegex(TransitionError, "already been used"):
             self.store.apply_event(
@@ -732,6 +754,7 @@ class CampaignIncidentConformanceTests(unittest.TestCase):
                     snapshot,
                     EventType.REQUEST_VALIDATION_CORRECTION,
                     node_id="node-1",
+                    payload=payload,
                 )
             )
         after_rejection = self.store.get_snapshot(spec.campaign_id)

@@ -1,5 +1,11 @@
 ## Requested outcome
 
+<!-- Set Work mode to MANUAL or CAMPAIGN. For MANUAL, remove all campaign-only
+fields. For CAMPAIGN, fill every campaign field from the engine evidence.
+The body does not establish whether work belongs to an admitted campaign. -->
+
+- Work mode:
+- Requested authority:
 - Campaign ID:
 - Objective:
 - Objective kind:
@@ -15,7 +21,10 @@
 
 ## Validation
 
-| Check | Command | Evidence ID | Result |
+<!-- Manual work lists the checks justified by its scope and actual outputs.
+Campaign work retains all six rows. Record unavailable checks truthfully. -->
+
+| Check | Command | Evidence | Result |
 |---|---|---|---|
 | product-quality |  |  |  |
 | product-tests |  |  |  |
@@ -26,6 +35,7 @@
 
 ## Review
 
+- Review result:
 - Frozen candidate diff digest:
 - Required review cohort:
 - Frozen finding IDs:
@@ -37,6 +47,10 @@
 - Allowed effects:
 - Exact operation IDs:
 
-Repository state files, handoffs, review prose, and caller-declared roles are
-informational only. Publication requires the approved campaign contract and the
-exact frozen candidate head.
+<!-- Campaign-only fields: Campaign ID, Objective kind, Specification digest,
+Frozen candidate diff digest, Required review cohort, Frozen finding IDs,
+Repair used, Closure result, and Exact operation IDs. -->
+
+Manual work uses the actual user request and repository rules. Campaign work
+uses the approved contract and exact frozen candidate. This metadata check
+does not authorize effects or prove campaign absence.

@@ -431,18 +431,55 @@ def reduce(
     elif event_type is EventType.REQUEST_VALIDATION_CORRECTION:
         node = _node_for(snapshot, event)
         _check_fence(snapshot, event, node)
+        _require(snapshot.state is CampaignState.RUNNING, "campaign is not running")
         _require(node.state is NodeState.VALIDATING, "node is not validating")
         _require(
             node.validation_corrections == 0,
             "pre-review validation correction has already been used",
         )
         _require(node.candidate_head is None, "frozen candidate cannot return to implementation")
+        correction = event.payload.get("correction", {})
+        _require(isinstance(correction, Mapping), "correction evidence must be an object")
+        command = next((item for item in snapshot.spec.required_validation_commands
+                        if item.command_id == correction.get("command_id")), None)
+        _require(
+            command is not None and command.correction_policy is not None
+            and command.command_id in snapshot.node_spec(node.node_id).validation_command_ids,
+            "correction requires an approved typed validation expectation",
+        )
+        _require(
+            correction.get("specification_digest") == snapshot.spec.specification_digest
+            and correction.get("authority_epoch") == snapshot.authority_epoch
+            and correction.get("cancellation_epoch") == snapshot.cancellation_epoch
+            and correction.get("expectation_id") == command.correction_policy["expectation_id"]
+            and correction.get("test_id") == command.correction_policy["test_id"]
+            and correction.get("adapter") == command.correction_policy["adapter"]
+            and bool(correction.get("evidence_id"))
+            and bool(correction.get("evidence_digest"))
+            and bool(correction.get("candidate_head")),
+            "correction must bind the exact failed evidence and approved authority",
+        )
+        evidence = correction.get("failure_evidence", {})
+        _require(
+            command.recognizes_correction(evidence)
+            and evidence.get("evidence_sha256") == correction["evidence_digest"]
+            and evidence.get("candidate_head") == correction["candidate_head"],
+            "correction requires recognized exact failed command evidence",
+        )
+        if snapshot.spec.mode is CampaignMode.AUTOMATED:
+            needed = snapshot.correction_budget_requirements(node.node_id)
+            remaining = {item.token: item.remaining for item in snapshot.budgets}
+            if (snapshot.autonomous_rank_remaining < sum(needed.values())
+                    or any(remaining.get(token, 0) < count for token, count in needed.items())):
+                raise BudgetError("validation correction has insufficient remaining budget")
         next_snapshot = _replace_node(
             snapshot,
             replace(
                 node,
                 state=NodeState.IMPLEMENTING,
                 validation_corrections=1,
+                validation_correction={key: value for key, value in correction.items()
+                                       if key != "failure_evidence"},
             ),
         )
 
@@ -603,8 +640,12 @@ def reduce(
         new_findings = unique_findings(
             event.payload.get("findings", ()), origin=FindingOrigin.CLOSURE
         )
+        new_blockers = tuple(item for item in new_findings if item.closure_blocking)
         original_ids = {item.finding_id for item in node.findings if item.blocking}
         resolved = tuple(str(item) for item in event.payload.get("resolved_finding_ids", ()))
+        _require(len(resolved) == len(set(resolved)), "closure resolution identifiers must be unique")
+        _require(not ({item.finding_id for item in new_findings} & original_ids),
+                 "closure cannot relabel a frozen blocker as a new observation")
         _require(set(resolved).issubset(original_ids), "closure resolved unknown finding identifiers")
         remaining = original_ids - set(resolved)
         closed = replace(
@@ -612,13 +653,13 @@ def reduce(
             closure_findings=new_findings,
             resolved_finding_ids=resolved,
         )
-        if remaining or new_findings:
+        if remaining or new_blockers:
             reasons: list[str] = []
             if remaining:
                 reasons.append("remaining=" + ",".join(sorted(remaining)))
-            if new_findings:
+            if new_blockers:
                 reasons.append(
-                    "new=" + ",".join(item.finding_id for item in new_findings)
+                    "new=" + ",".join(item.finding_id for item in new_blockers)
                 )
             next_snapshot = _fail_exact_node(
                 snapshot, closed, "closure_failed:" + ";".join(reasons)

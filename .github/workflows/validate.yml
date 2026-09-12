@@ -17,11 +17,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Install pinned capability-router test dependency
         run: python -m pip install -r capability-routing/requirements-test.txt
-      - name: Validate pack and source contracts
-        shell: pwsh
-        run: ./scripts/validate-pack.ps1
       - name: Test redacted secret-scanner result gate
         run: python -B -m unittest tests.test_trufflehog_result_gate -v
       - name: Validate JSON Schema support
@@ -29,22 +30,38 @@ jobs:
         run: ./tests/json-schema-validation-smoke.ps1
       - name: Build deterministic release package
         shell: pwsh
+        # package.ps1 validates once and compares two independently built archives.
         run: |
-          $First = "$env:RUNNER_TEMP/codex-coding-os-first.zip"
-          $Second = "$env:RUNNER_TEMP/codex-coding-os-second.zip"
-          ./scripts/package.ps1 -OutputPath $First
-          ./scripts/package.ps1 -OutputPath $Second
-          $FirstHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $First).Hash
-          $SecondHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Second).Hash
-          if ($FirstHash -ne $SecondHash) {
-            throw "Repeated release archives are not deterministic."
-          }
+          ./scripts/package.ps1 -OutputPath "$env:RUNNER_TEMP/codex-coding-os.zip"
+          @{
+            source_commit = (git rev-parse HEAD)
+            archive_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath "$env:RUNNER_TEMP/codex-coding-os.zip").Hash.ToLowerInvariant()
+            bundle_sha256 = (Get-Content -Raw install-bundle.manifest.json | ConvertFrom-Json).aggregate_sha256
+          } | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/package-identity.json"
+      - name: Retain verified public package
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-package-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/codex-coding-os.zip
+            ${{ runner.temp }}/package-identity.json
+          if-no-files-found: error
+          retention-days: 14
 
   product-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install the validation boundary
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor
+          bash scripts/prepare_linux_validation_boundary.sh
       - name: Test campaign model and reducer
         run: python -B -m unittest tests.test_campaign_model_reducer -v
       - name: Test reducer mutation-gate receipt evaluation
@@ -69,11 +86,51 @@ jobs:
       - name: Test campaign runtime components
         run: python -B -m unittest tests.test_campaign_runtime_components -v
       - name: Test deterministic campaign supervisor
-        run: python -B -m unittest tests.test_campaign_supervisor -v
+        run: python -B -m unittest tests.test_campaign_supervisor tests.test_campaign_read_only_recovery -v
+      - name: Test native journey evidence without model execution
+        run: python -B -m unittest tests.test_native_product_journey -v
+      - name: Test Windows setup completion contract without provisioning
+        run: python -B -m unittest tests.test_windows_validation_setup -v
       - name: Replay campaign incidents and cross-layer conformance
         run: python -B -m unittest tests.test_campaign_incident_conformance -v
       - name: Test executable campaign CLI
         run: python -B -m unittest tests.test_campaign_cli -v
+      - name: Test bounded delivery and usage accounting
+        run: >-
+          python -B -m unittest tests.test_campaign_bounded_continuation
+          tests.test_campaign_provider_usage tests.test_campaign_validation_boundary
+          tests.test_campaign_acceptance_sources -v
+      - name: Exercise public installation in a disposable account namespace
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          candidate="$(git rev-parse HEAD)"
+          baseline="$(git rev-parse HEAD^)"
+          journey="$RUNNER_TEMP/supported-install-journey"
+          mkdir -p "$journey/output"
+          cp "$PWD/tests/supported_install_journey.py" "$journey/supported_install_journey.py"
+          git archive --format=zip --output="$journey/baseline.zip" "$baseline"
+          git archive --format=zip --output="$journey/candidate.zip" "$candidate"
+          account_profile="$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')"
+          bwrap --unshare-user --uid "$(id -u)" --gid "$(id -g)" --ro-bind / / \
+            --tmpfs "$account_profile" --tmpfs /tmp --proc /proc --dev /dev \
+            --ro-bind "$journey" /srv --chdir /srv \
+            --bind "$journey/output" /var/tmp --setenv HOME "$account_profile" --unsetenv CODEX_HOME --unsetenv SKILLS_ROOT \
+            --unsetenv PYTHONPATH --setenv PYTHONDONTWRITEBYTECODE 1 \
+            python3 -B /srv/supported_install_journey.py \
+            --baseline-archive /srv/baseline.zip --baseline-commit "$baseline" \
+            --candidate-archive /srv/candidate.zip --candidate-commit "$candidate"
+      - name: Retain supported installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supported-install-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/supported-install-journey/output/
+            ${{ runner.temp }}/supported-install-journey/baseline.zip
+            ${{ runner.temp }}/supported-install-journey/candidate.zip
+          if-no-files-found: warn
+          retention-days: 14
 
   product-acceptance:
     strategy:
@@ -87,6 +144,89 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Linux validation boundary
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor
+          bash scripts/prepare_linux_validation_boundary.sh
+      - name: Install pinned Windows validation boundary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $BoundaryRoot = Join-Path $env:RUNNER_TEMP 'codex-boundary'
+          New-Item -ItemType Directory -Path $BoundaryRoot | Out-Null
+          gh release download rust-v0.154.0 --repo openai/codex --pattern codex-package-x86_64-pc-windows-msvc.tar.gz --pattern codex-package_SHA256SUMS --dir $BoundaryRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Codex boundary download failed.' }
+          $Archive = Join-Path $BoundaryRoot 'codex-package-x86_64-pc-windows-msvc.tar.gz'
+          $Checksum = Get-Content (Join-Path $BoundaryRoot 'codex-package_SHA256SUMS') | Where-Object { $_ -match ' codex-package-x86_64-pc-windows-msvc.tar.gz$' }
+          $Expected = ($Checksum -split '\s+')[0]
+          if ((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) { throw 'Codex boundary checksum mismatch.' }
+          tar -xzf $Archive -C $BoundaryRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Codex boundary extraction failed.' }
+          $Binary = @(Get-ChildItem -LiteralPath $BoundaryRoot -Recurse -Filter codex.exe)
+          if ($Binary.Count -ne 1) { throw 'Expected exactly one Codex binary.' }
+          $Diagnostics = Join-Path $env:RUNNER_TEMP 'validation-boundary-diagnostics'
+          New-Item -ItemType Directory -Path $Diagnostics -Force | Out-Null
+          @{
+            source_commit = (git rev-parse HEAD)
+            native_release = 'rust-v0.154.0'
+            archive_sha256 = $Expected
+            executable = $Binary[0].FullName
+            executable_sha256 = (Get-FileHash -LiteralPath $Binary[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            setup_started_at_utc = [DateTime]::UtcNow.ToString('o')
+          } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $Diagnostics 'native-package-identity.json')
+          $BoundaryCodexHome = Join-Path $env:USERPROFILE '.codex'
+          & $Binary[0].FullName sandbox setup --elevated --current-user --codex-home $BoundaryCodexHome
+          if ($LASTEXITCODE -ne 0) { throw 'Windows validation sandbox provisioning failed.' }
+          $Binary[0].DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Complete native Windows directory-read setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Diagnostics = Join-Path $env:RUNNER_TEMP 'validation-boundary-diagnostics'
+          $Identity = Get-Content -Raw (Join-Path $Diagnostics 'native-package-identity.json') | ConvertFrom-Json
+          python -B scripts/prepare_windows_validation_boundary.py `
+            --codex-executable $Identity.executable `
+            --expected-codex-sha256 $Identity.executable_sha256 `
+            --cwd $env:TEMP `
+            --output (Join-Path $Diagnostics 'native-read-setup.json')
+          if ($LASTEXITCODE -ne 0) { throw 'Windows native directory-read setup did not complete.' }
+      - name: Verify validation containment and accepted local delivery
+        env:
+          CCOS_BOUNDARY_DIAGNOSTICS: ${{ runner.temp }}/validation-boundary-diagnostics
+        run: python -B -m unittest tests.test_campaign_validation_boundary tests.test_campaign_bounded_continuation -v
+      - name: Retain native setup completion logs
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Diagnostics = Join-Path $env:RUNNER_TEMP 'validation-boundary-diagnostics'
+          New-Item -ItemType Directory -Path $Diagnostics -Force | Out-Null
+          $NativeLogs = Join-Path $env:USERPROFILE '.codex/.sandbox'
+          $Snapshots = @(Get-ChildItem -LiteralPath $NativeLogs -File -Filter '*.log' -Force -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First 8 | ForEach-Object {
+            @{
+              path = $_.FullName
+              captured_at_utc = [DateTime]::UtcNow.ToString('o')
+              last_write_at_utc = $_.LastWriteTimeUtc.ToString('o')
+              bytes = $_.Length
+              tail = @(Get-Content -LiteralPath $_.FullName -Tail 2000)
+            }
+          })
+          ConvertTo-Json -InputObject $Snapshots -Depth 5 | Set-Content -Encoding utf8 (Join-Path $Diagnostics 'native-logs-after-tests.json')
+      - name: Retain validation boundary diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-boundary-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/validation-boundary-diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Install pinned capability-router test dependency
         run: python -m pip install -r capability-routing/requirements-test.txt
       - name: Test transactional install contract
@@ -124,18 +264,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Test public installer documentation contract
         run: python -B tests/test_public_install_docs.py
       - name: Test documentation artifact contracts
         run: python -B tests/test_documentation_contracts.py
       - name: Test project artifact instances and triggers
         run: python -B tests/test_project_artifact_instances.py
+      - name: Check founder entry fixtures and documentation boundaries
+        run: python -B -m unittest tests.test_founder_entry_fixtures -v
 
   coding-os-adapter:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Test source-only campaign adapter contracts
         run: python -B tests/test_source_repository_profile.py
 
@@ -144,8 +294,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Self-test pull request metadata contract
         run: python ./scripts/check-pr-body.py --self-test
+      - name: Test manual and campaign metadata boundaries
+        run: python -B -m unittest tests.test_pr_body -v
       - name: Validate pull request metadata
         if: github.event_name == 'pull_request'
         run: python ./scripts/check-pr-body.py

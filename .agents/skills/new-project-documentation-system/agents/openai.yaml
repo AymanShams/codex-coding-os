@@ -1,4 +1,4 @@
 interface:
   display_name: "New Project Docs"
   short_description: "Run fail-closed project documentation workflows"
-  default_prompt: "Use $new-project-documentation-system in Full Run mode. Create the workflow manifest first, stop for all unresolved material decisions, and do not recommend coding until every required phase passes."
+  default_prompt: "Use $new-project-documentation-system in Full Run mode. Reuse the documentation manifest and approved decisions. Ask only unresolved questions with business consequences, derive routine technical choices from sources, and validate the requested documents."
