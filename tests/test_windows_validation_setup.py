@@ -109,7 +109,8 @@ class WindowsValidationSetupTests(unittest.TestCase):
         self.assertEqual(result["log_generation"][str(self.log)]["bytes"], prior_bytes)
         self.assertNotIn("old native", result["native_log"])
         self.assertTrue(self.transport.closed)
-        self.assertIn(":read-only", self.calls[0][1])
+        self.assertNotIn("-P", self.calls[0][1])
+        self.assertIn('default_permissions=":read-only"', self.calls[0][1])
         self.assertIn('windows.sandbox="elevated"', self.calls[0][1])
         self.assertEqual([method for method, _ in self.calls], ["start", "initialize", "initialized",
             "windowsSandbox/readiness", "windowsSandbox/setupStart"])

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "fcef112dadf749ea02a9bf8fb84f7b5db01c525d966af35ccc1ee3490a1d4760",
+  "aggregate_sha256": "e6a4c64d7792dfea268fcf8d3acf398b63b1603ebd24bbb2ac2c285622a5819a",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2513,8 +2513,8 @@
     },
     {
       "path": "scripts/prepare_windows_validation_boundary.py",
-      "sha256": "9978b846f18a27eb15c68caa3cceb7ad4fd855a4c5e8e30ebc573dfafb713168",
-      "size": 9537
+      "sha256": "37e4c618e30c33e726dda2360bf093323ab30c60672d1db013fce8d5ccd41917",
+      "size": 9708
     },
     {
       "path": "scripts/release-safety-scan.ps1",
@@ -2993,8 +2993,8 @@
     },
     {
       "path": "tests/test_windows_validation_setup.py",
-      "sha256": "b0f93a4c3b48f17949a96f60eedbd873f8a647f57704c9458c743f83b5337d2e",
-      "size": 9758
+      "sha256": "58e87decf97f5098839548dbd888c10d8552ae207cf3d002f74b7af9b9b45c57",
+      "size": 9829
     },
     {
       "path": "tests/test_worker_runtime_bom_promotion.py",

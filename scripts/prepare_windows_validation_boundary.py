@@ -115,7 +115,9 @@ def prepare(executable, cwd, expected_sha256, output, *, timeout=60):
                 raise RuntimeError("Native read setup did not complete within its deadline")
             return value
         transport = AppServerTransport(executable, cwd=cwd, timeout=timeout)
-        transport.command[1:1] = ["-P", ":read-only", "-c", 'windows.sandbox="elevated"']
+        # App Server accepts configuration overrides. The sandbox subcommand's
+        # -P flag is not a root/App Server argument in Codex 0.154.0.
+        transport.command[1:1] = ["-c", 'default_permissions=":read-only"', "-c", 'windows.sandbox="elevated"']
         transport.start()
         transport.request("initialize", {"clientInfo": {"name": "coding-os-windows-setup", "version": "1.0"},
                                           "capabilities": {"experimentalApi": True}}, timeout=remaining())
