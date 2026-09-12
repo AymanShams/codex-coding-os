@@ -275,6 +275,10 @@ Omit `--json` from `status` for the business outcome, progress, and reason for
 waiting or stopping. Reading status creates no status-only commit or pull
 request. A local Git push in a disposable acceptance fixture proves that local
 delivery path. It does not prove a merged public release or independent adoption.
+The standard effect backend supports `PUSH` to an explicitly authorized local
+bare Git repository through its canonical `file://` URL. It verifies the exact
+remote and candidate before pushing. Pull requests, comments and merges require
+their GitHub provider identity.
 
 ## Inspect legacy evidence
 

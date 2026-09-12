@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "e6a4c64d7792dfea268fcf8d3acf398b63b1603ebd24bbb2ac2c285622a5819a",
+  "aggregate_sha256": "a1e8c312fd01720819b274c26fd8ee69d263ddb97434edb8c5e4c73be6a99a1a",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2178,7 +2178,7 @@
     },
     {
       "path": ".github/workflows/validate.yml",
-      "sha256": "9cbc9442119954a0524a65569ac8fce6bc0406f76878a05a4fcf0834260bbb33",
+      "sha256": "ca5b462e432b07a298bef8c7d9a16caf7b9a13980cd48fd39b58dc1623f3fcdc",
       "size": 14674
     },
     {
@@ -2303,8 +2303,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "0de6895c54818397af90350367c98a60c00cd7ff31fa798cef81963ebb973518",
-      "size": 13650
+      "sha256": "1c37f4a0f6d17251067b637b152cd7112d9c7fe83a5a524f5809616262aa2f11",
+      "size": 13919
     },
     {
       "path": "docs/license-strategy.md",
@@ -2413,8 +2413,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/effects.py",
-      "sha256": "7f4e5115e99a90558f0840caacbb6dea197ecef168ab31f4ab13121e4378071d",
-      "size": 40138
+      "sha256": "da89946cf738d9f4a2bfae6fe272279cad1ff3146e78fa826560faa59fb17da0",
+      "size": 42189
     },
     {
       "path": "scripts/agent/campaign_engine/evidence.py",
@@ -2813,8 +2813,8 @@
     },
     {
       "path": "tests/native_product_journey.py",
-      "sha256": "70f8439858af8a61602a09bc2ac4aa5913b35acbf8e60c0dd4d9b9bcfbcd01aa",
-      "size": 25347
+      "sha256": "b608596bed275e87cbe9547bb77d2e3a863e2b80f2cef4f62da7726825ace1e1",
+      "size": 26750
     },
     {
       "path": "tests/supported_install_journey.py",
@@ -2868,8 +2868,8 @@
     },
     {
       "path": "tests/test_campaign_runtime_components.py",
-      "sha256": "9cb35d1a0be62e1ac16add29d9b4f60277ce8855159ffd5821bf0cf728a2ffb0",
-      "size": 83296
+      "sha256": "54ebf0ada28c8da2763df5cbd509bb22ee61fc144571ec280fcb0b045657a092",
+      "size": 89110
     },
     {
       "path": "tests/test_campaign_store.py",
@@ -2928,8 +2928,8 @@
     },
     {
       "path": "tests/test_native_product_journey.py",
-      "sha256": "59f95dece849436957aafba017e55181b33ecb39bfcdfcd9089d7a9d259c5ddd",
-      "size": 5525
+      "sha256": "b64735dea354100fb35f9620dcf9ce2094caad19b2b53d3a5c730f937b5b1b8d",
+      "size": 7259
     },
     {
       "path": "tests/test_plugin_manifest_boundaries.py",

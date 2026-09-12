@@ -84,13 +84,30 @@ def require_review_reads(calls, actor_id, sources):
                 f"Native reviewer did not inspect the complete source: {path}")
 
 
+def close_native_run(host, supervisor, store, campaign_id, native):
+    """Preserve the original result and cancel only this unfinished owned run."""
+    try:
+        host.close()
+    except Exception as exc:
+        native["host_close_failure"] = {"type": type(exc).__name__, "message": str(exc)}
+    if native["status"] == "failed":
+        state = store.get_snapshot(campaign_id).state.value
+        native["state_before_failure_cleanup"] = state
+        if state not in {"COMPLETED", "FAILED", "CANCELLED"}:
+            try:
+                native["failure_cleanup"] = supervisor.cancel(
+                    campaign_id, reason="native acceptance ended without an accepted result").to_dict()
+            except Exception as exc:
+                native["cleanup_failure"] = {"type": type(exc).__name__, "message": str(exc)}
+
+
 def run_native_product_journey(source, installed_root, invoke_cli, report, *,
                                model, reasoning_effort, worker_timeout=180, artifact_directory=None):
     require(0 < worker_timeout <= 600, "Native worker timeout must be in (0, 600]")
     require(not os.environ.get("CODEX_CAMPAIGN_HOST_EXECUTABLE"),
             "Native acceptance must resolve the installed host through PATH")
     sys.path[:0] = [str(installed_root), str(source["root"])]
-    from scripts.agent.campaign_engine.effects import ExternalEffectDriver
+    from scripts.agent.campaign_engine.effects import ExternalEffectDriver, GitHubBackend
     from scripts.agent.campaign_engine.host import AppServerTransport, NativeCodexHost
     from scripts.agent.campaign_engine.runtime_bootstrap import runtime_layout
     from scripts.agent.campaign_engine.store import CampaignStore
@@ -108,6 +125,7 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
               "runner_sha256": sha256(__file__),
               "model_turns": "native App Server", "terminal_receipts": [], "tool_calls": [],
               "decisions": [], "review_receipts": [], "findings": [], "prompts": [], "transports": [],
+              "publication_calls": [],
               "harness_parent_model_calls": 0,
               "usage_scope": "Only bound campaign actors. This assistant conversation is outside this receipt.",
               "seed_provenance": "First native turn applies supplied faulty proposal. No correction is supplied."}
@@ -214,6 +232,7 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
                         if isinstance(message, dict):
                             method = str(message.get("method", ""))
                             if (method.startswith(("item/", "turn/", "thread/tokenUsage/"))
+                                    or method in {"error", "warning", "thread/started", "thread/status/changed"}
                                     or (not method and str(message.get("id")) in transport.recorded_requests)):
                                 transport.capture("received", message)
                         return super().put(message, *args, **kwargs)
@@ -244,6 +263,13 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
                     require(result.get("model") == model,
                             f"Native thread reports a different model: {result.get('model')}")
                 return result
+
+            def close(self):
+                process = self.process
+                super().close()
+                self.record["diagnostics"] = self.diagnostic_snapshot()
+                if process is not None:
+                    self.record["diagnostics"]["process_returncode"] = process.poll()
 
         class ObservedNativeHost(NativeCodexHost):
             def start_actor_turn(self, lease_id, prompt):
@@ -285,24 +311,21 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
                 native["terminal_receipts"].append(receipt.to_dict())
                 return receipt
 
-        class LocalDelivery:
+        class ObservedDelivery(GitHubBackend):
             executions = 0
 
-            def query(self, kind, payload):
-                require(kind == "PUSH", "Only the approved local push is available")
-                observed = git(repo, "ls-remote", "--heads", "origin", "refs/heads/main")
-                return {"confirmed": bool(observed) and observed.split()[0] == payload["candidate_head"]}
-
             def execute(self, kind, payload):
-                require(kind == "PUSH", "Only the approved local push is available")
                 self.executions += 1
-                git(repo, "push", "origin", f"{payload['candidate_head']}:refs/heads/main")
-                return {"pushed": payload["candidate_head"]}
+                call = {"kind": kind, "payload": dict(payload)}
+                native["publication_calls"].append(call)
+                result = super().execute(kind, payload)
+                call["result"] = result
+                return result
 
         host = ObservedNativeHost(model=model, reasoning_effort=reasoning_effort,
             usage_recorder=store.record_native_usage,
             transport_factory=ObservedTransport)
-        delivery = LocalDelivery()
+        delivery = ObservedDelivery()
         supervisor = DeterministicSupervisor(store, host=host,
             effect_driver=ExternalEffectDriver(store, delivery))
         try:
@@ -356,6 +379,9 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
             require(git(remote, "show", f"{accepted_head}:src/order_summary.py", binary=True) == product.read_bytes(),
                     "Delivered program bytes differ")
             require(delivery.executions == 1, "Delivery was not one actual push")
+            pushes = [item for item in store.list_outbox(campaign_id=campaign_id) if item["kind"] == "PUSH"]
+            require(len(pushes) == 1 and pushes[0]["state"] == "CONFIRMED",
+                    "Production backend lacks one confirmed durable push receipt")
             for receipt in native["terminal_receipts"]:
                 if receipt["role"] == "REVIEWER":
                     require_review_reads(native["tool_calls"], receipt["actor_id"],
@@ -374,10 +400,11 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
             native["failure"] = {"type": type(exc).__name__, "message": str(exc)}
             raise
         finally:
-            host.close()
+            close_native_run(host, supervisor, store, campaign_id, native)
             native["elapsed_seconds"] = round(time.monotonic() - started, 3)
             native["model_usage"] = store.usage_summary(campaign_id)
             native["actor_identities"] = store.list_actor_identities(campaign_id=campaign_id, active_only=False)
+            native["publication_outbox"] = store.list_outbox(campaign_id=campaign_id)
             with sqlite3.connect(layout.state_db) as database:
                 native["validation_receipts"] = [json.loads(row[0]) for row in database.execute(
                     "SELECT payload_json FROM evidence WHERE campaign_id=? AND kind='VALIDATION'", (campaign_id,))]

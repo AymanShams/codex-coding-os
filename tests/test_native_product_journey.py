@@ -3,10 +3,11 @@
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from tests.native_product_journey import business_outputs, require_review_reads
+from tests.native_product_journey import business_outputs, close_native_run, require_review_reads
 
 
 class BusinessAcceptanceTests(unittest.TestCase):
@@ -63,6 +64,32 @@ class ReviewObservationTests(unittest.TestCase):
                       [self.read(text="first\nchanged")]):
             with self.subTest(calls=calls), self.assertRaises(AssertionError):
                 require_review_reads(calls, "reviewer", sources)
+
+
+class NativeFailureCleanupTests(unittest.TestCase):
+    def test_failure_closes_host_then_cancels_only_owned_campaign_and_preserves_error(self):
+        host, supervisor, store = Mock(), Mock(), Mock()
+        store.get_snapshot.return_value = SimpleNamespace(state=SimpleNamespace(value="RUNNING"))
+        original = {"type": "HostProtocolError", "message": "network unavailable"}
+        native = {"status": "failed", "failure": original}
+        supervisor.cancel.side_effect = lambda *args, **kwargs: (
+            self.assertEqual(host.close.call_count, 1) or SimpleNamespace(to_dict=lambda: {"state": "CANCELLED"}))
+        close_native_run(host, supervisor, store, "owned-campaign", native)
+        supervisor.cancel.assert_called_once_with(
+            "owned-campaign", reason="native acceptance ended without an accepted result")
+        self.assertIs(native["failure"], original)
+        self.assertEqual(native["failure_cleanup"]["state"], "CANCELLED")
+
+    def test_terminal_state_does_not_receive_new_cancellation_or_hide_original_failure(self):
+        for state in ("COMPLETED", "FAILED", "CANCELLED"):
+            with self.subTest(state=state):
+                host, supervisor, store = Mock(), Mock(), Mock()
+                store.get_snapshot.return_value = SimpleNamespace(state=SimpleNamespace(value=state))
+                native = {"status": "failed", "failure": {"message": "original"}}
+                close_native_run(host, supervisor, store, "owned-campaign", native)
+                host.close.assert_called_once()
+                supervisor.cancel.assert_not_called()
+                self.assertEqual(native["failure"]["message"], "original")
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux account namespace contract")

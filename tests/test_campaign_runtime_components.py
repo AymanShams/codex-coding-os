@@ -1812,6 +1812,107 @@ class GitHubBackendTests(unittest.TestCase):
                         )
 
 
+class LocalBarePushTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.repo = self.root / "repo"
+        self.head = make_repo(self.repo)
+        self.remote = self.root / "local delivery.git"
+        git(self.root, "init", "--bare", "-q", str(self.remote))
+        git(self.repo, "remote", "set-url", "origin", self.remote.as_uri())
+        self.payload = {"root": str(self.repo), "head": self.head,
+                        "candidate_head": self.head, "branch": "main",
+                        "repository_remote": self.remote.as_uri()}
+
+        class ObservedBackend(effects.GitHubBackend):
+            def __init__(self):
+                super().__init__(gh_executable="gh-must-not-run")
+                self.mutations = []
+
+            def _run(self, argv, *, cwd, timeout=120, mutation):
+                if mutation:
+                    self.mutations.append(tuple(argv))
+                return super()._run(argv, cwd=cwd, timeout=timeout, mutation=mutation)
+
+        self.backend = ObservedBackend()
+
+    def driver(self):
+        store = _MemoryEffectStore()
+        store.spec_data = {"worktree": str(self.repo), "nodes": []}
+        driver = effects.ExternalEffectDriver(store, self.backend)
+        driver.prepare(effects.EffectIntent.create(operation_id="local-push", campaign_id="campaign-1",
+                       node_id="node-1", kind="PUSH", payload=self.payload))
+        return driver
+
+    def test_real_local_push_query_and_confirmed_replay_use_one_mutation(self):
+        self.assertFalse(self.backend.query("PUSH", self.payload)["confirmed"])
+        driver = self.driver()
+        self.assertEqual(driver.run("local-push")["state"], "CONFIRMED")
+        self.assertEqual(git(self.remote, "rev-parse", "refs/heads/main"), self.head)
+        self.assertEqual(git(self.remote, "show", f"{self.head}:src/one.txt"), "one")
+        self.assertTrue(self.backend.query("PUSH", self.payload)["confirmed"])
+        self.assertEqual(driver.run("local-push")["state"], "CONFIRMED")
+        self.assertEqual(len(self.backend.mutations), 1)
+        self.assertIn(self.remote.as_uri(), self.backend.mutations[0])
+
+    def test_already_delivered_local_head_is_queried_without_another_push(self):
+        git(self.repo, "push", self.remote.as_uri(), f"{self.head}:refs/heads/main")
+        self.assertEqual(self.driver().run("local-push")["state"], "CONFIRMED")
+        self.assertEqual(self.backend.mutations, [])
+
+    def test_changed_local_head_is_rejected_before_push(self):
+        self.assertFalse(self.backend.query("PUSH", self.payload)["confirmed"])
+        (self.repo / "src/one.txt").write_text("changed\n", encoding="utf-8")
+        git(self.repo, "commit", "-qam", "candidate changed")
+        with self.assertRaisesRegex(effects.EffectConflict, "HEAD changed"):
+            self.backend.execute("PUSH", self.payload)
+        self.assertEqual(self.backend.mutations, [])
+        self.assertEqual(git(self.repo, "ls-remote", "--heads", self.remote.as_uri()), "")
+
+    def test_changed_fetch_or_push_remote_is_rejected_before_query_or_mutation(self):
+        other = self.root / "other.git"
+        git(self.root, "init", "--bare", "-q", str(other))
+        for mode in ((), ("--push",)):
+            git(self.repo, "remote", "set-url", *mode, "origin", other.as_uri())
+            for method in (self.backend.query, self.backend.execute):
+                with self.subTest(mode=mode, method=method.__name__), self.assertRaisesRegex(
+                        effects.EffectConflict, "remote changed"):
+                    method("PUSH", self.payload)
+            git(self.repo, "remote", "set-url", *mode, "origin", self.remote.as_uri())
+        self.assertEqual(self.backend.mutations, [])
+
+    def test_nonbare_destination_and_wrong_worktree_root_are_rejected(self):
+        git(self.repo, "remote", "set-url", "origin", self.repo.as_uri())
+        for method in (self.backend.query, self.backend.execute):
+            with self.subTest(method=method.__name__), self.assertRaisesRegex(
+                    effects.EffectConflict, "bare Git repository"):
+                method("PUSH", {**self.payload, "repository_remote": self.repo.as_uri()})
+        git(self.repo, "remote", "set-url", "origin", self.remote.as_uri())
+        with self.assertRaisesRegex(effects.EffectConflict, "exact Git root"):
+            self.backend.execute("PUSH", {**self.payload, "root": str(self.repo / "src")})
+        self.assertEqual(self.backend.mutations, [])
+
+    def test_local_remote_rejects_host_query_fragment_and_noncanonical_path(self):
+        for uri in (self.remote.as_uri().replace("file:///", "file://other-host/"),
+                    self.remote.as_uri() + "?other", self.remote.as_uri() + "#other",
+                    (self.remote / ".." / self.remote.name).as_uri()):
+            with self.subTest(uri=uri), self.assertRaises(effects.EffectConflict):
+                self.backend.execute("PUSH", {**self.payload, "repository_remote": uri})
+        self.assertEqual(self.backend.mutations, [])
+
+    def test_provider_operations_cannot_use_local_bare_repository(self):
+        for kind in ("CREATE_PULL_REQUEST", "UPSERT_COMMENT", "MERGE"):
+            for method in (self.backend.query, self.backend.execute):
+                with self.subTest(kind=kind, method=method.__name__), self.assertRaisesRegex(
+                        effects.EffectConflict, "PUSH only"):
+                    method(kind, self.payload)
+        with self.assertRaisesRegex(effects.EffectConflict, "repository selector"):
+            self.backend.execute("PUSH", {**self.payload, "repository": "example/project"})
+        self.assertEqual(self.backend.mutations, [])
+
+
 class LegacyTests(unittest.TestCase):
     def test_archive_preserves_each_case_and_never_translates(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

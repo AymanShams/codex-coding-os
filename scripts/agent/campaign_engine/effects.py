@@ -21,6 +21,8 @@ from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 from .admission import (
     AdmissionError,
@@ -411,7 +413,7 @@ class ExternalEffectDriver:
 
 
 class GitHubBackend:
-    """First-party Git/GitHub implementation with query-before-mutate behavior."""
+    """Git/GitHub effects, including exact local bare-repository pushes."""
 
     COMMENT_PAGE_SIZE = 100
     COMMENT_MAX_PAGES = 100
@@ -478,6 +480,28 @@ class GitHubBackend:
         )
         return selector, owner_name
 
+    def _local_bare_remote(self, remote: str) -> str:
+        parsed = urlsplit(remote)
+        if (parsed.scheme != "file" or parsed.netloc or parsed.query or parsed.fragment):
+            raise EffectConflict("local push requires one canonical file URI without a host")
+        target = Path(url2pathname(parsed.path))
+        if not target.is_absolute():
+            raise EffectConflict("local push target must be absolute")
+        try:
+            target = target.resolve(strict=True)
+        except OSError as exc:
+            raise EffectConflict("local push target is unavailable") from exc
+        if remote != target.as_uri() or not target.is_dir():
+            raise EffectConflict("local push target differs from its canonical file URI")
+        if self._run((self.git, "rev-parse", "--is-bare-repository"),
+                     cwd=target, mutation=False) != "true":
+            raise EffectConflict("local push target must be a bare Git repository")
+        observed = Path(self._run((self.git, "rev-parse", "--absolute-git-dir"),
+                                 cwd=target, mutation=False)).resolve(strict=True)
+        if os.path.normcase(str(observed)) != os.path.normcase(str(target)):
+            raise EffectConflict("local push target must be the exact bare repository root")
+        return target.as_uri()
+
     def _assert_repository_binding(
         self, root: Path, payload: Mapping[str, Any]
     ) -> tuple[str, str]:
@@ -492,8 +516,10 @@ class GitHubBackend:
         expected_remote = str(payload.get("repository_remote", "")).strip()
         if not expected_remote:
             raise EffectConflict("repository_remote is required for every GitHub effect")
+        local_push = urlsplit(expected_remote).scheme.casefold() == "file"
         try:
-            normalized_expected = normalize_remote_url(expected_remote)
+            normalized_expected = (self._local_bare_remote(expected_remote) if local_push
+                                   else normalize_remote_url(expected_remote))
         except AdmissionError as exc:
             raise EffectConflict(f"repository_remote is invalid: {exc}") from exc
 
@@ -519,13 +545,18 @@ class GitHubBackend:
         if not observed_urls:
             raise EffectConflict("Git remote has no fetch or push URL")
         try:
-            normalized_observed = {
+            normalized_observed = set(observed_urls) if local_push else {
                 normalize_remote_url(value) for value in observed_urls
             }
         except AdmissionError as exc:
             raise EffectConflict(f"Git remote URL is invalid: {exc}") from exc
         if normalized_observed != {normalized_expected}:
             raise EffectConflict("Git remote changed after campaign admission")
+
+        if local_push:
+            if str(payload.get("repository", "")).strip():
+                raise EffectConflict("local push cannot use a GitHub repository selector")
+            return normalized_expected, ""
 
         repository_selector, owner_name = self._repository_from_remote(normalized_expected)
         configured_repository = str(payload.get("repository", "")).strip()
@@ -694,6 +725,8 @@ class GitHubBackend:
     def query(self, kind: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         root = self._root(payload)
         exact_remote, repository = self._assert_repository_binding(root, payload)
+        if not repository and kind != "PUSH":
+            raise EffectConflict("file remotes support PUSH only")
         if kind == "PUSH":
             branch = str(payload.get("branch", ""))
             head = _require_sha(payload.get("head"), "push head")
@@ -766,6 +799,8 @@ class GitHubBackend:
     def execute(self, kind: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         root = self._root(payload)
         exact_remote, repository = self._assert_repository_binding(root, payload)
+        if not repository and kind != "PUSH":
+            raise EffectConflict("file remotes support PUSH only")
         if kind == "PUSH":
             head = _require_sha(payload.get("head"), "push head")
             if self._run((self.git, "rev-parse", "HEAD"), cwd=root, mutation=False).casefold() != head:

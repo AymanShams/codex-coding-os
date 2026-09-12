@@ -114,12 +114,12 @@ jobs:
           account_profile="$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')"
           bwrap --unshare-user --uid "$(id -u)" --gid "$(id -g)" --ro-bind / / \
             --tmpfs "$account_profile" --tmpfs /tmp --proc /proc --dev /dev \
-            --ro-bind "$journey" /mnt --chdir /mnt \
+            --ro-bind "$journey" /srv --chdir /srv \
             --bind "$journey/output" /var/tmp --setenv HOME "$account_profile" --unsetenv CODEX_HOME --unsetenv SKILLS_ROOT \
             --unsetenv PYTHONPATH --setenv PYTHONDONTWRITEBYTECODE 1 \
-            python3 -B /mnt/supported_install_journey.py \
-            --baseline-archive /mnt/baseline.zip --baseline-commit "$baseline" \
-            --candidate-archive /mnt/candidate.zip --candidate-commit "$candidate"
+            python3 -B /srv/supported_install_journey.py \
+            --baseline-archive /srv/baseline.zip --baseline-commit "$baseline" \
+            --candidate-archive /srv/candidate.zip --candidate-commit "$candidate"
       - name: Retain supported installation evidence
         if: always()
         uses: actions/upload-artifact@v4
