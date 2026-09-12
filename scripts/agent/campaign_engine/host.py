@@ -745,7 +745,10 @@ class AppServerTransport:
             "remote_plugin",
             "--disable",
             "code_mode",
-            "--disable",
+            # Codex 0.154 model metadata can require code-mode-only tools even
+            # when code_mode is disabled. Its helper delegates campaign calls
+            # through the same checked dynamic-tool handler below.
+            "--enable",
             "code_mode_host",
             "--disable",
             "multi_agent",

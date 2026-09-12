@@ -429,6 +429,61 @@ class _ProbeTransportFactory:
 
 
 class HostTests(unittest.TestCase):
+    def test_native_transport_enables_required_helper_without_other_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            transport = host.AppServerTransport(sys.executable, cwd=raw)
+        features = {transport.command[index + 1]: argument == "--enable"
+                    for index, argument in enumerate(transport.command)
+                    if argument in {"--enable", "--disable"}}
+        self.assertTrue(features.get("code_mode_host"))
+        self.assertEqual({name for name, enabled in features.items() if enabled}, {"code_mode_host"})
+        for name in ("apps", "plugins", "remote_plugin", "code_mode", "multi_agent", "browser_use",
+                     "in_app_browser", "computer_use", "image_generation", "goals", "memories", "hooks"):
+            with self.subTest(feature=name):
+                self.assertFalse(features[name])
+        self.assertIn("--strict-config", transport.command)
+        self.assertIn("mcp_servers={}", transport.command)
+        self.assertIn('web_search="disabled"', transport.command)
+
+    def test_native_protocol_denies_approval_unknown_tools_and_foreign_threads(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            head = make_repo(root)
+            actor_transport = _FakeTransport()
+            native = host.NativeCodexHost(transport_factory=lambda *args, **kwargs: actor_transport)
+            binding = native.create_idle_actor(
+                self.lease(root, "REVIEWER", candidate_head=head), bind_authority=lambda *_: None)
+            binding = native.start_actor_turn(binding.lease.lease_id, "review")
+            transport = host.AppServerTransport(sys.executable, cwd=root,
+                                                dynamic_tool_handler=actor_transport.dynamic_tool_handler)
+            requests = [
+                {"id": "approval", "method": "item/commandExecution/requestApproval", "params": {}},
+                {"id": "unknown", "method": "item/tool/call", "params": {
+                    "threadId": binding.native_thread_id, "turnId": binding.turn_id,
+                    "tool": "exec_command", "arguments": {"cmd": "write outside scope"}}},
+                {"id": "foreign", "method": "item/tool/call", "params": {
+                    "threadId": "unbound-thread", "turnId": binding.turn_id,
+                    "tool": "campaign_read_file", "arguments": {"path": "src/one.txt"}}},
+                {"id": "read", "method": "item/tool/call", "params": {
+                    "threadId": binding.native_thread_id, "turnId": binding.turn_id,
+                    "tool": "campaign_read_file", "arguments": {"path": "src/one.txt"}}},
+            ]
+            responses = []
+            with patch.object(transport, "_write", side_effect=responses.append):
+                for request in requests:
+                    transport.inbox.put(request)
+                    transport._pump(0.01)
+            self.assertEqual(responses[0]["result"], {"decision": "denied"})
+            self.assertFalse(responses[1]["result"]["success"])
+            self.assertIn("unknown campaign dynamic tool", responses[1]["result"]["contentItems"][0]["text"])
+            self.assertFalse(responses[2]["result"]["success"])
+            self.assertIn("thread differs", responses[2]["result"]["contentItems"][0]["text"])
+            self.assertTrue(responses[3]["result"]["success"])
+            self.assertEqual(json.loads(responses[3]["result"]["contentItems"][0]["text"])["text"], "one")
+            self.assertEqual(git(root, "rev-parse", "HEAD"), head)
+            self.assertEqual(git(root, "status", "--porcelain"), "")
+            native.close()
+
     def lease(
         self,
         root: Path,
@@ -504,6 +559,8 @@ class HostTests(unittest.TestCase):
                 params for method, params in transport.calls if method == "thread/start"
             )
             self.assertEqual(thread_start["sandbox"], "read-only")
+            self.assertEqual(thread_start["selectedCapabilityRoots"], [])
+            self.assertEqual(thread_start["environments"], [])
             self.assertEqual(
                 {item["name"] for item in thread_start["dynamicTools"]},
                 {
@@ -521,6 +578,11 @@ class HostTests(unittest.TestCase):
                 host._digest(thread_start["dynamicTools"]),
             )
             native.start_actor_turn(binding.lease.lease_id, "implement")
+            turn_start = next(params for method, params in transport.calls if method == "turn/start")
+            self.assertEqual(turn_start["sandboxPolicy"], {"type": "readOnly", "networkAccess": False})
+            self.assertEqual(turn_start["approvalPolicy"], "never")
+            self.assertEqual(turn_start["environments"], [])
+            self.assertEqual(turn_start["runtimeWorkspaceRoots"], [str(root.resolve())])
             self.assertIn("turn/start", [method for method, _ in transport.calls])
             self.assertEqual(actions, [])
             with self.assertRaises(host.HostAuthorityError):
