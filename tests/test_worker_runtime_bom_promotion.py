@@ -150,6 +150,7 @@ class WorkerRuntimeBomPromotionTests(unittest.TestCase):
                     "ollama": {},
                     "hermes": hermes_identity,
                     "agent_memory": {},
+                    "lifecycle_supervisor": {},
                     "scheduler_contract": {},
                     "startup_receipts": [],
                 },
@@ -159,10 +160,7 @@ class WorkerRuntimeBomPromotionTests(unittest.TestCase):
             encoding="utf-8",
         )
         las_source_paths = [
-            self.las / "pyproject.toml",
-            self.las / "uv.lock",
             self.las / "runtime-dependencies.lock.json",
-            self.las / "vendor" / "versions.json",
             self.las / "src" / "local_agent_stack" / "__init__.py",
             self.las / "src" / "local_agent_stack" / "server.py",
         ]
@@ -187,6 +185,7 @@ class WorkerRuntimeBomPromotionTests(unittest.TestCase):
                             "distribution_version": "0.19.0",
                             "overlay_id": "test-hermes-overlay",
                             "api_source_sha256": sha256(hermes_api),
+                            "python_execution_closure": {},
                         }
                     },
                     "python_execution_closure": self.python_closures[

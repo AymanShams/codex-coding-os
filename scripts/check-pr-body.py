@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate pull request body control metadata."""
+"""Check PR metadata consistency. Publication authority stays with its caller."""
 
 from __future__ import annotations
 
@@ -19,24 +19,35 @@ REQUIRED_HEADINGS = (
     "## Publication authority",
 )
 
-REQUIRED_FIELDS = (
-    "Campaign ID",
+COMMON_FIELDS = (
+    "Work mode",
     "Objective",
-    "Objective kind",
     "Exact base SHA",
     "Exact candidate head SHA",
-    "Specification digest",
     "Changed paths",
     "Acceptance criteria",
     "Explicit non-goals",
+    "Allowed effects",
+)
+
+MANUAL_FIELDS = (
+    "Requested authority",
+    "Review result",
+)
+
+CAMPAIGN_FIELDS = (
+    "Campaign ID",
+    "Objective kind",
+    "Specification digest",
     "Frozen candidate diff digest",
     "Required review cohort",
     "Frozen finding IDs",
     "Repair used",
     "Closure result",
-    "Allowed effects",
     "Exact operation IDs",
 )
+
+REQUIRED_FIELDS = COMMON_FIELDS + MANUAL_FIELDS + CAMPAIGN_FIELDS
 
 VALIDATION_CHECKS = (
     "product-quality",
@@ -48,7 +59,8 @@ VALIDATION_CHECKS = (
 )
 
 OBJECTIVE_KINDS = {"PRODUCT_CODE", "PRODUCT_DOCUMENTATION", "CONTROL_RUNTIME"}
-ALLOWED_EFFECTS = {"PUSH", "CREATE_PULL_REQUEST", "UPSERT_COMMENT", "MERGE"}
+ALLOWED_EFFECTS = {"PUSH", "CREATE_PULL_REQUEST", "UPSERT_COMMENT", "MERGE", "EXACT_FILE_REPLACE"}
+WORK_MODES = {"MANUAL", "CAMPAIGN"}
 
 
 def field_value(body: str, label: str) -> str:
@@ -75,34 +87,77 @@ def validation_row(body: str, check: str) -> tuple[str, str, str] | None:
     return tuple(item.strip() for item in match.groups())  # type: ignore[return-value]
 
 
+def validation_rows(body: str) -> list[tuple[str, str, str, str]]:
+    """Read only the validation section, excluding the header and separator."""
+    section = re.search(r"(?ms)^## Validation\s*\n(.*?)(?=^## |\Z)", body)
+    if section is None:
+        return []
+    rows = []
+    for line in section.group(1).splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        cells = tuple(item.strip() for item in line.strip().strip("|").split("|"))
+        if len(cells) == 4 and cells[0].lower() != "check" and not all(
+            re.fullmatch(r"[-: ]+", cell) for cell in cells
+        ):
+            rows.append(cells)
+    return rows
+
+
 def validate_body(
     body: str,
     *,
     template_mode: bool = False,
     expected_current_head: str = "",
+    expected_base_sha: str = "",
+    expected_work_mode: str = "",
+    expected_campaign_id: str = "",
+    expected_specification_digest: str = "",
 ) -> list[str]:
     failures: list[str] = []
 
     for heading in REQUIRED_HEADINGS:
         if heading not in body:
             failures.append(f"PR body is missing required section: {heading}")
-    for label in REQUIRED_FIELDS:
-        if not re.search(rf"(?im)^\s*(?:-\s*)?{re.escape(label)}:", body):
-            failures.append(f"PR body is missing required field: {label}")
-    for check in VALIDATION_CHECKS:
-        if validation_row(body, check) is None:
-            failures.append(f"PR body is missing validation row: {check}")
-
-    if template_mode:
-        return failures
-
     values = {label: field_value(body, label) for label in REQUIRED_FIELDS}
-    for label, value in values.items():
-        if not value:
+    work_mode = values["Work mode"]
+    required = COMMON_FIELDS + (CAMPAIGN_FIELDS if work_mode == "CAMPAIGN" else MANUAL_FIELDS)
+    if template_mode:
+        required = REQUIRED_FIELDS
+    for label in REQUIRED_FIELDS:
+        count = len(re.findall(rf"(?im)^\s*(?:-\s*)?{re.escape(label)}:", body))
+        if count == 0 and label in required:
+            failures.append(f"PR body is missing required field: {label}")
+        if count > 1:
+            failures.append(f"PR body has duplicate field: {label}")
+    if template_mode:
+        for check in VALIDATION_CHECKS:
+            if validation_row(body, check) is None:
+                failures.append(f"PR body is missing validation row: {check}")
+        return failures
+    for label in required:
+        if not values[label]:
             failures.append(f"PR body field must not be blank: {label}")
 
-    if values["Objective kind"] not in OBJECTIVE_KINDS:
-        failures.append("Objective kind is not one supported campaign objective kind.")
+    if work_mode not in WORK_MODES:
+        failures.append("Work mode must be exactly MANUAL or CAMPAIGN.")
+    if expected_work_mode and expected_work_mode not in WORK_MODES:
+        failures.append("Expected work mode is unsupported.")
+    if expected_work_mode and work_mode != expected_work_mode:
+        failures.append("Work mode must match the independently supplied execution mode.")
+    if expected_campaign_id or expected_specification_digest:
+        if work_mode != "CAMPAIGN":
+            failures.append("Campaign-bound work cannot use MANUAL metadata.")
+        for label, expected in (
+            ("Campaign ID", expected_campaign_id),
+            ("Specification digest", expected_specification_digest),
+        ):
+            if expected and values[label] != expected:
+                failures.append(f"{label} must match the admitted campaign.")
+    if work_mode == "MANUAL":
+        for label in CAMPAIGN_FIELDS:
+            if values[label]:
+                failures.append(f"MANUAL metadata must omit campaign field: {label}")
     for label in ("Exact base SHA", "Exact candidate head SHA"):
         if not valid_sha(values[label]):
             failures.append(f"{label} must be one full 40-character Git SHA.")
@@ -115,11 +170,16 @@ def validate_body(
         failures.append(
             "Exact candidate head SHA must match the live pull request head SHA."
         )
-    for label in ("Specification digest", "Frozen candidate diff digest"):
-        if not valid_digest(values[label]):
-            failures.append(f"{label} must be one full SHA-256 digest.")
-    if values["Repair used"] not in {"Yes", "No"}:
-        failures.append("Repair used must be exactly Yes or No.")
+    if expected_base_sha and values["Exact base SHA"].casefold() != expected_base_sha.casefold():
+        failures.append("Exact base SHA must match the independently supplied base SHA.")
+    if work_mode == "CAMPAIGN":
+        if values["Objective kind"] not in OBJECTIVE_KINDS:
+            failures.append("Objective kind is not one supported campaign objective kind.")
+        for label in ("Specification digest", "Frozen candidate diff digest"):
+            if not valid_digest(values[label]):
+                failures.append(f"{label} must be one full SHA-256 digest.")
+        if values["Repair used"] not in {"Yes", "No"}:
+            failures.append("Repair used must be exactly Yes or No.")
     effects = {
         item.strip()
         for item in values["Allowed effects"].split(",")
@@ -127,21 +187,27 @@ def validate_body(
     }
     if not effects or not effects.issubset(ALLOWED_EFFECTS):
         failures.append("Allowed effects contains an empty or unsupported effect set.")
-    operation_ids = [
-        item.strip()
-        for item in values["Exact operation IDs"].split(",")
-        if item.strip()
-    ]
-    if not operation_ids or any(
-        re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", item) is None
-        for item in operation_ids
-    ):
-        failures.append("Exact operation IDs must contain stable operation identifiers.")
-    for check in VALIDATION_CHECKS:
-        row = validation_row(body, check)
-        if row is not None and any(not item for item in row):
+    if work_mode == "CAMPAIGN":
+        operation_ids = [
+            item.strip()
+            for item in values["Exact operation IDs"].split(",")
+            if item.strip()
+        ]
+        if not operation_ids or any(
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", item) is None
+            for item in operation_ids
+        ):
+            failures.append("Exact operation IDs must contain stable operation identifiers.")
+        for check in VALIDATION_CHECKS:
+            if validation_row(body, check) is None:
+                failures.append(f"PR body is missing validation row: {check}")
+    rows = validation_rows(body)
+    if not rows:
+        failures.append("Validation must record at least one relevant check.")
+    for row in rows:
+        if any(not item for item in row):
             failures.append(
-                f"Validation row must record command, evidence ID, and result: {check}"
+                f"Validation row must record check, command, evidence, and result: {row[0]}"
             )
 
     return failures
@@ -155,6 +221,7 @@ def fixture_body(current_head: str, *, specification_digest: str | None = None) 
     )
     return f"""## Requested outcome
 
+- Work mode: CAMPAIGN
 - Campaign ID: campaign-1
 - Objective: verify the exact campaign candidate
 - Objective kind: CONTROL_RUNTIME
@@ -189,6 +256,37 @@ def fixture_body(current_head: str, *, specification_digest: str | None = None) 
 """
 
 
+def manual_fixture_body(current_head: str) -> str:
+    return f"""## Requested outcome
+
+- Work mode: MANUAL
+- Requested authority: User requested the local metadata correction and a draft pull request.
+- Objective: Allow an authorized manual change to report its actual evidence.
+- Exact base SHA: {'a' * 40}
+- Exact candidate head SHA: {current_head}
+
+## Scope
+
+- Changed paths: scripts/check-pr-body.py, tests/test_pr_body.py
+- Acceptance criteria: Manual metadata passes and cannot replace campaign evidence.
+- Explicit non-goals: No merge or release.
+
+## Validation
+
+| Check | Command | Evidence | Result |
+|---|---|---|---|
+| metadata tests | python -B -m unittest tests.test_pr_body | local command output | PASS |
+
+## Review
+
+- Review result: Exact diff reviewed. No unresolved findings.
+
+## Publication authority
+
+- Allowed effects: PUSH, CREATE_PULL_REQUEST
+"""
+
+
 def run_self_test(template_path: Path | None = None) -> None:
     head = "a" * 40
     valid_failures = validate_body(
@@ -197,6 +295,10 @@ def run_self_test(template_path: Path | None = None) -> None:
     )
     if valid_failures:
         raise AssertionError(f"valid PR body fixture failed: {'; '.join(valid_failures)}")
+    if validate_body(manual_fixture_body(head), expected_current_head=head):
+        raise AssertionError("valid manual PR body fixture failed")
+    if not validate_body(manual_fixture_body(head), expected_work_mode="CAMPAIGN"):
+        raise AssertionError("manual relabeling bypassed independently bound campaign mode")
 
     stale_head_failures = validate_body(
         fixture_body(head),
@@ -242,6 +344,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--body-file")
     parser.add_argument("--enforce-draft", action="store_true")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--expected-work-mode", choices=sorted(WORK_MODES))
+    parser.add_argument("--expected-head", default="")
+    parser.add_argument("--expected-base-sha", default="")
+    parser.add_argument("--expected-campaign-id", default="")
+    parser.add_argument("--expected-specification-digest", default="")
     return parser.parse_args(argv)
 
 
@@ -256,7 +363,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     source = ""
-    expected_current_head = ""
+    expected_current_head = args.expected_head
     if args.body_file:
         source = args.body_file
         body = Path(args.body_file).read_text(encoding="utf-8")
@@ -270,12 +377,20 @@ def main(argv: list[str]) -> int:
             print(skipped)
             return 0
     else:
+        if any((args.expected_work_mode, args.expected_head, args.expected_base_sha,
+                args.expected_campaign_id, args.expected_specification_digest)):
+            print("pr-body check requires a body when independent bindings are supplied", file=sys.stderr)
+            return 1
         print("pr-body check skipped outside GitHub Actions.")
         return 0
 
     failures = validate_body(
         body,
         expected_current_head=expected_current_head,
+        expected_base_sha=args.expected_base_sha,
+        expected_work_mode=args.expected_work_mode or "",
+        expected_campaign_id=args.expected_campaign_id,
+        expected_specification_digest=args.expected_specification_digest,
     )
     if failures:
         print(f"pr-body check failed for {source}", file=sys.stderr)
@@ -283,7 +398,7 @@ def main(argv: list[str]) -> int:
             print(f"- {failure}", file=sys.stderr)
         return 1
 
-    print(f"pr-body check passed for {source}")
+    print(f"pr-body metadata consistency check passed for {source}; this is not publication approval")
     return 0
 
 

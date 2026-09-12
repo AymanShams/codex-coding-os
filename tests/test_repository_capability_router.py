@@ -2882,7 +2882,11 @@ command = "worker.exe"
 
         for mutate in (
             lambda value: value["hooks"]["UserPromptSubmit"][0]["hooks"][0].update(
-                {"commandWindows": str((hooks_dir / "user_prompt_skill_router.py").resolve()) + " --changed"}
+                {
+                    "commandWindows" if os.name == "nt" else "command":
+                    str((hooks_dir / "user_prompt_skill_router.py").resolve())
+                    + " --changed"
+                }
             ),
             lambda value: value["hooks"]["SessionStart"][0].update(
                 {"matcher": "startup|resume"}
@@ -3690,6 +3694,7 @@ command = "worker.exe"
                     "ollama": {},
                     "hermes": hermes_lock,
                     "agent_memory": {},
+                    "lifecycle_supervisor": {},
                     "scheduler_contract": {},
                     "startup_receipts": [],
                 },
@@ -3701,10 +3706,7 @@ command = "worker.exe"
         las_source_sha = index._worker_source_inventory_sha256(
             las_root.resolve(),
             [
-                las_root / "pyproject.toml",
-                las_root / "uv.lock",
                 las_root / "runtime-dependencies.lock.json",
-                las_root / "vendor" / "versions.json",
                 las_root / "src" / "local_agent_stack" / "__init__.py",
                 las_root / "src" / "local_agent_stack" / "server.py",
             ],
@@ -3774,6 +3776,7 @@ command = "worker.exe"
                         "distribution_version": "0.19.0",
                         "overlay_id": "test-overlay",
                         "api_source_sha256": hermes_lock["api_source_sha256"],
+                        "python_execution_closure": {},
                     }
                 },
                 "python_execution_closure": python_closures[
@@ -3977,6 +3980,11 @@ command = "worker.exe"
         fake_bom_sha256 = hashlib.sha256(
             self.worker_runtime_bom_path.read_bytes()
         ).hexdigest()
+        receipt_path = index.GATEWAY_STARTUP_RECEIPT_PATH
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["worker_runtime_bom_sha256"] = fake_bom_sha256
+        receipt["binding_sha256"] = index._gateway_receipt_binding_sha256(receipt)
+        receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
         self.assertFalse(
             index._gateway_managed_upstream_configured(
                 "local-agent-stack",
@@ -4017,6 +4025,13 @@ command = "worker.exe"
         bom_sha256 = hashlib.sha256(
             self.worker_runtime_bom_path.read_bytes()
         ).hexdigest()
+        self.assertTrue(
+            index._gateway_managed_upstream_configured(
+                "local-agent-stack",
+                expected_bom_sha256=bom_sha256,
+                verify_current_bytes=True,
+            )
+        )
 
         def assert_byte_tamper_rejected(path: Path, label: str) -> None:
             original = path.read_bytes()

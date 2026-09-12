@@ -2,6 +2,18 @@
 
 ## Install an exact source commit
 
+The package requires Python 3.11 or newer and Git. Automated native workers
+also require a compatible, authenticated Codex CLI. Campaign validation needs
+Codex's read-only sandbox on Windows, Bubblewrap on Linux, or `sandbox-exec`
+on macOS. GitHub delivery additionally needs authenticated `gh`.
+
+The routed skill entry requires a separately installed canonical universal
+router. The package does not install or activate that router. `doctor` reports
+its pointer, manifest hash, and CLI availability separately from engine
+integrity. That prerequisite check is not a route-admission receipt. The
+canonical router must still admit the actual task. Installing a native plugin
+does not install the engine or the universal router.
+
 Use a clean checkout at the tag or commit you intend to install. A tagged Git
 checkout is the complete installation path because it can also install the
 managed universal policy:
@@ -140,7 +152,29 @@ python -B $Engine --json doctor
 Use `--live-host-probe` when the native Codex host is available and a live
 bind-before-turn proof is required.
 
+The default diagnostic runs no model turns. The live probe runs bounded model
+turns in a disposable repository. A previous successful probe does not prove
+that a new project's required tools or acceptance flow work.
+
 ## Admit a campaign
+
+Tell the agent the customer outcome, existing project sources, permitted cost
+and delivery scope. It should derive file layout, identifiers, test commands,
+worktree details, and runtime values. It should ask only about unresolved
+customer behavior, priorities, spending, commitments, or consequential actions.
+Previously approved choices remain in force until relevant facts change.
+
+The agent can prepare a proposed change before admission:
+
+```powershell
+python -B $Engine --json prepare --spec .\proposed.json --repository C:\path\to\project --output .\campaign.json
+```
+
+Preparation uses the existing sources and creates no documentation system or
+campaign. The proposal must declare each node's source-linked acceptance
+scenarios and required tools. See [Campaign Engine Contract](campaign-engine.md)
+for those fields and the supported correction policy. The example below is a
+technical reference for the agent, not a questionnaire for the founder.
 
 Copy [`templates/campaign.example.json`](../templates/campaign.example.json) and
 replace every sample repository, path, commit, runtime-pin, reviewer, deadline,
@@ -173,6 +207,11 @@ python -B $Engine --json cancel --campaign-id <id>
 
 `run` yields at named external events. It never hides an indefinite polling
 loop. A cancelled campaign cannot resume automatically after restart.
+
+Omit `--json` from `status` for the business outcome, progress, and reason for
+waiting or stopping. Reading status creates no status-only commit or pull
+request. A local Git push in a disposable acceptance fixture proves that local
+delivery path. It does not prove a merged public release or independent adoption.
 
 ## Inspect legacy evidence
 

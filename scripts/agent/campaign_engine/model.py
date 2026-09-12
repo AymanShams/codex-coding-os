@@ -14,6 +14,7 @@ from enum import Enum
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, TypeVar
@@ -284,6 +285,7 @@ class ValidationCommand:
     expected_worktree_condition: str
     expected_status_sha256: str | None = None
     required_exit_code: int = 0
+    correction_policy: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         _nonempty(self.command_id, "command_id")
@@ -310,6 +312,50 @@ class ValidationCommand:
             raise ModelValidationError("validation timeout and output limit must be positive")
         if len(set(self.environment_allowlist)) != len(self.environment_allowlist):
             raise ModelValidationError("environment allowlist contains duplicates")
+        if self.correction_policy is not None:
+            policy = self.correction_policy
+            if (
+                not isinstance(policy, Mapping)
+                or set(policy) != {"adapter", "expectation_id", "test_id"}
+                or policy.get("adapter") != "unittest"
+                or any(not isinstance(policy.get(key), str) or not policy[key].strip()
+                       for key in ("expectation_id", "test_id"))
+                or self.required_exit_code != 0
+                or self.expected_worktree_condition != "CLEAN"
+                or "-m" not in self.arguments
+                or self.arguments[self.arguments.index("-m") + 1:self.arguments.index("-m") + 2] != ("unittest",)
+            ):
+                raise ModelValidationError("correction policy requires an exact unittest expectation and clean passing command")
+            object.__setattr__(self, "correction_policy", _freeze(policy))
+
+    def recognizes_correction(self, evidence: Mapping[str, Any]) -> bool:
+        """Recognize the approved assertion from a complete immutable command receipt."""
+
+        if self.correction_policy is None or not isinstance(evidence, Mapping):
+            return False
+        payload = dict(evidence)
+        digest = payload.pop("evidence_sha256", None)
+        empty_status = hashlib.sha256(b"").hexdigest()
+        stderr = str(payload.get("stderr", "")).replace("\r\n", "\n").replace("\r", "\n")
+        failures = re.findall(r"^FAIL: (\S+) \(([^()\r\n]+)\)$", stderr, re.MULTILINE)
+        return (
+            canonical_json_digest(payload) == digest
+            and payload.get("protocol_version") == "ccos-validation-execution-v1"
+            and payload.get("execution_boundary") == "READ_ONLY"
+            and payload.get("passed") is False
+            and type(payload.get("exit_code")) is int and payload["exit_code"] == 1
+            and payload.get("required_exit_code") == 0
+            and payload.get("timed_out") is False and payload.get("output_limited") is False
+            and bool(payload.get("candidate_head"))
+            and payload.get("head_after") == payload["candidate_head"]
+            and tuple(payload.get("arguments", ())) == self.arguments
+            and payload.get("status_before_sha256") == empty_status
+            and payload.get("status_after_sha256") == empty_status
+            and len(failures) == 1 and failures[0][1] == self.correction_policy["test_id"]
+            and re.search(r"^Ran [1-9][0-9]* tests? in [0-9.]+s$", stderr, re.MULTILINE) is not None
+            and stderr.rstrip().endswith("FAILED (failures=1)")
+            and re.search(r"^ERROR:|^FAILED .*errors=", stderr, re.MULTILINE) is None
+        )
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ValidationCommand":
@@ -330,6 +376,7 @@ class ValidationCommand:
                 else None
             ),
             required_exit_code=int(value.get("required_exit_code", 0)),
+            correction_policy=value.get("correction_policy"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -344,6 +391,8 @@ class ValidationCommand:
             "expected_worktree_condition": self.expected_worktree_condition,
             "expected_status_sha256": self.expected_status_sha256,
             "required_exit_code": self.required_exit_code,
+            **({"correction_policy": _primitive(self.correction_policy)}
+               if self.correction_policy is not None else {}),
         }
 
 
@@ -373,6 +422,8 @@ class NodeSpec:
     allowed_paths: tuple[str, ...] = ()
     validation_command_ids: tuple[str, ...] = ()
     deadline_utc: str | None = None
+    acceptance_scenarios: tuple[Mapping[str, Any], ...] = ()
+    required_tools: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _nonempty(self.node_id, "node_id")
@@ -381,6 +432,40 @@ class NodeSpec:
             raise ModelValidationError(f"node {self.node_id} has duplicate dependencies")
         if len(set(self.allowed_paths)) != len(self.allowed_paths):
             raise ModelValidationError(f"node {self.node_id} has duplicate allowed paths")
+        scenarios = tuple(_freeze(item) for item in self.acceptance_scenarios)
+        identifiers: set[str] = set()
+        for scenario in scenarios:
+            if not isinstance(scenario, Mapping):
+                raise ModelValidationError("acceptance scenario must be an object")
+            identifier = _nonempty(scenario.get("scenario_id"), "scenario_id")
+            if identifier in identifiers:
+                raise ModelValidationError("acceptance scenario identifiers must be unique")
+            identifiers.add(identifier)
+            _nonempty(scenario.get("expectation"), "acceptance expectation")
+            if scenario.get("validation_command_id") not in self.validation_command_ids:
+                raise ModelValidationError("acceptance scenario requires an admitted node command")
+            sources = scenario.get("sources")
+            if not isinstance(sources, tuple) or not sources:
+                raise ModelValidationError("acceptance scenario requires exact product sources")
+            for source in sources:
+                if not isinstance(source, Mapping):
+                    raise ModelValidationError("acceptance source must be an object")
+                path = _nonempty(source.get("path"), "acceptance source path")
+                parts = path.split("/")
+                if ("\\" in path or ":" in path or any(part in {"", ".", ".."} for part in parts)
+                        or parts[0].casefold() == ".git" or any(c in path for c in "*?[]")):
+                    raise ModelValidationError("acceptance source path must be repository-relative")
+                _nonempty(source.get("requirement_id"), "requirement_id")
+                digest = str(source.get("sha256", ""))
+                if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                    raise ModelValidationError("acceptance source requires an exact SHA-256")
+                if source.get("section") is not None:
+                    _nonempty(source["section"], "acceptance source section")
+        object.__setattr__(self, "acceptance_scenarios", scenarios)
+        if len(set(self.required_tools)) != len(self.required_tools):
+            raise ModelValidationError("required tools must be unique")
+        for tool in self.required_tools:
+            _nonempty(tool, "required tool")
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "NodeSpec":
@@ -395,10 +480,12 @@ class NodeSpec:
                 str(item) for item in value.get("validation_command_ids", ())
             ),
             deadline_utc=(str(value["deadline_utc"]) if value.get("deadline_utc") else None),
+            acceptance_scenarios=tuple(value.get("acceptance_scenarios", ())),
+            required_tools=tuple(value.get("required_tools", ())),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "node_id": self.node_id,
             "objective": self.objective,
             "dependencies": list(self.dependencies),
@@ -406,6 +493,12 @@ class NodeSpec:
             "validation_command_ids": list(self.validation_command_ids),
             "deadline_utc": self.deadline_utc,
         }
+        # Preserve immutable legacy specification digests when no sources were declared.
+        if self.acceptance_scenarios:
+            result["acceptance_scenarios"] = _primitive(self.acceptance_scenarios)
+        if self.required_tools:
+            result["required_tools"] = list(self.required_tools)
+        return result
 
 
 @dataclass(frozen=True)
@@ -602,6 +695,17 @@ class CampaignSpec:
                 raise ModelValidationError(
                     f"node {node.node_id} has duplicate validation commands"
                 )
+            for command in self.required_validation_commands:
+                if command.command_id not in node.validation_command_ids or command.correction_policy is None:
+                    continue
+                if not any(
+                    item["scenario_id"] == command.correction_policy["expectation_id"]
+                    and item["validation_command_id"] == command.command_id
+                    for item in node.acceptance_scenarios
+                ):
+                    raise ModelValidationError(
+                        "validation correction must bind an approved node acceptance scenario"
+                    )
             if not set(node.allowed_paths).issubset(global_paths):
                 raise ModelValidationError(
                     f"node {node.node_id} allowed paths exceed campaign scope"
@@ -887,6 +991,10 @@ class Finding:
     details: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.blocking, bool):
+            raise ModelValidationError("finding blocking must be a boolean")
+        if not isinstance(self.details, Mapping):
+            raise ModelValidationError("finding details must be an object")
         object.__setattr__(self, "origin", _enum(FindingOrigin, self.origin))
         object.__setattr__(self, "details", _freeze(self.details))
         _nonempty(self.finding_id, "finding_id")
@@ -899,7 +1007,7 @@ class Finding:
         return cls(
             finding_id=str(value["finding_id"]),
             title=str(value["title"]),
-            blocking=bool(value.get("blocking", True)),
+            blocking=value.get("blocking", True),
             origin=_enum(FindingOrigin, value.get("origin", default_origin.value)),
             details=value.get("details", {}),
         )
@@ -912,6 +1020,22 @@ class Finding:
             "origin": self.origin.value,
             "details": _primitive(self.details),
         }
+
+    @property
+    def closure_blocking(self) -> bool:
+        """Only an explicitly explained observation may pass closure.
+
+        A material basis cannot be downgraded with a false blocking flag.
+        Legacy or unclassified findings remain blockers until classified.
+        """
+
+        return (
+            self.blocking
+            or any(key in self.details for key in
+                   ("acceptance_expectation_id", "invariant", "regression"))
+            or not isinstance(self.details.get("observation"), str)
+            or not self.details["observation"].strip()
+        )
 
 
 @dataclass(frozen=True)
@@ -1026,6 +1150,7 @@ class NodeSnapshot:
     lease_actor_id: str | None = None
     implementation_attempts: int = 0
     validation_corrections: int = 0
+    validation_correction: Mapping[str, Any] | None = None
     review_generations: int = 0
     repair_attempts: int = 0
     closure_generations: int = 0
@@ -1047,6 +1172,8 @@ class NodeSnapshot:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "state", _enum(NodeState, self.state))
+        if self.validation_correction is not None:
+            object.__setattr__(self, "validation_correction", _freeze(self.validation_correction))
         _nonempty(self.node_id, "node_id")
         for value in (
             self.fencing_epoch,
@@ -1068,6 +1195,7 @@ class NodeSnapshot:
             lease_actor_id=(str(value["lease_actor_id"]) if value.get("lease_actor_id") else None),
             implementation_attempts=int(value.get("implementation_attempts", 0)),
             validation_corrections=int(value.get("validation_corrections", 0)),
+            validation_correction=value.get("validation_correction"),
             review_generations=int(value.get("review_generations", 0)),
             repair_attempts=int(value.get("repair_attempts", 0)),
             closure_generations=int(value.get("closure_generations", 0)),
@@ -1123,6 +1251,8 @@ class NodeSnapshot:
             "lease_actor_id": self.lease_actor_id,
             "implementation_attempts": self.implementation_attempts,
             "validation_corrections": self.validation_corrections,
+            **({"validation_correction": _primitive(self.validation_correction)}
+               if self.validation_correction is not None else {}),
             "review_generations": self.review_generations,
             "repair_attempts": self.repair_attempts,
             "closure_generations": self.closure_generations,
@@ -1237,6 +1367,28 @@ class CampaignSnapshot:
                 return node
         raise TransitionError(f"unknown node: {node_id}")
 
+    def correction_budget_requirements(self, node_id: str) -> dict[BudgetToken, int]:
+        """Keep capacity for correction, complete review, and approved delivery."""
+
+        cohort = len(self.spec.required_review_cohort)
+        sequence = tuple(self.spec.publication_authority.get("required_effects", ()))
+        remaining_effects = sequence[len(self.node(node_id).completed_publication_effects):]
+        required = {
+            BudgetToken.CHILD_CREATION: 1 + cohort,
+            BudgetToken.CHILD_START: 1 + cohort,
+            BudgetToken.VALIDATION_EXECUTION:
+                len(self.node_spec(node_id).validation_command_ids) + len(remaining_effects),
+            BudgetToken.REVIEW_DISPATCH: 1,
+        }
+        tokens = {"PUSH": BudgetToken.PUSH, "CREATE_PULL_REQUEST": BudgetToken.PULL_REQUEST_CREATION,
+                  "UPSERT_COMMENT": BudgetToken.COMMENT, "MERGE": BudgetToken.MERGE}
+        for effect in remaining_effects:
+            token = tokens[effect]
+            required[token] = required.get(token, 0) + 1
+        if "MERGE" in remaining_effects and self.spec.publication_authority.get("required_hosted_checks"):
+            required[BudgetToken.HOSTED_CHECK_WAKEUP] = 1
+        return required
+
 
 @dataclass(frozen=True)
 class Event:
@@ -1303,8 +1455,15 @@ def replace_node(snapshot: CampaignSnapshot, updated: NodeSnapshot) -> CampaignS
 def unique_findings(
     values: Iterable[Mapping[str, Any]], *, origin: FindingOrigin
 ) -> tuple[Finding, ...]:
-    findings = tuple(Finding.from_dict(item, default_origin=origin) for item in values)
-    identifiers = [item.finding_id for item in findings]
-    if len(set(identifiers)) != len(identifiers):
-        raise TransitionError("finding identifiers must be unique within a frozen set")
-    return findings
+    findings: dict[str, Finding] = {}
+    for value in values:
+        finding = Finding.from_dict(value, default_origin=origin)
+        if finding.origin is not origin:
+            raise TransitionError("finding origin differs from its review phase")
+        prior = findings.get(finding.finding_id)
+        if prior is not None:
+            if prior.blocking != finding.blocking or prior.details != finding.details:
+                raise TransitionError("same finding identifier has conflicting evidence or blocking status")
+            finding = replace(prior, title=min(prior.title, finding.title))
+        findings[finding.finding_id] = finding
+    return tuple(findings[key] for key in sorted(findings))

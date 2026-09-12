@@ -10,6 +10,18 @@ The campaign reducer and the external SQLite store are the only lifecycle
 authority. Repository state files, handoffs, comments, branch names, and
 caller-declared roles do not authorize or block work.
 
+The intended user is a founder or small team delegating a specified repository
+change to Codex. The engine adds persistent attempt limits, validation evidence,
+and explicit delivery control to that workflow. Native Codex already provides
+agents, isolated worktrees, skills, and scheduled work.
+
+Local tests demonstrate the modeled controls. They do not establish that an
+independent user can complete a supported installation and delivery journey,
+or that the engine improves acceptance, founder time, or token cost compared
+with native Codex or other workflows. Those outcomes require separate trials.
+See [System scope](docs/system-scope.md) for the evidence boundary and
+[OpenAI's Codex overview](https://openai.com/codex/) for the native product.
+
 ## Engine
 
 The implementation lives in `scripts/agent/campaign_engine/`:

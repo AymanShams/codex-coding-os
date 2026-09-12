@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -17,10 +18,16 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
-from .admission import AdmissionError, normalize_remote_url
+from .admission import (
+    AdmissionError,
+    SourceDriftError,
+    normalize_remote_url,
+    verify_acceptance_sources,
+)
 
 
 EFFECT_STATES = frozenset(
@@ -69,6 +76,8 @@ class EffectStore(Protocol):
 
     def get_effect(self, operation_id: str) -> Mapping[str, Any]: ...
 
+    def get_snapshot(self, campaign_id: str) -> Any: ...
+
     def update_effect(
         self,
         operation_id: str,
@@ -109,6 +118,17 @@ def _require_sha(value: Any, label: str) -> str:
     if not SHA_RE.fullmatch(text):
         raise EffectError(f"{label} must be one exact Git SHA")
     return text
+
+
+@lru_cache(maxsize=1)
+def pr_body_contract() -> Any:
+    path = Path(__file__).resolve().parents[2] / "check-pr-body.py"
+    spec = importlib.util.spec_from_file_location("campaign_pr_body_validator", path)
+    if spec is None or spec.loader is None:
+        raise EffectError("campaign pull request metadata validator is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +199,36 @@ class ExternalEffectDriver:
         if not isinstance(payload, Mapping) or _digest(payload) != record.get("payload_digest"):
             raise EffectConflict("external effect payload differs from its durable digest")
 
+    def _assert_campaign_contract(
+        self, record: Mapping[str, Any], *, check_sources: bool
+    ) -> None:
+        snapshot = self.store.get_snapshot(str(record["campaign_id"]))
+        spec = snapshot.spec
+        node_id = str(record["node_id"]) if record.get("node_id") is not None else None
+        if spec.campaign_id != record["campaign_id"]:
+            raise EffectConflict("external effect campaign differs from its stored specification")
+        if record["kind"] in {"CREATE_PULL_REQUEST", "MERGE"}:
+            if node_id is None:
+                raise EffectConflict("campaign pull request publication requires a candidate node")
+            node = snapshot.node(node_id)
+            payload = record["payload"]
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            expected = {
+                "expected_campaign_id": spec.campaign_id,
+                "expected_specification_digest": spec.specification_digest,
+                "expected_base_sha": spec.base_sha,
+                "candidate_head": node.candidate_head,
+                "head": node.candidate_head,
+            }
+            for field, value in expected.items():
+                if not value or payload.get(field) != value:
+                    raise EffectConflict(
+                        f"external effect {field} differs from the current campaign"
+                    )
+        if check_sources:
+            verify_acceptance_sources(spec.to_dict(), node_id=node_id)
+
     def _confirm_from_query(
         self, record: Mapping[str, Any], *, expected_state: str
     ) -> Mapping[str, Any] | None:
@@ -246,6 +296,7 @@ class ExternalEffectDriver:
         if state != "PREPARED":
             raise EffectConflict(f"external effect cannot execute from {state}")
         try:
+            self._assert_campaign_contract(record, check_sources=False)
             already = self._confirm_from_query(record, expected_state="PREPARED")
         except Exception as exc:
             executing = self.store.update_effect(
@@ -269,7 +320,16 @@ class ExternalEffectDriver:
         if isinstance(payload, str):
             payload = json.loads(payload)
         try:
+            self._assert_campaign_contract(executing, check_sources=True)
             result = dict(self.backend.execute(str(executing["kind"]), payload))
+        except SourceDriftError as exc:
+            self.store.update_effect(
+                operation,
+                expected_state="EXECUTING",
+                state="FAILED",
+                result={"error": f"SourceDriftError: {exc}"},
+            )
+            raise
         except AmbiguousMutation as exc:
             ambiguous = self.store.update_effect(
                 operation,
@@ -541,6 +601,27 @@ class GitHubBackend:
         if expected_base and row.get("baseRefName") != expected_base:
             raise EffectConflict("pull request base differs from the approved base")
 
+    @staticmethod
+    def _assert_campaign_pull_request_body(body: Any, payload: Mapping[str, Any]) -> None:
+        head = _require_sha(payload.get("candidate_head"), "campaign candidate head")
+        if head != _require_sha(payload.get("head"), "pull request head"):
+            raise EffectConflict("pull request head differs from the campaign candidate head")
+        base = _require_sha(payload.get("expected_base_sha"), "campaign base")
+        campaign_id = _stable_id(payload.get("expected_campaign_id"), "campaign id")
+        digest = str(payload.get("expected_specification_digest") or "")
+        if not SHA256_RE.fullmatch(digest):
+            raise EffectError("campaign specification digest must be one exact SHA-256")
+        failures = pr_body_contract().validate_body(
+            str(body or ""),
+            expected_current_head=head,
+            expected_base_sha=base,
+            expected_work_mode="CAMPAIGN",
+            expected_campaign_id=campaign_id,
+            expected_specification_digest=digest,
+        )
+        if failures:
+            raise EffectConflict("campaign pull request metadata: " + "; ".join(failures))
+
     def _exact_pull_request(
         self, root: Path, payload: Mapping[str, Any], repository: str
     ) -> Mapping[str, Any] | None:
@@ -561,7 +642,7 @@ class GitHubBackend:
                 "--base",
                 base,
                 "--json",
-                "number,url,state,headRefName,headRefOid,baseRefName,mergeCommit",
+                "number,url,state,headRefName,headRefOid,baseRefName,mergeCommit,body",
             ),
         )
         if not isinstance(rows, list):
@@ -594,7 +675,7 @@ class GitHubBackend:
                 "--repo",
                 repository,
                 "--json",
-                "number,url,state,headRefName,headRefOid,baseRefName,mergeCommit",
+                "number,url,state,headRefName,headRefOid,baseRefName,mergeCommit,body",
             ),
         )
         if not isinstance(row, Mapping) or int(row.get("number", 0)) != number:
@@ -630,7 +711,10 @@ class GitHubBackend:
             observed = output.split()[0].casefold() if output else None
             return {"confirmed": observed == head, "remote_head": observed, "expected_head": head}
         if kind == "CREATE_PULL_REQUEST":
+            self._assert_campaign_pull_request_body(payload.get("body"), payload)
             match = self._exact_pull_request(root, payload, repository)
+            if match is not None:
+                self._assert_campaign_pull_request_body(match.get("body"), payload)
             return {"confirmed": match is not None, "pull_request": match}
         if kind == "UPSERT_COMMENT":
             marker, requested_body = self._comment_contract(payload)
@@ -768,6 +852,10 @@ class GitHubBackend:
                 raise EffectConflict("exact-head pull request does not exist for merge")
             if isinstance(pull_request, Mapping) and pull_request.get("state") != "OPEN":
                 raise EffectConflict("exact-head pull request is not open for merge")
+            self._assert_campaign_pull_request_body(
+                pull_request.get("body") if isinstance(pull_request, Mapping) else None,
+                payload,
+            )
             head = _require_sha(payload.get("head"), "merge head")
             method = str(payload.get("method", "squash"))
             if method not in {"merge", "squash", "rebase"}:

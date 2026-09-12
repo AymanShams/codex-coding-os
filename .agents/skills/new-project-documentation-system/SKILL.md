@@ -20,7 +20,7 @@ An explicit invocation without a narrower limit defaults to Full Run. Read `refe
 
 ## Documentation Manifest
 
-Before drafting controlled documents, create `project-documentation-manifest.json` from `assets/project-documentation-manifest.template.json`.
+Before drafting controlled documents, reuse the existing `project-documentation-manifest.json`. Create it from `assets/project-documentation-manifest.template.json` only when absent. Update only evidence affected by the current request.
 
 The manifest is a stable documentation ledger. It records sources, decisions, approvals of documents, artifact lineage, and documentation-phase evidence. It must declare `execution_authority: false`.
 
@@ -42,9 +42,9 @@ Run `scripts/validate_filled_artifacts.py <filled-artifact-paths>` before reques
 
 ## Material Decisions
 
-Assume only reversible presentation details such as filenames, formatting, and document organization.
+Use the founder decision boundary in `../codex-coding-os-master/SKILL.md`: ask only about unresolved choices affecting customer behavior, priorities, spending, delivery commitments, or consequential external actions. Reuse approved decisions and derive routine technical choices from controlling sources and the existing architecture.
 
-Ask the user before choosing a material product, business, workflow, architecture, data, integration, hosting, repository, external-service, output-format, or delivery decision. If controlling sources conflict, identify the conflict and wait for the user’s decision before drafting dependent material.
+Record each derived choice with its source and scope in the existing decision register. Do not present model inference as user approval. Resolve conflicting sources through established precedence. If a business choice remains unresolved, consolidate the smallest necessary questions and pause dependent drafting. Technical investigation and status reporting do not require a founder decision.
 
 ## Capability Routing
 
@@ -86,18 +86,7 @@ Documentation completion and implementation execution are separate outcomes.
 
 For manual work, coding begins only from an explicit current user request and follows the repository’s stable sources and normal validation.
 
-For automated work, use the canonical installed CLI at `%USERPROFILE%\.codex\coding-os\scripts\agent\campaign_engine\cli.py`:
-
-```text
-python <installed-cli> --json doctor
-python <installed-cli> --json admit --spec <path>
-python <installed-cli> --json approve --campaign-id <id> --specification-digest <digest>
-python <installed-cli> --json run --campaign-id <id>
-python <installed-cli> --json status --repository-root .
-python <installed-cli> --json cancel --campaign-id <id>
-```
-
-Run `approve` only after the user approves the exact specification digest. Follow the engine receipt for subsequent actions. Never infer automated authority from a project manifest, work summary, branch, pull request, chat, or Git-tracked delivery file.
+For automated work, use the installed CLI and receipt through `../codex-coding-os-master/SKILL.md`. Only the engine owns campaign admission, approval, execution, and status. A documentation manifest or work summary cannot grant automated authority.
 
 ## Required Full-Run Outputs
 

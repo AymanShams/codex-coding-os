@@ -12,10 +12,12 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
+import re
 import subprocess
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
-from .effects import ExternalEffectDriver
+from .admission import SourceDriftError, verify_acceptance_sources
+from .effects import ExternalEffectDriver, pr_body_contract
 from .evidence import (
     EvidenceError,
     HostedEvidenceError,
@@ -25,6 +27,7 @@ from .evidence import (
     exact_repository_evidence,
     execute_trusted_command,
     publication_preflight,
+    verify_command_evidence,
 )
 from .host import (
     ActorLease,
@@ -37,6 +40,7 @@ from .host import (
 from .model import (
     Actor,
     ActorRole,
+    AuthorityError,
     BudgetError,
     BudgetToken,
     CampaignMode,
@@ -53,7 +57,9 @@ from .model import (
     NodeSnapshot,
     NodeState,
     TransitionError,
+    ValidationCommand,
     canonical_json_digest,
+    unique_findings,
 )
 from .store import CampaignStore
 
@@ -148,7 +154,7 @@ class DeterministicSupervisor:
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self.store = store
-        self.host = host or NativeCodexHost()
+        self.host = host or NativeCodexHost(usage_recorder=store.record_native_usage)
         self.effect_driver = effect_driver
         self.hosted_check_collector = hosted_check_collector
         self.publication_preflight_runner = publication_preflight_runner
@@ -191,8 +197,10 @@ class DeterministicSupervisor:
         deadline = getattr(snapshot.spec, "deadline_utc", None)
         if node is not None:
             node_spec = snapshot.node_spec(node.node_id)
-            deadline = getattr(node_spec, "deadline_utc", None) or deadline
-        if deadline and self.now().astimezone(timezone.utc) > _utc(str(deadline)):
+            node_deadline = getattr(node_spec, "deadline_utc", None)
+            deadlines = [str(item) for item in (deadline, node_deadline) if item]
+            deadline = min(deadlines, key=_utc) if deadlines else None
+        if deadline and self.now().astimezone(timezone.utc) >= _utc(str(deadline)):
             raise SupervisorDeadlineExceeded(
                 f"approved deadline exceeded for {node.node_id if node else snapshot.spec.campaign_id}"
             )
@@ -305,6 +313,41 @@ class DeterministicSupervisor:
 
     def _apply(self, event: Event) -> CampaignSnapshot:
         return self.store.apply_event(event)[0]
+
+    def _verify_sources(self, snapshot: CampaignSnapshot, node_id: str) -> None:
+        verify_acceptance_sources(snapshot.spec.to_dict(), node_id=node_id)
+        node = snapshot.node(node_id)
+        if not snapshot.node_spec(node_id).acceptance_scenarios or node.state not in {
+            NodeState.CANDIDATE_FROZEN, NodeState.CHECKS_AND_REVIEW, NodeState.FINDINGS_FROZEN,
+            NodeState.CLOSURE, NodeState.READY_TO_PUBLISH, NodeState.PUBLISHING,
+        }:
+            return
+        commands = {item.command_id: item for item in snapshot.spec.required_validation_commands}
+        for command_id in snapshot.node_spec(node_id).validation_command_ids:
+            evidence = next((item for state in (NodeState.REVALIDATING, NodeState.VALIDATING)
+                             if (item := self.store.get_evidence(_stable_id(
+                                 "validation", snapshot.spec.campaign_id, node_id, command_id,
+                                 node.candidate_head, state.value, node.validation_corrections,
+                             ))) is not None), None)
+            if evidence is None:
+                raise SourceDriftError(f"passing acceptance evidence unavailable: {node_id}/{command_id}")
+            try:
+                verify_command_evidence(self._trusted_command(commands[command_id], str(node.candidate_head)),
+                                        evidence.to_dict()["payload"])
+            except EvidenceError as exc:
+                raise SourceDriftError(f"acceptance command inputs changed: {node_id}/{command_id}: {exc}") from exc
+
+    @staticmethod
+    def _trusted_command(command: ValidationCommand, candidate_head: str) -> TrustedCommand:
+        return TrustedCommand(
+            executable=command.executable, arguments=command.arguments,
+            working_directory=command.working_directory,
+            environment_allowlist=command.environment_allowlist, environment={},
+            timeout_seconds=command.timeout_seconds, output_limit_bytes=command.output_limit_bytes,
+            candidate_head=candidate_head, expected_working_tree=command.expected_worktree_condition,
+            expected_status_sha256=command.expected_status_sha256,
+            required_exit_code=command.required_exit_code, execution_boundary="READ_ONLY",
+        )
 
     def _interrupt_node_workers(self, campaign_id: str, node_id: str) -> tuple[str, ...]:
         """Interrupt and forget every in-process worker bound to one exact node."""
@@ -432,7 +475,8 @@ class DeterministicSupervisor:
             snapshot,
             BudgetToken.CHILD_CREATION,
             node_id=node_id,
-            label=f"create:{role.value}:{reviewer_id or 'single'}",
+            label=(f"create:{node_id}:{role.value}:{reviewer_id or 'single'}:"
+                   f"correction:{snapshot.node(node_id).validation_corrections}"),
         ) if native_worker else snapshot
         actor_id = _stable_id(
             snapshot.spec.campaign_id,
@@ -496,6 +540,8 @@ class DeterministicSupervisor:
         candidate_head = (
             node.candidate_head or node.start_head or snapshot.spec.base_sha
         )
+        if role is ActorRole.IMPLEMENTER and node.validation_correction is not None:
+            candidate_head = str(node.validation_correction["candidate_head"])
         return ActorLease.issue(
             lease_id=lease.lease_id,
             request_id=_stable_id("native", lease.lease_id),
@@ -555,26 +601,29 @@ class DeterministicSupervisor:
         node_id: str,
         role: ActorRole,
         reviewer_id: str | None,
+        failure_diagnostic: str | None = None,
     ) -> str:
         node = snapshot.node(node_id)
         spec = snapshot.node_spec(node_id)
         binding = {
-            "campaign_id": snapshot.spec.campaign_id,
             "node_id": node_id,
             "role": role.value,
             "reviewer_id": reviewer_id,
-            "specification_digest": snapshot.spec.specification_digest,
-            "authority_epoch": snapshot.authority_epoch,
-            "cancellation_epoch": snapshot.cancellation_epoch,
-            "fencing_epoch": node.fencing_epoch,
-            "repository_remote": snapshot.spec.repository_remote,
-            "worktree": snapshot.spec.worktree,
-            "branch": snapshot.spec.branch,
-            "base_sha": snapshot.spec.base_sha,
             "candidate_head": node.candidate_head,
             "allowed_paths": list(spec.allowed_paths),
             "objective": spec.objective,
+            "acceptance_scenarios": spec.to_dict().get("acceptance_scenarios", []),
         }
+        if node.validation_correction and role is ActorRole.IMPLEMENTER:
+            correction = node.validation_correction
+            binding["validation_correction"] = {
+                "expectation_id": correction["expectation_id"],
+                "test_id": correction["test_id"],
+                "candidate_head": correction["candidate_head"],
+                "failure": failure_diagnostic,
+            }
+        if role in {ActorRole.REPAIRER, ActorRole.CLOSURE_REVIEWER}:
+            binding["frozen_findings"] = [item.to_dict() for item in node.findings if item.blocking]
         if role in {ActorRole.REVIEWER, ActorRole.CLOSURE_REVIEWER}:
             instruction = (
                 "Review the exact frozen candidate read-only. Return evidence-bound finding "
@@ -584,6 +633,14 @@ class DeterministicSupervisor:
                 "campaign_list_files, campaign_read_file, campaign_search, campaign_git_status, "
                 "and campaign_git_diff tools."
             )
+            instruction += (
+                " Reuse established finding identifiers when reporting the same evidence."
+                " Tie each blocker in details to acceptance_expectation_id, an invariant "
+                "with evidence, or a regression with reproduction, expected, and actual. "
+                "For a nonblocking observation supply details.observation explaining why "
+                "it does not violate an acceptance expectation or invariant. At closure "
+                "report resolved_finding_ids only for frozen blockers verified as fixed."
+            )
         else:
             instruction = (
                 "Implement only this node inside allowed paths. Run no publication mutation. "
@@ -592,7 +649,7 @@ class DeterministicSupervisor:
                 "Make changes only through campaign_apply_patch, then use campaign_commit to "
                 "commit the exact candidate and leave the worktree clean."
             )
-        return f"{instruction}\n\nExact campaign binding:\n{binding!r}"
+        return f"{instruction}\n\nCurrent change and acceptance:\n{binding!r}"
 
     def dispatch_worker(
         self,
@@ -605,6 +662,7 @@ class DeterministicSupervisor:
     ) -> ActorLease:
         snapshot = self.store.get_snapshot(campaign_id)
         self._check_deadline(snapshot, snapshot.node(node_id))
+        self._verify_sources(snapshot, node_id)
         snapshot, actor, lease = self._acquire_actor(
             snapshot,
             node_id,
@@ -662,7 +720,16 @@ class DeterministicSupervisor:
                 )
             self.host.start_actor_turn(
                 host_lease.lease_id,
-                self._worker_prompt(snapshot, node_id, role, reviewer_id),
+                self._worker_prompt(
+                    snapshot, node_id, role, reviewer_id,
+                    failure_diagnostic=(
+                        str(self.store.get_evidence(
+                            snapshot.node(node_id).validation_correction["evidence_id"]
+                        ).payload.get("stderr", ""))[-4000:]
+                        if snapshot.node(node_id).validation_correction
+                        and role is ActorRole.IMPLEMENTER else None
+                    ),
+                ),
             )
             self._workers[host_lease.lease_id] = WorkerRuntime(
                 lease=host_lease, role=role, reviewer_id=reviewer_id
@@ -694,7 +761,7 @@ class DeterministicSupervisor:
     ) -> TerminalReceipt:
         runtime = self._workers.get(lease_id)
         if runtime is None:
-            raise SupervisorError(f"unknown in-process worker lease: {lease_id}")
+            return self._persisted_terminal(lease_id)
         failure_id = _stable_id("transport-failure", lease_id)
         retry_id = _stable_id("transport-retry", lease_id)
         failure = self.store.get_runtime_operation(failure_id)
@@ -870,6 +937,36 @@ class DeterministicSupervisor:
         self._workers.pop(lease_id, None)
         return receipt
 
+    def _persisted_terminal(self, lease_id: str) -> TerminalReceipt:
+        """Reattach only a completed, attested result, without contacting its host."""
+
+        evidence = self.store.get_evidence(_stable_id("receipt", lease_id))
+        if evidence is None:
+            raise SupervisorError(f"unknown in-process worker lease: {lease_id}")
+        payload = dict(evidence.to_dict()["payload"])
+        digest_payload = dict(payload)
+        digest = digest_payload.pop("receipt_digest", "")
+        snapshot = self.store.get_snapshot(evidence.campaign_id)
+        actor = self.store.get_actor(str(payload.get("actor_id", "")))
+        lease = self.store.get_lease(lease_id)
+        if (canonical_json_digest(digest_payload) != digest or evidence.digest != digest
+                or payload.get("lease_id") != lease_id or lease.actor_id != actor.actor_id
+                or payload.get("campaign_id") != snapshot.spec.campaign_id
+                or payload.get("node_id") != actor.node_id
+                or payload.get("role") != actor.role.value
+                or payload.get("authority_epoch") != snapshot.authority_epoch
+                or payload.get("cancellation_epoch") != snapshot.cancellation_epoch
+                or payload.get("fencing_epoch") != lease.fencing_epoch
+                or str(payload.get("turn_status", "")).casefold() not in {"complete", "completed"}
+                or snapshot.state in {CampaignState.CANCELLED, CampaignState.FAILED}):
+            raise SupervisorError("persisted terminal receipt cannot reattach to current authority")
+        self.store.verify_terminal_evidence_attestation(
+            evidence.evidence_id, digest=str(digest), actor_id=actor.actor_id,
+            lease_id=lease_id, native_thread_id=str(payload.get("native_thread_id", "")),
+            native_turn_id=str(payload.get("native_turn_id", "")), principal_id=actor.principal_id,
+        )
+        return TerminalReceipt(**payload)
+
     def _changed_paths(self, evidence: Mapping[str, Any]) -> tuple[str, ...]:
         values: list[str] = []
         for entry in evidence.get("changed_entries", ()):
@@ -889,11 +986,66 @@ class DeterministicSupervisor:
         for path in changed:
             guard.require(path)
 
+    def _validation_correction(
+        self, snapshot: CampaignSnapshot, node_id: str, command: ValidationCommand,
+        evidence: Any, authority_epoch: int, cancellation_epoch: int,
+    ) -> dict[str, Any] | None:
+        """Recognize one approved unittest assertion failure, never a host error."""
+
+        node = snapshot.node(node_id)
+        policy = command.correction_policy
+        self._check_deadline(snapshot, node)
+        if (policy is None or node.state is not NodeState.VALIDATING
+                or node.validation_corrections != 0 or node.candidate_head is not None
+                or snapshot.authority_epoch != authority_epoch
+                or snapshot.cancellation_epoch != cancellation_epoch):
+            return None
+        scenarios = snapshot.node_spec(node_id).acceptance_scenarios
+        if not any(item["scenario_id"] == policy["expectation_id"]
+                   and item["validation_command_id"] == command.command_id for item in scenarios):
+            return None
+        if not command.recognizes_correction(evidence.to_dict()):
+            return None
+        digest = evidence.evidence_sha256
+        needed = snapshot.correction_budget_requirements(node_id)
+        remaining = {item.token: item.remaining for item in snapshot.budgets}
+        if snapshot.spec.mode is CampaignMode.AUTOMATED and (
+                snapshot.autonomous_rank_remaining < sum(needed.values())
+                or any(remaining.get(token, 0) < count for token, count in needed.items())):
+            return None
+        repository = exact_repository_evidence(
+            snapshot.spec.worktree, base_sha=str(node.start_head),
+            candidate_head=evidence.candidate_head,
+        )
+        self._validate_scope(snapshot, node_id, repository)
+        publication_preflight(snapshot.spec.worktree, expected_remote=snapshot.spec.repository_remote,
+                              candidate_head=evidence.candidate_head,
+                              hosted_checks=None, required_checks=())
+        branch = subprocess.run(("git", "branch", "--show-current"), cwd=snapshot.spec.worktree,
+                                check=True, text=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=30).stdout.strip()
+        if branch != snapshot.spec.branch:
+            return None
+        if repository["status_sha256"] != evidence.status_after_sha256:
+            return None
+        return {
+            **dict(policy), "command_id": command.command_id,
+            "candidate_head": evidence.candidate_head,
+            "evidence_id": _stable_id("validation-failed", snapshot.spec.campaign_id,
+                                      node_id, command.command_id, digest),
+            "evidence_digest": digest,
+            "failure_evidence": evidence.to_dict(),
+            "specification_digest": snapshot.spec.specification_digest,
+            "authority_epoch": snapshot.authority_epoch,
+            "cancellation_epoch": snapshot.cancellation_epoch,
+        }
+
     def validate_node(self, campaign_id: str, node_id: str) -> SupervisorDecision:
         snapshot = self.store.get_snapshot(campaign_id)
         node = snapshot.node(node_id)
         if node.state not in {NodeState.VALIDATING, NodeState.REVALIDATING}:
             raise SupervisorError("node is not ready for trusted validation")
+        self._verify_sources(snapshot, node_id)
         self._check_deadline(snapshot, node)
         commands = {
             item.command_id: item
@@ -910,7 +1062,7 @@ class DeterministicSupervisor:
             snapshot,
             BudgetToken.VALIDATION_EXECUTION,
             node_id=node_id,
-            label=f"{node.state.value}:{required[0]}",
+            label=f"{node.state.value}:correction:{node.validation_corrections}:{required[0]}",
         )
         snapshot, actor, lease = self._acquire_actor(
             snapshot,
@@ -936,7 +1088,7 @@ class DeterministicSupervisor:
                         snapshot,
                         BudgetToken.VALIDATION_EXECUTION,
                         node_id=node_id,
-                        label=f"{node.state.value}:{command_id}",
+                        label=f"{node.state.value}:correction:{node.validation_corrections}:{command_id}",
                     )
                 command = commands[command_id]
                 working = Path(command.working_directory).expanduser().resolve(
@@ -946,25 +1098,14 @@ class DeterministicSupervisor:
                     raise EvidenceError(
                         "validation command working_directory differs from the exact worktree"
                     )
-                trusted = TrustedCommand(
-                    executable=command.executable,
-                    arguments=command.arguments,
-                    working_directory=str(working),
-                    environment_allowlist=command.environment_allowlist,
-                    environment={},
-                    timeout_seconds=command.timeout_seconds,
-                    output_limit_bytes=command.output_limit_bytes,
-                    candidate_head=candidate_head,
-                    expected_working_tree=command.expected_worktree_condition,
-                    expected_status_sha256=command.expected_status_sha256,
-                    required_exit_code=command.required_exit_code,
-                )
+                trusted = self._trusted_command(command, candidate_head)
                 result = execute_trusted_command(trusted)
                 payload = result.to_dict()
                 self.store.record_evidence(
                     Evidence(
                         evidence_id=_stable_id(
-                            "validation", campaign_id, node_id, command_id, candidate_head
+                            "validation", campaign_id, node_id, command_id, candidate_head,
+                            node.state.value, node.validation_corrections,
                         ),
                         campaign_id=campaign_id,
                         node_id=node_id,
@@ -1020,6 +1161,8 @@ class DeterministicSupervisor:
                 )
             )
             snapshot = self.store.get_snapshot(campaign_id)
+            self._check_deadline(snapshot, snapshot.node(node_id))
+            self._verify_sources(snapshot, node_id)
             event_type = (
                 EventType.VALIDATION_PASSED
                 if node.state is NodeState.VALIDATING
@@ -1050,7 +1193,9 @@ class DeterministicSupervisor:
                 )
             )
             action = "CANDIDATE_FROZEN" if event_type is EventType.VALIDATION_PASSED else "CLOSURE_READY"
-        except (EvidenceError, HostScopeError, OSError, subprocess.SubprocessError) as exc:
+        except SupervisorDeadlineExceeded:
+            return self._fail_deadline(self.store.get_snapshot(campaign_id), node)
+        except (EvidenceError, AuthorityError, HostScopeError, OSError, subprocess.SubprocessError) as exc:
             failed_evidence = (
                 exc.evidence
                 if isinstance(exc, ValidationFailure)
@@ -1059,8 +1204,8 @@ class DeterministicSupervisor:
             )
             if failed_evidence is not None:
                 payload = failed_evidence.to_dict()
-                self.store.record_evidence(
-                    Evidence(
+                try:
+                    self.store.record_evidence(Evidence(
                         evidence_id=_stable_id(
                             "validation-failed",
                             campaign_id,
@@ -1074,11 +1219,27 @@ class DeterministicSupervisor:
                         digest=str(failed_evidence.evidence_sha256),
                         payload=payload,
                         candidate_head=str(failed_evidence.candidate_head),
-                    )
-                )
+                    ))
+                except AuthorityError:
+                    failed_evidence = None
+                    exc = EvidenceError("failed validation evidence is invalid")
             snapshot = self.store.get_snapshot(campaign_id)
+            if snapshot.state in {CampaignState.CANCELLED, CampaignState.FAILED, CampaignState.COMPLETED}:
+                return SupervisorDecision(campaign_id, snapshot.revision, snapshot.state.value,
+                                          "TERMINAL", node_id)
+            correction = None
+            if failed_evidence is not None:
+                try:
+                    correction = self._validation_correction(
+                        snapshot, node_id, command, failed_evidence, actor.authority_epoch,
+                        lease.cancellation_epoch,
+                    )
+                except (EvidenceError, HostScopeError, OSError, subprocess.SubprocessError,
+                        SupervisorDeadlineExceeded):
+                    correction = None
             event_type = (
-                EventType.VALIDATION_FAILED
+                EventType.REQUEST_VALIDATION_CORRECTION if correction is not None
+                else EventType.VALIDATION_FAILED
                 if node.state is NodeState.VALIDATING
                 else EventType.REVALIDATION_FAILED
             )
@@ -1090,10 +1251,11 @@ class DeterministicSupervisor:
                     node_id=node_id,
                     actor_id=actor.actor_id,
                     fencing_epoch=lease.fencing_epoch,
-                    payload={"reason": str(exc)},
+                    payload={"reason": str(exc), "correction": correction},
                 )
             )
-            action = "VALIDATION_FAILED"
+            action = ("VALIDATION_CORRECTION_READY" if correction is not None
+                      else "VALIDATION_FAILED")
         finally:
             current = self.store.get_snapshot(campaign_id)
             try:
@@ -1124,6 +1286,7 @@ class DeterministicSupervisor:
         node = snapshot.node(node_id)
         if node.state is not NodeState.CANDIDATE_FROZEN:
             raise SupervisorError("candidate is not frozen")
+        self._verify_sources(snapshot, node_id)
         review_id = _stable_id("review", campaign_id, node_id, node.candidate_head)
         snapshot = self._apply(
             self._event(
@@ -1183,6 +1346,7 @@ class DeterministicSupervisor:
         node = snapshot.node(node_id)
         if node.state is not NodeState.CHECKS_AND_REVIEW:
             raise SupervisorError("node is not waiting for the review cohort")
+        self._verify_sources(snapshot, node_id)
         verified_findings = self._verify_review_receipts(
             snapshot,
             node,
@@ -1316,25 +1480,57 @@ class DeterministicSupervisor:
             )
             if evidence_resolved != supplied_resolved:
                 raise SupervisorError("review receipt resolution evidence was changed")
+            verdict = result_payload.get("verdict")
+            if verdict not in {"PASS", "BLOCK"} or receipt.get("verdict") != verdict:
+                raise SupervisorError("review verdict differs from persisted terminal evidence")
             raw_findings = result_payload.get("findings", ())
             if not isinstance(raw_findings, (list, tuple)):
                 raise SupervisorError("review receipt findings evidence is not an array")
+            receipt_blockers = []
             for raw in raw_findings:
                 if not isinstance(raw, Mapping):
                     raise SupervisorError("review receipt finding evidence is not an object")
                 item = dict(raw)
+                finding = Finding.from_dict(item)
+                if finding.closure_blocking:
+                    details = finding.details
+                    regression = details.get("regression")
+                    acceptance_ids = {scenario["scenario_id"] for scenario in
+                                      snapshot.node_spec(node.node_id).acceptance_scenarios}
+                    has_basis = (
+                        details.get("acceptance_expectation_id") in acceptance_ids
+                        or (isinstance(details.get("invariant"), str)
+                            and bool(details["invariant"].strip())
+                            and isinstance(details.get("evidence"), str)
+                            and bool(details["evidence"].strip()))
+                        or (isinstance(regression, Mapping)
+                            and all(isinstance(regression.get(key), str) and regression[key].strip()
+                                    for key in ("reproduction", "expected", "actual")))
+                    )
+                    if not has_basis:
+                        raise SupervisorError("blocking finding requires an acceptance, invariant, or reproducible regression basis")
+                    receipt_blockers.append(finding.finding_id)
                 finding_id = str(item.get("finding_id", ""))
-                if not finding_id or finding_id in finding_ids:
+                if not finding_id:
                     raise SupervisorError(
-                        "review receipt finding identifiers must be nonempty and unique"
+                        "review receipt finding identifiers must be nonempty"
                     )
                 finding_ids.add(finding_id)
                 verified_findings.append(item)
+            if (verdict == "BLOCK") != bool(receipt_blockers):
+                raise SupervisorError("review verdict contradicts its material finding evidence")
         supplied = sorted((dict(item) for item in findings), key=lambda item: str(item.get("finding_id", "")))
         verified = sorted(verified_findings, key=lambda item: str(item.get("finding_id", "")))
         if canonical_json_digest(supplied) != canonical_json_digest(verified):
             raise SupervisorError("review findings differ from persisted receipt evidence")
-        return verified_findings
+        # Preserve the original evidence, but never let an observation flag
+        # suppress a material blocker in the frozen lifecycle finding set.
+        return [item.to_dict() for item in unique_findings(
+            [{**item, "blocking": Finding.from_dict(item).closure_blocking}
+             for item in verified_findings],
+            origin=(FindingOrigin.CLOSURE if expected_role is ActorRole.CLOSURE_REVIEWER
+                    else FindingOrigin.REVIEW),
+        )]
 
     def collect_review_cohort(
         self,
@@ -1342,8 +1538,21 @@ class DeterministicSupervisor:
         *,
         timeout: float | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        runtimes = [self._workers.get(lease_id) for lease_id in lease_ids]
-        if not runtimes or any(runtime is None for runtime in runtimes):
+        runtimes = []
+        for lease_id in lease_ids:
+            runtime = self._workers.get(lease_id)
+            if runtime is None:
+                receipt = self._persisted_terminal(lease_id)
+                actor = self.store.get_actor(receipt.actor_id)
+                lease = self.store.get_lease(lease_id)
+                snapshot = self.store.get_snapshot(receipt.campaign_id)
+                runtime = WorkerRuntime(
+                    self._host_lease(snapshot, receipt.node_id, actor.role, actor, lease,
+                                     reviewer_id=actor.principal_id),
+                    actor.role, actor.principal_id,
+                )
+            runtimes.append(runtime)
+        if not runtimes:
             raise SupervisorError("review cohort contains an unknown in-process lease")
         bound = [runtime for runtime in runtimes if runtime is not None]
         campaign_ids = {runtime.lease.campaign_id for runtime in bound}
@@ -1380,13 +1589,15 @@ class DeterministicSupervisor:
         seen: set[str] = set()
         for lease_id in lease_ids:
             runtime = self._workers.get(lease_id)
-            if runtime is None or runtime.reviewer_id is None:
+            reviewer = (runtime.reviewer_id if runtime is not None else
+                        self.store.get_actor(self._persisted_terminal(lease_id).actor_id).principal_id)
+            if reviewer is None:
                 raise SupervisorError("review worker has no frozen reviewer identity")
             receipt = self.complete_worker(lease_id, timeout=timeout)
             payload = dict(receipt.result_payload)
-            reviewer_id = str(payload.get("reviewer_id", runtime.reviewer_id))
+            reviewer_id = str(payload.get("reviewer_id", reviewer))
             candidate_head = str(payload.get("candidate_head", receipt.candidate_head))
-            if reviewer_id != runtime.reviewer_id:
+            if reviewer_id != reviewer:
                 raise SupervisorError("reviewer result changed its bound reviewer identity")
             if candidate_head != receipt.candidate_head:
                 raise SupervisorError("reviewer result changed its bound candidate head")
@@ -1411,8 +1622,8 @@ class DeterministicSupervisor:
                     raise SupervisorError("review finding must be an object")
                 item = dict(raw)
                 finding_id = str(item.get("finding_id", ""))
-                if not finding_id or finding_id in seen:
-                    raise SupervisorError("review finding identifiers must be nonempty and unique")
+                if not finding_id:
+                    raise SupervisorError("review finding identifiers must be nonempty")
                 seen.add(finding_id)
                 findings.append(item)
         return receipts, findings
@@ -1493,6 +1704,7 @@ class DeterministicSupervisor:
         node_before = snapshot.node(node_id)
         if node_before.state is not NodeState.CLOSURE:
             raise SupervisorError("node is not in closure")
+        self._verify_sources(snapshot, node_id)
         verified_findings = self._verify_review_receipts(
             snapshot,
             node_before,
@@ -1555,6 +1767,109 @@ class DeterministicSupervisor:
         completed = tuple(getattr(node, "completed_publication_effects", ()))
         return str(sequence[len(completed)]) if len(completed) < len(sequence) else None
 
+    def _render_campaign_pr_body(
+        self, snapshot: CampaignSnapshot, node: NodeSnapshot, narrative: str, operation_id: str
+    ) -> str:
+        """Append stored facts to narrative-only input, never to caller metadata."""
+        contract = pr_body_contract()
+        if any(heading in narrative for heading in contract.REQUIRED_HEADINGS) or any(
+            re.search(rf"(?im)^\s*(?:-\s*)?{re.escape(label)}:", narrative)
+            for label in contract.REQUIRED_FIELDS
+        ):
+            raise SupervisorError("pull request narrative must omit reserved metadata sections and fields")
+        spec = snapshot.spec
+        node_spec = snapshot.node_spec(node.node_id)
+
+        def cell(value: Any) -> str:
+            return " ".join(str(value).split()).replace("|", "&#124;")
+
+        repository = self.store.get_evidence(_stable_id(
+            "repository-campaign-cumulative", spec.campaign_id, node.node_id,
+            spec.base_sha, node.candidate_head,
+        ))
+        if (repository is None or repository.kind is not EvidenceKind.REPOSITORY
+                or repository.candidate_head != node.candidate_head
+                or repository.payload.get("diff_sha256") != node.candidate_diff_digest):
+            raise SupervisorError("pull request metadata requires persisted exact-candidate repository evidence")
+        changed_paths = [path for entry in repository.payload.get("changed_entries", ())
+                         for path in str(entry).split("\t")[1:]]
+        commands = {item.command_id: item for item in spec.required_validation_commands}
+        rows: dict[str, tuple[str, str, str]] = {}
+        for command_id in node_spec.validation_command_ids:
+            receipt = next((item for state in (NodeState.REVALIDATING, NodeState.VALIDATING)
+                            if (item := self.store.get_evidence(_stable_id(
+                                "validation", spec.campaign_id, node.node_id, command_id,
+                                node.candidate_head, state.value, node.validation_corrections,
+                            ))) is not None), None)
+            if (receipt is None or receipt.kind is not EvidenceKind.VALIDATION
+                    or receipt.candidate_head != node.candidate_head):
+                raise SupervisorError(f"pull request metadata requires persisted validation: {command_id}")
+            command = commands[command_id]
+            verify_command_evidence(self._trusted_command(command, str(node.candidate_head)),
+                                    receipt.to_dict()["payload"])
+            rows[command_id] = (
+                subprocess.list2cmdline((command.executable, *command.arguments)),
+                receipt.evidence_id, "PASS",
+            )
+        for name in contract.VALIDATION_CHECKS:
+            rows.setdefault(name, ("Not configured for this node", spec.specification_digest,
+                                   "NOT_CONFIGURED"))
+        if "pr-metadata" not in node_spec.validation_command_ids:
+            rows["pr-metadata"] = ("check-pr-body.py validate_body", operation_id,
+                                   "PASS (metadata consistency)")
+        validation = "\n".join(
+            "| " + " | ".join(cell(value) for value in (name, *values)) + " |"
+            for name, values in rows.items()
+        )
+        expectations = [str(item["expectation"]) for item in node_spec.acceptance_scenarios]
+        acceptance = "; ".join(expectations) if expectations else (
+            f"{node_spec.objective}. Required commands: {', '.join(node_spec.validation_command_ids)}"
+        )
+        metadata = f"""## Requested outcome
+
+- Work mode: CAMPAIGN
+- Campaign ID: {cell(spec.campaign_id)}
+- Objective: {cell(spec.objective)}
+- Objective kind: {spec.objective_kind.value}
+- Exact base SHA: {spec.base_sha}
+- Exact candidate head SHA: {node.candidate_head}
+- Specification digest: {spec.specification_digest}
+
+## Scope
+
+- Changed paths: {cell(', '.join(changed_paths) or 'None')}
+- Acceptance criteria: {cell(acceptance)}
+- Explicit non-goals: Changes outside the admitted campaign scope ({cell(', '.join(spec.allowed_paths))}), unlisted effects, and unapproved acceptance changes.
+
+## Validation
+
+| Check | Command | Evidence ID | Result |
+|---|---|---|---|
+{validation}
+
+## Review
+
+- Frozen candidate diff digest: {node.candidate_diff_digest}
+- Required review cohort: {cell(', '.join(spec.required_review_cohort))}
+- Frozen finding IDs: {cell(', '.join(item.finding_id for item in node.findings) or 'None')}
+- Repair used: {'Yes' if node.repair_attempts else 'No'}
+- Closure result: {'PASS' if node.closure_generations else 'Not required: frozen review has no blocking findings'}
+
+## Publication authority
+
+- Allowed effects: {', '.join(spec.publication_authority['allowed_effects'])}
+- Exact operation IDs: {', '.join((*node.publication_operation_ids, operation_id))}
+"""
+        body = (narrative.strip() + "\n\n" if narrative.strip() else "") + metadata
+        failures = contract.validate_body(
+            body, expected_work_mode="CAMPAIGN", expected_campaign_id=spec.campaign_id,
+            expected_specification_digest=spec.specification_digest,
+            expected_current_head=str(node.candidate_head), expected_base_sha=spec.base_sha,
+        )
+        if failures:
+            raise SupervisorError("rendered campaign metadata is invalid: " + "; ".join(failures))
+        return body
+
     def start_publication(
         self,
         campaign_id: str,
@@ -1564,6 +1879,7 @@ class DeterministicSupervisor:
     ) -> SupervisorDecision:
         snapshot = self.store.get_snapshot(campaign_id)
         node = snapshot.node(node_id)
+        self._verify_sources(snapshot, node_id)
         if (
             not bool(snapshot.spec.publication_authority.get("automated", False))
             and not node.publication_authorization_receipt_id
@@ -1740,6 +2056,9 @@ class DeterministicSupervisor:
                 "candidate_head": node.candidate_head,
                 "head": node.candidate_head,
                 "repository_remote": snapshot.spec.repository_remote,
+                "expected_campaign_id": campaign_id,
+                "expected_specification_digest": snapshot.spec.specification_digest,
+                "expected_base_sha": snapshot.spec.base_sha,
             }
         )
         effect_payload.setdefault("branch", snapshot.spec.branch)
@@ -1750,6 +2069,10 @@ class DeterministicSupervisor:
         operation_id = _stable_id(
             "publish", campaign_id, node_id, kind.value, node.candidate_head
         )
+        if kind is EffectKind.CREATE_PULL_REQUEST:
+            effect_payload["body"] = self._render_campaign_pr_body(
+                snapshot, node, str(effect_payload.get("body") or ""), operation_id
+            )
         snapshot = self._apply(
             self._event(
                 snapshot,
@@ -1783,6 +2106,7 @@ class DeterministicSupervisor:
     ) -> SupervisorDecision:
         if self.effect_driver is None:
             raise SupervisorError("external effect driver is unavailable")
+        self._verify_sources(self.store.get_snapshot(campaign_id), node_id)
         record = self.effect_driver.run(operation_id)
         return self._complete_publication_record(campaign_id, node_id, record)
 
@@ -1928,15 +2252,47 @@ class DeterministicSupervisor:
 
     def recover(self) -> Mapping[str, Any]:
         orphaned = self.store.list_active_actor_identities()
+        reattached: list[str] = []
+        uncertain = []
+        for identity in orphaned:
+            lease_id = str(identity["lease_id"])
+            try:
+                receipt = self._persisted_terminal(lease_id)
+                snapshot = self.store.get_snapshot(receipt.campaign_id)
+                node = snapshot.node(receipt.node_id)
+                self._check_deadline(snapshot, node)
+                expected = {
+                    ActorRole.IMPLEMENTER.value: (NodeState.IMPLEMENTING, EventType.IMPLEMENTATION_COMPLETED),
+                    ActorRole.REPAIRER.value: (NodeState.REPAIRING, EventType.REPAIR_COMPLETED),
+                }.get(receipt.role)
+                if expected is not None and node.state is expected[0]:
+                    snapshot = self._apply(self._event(
+                        snapshot, expected[1], label=f"terminal:{lease_id}",
+                        node_id=receipt.node_id, actor_id=receipt.actor_id,
+                        fencing_epoch=receipt.fencing_epoch,
+                        payload={"receipt_digest": receipt.receipt_digest},
+                    ))
+                snapshot = self.store.release_lease(
+                    lease_id, request_id=_stable_id("release", lease_id),
+                    expected_revision=snapshot.revision,
+                    authority_epoch=snapshot.authority_epoch,
+                    cancellation_epoch=snapshot.cancellation_epoch,
+                )
+                self._workers.pop(lease_id, None)
+                reattached.append(lease_id)
+            except Exception:
+                # Any uncertainty follows the existing orphan-fencing path.
+                uncertain.append(identity)
         affected = sorted(
             {
                 str(item["actor"]["campaign_id"])
-                for item in orphaned
+                for item in uncertain
                 if isinstance(item.get("actor"), Mapping)
                 and item["actor"].get("campaign_id")
             }
         )
         for identity in orphaned:
+            self._workers.pop(str(identity["lease_id"]), None)
             pid = identity.get("host_pid")
             if isinstance(pid, int) and pid > 0:
                 try:
@@ -1976,6 +2332,7 @@ class DeterministicSupervisor:
         return {
             **recovered,
             "orphaned_actor_identities": len(orphaned),
+            "reattached_terminal_leases": reattached,
             "failed_nodes": failed_nodes,
             "reconciled": reconciled,
         }
@@ -1983,6 +2340,19 @@ class DeterministicSupervisor:
     def step(self, campaign_id: str) -> SupervisorDecision:
         try:
             return self._step(campaign_id)
+        except SourceDriftError as exc:
+            snapshot = self.store.get_snapshot(campaign_id)
+            node_id = snapshot.active_node_id
+            if node_id is None:
+                raise
+            self._interrupt_node_workers(campaign_id, node_id)
+            snapshot = self._apply(self._event(
+                snapshot, EventType.FAIL_NODE, label="acceptance-source-changed",
+                node_id=node_id, payload={"reason": str(exc)},
+            ))
+            return SupervisorDecision(campaign_id, snapshot.revision, snapshot.state.value,
+                                      "ACCEPTANCE_SOURCE_CHANGED", node_id,
+                                      details={"reason": str(exc)})
         except BudgetError as exc:
             snapshot = self.store.get_snapshot(campaign_id)
             if snapshot.state in {
@@ -2010,6 +2380,8 @@ class DeterministicSupervisor:
 
     def _step(self, campaign_id: str) -> SupervisorDecision:
         snapshot = self.store.get_snapshot(campaign_id)
+        if snapshot.state in {CampaignState.COMPLETED, CampaignState.FAILED, CampaignState.CANCELLED}:
+            return SupervisorDecision(campaign_id, snapshot.revision, snapshot.state.value, "TERMINAL")
         try:
             self._check_deadline(snapshot)
         except SupervisorDeadlineExceeded:
@@ -2035,16 +2407,9 @@ class DeterministicSupervisor:
                 snapshot.active_node_id,
                 wait_event=event,
             )
-        if snapshot.state in {
-            CampaignState.COMPLETED,
-            CampaignState.FAILED,
-            CampaignState.CANCELLED,
-        }:
-            return SupervisorDecision(
-                campaign_id, snapshot.revision, snapshot.state.value, "TERMINAL"
-            )
         node = self.select_next_approved_node(snapshot)
         if node is not None:
+            self._verify_sources(snapshot, node.node_id)
             worktree = Path(snapshot.spec.worktree).expanduser().resolve(strict=True)
             start_head = subprocess.run(
                 ("git", "rev-parse", "HEAD"),
@@ -2096,6 +2461,46 @@ class DeterministicSupervisor:
                 wait_event="worker_terminal",
                 details={"lease_id": lease.lease_id},
             )
+        if (node.state is NodeState.IMPLEMENTING and node.validation_corrections == 1
+                and node.lease_actor_id is None):
+            prior = [item for item in self.store.list_actor_identities(
+                campaign_id=campaign_id, active_only=False
+            ) if item.get("actor", {}).get("node_id") == node.node_id
+                and item.get("actor", {}).get("role") == ActorRole.IMPLEMENTER.value]
+            if len(prior) > 1:
+                return SupervisorDecision(campaign_id, snapshot.revision, snapshot.state.value,
+                                          "YIELD", node.node_id, wait_event="worker_terminal")
+            correction = node.validation_correction or {}
+            try:
+                repository = exact_repository_evidence(
+                    snapshot.spec.worktree, base_sha=str(node.start_head),
+                    candidate_head=str(correction.get("candidate_head", "")),
+                )
+                self._validate_scope(snapshot, node.node_id, repository)
+                publication_preflight(snapshot.spec.worktree,
+                                      expected_remote=snapshot.spec.repository_remote,
+                                      candidate_head=str(correction.get("candidate_head", "")),
+                                      hosted_checks=None, required_checks=())
+                branch = subprocess.run(("git", "branch", "--show-current"), cwd=snapshot.spec.worktree,
+                                        check=True, text=True, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, timeout=30).stdout.strip()
+                if (repository["status_sha256"] != hashlib.sha256(b"").hexdigest()
+                        or branch != snapshot.spec.branch
+                        or correction.get("authority_epoch") != snapshot.authority_epoch
+                        or correction.get("cancellation_epoch") != snapshot.cancellation_epoch
+                        or correction.get("specification_digest") != snapshot.spec.specification_digest):
+                    raise EvidenceError("validation correction candidate or authority changed")
+            except (EvidenceError, HostScopeError, OSError, subprocess.SubprocessError) as exc:
+                self._fail_dispatch(campaign_id, node.node_id, ActorRole.IMPLEMENTER, exc)
+                current = self.store.get_snapshot(campaign_id)
+                return SupervisorDecision(campaign_id, current.revision, current.state.value,
+                                          "VALIDATION_FAILED", node.node_id)
+            lease = self.dispatch_worker(campaign_id, node.node_id, ActorRole.IMPLEMENTER)
+            current = self.store.get_snapshot(campaign_id)
+            return SupervisorDecision(campaign_id, current.revision, current.state.value,
+                                      "VALIDATION_CORRECTION_DISPATCHED", node.node_id,
+                                      wait_event="worker_terminal",
+                                      details={"lease_id": lease.lease_id})
         if node.state in {NodeState.VALIDATING, NodeState.REVALIDATING}:
             return self.validate_node(campaign_id, node.node_id)
         if node.state is NodeState.CANDIDATE_FROZEN:

@@ -12,30 +12,46 @@ authority. The canonical installed copy is under
 
 For manual coding, follow the current task, repository sources, exact Git
 identity, and project validation. For automated work, admit one immutable finite
-campaign specification, obtain explicit approval, and run only the engine
-command named in its receipt.
+campaign specification, obtain approval of its exact specification digest, and
+run only the engine command named in its receipt.
 
-For non-trivial manual work, use the installed `catalogue-router` to query the
-canonical manifest and ordered routing policy. Treat the resulting primary and
-supporting skills as workflow selection only. They do not widen mutation,
-provider-write, merge, publication, or universal-install authority. The
-repository `capability-routing/` tree is dormant reference source and must never
-be activated or copied into `CODEX_HOME` without separate authorization.
+Start with the customer's requested outcome and approved sources. Reuse prior
+decisions while their scope and assumptions still hold. Derive routine technical
+choices from existing architecture and validation. The founder need not choose
+files, test commands, or internal code structure.
 
-Use these public commands:
+Ask the founder only when an unresolved choice changes customer behavior,
+priorities, spending, delivery commitments, or consequential external actions.
+State the consequence, your recommendation, and the smallest decision needed.
+Pause dependent work while that answer is required and continue independent work.
+Resolve source conflicts through established source precedence first. Bring only
+the remaining business choice to the founder. Investigate technical blockers
+within scope and report their status.
 
-```text
-campaign_engine/cli.py admit
-campaign_engine/cli.py approve
-campaign_engine/cli.py run
-campaign_engine/cli.py status
-campaign_engine/cli.py cancel
-campaign_engine/cli.py reconcile
-campaign_engine/cli.py doctor
-campaign_engine/cli.py legacy inspect
-```
+For a status request, report the outcome, evidence, and remaining blocker from
+the engine or current Git evidence. Do not reopen answered questions, require a
+new documentation run, or create a status-only change. Change durable documents
+only when an approved requirement or technical contract has changed.
 
-Do not reproduce transitions, budgets, actor roles, review generations,
-cancellation, or publication rules here. Do not use Git-tracked execution state
-as authority. Legacy case commands are retired and must return
-`LEGACY_ENGINE_RETIRED`.
+Use the installed `catalogue-router` for non-trivial manual work. Repository
+`AGENTS.md` owns routing and authority boundaries. Skill selection grants no
+additional action authority.
+Check `doctor` entry prerequisites before promising routed execution. A missing
+canonical router is an operating dependency. Do not activate the repository's
+reference router. Declare required host tools in the proposed nodes so unavailable
+browser or other capabilities are rejected before admission.
+
+Use the installed CLI's `--help` and the command in the engine receipt. Command
+contracts belong to `scripts/agent/campaign_engine/cli.py`.
+
+For a new automated campaign, draft the proposed specification from approved
+business scope and repository sources. Use `prepare --spec <proposed.json>
+--repository <exact-repo> --output <new.json>` to derive and verify Git identity,
+the runtime pin, command working directories, and acceptance-source hashes.
+Keep source-linked acceptance scenarios, spending, deadlines, operation limits,
+and publication authority explicit. Preparation creates no campaign and grants
+no approval. Present the business outcome and unresolved business choices to the
+founder, then use the existing admission and approval commands when authorized.
+
+Lifecycle rules belong to `campaign_engine/reducer.py`. Git-tracked execution
+state is informational. Retired case commands return `LEGACY_ENGINE_RETIRED`.

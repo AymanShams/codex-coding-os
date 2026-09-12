@@ -33,11 +33,11 @@ Record mode, output location, required formats, selected skills, and the request
 
 ### B. Source Authority
 
-If sources conflict on a material statement, identify the conflict and ask the user which source controls. Repetition across generated files is not independent confirmation.
+Resolve conflicting statements through established source precedence. Ask the user only when the remaining conflict needs a founder decision under the skill's Material Decisions boundary. Repetition across generated files is not independent confirmation.
 
 ### C. Material Decisions
 
-Do not draft dependent product material while material decisions remain open. Consolidate the questions into one decision request.
+Apply the skill's Material Decisions boundary. Reuse approved decisions, record source-derived technical choices, and consolidate unresolved business questions into one decision request. Pause only drafting that depends on an unresolved choice.
 
 ### D. Controlled Documents
 
@@ -67,8 +67,6 @@ Documentation completion does not start an implementation lifecycle.
 
 - Manual implementation requires an explicit current user request.
 - Automated implementation requires a separately admitted and user-approved campaign specification.
-- Query automation through `python <installed-cli> --json status --repository-root .`.
-- Admit automation through `python <installed-cli> --json admit --spec <path>`.
-- Use only the campaign ID, specification digest, and next command returned by the engine.
+- Use the installed CLI and engine receipt through `codex-coding-os-master`.
 
 Do not reproduce automated execution rules in documentation.

@@ -17,11 +17,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Install pinned capability-router test dependency
         run: python -m pip install -r capability-routing/requirements-test.txt
-      - name: Validate pack and source contracts
-        shell: pwsh
-        run: ./scripts/validate-pack.ps1
       - name: Test redacted secret-scanner result gate
         run: python -B -m unittest tests.test_trufflehog_result_gate -v
       - name: Validate JSON Schema support
@@ -29,22 +30,20 @@ jobs:
         run: ./tests/json-schema-validation-smoke.ps1
       - name: Build deterministic release package
         shell: pwsh
-        run: |
-          $First = "$env:RUNNER_TEMP/codex-coding-os-first.zip"
-          $Second = "$env:RUNNER_TEMP/codex-coding-os-second.zip"
-          ./scripts/package.ps1 -OutputPath $First
-          ./scripts/package.ps1 -OutputPath $Second
-          $FirstHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $First).Hash
-          $SecondHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Second).Hash
-          if ($FirstHash -ne $SecondHash) {
-            throw "Repeated release archives are not deterministic."
-          }
+        # package.ps1 validates once and compares two independently built archives.
+        run: ./scripts/package.ps1 -OutputPath "$env:RUNNER_TEMP/codex-coding-os.zip"
 
   product-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install the validation boundary
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - name: Test campaign model and reducer
         run: python -B -m unittest tests.test_campaign_model_reducer -v
       - name: Test reducer mutation-gate receipt evaluation
@@ -74,6 +73,29 @@ jobs:
         run: python -B -m unittest tests.test_campaign_incident_conformance -v
       - name: Test executable campaign CLI
         run: python -B -m unittest tests.test_campaign_cli -v
+      - name: Test bounded delivery and usage accounting
+        run: >-
+          python -B -m unittest tests.test_campaign_bounded_continuation
+          tests.test_campaign_provider_usage tests.test_campaign_validation_boundary
+          tests.test_campaign_acceptance_sources -v
+      - name: Exercise public installation in a disposable account namespace
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          candidate="$(git rev-parse HEAD)"
+          baseline="$(git rev-parse HEAD^)"
+          journey="$RUNNER_TEMP/supported-install-journey"
+          mkdir -p "$journey/output"
+          git archive --format=zip --output="$journey/baseline.zip" "$baseline"
+          git archive --format=zip --output="$journey/candidate.zip" "$candidate"
+          account_profile="$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')"
+          bwrap --unshare-user --uid "$(id -u)" --gid "$(id -g)" --ro-bind / / \
+            --tmpfs "$account_profile" --tmpfs /tmp --proc /proc --dev /dev \
+            --bind "$journey/output" /out --setenv HOME "$account_profile" --unsetenv CODEX_HOME --unsetenv SKILLS_ROOT \
+            --unsetenv PYTHONPATH --setenv PYTHONDONTWRITEBYTECODE 1 \
+            python3 -B "$PWD/tests/supported_install_journey.py" \
+            --baseline-archive "$journey/baseline.zip" --baseline-commit "$baseline" \
+            --candidate-archive "$journey/candidate.zip" --candidate-commit "$candidate"
 
   product-acceptance:
     strategy:
@@ -87,6 +109,34 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Linux validation boundary
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Install pinned Windows validation boundary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $BoundaryRoot = Join-Path $env:RUNNER_TEMP 'codex-boundary'
+          New-Item -ItemType Directory -Path $BoundaryRoot | Out-Null
+          gh release download rust-v0.154.0 --repo openai/codex --pattern codex-package-x86_64-pc-windows-msvc.tar.gz --pattern codex-package_SHA256SUMS --dir $BoundaryRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Codex boundary download failed.' }
+          $Archive = Join-Path $BoundaryRoot 'codex-package-x86_64-pc-windows-msvc.tar.gz'
+          $Checksum = Get-Content (Join-Path $BoundaryRoot 'codex-package_SHA256SUMS') | Where-Object { $_ -match ' codex-package-x86_64-pc-windows-msvc.tar.gz$' }
+          $Expected = ($Checksum -split '\s+')[0]
+          if ((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) { throw 'Codex boundary checksum mismatch.' }
+          tar -xzf $Archive -C $BoundaryRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Codex boundary extraction failed.' }
+          $Binary = @(Get-ChildItem -LiteralPath $BoundaryRoot -Recurse -Filter codex.exe)
+          if ($Binary.Count -ne 1) { throw 'Expected exactly one Codex binary.' }
+          $Binary[0].DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Verify validation containment and accepted local delivery
+        run: python -B -m unittest tests.test_campaign_validation_boundary tests.test_campaign_bounded_continuation -v
       - name: Install pinned capability-router test dependency
         run: python -m pip install -r capability-routing/requirements-test.txt
       - name: Test transactional install contract
@@ -124,18 +174,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Test public installer documentation contract
         run: python -B tests/test_public_install_docs.py
       - name: Test documentation artifact contracts
         run: python -B tests/test_documentation_contracts.py
       - name: Test project artifact instances and triggers
         run: python -B tests/test_project_artifact_instances.py
+      - name: Check founder entry fixtures and documentation boundaries
+        run: python -B -m unittest tests.test_founder_entry_fixtures -v
 
   coding-os-adapter:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Test source-only campaign adapter contracts
         run: python -B tests/test_source_repository_profile.py
 
@@ -144,8 +204,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Select Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Self-test pull request metadata contract
         run: python ./scripts/check-pr-body.py --self-test
+      - name: Test manual and campaign metadata boundaries
+        run: python -B -m unittest tests.test_pr_body -v
       - name: Validate pull request metadata
         if: github.event_name == 'pull_request'
         run: python ./scripts/check-pr-body.py

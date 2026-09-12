@@ -14,7 +14,8 @@
 
 ## Status Rules
 
-- `Open`: material decision not resolved. Blocks PRD drafting.
+- `Open`: unresolved business choice. Blocks dependent drafting.
 - `Approved`: user or controlling authority approved the decision.
+- `Derived`: routine technical choice follows a cited controlling source within its scope. This is not new user approval.
 - `Deferred`: user explicitly deferred the decision and identified the affected phase.
 - `Superseded`: a later approved decision replaces it.
