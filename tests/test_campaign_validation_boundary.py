@@ -40,7 +40,12 @@ class ValidationBoundaryTests(unittest.TestCase):
             head = make_repo(root)
             marker = base / "engine-owned-state.txt"
             marker.write_text("retained", encoding="utf-8")
-            approved = self.command(root, head, "from pathlib import Path; assert Path('src/one.txt').read_text().strip() == 'one'")
+            read_code = "from pathlib import Path; assert Path('src/one.txt').read_text().strip() == 'one'"
+            if os.name == "nt":
+                read_code += "; import os"
+                for name in ("USERPROFILE", "TEMP", "TMP"):
+                    read_code += f"; assert os.environ[{name!r}] == {os.environ[name]!r}"
+            approved = self.command(root, head, read_code)
             # No skip: a supported validation environment must provision its boundary.
             try:
                 passed = evidence.execute_trusted_command(approved)
@@ -53,7 +58,16 @@ class ValidationBoundaryTests(unittest.TestCase):
                              hashlib.sha256(Path(passed.boundary_executable).read_bytes()).hexdigest())
             self.assertEqual(evidence.verify_command_evidence(approved, passed), passed)
             if os.name == "nt":
-                self.assertIn("USERPROFILE", passed.environment_names)
+                for name in ("USERPROFILE", "TEMP", "TMP"):
+                    self.assertIn(name, passed.environment_names)
+                self.assertNotIn("Refusing to create helper binaries under temporary dir", passed.stderr)
+                self.assertNotIn("Failed to set cwd to temp dir", passed.stderr)
+                for name in ("TEMP", "TMP"):
+                    with self.subTest(changed_host_directory=name), patch.dict(os.environ, {name: str(base)}):
+                        with patch.object(evidence.subprocess, "Popen", side_effect=AssertionError("must not rerun")):
+                            with self.assertRaisesRegex(evidence.EvidenceError, "environment_sha256"):
+                                evidence.verify_command_evidence(approved, passed)
+                self.assertEqual(evidence.verify_command_evidence(approved, passed), passed)
             launcher = Path(passed.boundary_executable)
             original_read = Path.read_bytes
             def changed_launcher(path):
@@ -66,6 +80,7 @@ class ValidationBoundaryTests(unittest.TestCase):
                 evidence.execute_trusted_command(replace(approved, arguments=("-B", "-c", change)))
             self.assertEqual(marker.read_text(encoding="utf-8"), "retained")
             self.assertFalse(caught.exception.evidence.passed)
+            self.assertEqual(caught.exception.evidence.environment_sha256, passed.environment_sha256)
             self.assertEqual(git(root, "rev-parse", "HEAD"), head)
             self.assertEqual(git(root, "status", "--porcelain"), "")
 
@@ -94,7 +109,8 @@ class SavedValidationInputTests(unittest.TestCase):
             verified = evidence.verify_command_evidence(self.command.to_dict(), persisted)
         self.assertEqual(verified.evidence_sha256, receipt.evidence_sha256)
         if os.name == "nt":
-            self.assertNotIn("USERPROFILE", receipt.environment_names)
+            for name in ("USERPROFILE", "TEMP", "TMP"):
+                self.assertNotIn(name, receipt.environment_names)
 
     def test_changed_environment_or_command_cannot_reuse_saved_validation(self):
         receipt = evidence.execute_trusted_command(self.command)
@@ -138,12 +154,14 @@ class SavedValidationInputTests(unittest.TestCase):
             evidence.verify_command_evidence(self.command, legacy)
 
     @unittest.skipUnless(os.name == "nt", "Windows installed sandbox bootstrap")
-    def test_read_only_cannot_redirect_host_profile(self):
-        command = replace(self.command, execution_boundary="READ_ONLY",
-                          environment_allowlist=(*self.command.environment_allowlist, "USERPROFILE"),
-                          environment={"USERPROFILE": str(self.base)})
-        with self.assertRaisesRegex(evidence.EvidenceError, "cannot override"):
-            evidence.execute_trusted_command(command)
+    def test_read_only_cannot_redirect_host_bootstrap_directories(self):
+        for name in ("USERPROFILE", "TEMP", "TMP"):
+            with self.subTest(name=name):
+                command = replace(self.command, execution_boundary="READ_ONLY",
+                                  environment_allowlist=(*self.command.environment_allowlist, name),
+                                  environment={name: str(self.base)})
+                with self.assertRaisesRegex(evidence.EvidenceError, "cannot override the host " + name):
+                    evidence.execute_trusted_command(command)
 
 
 if __name__ == "__main__":

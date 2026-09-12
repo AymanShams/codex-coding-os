@@ -100,6 +100,10 @@ Before the first campaign, run the paired product-file read and denied-write
 test documented in [Getting Started](getting-started.md#verify-the-installed-runtime)
 from the verified package source. `doctor` verifies the runtime and store and
 can probe the native host, but it does not verify validation file access.
+Windows validation preserves the host's `USERPROFILE`, `TEMP`, and `TMP`
+directories for native sandbox bootstrap. Commands cannot override those values.
+The existing environment digest binds them, so changing a host temporary
+directory requires fresh validation evidence.
 
 The required launcher must exist and start successfully. There is no unconfined
 fallback. Commands that need to write build outputs or caches are outside this

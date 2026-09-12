@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "0987844398e2bbe2283ea055c8a0168b4f757acab5e2e29c3b79d745f27e6f25",
+  "aggregate_sha256": "aad63759a6c28aa69f34995a1c29079e6d6447b696600bf71ed83e532c5b8dd2",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2268,8 +2268,8 @@
     },
     {
       "path": "docs/campaign-engine.md",
-      "sha256": "c7bd253f66110ab8c1af08690f81b016da79be5a0ad931d5bc22303ea5c8da1a",
-      "size": 9626
+      "sha256": "f8428abaeb200c0173e5f3c1acbb7511c968a64a9781417d8eaba8e8552c632a",
+      "size": 9899
     },
     {
       "path": "docs/case-state-contract.md",
@@ -2418,8 +2418,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/evidence.py",
-      "sha256": "b6d6db6c68a70a1a332fd9144ae6ae0fef5acc87486e126262fda7c9e4c7835e",
-      "size": 29968
+      "sha256": "9e5f5db50bd0143fc763111902fff69cd6635e26d5a0d5d7e3b8566a005eabac",
+      "size": 29927
     },
     {
       "path": "scripts/agent/campaign_engine/host.py",
@@ -2873,8 +2873,8 @@
     },
     {
       "path": "tests/test_campaign_validation_boundary.py",
-      "sha256": "7713520bb8cbcad2275f189a57da1fc0cfa61335b63f70689c284f87317c1f48",
-      "size": 8602
+      "sha256": "e2e497868e23b0d12b5b653d5d8787ba4516511c24808640aace7e436b543a4e",
+      "size": 9957
     },
     {
       "path": "tests/test_capability_manifest_builder.py",

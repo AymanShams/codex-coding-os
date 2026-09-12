@@ -298,15 +298,15 @@ def _command_environment(spec: TrustedCommand) -> dict[str, str]:
 def _effective_command_environment(spec: TrustedCommand) -> dict[str, str]:
     environment = _command_environment(spec)
     if os.name == "nt" and spec.execution_boundary == "READ_ONLY":
-        # The installed Windows sandbox needs the invoking account's profile to
-        # grant traversal to a fresh nested working directory. Do not redirect
-        # its profile using a validation command's environment overrides.
-        profile = os.environ.get("USERPROFILE")
-        if not profile or not Path(profile).is_dir():
-            raise EvidenceError("Windows read-only validation requires the host USERPROFILE")
-        if environment.get("USERPROFILE", profile) != profile:
-            raise EvidenceError("Windows read-only validation cannot override the host USERPROFILE")
-        environment["USERPROFILE"] = profile
+        # Native sandbox bootstrap needs the host profile and temporary paths.
+        # Stripping TEMP/TMP makes it fall back to the profile as a temp directory.
+        for name in ("USERPROFILE", "TEMP", "TMP"):
+            value = os.environ.get(name)
+            if not value or not Path(value).is_dir():
+                raise EvidenceError(f"Windows read-only validation requires the host {name}")
+            if environment.get(name, value) != value:
+                raise EvidenceError(f"Windows read-only validation cannot override the host {name}")
+            environment[name] = value
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     return environment
 
