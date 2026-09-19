@@ -1,6 +1,83 @@
 # Getting Started
 
+Describe the customer behavior you want to change and point the agent to the
+existing project requirements. Include any agreed spending or delivery limits.
+The agent should prepare engineering details and ask only about unresolved
+business choices. For example:
+
+> Correct the order summary so refunds reduce the total and zero-value orders
+> still count. Use the existing requirements and tests. Show the result for
+> normal orders, refunds, and an empty order list before delivery.
+
+Use an ordinary Codex task for a small change. Choose a campaign when the work
+needs durable progress, independent review, and bounded attempts across
+sessions. The steps below establish the runtime and provide the agent's
+technical reference. [Philosophy](philosophy.md) explains the working agreement.
+
 ## Install an exact source commit
+
+The package requires Python 3.11 or newer and Git. Automated native workers
+also require a compatible, authenticated Codex CLI. Campaign validation needs
+Codex's read-only sandbox on Windows, Bubblewrap on Linux, or `sandbox-exec`
+on macOS. GitHub delivery additionally needs authenticated `gh`.
+
+Windows requires an initialized native `elevated` Codex sandbox. With Codex CLI
+0.154.0 or a compatible version installed, open PowerShell as Administrator and
+run its setup once for the account that will run campaigns:
+
+```powershell
+codex sandbox setup --elevated --current-user --codex-home "$env:USERPROFILE\.codex"
+if ($LASTEXITCODE -ne 0) { throw 'Windows validation sandbox provisioning failed.' }
+```
+
+The [native Windows sandbox documentation](https://learn.chatgpt.com/docs/windows/windows-sandbox)
+describes the backend. The [official setup command](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/cli/src/sandbox_setup.rs)
+provisions it and saves the configuration. Having `codex` on `PATH` alone does
+not establish product-file read access.
+
+Codex 0.154.0 performs directory-read grants in a background helper after the
+setup request returns. From the verified Coding OS package source, finish this
+setup before the first validation. Use the executable from the checksum-verified
+official native package, with its sibling `codex-resources` directory intact:
+
+```powershell
+$NativeCodex = (Get-Command codex.exe -CommandType Application).Source
+$NativeDigest = (Get-FileHash -LiteralPath $NativeCodex -Algorithm SHA256).Hash.ToLowerInvariant()
+python -B scripts/prepare_windows_validation_boundary.py `
+  --codex-executable $NativeCodex --expected-codex-sha256 $NativeDigest `
+  --cwd (Get-Location).Path --output "$env:TEMP/coding-os-native-read-setup.json"
+if ($LASTEXITCODE -ne 0) { throw 'Windows native directory-read setup did not complete.' }
+```
+
+The command checks the initialized backend, makes one public
+[`windowsSandbox/setupStart` request](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server/src/request_processors/windows_sandbox_processor.rs),
+and waits up to 60 seconds for fresh native read-grant completion matching the
+exact helper binary and directory. It runs no model turn or project command.
+The JSON receipt retains the source hashes, setup result, log generation, and
+failure details. Missing, conflicting, or incomplete evidence stops setup.
+This completion check supports the Codex 0.154.0 package layout and log contract.
+The paired file-access test below must still pass before starting a campaign.
+
+Linux must also permit Bubblewrap to create unprivileged user namespaces.
+On Ubuntu 24.04 and later, an administrator may need to grant `userns` to the
+installed Bubblewrap executable through an application-specific AppArmor
+profile, as described in the [Ubuntu release notes](https://documentation.ubuntu.com/release-notes/24.04/).
+Verify the prerequisite before starting a campaign:
+
+```bash
+bwrap --ro-bind / / --proc /proc --dev /dev --unshare-pid \
+  --die-with-parent --chdir "$PWD" -- /usr/bin/true
+```
+
+The command must exit successfully. Keep the read-only mounts and the host's
+system-wide namespace restrictions in place.
+
+The routed skill entry requires a separately installed canonical universal
+router. The package does not install or activate that router. `doctor` reports
+its pointer, manifest hash, and CLI availability separately from engine
+integrity. That prerequisite check is not a route-admission receipt. The
+canonical router must still admit the actual task. Installing a native plugin
+does not install the engine or the universal router.
 
 Use a clean checkout at the tag or commit you intend to install. A tagged Git
 checkout is the complete installation path because it can also install the
@@ -140,7 +217,41 @@ python -B $Engine --json doctor
 Use `--live-host-probe` when the native Codex host is available and a live
 bind-before-turn proof is required.
 
+The default diagnostic runs no model turns. The live probe runs bounded model
+turns in a disposable repository. `doctor` checks runtime and store integrity,
+router prerequisites, and optionally the native host. It does not verify
+validation file access.
+
+Before the first campaign, run the existing paired boundary test from the root
+of the verified package source checkout or extracted release ZIP:
+
+```powershell
+python -B -m unittest tests.test_campaign_validation_boundary.ValidationBoundaryTests.test_supported_boundary_reads_product_and_denies_engine_state_write -v
+```
+
+This test must pass. It reads a disposable product file and verifies that a
+write to a separate engine-state marker is denied. A previous successful probe
+does not prove that a new project's required tools or acceptance flow work.
+
 ## Admit a campaign
+
+Tell the agent the customer outcome, existing project sources, permitted cost
+and delivery scope. It should derive file layout, identifiers, test commands,
+worktree details, and runtime values. It should ask only about unresolved
+customer behavior, priorities, spending, commitments, or consequential actions.
+Previously approved choices remain in force until relevant facts change.
+
+The agent can prepare a proposed change before admission:
+
+```powershell
+python -B $Engine --json prepare --spec .\proposed.json --repository C:\path\to\project --output .\campaign.json
+```
+
+Preparation uses the existing sources and creates no documentation system or
+campaign. The proposal must declare each node's source-linked acceptance
+scenarios and required tools. See [Campaign Engine Contract](campaign-engine.md)
+for those fields and the supported correction policy. The example below is a
+technical reference for the agent, not a questionnaire for the founder.
 
 Copy [`templates/campaign.example.json`](../templates/campaign.example.json) and
 replace every sample repository, path, commit, runtime-pin, reviewer, deadline,
@@ -173,6 +284,15 @@ python -B $Engine --json cancel --campaign-id <id>
 
 `run` yields at named external events. It never hides an indefinite polling
 loop. A cancelled campaign cannot resume automatically after restart.
+
+Omit `--json` from `status` for the business outcome, progress, and reason for
+waiting or stopping. Reading status creates no status-only commit or pull
+request. A local Git push in a disposable acceptance fixture proves that local
+delivery path. It does not prove a merged public release or independent adoption.
+The standard effect backend supports `PUSH` to an explicitly authorized local
+bare Git repository through its canonical `file://` URL. It verifies the exact
+remote and candidate before pushing. Pull requests, comments and merges require
+their GitHub provider identity.
 
 ## Inspect legacy evidence
 

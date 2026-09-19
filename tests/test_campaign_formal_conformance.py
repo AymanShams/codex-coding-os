@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 import unittest
 from pathlib import Path
 
-from scripts.agent.campaign_engine import CampaignState, EventType, NodeState
-from tests.test_campaign_model_reducer import Events, running_snapshot
+from scripts.agent.campaign_engine import CampaignSpec, CampaignState, EventType, NodeState
+from tests.test_campaign_model_reducer import Events, correction_payload, running_snapshot
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,6 +172,15 @@ class CampaignFormalConformanceTests(unittest.TestCase):
         observed.update(clean.edges)
 
         corrected_events, corrected_snapshot = running_snapshot()
+        raw = corrected_snapshot.spec.to_dict()
+        raw.pop("specification_digest")
+        policy = {"adapter": "unittest", "expectation_id": "accepted", "test_id": "test.App.test_result"}
+        raw["required_validation_commands"][0]["correction_policy"] = policy
+        raw["nodes"][0]["acceptance_scenarios"] = [{
+            "scenario_id": "accepted", "expectation": "correct result", "validation_command_id": "unit",
+            "sources": [{"path": "requirements.md", "requirement_id": "result", "sha256": "a" * 64}],
+        }]
+        corrected_snapshot = replace(corrected_snapshot, spec=CampaignSpec.from_dict(raw))
         corrected = ReducerRecorder(corrected_events, corrected_snapshot)
         corrected.apply(
             EventType.ADMIT_NODE,
@@ -179,7 +189,8 @@ class CampaignFormalConformanceTests(unittest.TestCase):
         )
         corrected.apply(EventType.START_IMPLEMENTATION, node_id="node-1")
         corrected.apply(EventType.IMPLEMENTATION_COMPLETED, node_id="node-1")
-        corrected.apply(EventType.REQUEST_VALIDATION_CORRECTION, node_id="node-1")
+        corrected.apply(EventType.REQUEST_VALIDATION_CORRECTION, node_id="node-1",
+                        payload=correction_payload(corrected.snapshot))
         observed.update(corrected.edges)
 
         repaired = blocking_repair_recorder()

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -54,7 +55,8 @@ def _load_engine() -> None:
         return
     if __package__ in {None, ""}:
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-        from campaign_engine.admission import admit_campaign_spec, verify_installed_runtime
+        from campaign_engine.admission import (acceptance_source_content, admit_campaign_spec,
+                                                run_git, verify_acceptance_sources, verify_installed_runtime)
         from campaign_engine.effects import ExternalEffectDriver, GitHubBackend
         from campaign_engine.host import probe_native_host_capability
         from campaign_engine.legacy import (
@@ -74,7 +76,8 @@ def _load_engine() -> None:
         from campaign_engine.store import CampaignStore
         from campaign_engine.supervisor import DeterministicSupervisor, SupervisorDecision
     else:
-        from .admission import admit_campaign_spec, verify_installed_runtime
+        from .admission import (acceptance_source_content, admit_campaign_spec,
+                                run_git, verify_acceptance_sources, verify_installed_runtime)
         from .effects import ExternalEffectDriver, GitHubBackend
         from .host import probe_native_host_capability
         from .legacy import inspect_legacy_case, inspect_legacy_root, verify_legacy_archive
@@ -125,6 +128,17 @@ def _emit(value: Any, *, json_output: bool) -> None:
         value = asdict(value)
     if json_output:
         print(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+    elif isinstance(value, Mapping) and "campaigns" in value:
+        for campaign in value["campaigns"]:
+            summary = campaign["summary"]
+            print(f"{summary['objective']}: {summary['status']}")
+            print(f"Completed changes: {summary['completed_changes']}/{summary['total_changes']}")
+            if summary["reason"]:
+                print(summary["reason"])
+            usage = campaign["model_usage"]
+            print(f"Model usage: {usage['status']}")
+        if not value["campaigns"]:
+            print("No campaigns found.")
     elif isinstance(value, Mapping):
         for key, item in value.items():
             if isinstance(item, (dict, list, tuple)):
@@ -177,6 +191,51 @@ def _verify_campaign_runtime(spec: CampaignSpec):
     )
 
 
+def command_prepare(args: argparse.Namespace) -> dict[str, Any]:
+    """Compile a proposed business change against current sources without admitting it."""
+
+    raw = _json_object(args.spec, "proposed change")
+    root = Path(args.repository).resolve(strict=True)
+    pin = _runtime_pin(_installed_root())
+    derived = {
+        "git_root": str(root), "worktree": str(root),
+        "repository_remote": run_git(root, "remote", "get-url", "origin"),
+        "branch": run_git(root, "branch", "--show-current"),
+        "base_sha": run_git(root, "rev-parse", "HEAD"),
+        "installed_source_commit": pin["source_commit"],
+        "installed_bundle_digest": pin["bundle_digest"],
+        "install_transaction": pin["install_transaction"],
+        "protocol_version": pin["protocol_version"],
+        "schema_compatibility": pin["schema_compatibility"],
+        "host_capability_probe_version": pin["host_capability_probe_version"],
+    }
+    for key, value in derived.items():
+        if key in raw and raw[key] != value:
+            raise ValueError(f"proposed {key} conflicts with current evidence")
+        raw[key] = value
+    for command in raw.get("required_validation_commands", ()):
+        command.setdefault("working_directory", str(root))
+    for node in raw.get("nodes", ()):
+        if not node.get("acceptance_scenarios"):
+            raise ValueError("prepared changes require source-linked acceptance scenarios")
+        for scenario in node["acceptance_scenarios"]:
+            for source in scenario.get("sources", ()):
+                digest = hashlib.sha256(acceptance_source_content(root, source)).hexdigest()
+                if "sha256" in source and source["sha256"] != digest:
+                    raise ValueError(f"proposed source changed: {source['path']}")
+                source["sha256"] = digest
+    spec = CampaignSpec.from_dict(raw)
+    verified = admit_campaign_spec(spec.to_dict(), installed_root=_installed_root())
+    output = Path(args.output).resolve(strict=False)
+    with output.open("x", encoding="utf-8", newline="\n") as handle:
+        json.dump(spec.to_dict(), handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+    return {"ok": True, "state": "PROPOSED", "objective": spec.objective,
+            "specification": str(output), "specification_digest": spec.specification_digest,
+            "acceptance_sources": verified["acceptance_sources"],
+            "message": "Prepared for approval. No campaign was admitted or started."}
+
+
 def command_admit(args: argparse.Namespace) -> dict[str, Any]:
     raw = _json_object(args.spec, "campaign specification")
     spec = CampaignSpec.from_dict(raw)
@@ -211,6 +270,7 @@ def command_approve(args: argparse.Namespace) -> dict[str, Any]:
         runtime = _verify_campaign_runtime(snapshot.spec)
         if snapshot.spec.specification_digest != args.specification_digest:
             raise ValueError("approval digest differs from the immutable specification")
+        verify_acceptance_sources(snapshot.spec.to_dict())
         event = Event(
             event_id=args.request_id
             or f"approve:{args.campaign_id}:{args.specification_digest}",
@@ -301,7 +361,7 @@ def command_run(args: argparse.Namespace) -> dict[str, Any]:
                 break
             action = decision.action
             details = dict(decision.details or {})
-            if action in {"IMPLEMENTER_DISPATCHED", "REPAIRER_DISPATCHED"}:
+            if action in {"IMPLEMENTER_DISPATCHED", "VALIDATION_CORRECTION_DISPATCHED", "REPAIRER_DISPATCHED"}:
                 supervisor.complete_worker(
                     str(details["lease_id"]), timeout=args.worker_timeout
                 )
@@ -326,9 +386,6 @@ def command_run(args: argparse.Namespace) -> dict[str, Any]:
                     [str(item) for item in details.get("leases", [])],
                     timeout=args.worker_timeout,
                 )
-                original = store.get_snapshot(args.campaign_id).node(
-                    str(decision.node_id)
-                ).findings
                 resolved_sets = []
                 for receipt in receipts:
                     raw = receipt.get("resolved_finding_ids", [])
@@ -363,8 +420,37 @@ def command_run(args: argparse.Namespace) -> dict[str, Any]:
             "revision": snapshot.revision,
             "decisions": decisions,
             "telemetry": store.telemetry_counts(args.campaign_id),
+            "model_usage": store.usage_summary(args.campaign_id),
             "runtime_pin": runtime.to_dict(),
         }
+
+
+def _status_summary(snapshot) -> dict[str, Any]:
+    status = {
+        "DRAFT": "Awaiting approval", "APPROVED": "Ready to continue",
+        "RUNNING": "Continuing", "WAITING_EXTERNAL": "Waiting for an operating dependency",
+        "WAITING_HUMAN": "Decision required", "COMPLETED": "Completed authorized delivery",
+        "FAILED": "Stopped with work remaining", "CANCELLED": "Cancelled",
+    }[snapshot.state.value]
+    if snapshot.state is CampaignState.RUNNING and snapshot.active_node_id:
+        node = snapshot.node(snapshot.active_node_id)
+        if node.state.value == "FINDINGS_FROZEN" and any(item.blocking for item in node.findings):
+            status = "Decision required: authorize the recorded repairs"
+        elif node.state.value == "READY_TO_PUBLISH" and not (
+                snapshot.spec.publication_authority.get("automated")
+                or node.publication_authorization_receipt_id):
+            status = "Decision required: authorize delivery"
+        else:
+            status = {
+                "IMPLEMENTING": "Waiting for implementation result",
+                "REPAIRING": "Waiting for repair result",
+                "CHECKS_AND_REVIEW": "Waiting for review results",
+                "PUBLISHING": "Waiting for delivery confirmation",
+            }.get(node.state.value, status)
+    return {"objective": snapshot.spec.objective, "status": status,
+            "reason": snapshot.failure_reason,
+            "completed_changes": sum(node.state.value == "DONE" for node in snapshot.nodes),
+            "total_changes": len(snapshot.nodes)}
 
 
 def command_status(args: argparse.Namespace) -> dict[str, Any]:
@@ -377,6 +463,7 @@ def command_status(args: argparse.Namespace) -> dict[str, Any]:
         for snapshot in snapshots:
             values.append(
                 {
+                    "summary": _status_summary(snapshot),
                     "campaign": snapshot.to_dict(),
                     "active_leases": [
                         item.to_dict()
@@ -384,6 +471,7 @@ def command_status(args: argparse.Namespace) -> dict[str, Any]:
                     ],
                     "outbox": store.list_outbox(campaign_id=snapshot.spec.campaign_id),
                     "telemetry": store.telemetry_counts(snapshot.spec.campaign_id),
+                    "model_usage": store.usage_summary(snapshot.spec.campaign_id),
                 }
             )
         return {
@@ -492,6 +580,23 @@ def command_doctor(args: argparse.Namespace) -> dict[str, Any]:
         if host_probe.get("probe_version") != pin["host_capability_probe_version"]:
             raise ValueError("live host capability probe version differs from runtime pin")
     retirement = _old_engine_retirement(installed)
+    router = _layout().codex_home / "capability-routing"
+    router_prerequisite: dict[str, Any] = {
+        "available": False, "required_for": "routed skill entry",
+        "path": str(router), "route_admission": "not_checked",
+    }
+    try:
+        pointer = _json_object(router / "current-generation.json", "canonical router pointer")
+        manifest = (router / pointer["manifest_path"]).resolve(strict=True)
+        if not manifest.is_relative_to(router.resolve(strict=True)):
+            raise ValueError("canonical router pointer escapes its root")
+        if hashlib.sha256(manifest.read_bytes()).hexdigest() != pointer["manifest_sha256"]:
+            raise ValueError("canonical router manifest hash differs from its pointer")
+        if not (_layout().codex_home / "hooks" / "capability_index_cli.py").is_file():
+            raise ValueError("canonical router CLI is unavailable")
+        router_prerequisite.update(available=True, generation_id=pointer["generation_id"])
+    except (KeyError, ValueError, OSError) as exc:
+        router_prerequisite["reason"] = str(exc)
     return {
         "ok": True,
         "state_db": str(_state_path()),
@@ -505,6 +610,7 @@ def command_doctor(args: argparse.Namespace) -> dict[str, Any]:
             "live": False,
         },
         "retirement": retirement,
+        "entry_prerequisites": {"canonical_router": router_prerequisite},
     }
 
 
@@ -547,6 +653,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="coding-os")
     parser.add_argument("--json", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    prepare = sub.add_parser("prepare", help="prepare a proposed change from existing project sources")
+    prepare.add_argument("--spec", required=True)
+    prepare.add_argument("--repository", required=True)
+    prepare.add_argument("--output", required=True)
+    prepare.set_defaults(handler=command_prepare)
 
     admit = sub.add_parser("admit")
     admit.add_argument("--spec", required=True)

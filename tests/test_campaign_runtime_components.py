@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -18,6 +19,7 @@ if str(AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_ROOT))
 
 from campaign_engine import admission, effects, evidence, host, legacy  # noqa: E402
+from tests.test_pr_body import CHECKER as PR_BODY_CHECKER  # noqa: E402
 
 
 def git(root: Path, *args: str) -> str:
@@ -427,6 +429,61 @@ class _ProbeTransportFactory:
 
 
 class HostTests(unittest.TestCase):
+    def test_native_transport_enables_required_helper_without_other_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            transport = host.AppServerTransport(sys.executable, cwd=raw)
+        features = {transport.command[index + 1]: argument == "--enable"
+                    for index, argument in enumerate(transport.command)
+                    if argument in {"--enable", "--disable"}}
+        self.assertTrue(features.get("code_mode_host"))
+        self.assertEqual({name for name, enabled in features.items() if enabled}, {"code_mode_host"})
+        for name in ("apps", "plugins", "remote_plugin", "code_mode", "multi_agent", "browser_use",
+                     "in_app_browser", "computer_use", "image_generation", "goals", "memories", "hooks"):
+            with self.subTest(feature=name):
+                self.assertFalse(features[name])
+        self.assertIn("--strict-config", transport.command)
+        self.assertIn("mcp_servers={}", transport.command)
+        self.assertIn('web_search="disabled"', transport.command)
+
+    def test_native_protocol_denies_approval_unknown_tools_and_foreign_threads(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            head = make_repo(root)
+            actor_transport = _FakeTransport()
+            native = host.NativeCodexHost(transport_factory=lambda *args, **kwargs: actor_transport)
+            binding = native.create_idle_actor(
+                self.lease(root, "REVIEWER", candidate_head=head), bind_authority=lambda *_: None)
+            binding = native.start_actor_turn(binding.lease.lease_id, "review")
+            transport = host.AppServerTransport(sys.executable, cwd=root,
+                                                dynamic_tool_handler=actor_transport.dynamic_tool_handler)
+            requests = [
+                {"id": "approval", "method": "item/commandExecution/requestApproval", "params": {}},
+                {"id": "unknown", "method": "item/tool/call", "params": {
+                    "threadId": binding.native_thread_id, "turnId": binding.turn_id,
+                    "tool": "exec_command", "arguments": {"cmd": "write outside scope"}}},
+                {"id": "foreign", "method": "item/tool/call", "params": {
+                    "threadId": "unbound-thread", "turnId": binding.turn_id,
+                    "tool": "campaign_read_file", "arguments": {"path": "src/one.txt"}}},
+                {"id": "read", "method": "item/tool/call", "params": {
+                    "threadId": binding.native_thread_id, "turnId": binding.turn_id,
+                    "tool": "campaign_read_file", "arguments": {"path": "src/one.txt"}}},
+            ]
+            responses = []
+            with patch.object(transport, "_write", side_effect=responses.append):
+                for request in requests:
+                    transport.inbox.put(request)
+                    transport._pump(0.01)
+            self.assertEqual(responses[0]["result"], {"decision": "denied"})
+            self.assertFalse(responses[1]["result"]["success"])
+            self.assertIn("unknown campaign dynamic tool", responses[1]["result"]["contentItems"][0]["text"])
+            self.assertFalse(responses[2]["result"]["success"])
+            self.assertIn("thread differs", responses[2]["result"]["contentItems"][0]["text"])
+            self.assertTrue(responses[3]["result"]["success"])
+            self.assertEqual(json.loads(responses[3]["result"]["contentItems"][0]["text"])["text"], "one")
+            self.assertEqual(git(root, "rev-parse", "HEAD"), head)
+            self.assertEqual(git(root, "status", "--porcelain"), "")
+            native.close()
+
     def lease(
         self,
         root: Path,
@@ -502,6 +559,9 @@ class HostTests(unittest.TestCase):
                 params for method, params in transport.calls if method == "thread/start"
             )
             self.assertEqual(thread_start["sandbox"], "read-only")
+            self.assertEqual(thread_start["selectedCapabilityRoots"], [])
+            self.assertIs(thread_start["config"]["skills.include_instructions"], False)
+            self.assertEqual(thread_start["environments"], [])
             self.assertEqual(
                 {item["name"] for item in thread_start["dynamicTools"]},
                 {
@@ -519,6 +579,11 @@ class HostTests(unittest.TestCase):
                 host._digest(thread_start["dynamicTools"]),
             )
             native.start_actor_turn(binding.lease.lease_id, "implement")
+            turn_start = next(params for method, params in transport.calls if method == "turn/start")
+            self.assertEqual(turn_start["sandboxPolicy"], {"type": "readOnly", "networkAccess": False})
+            self.assertEqual(turn_start["approvalPolicy"], "never")
+            self.assertEqual(turn_start["environments"], [])
+            self.assertEqual(turn_start["runtimeWorkspaceRoots"], [str(root.resolve())])
             self.assertIn("turn/start", [method for method, _ in transport.calls])
             self.assertEqual(actions, [])
             with self.assertRaises(host.HostAuthorityError):
@@ -1259,6 +1324,19 @@ class EvidenceTests(unittest.TestCase):
 class _MemoryEffectStore:
     def __init__(self) -> None:
         self.records = {}
+        self.spec_data = {"worktree": "x", "nodes": []}
+        self.spec = SimpleNamespace(
+            campaign_id="campaign-1",
+            specification_digest="b" * 64,
+            base_sha="a" * 40,
+            to_dict=lambda: self.spec_data,
+        )
+        self.node = SimpleNamespace(candidate_head="a" * 40)
+
+    def get_snapshot(self, campaign_id):
+        if campaign_id != self.spec.campaign_id:
+            raise effects.EffectConflict("unknown campaign")
+        return SimpleNamespace(spec=self.spec, node=lambda node_id: self.node)
 
     def prepare_effect(self, **kwargs):
         operation = kwargs["operation_id"]
@@ -1288,6 +1366,7 @@ class _FakeEffectBackend:
         self.executions = 0
         self.confirmed = False
         self.ambiguous = ambiguous
+        self.queries = 0
 
     def execute(self, kind, payload):
         self.executions += 1
@@ -1297,6 +1376,7 @@ class _FakeEffectBackend:
         return {"executed": True}
 
     def query(self, kind, payload):
+        self.queries += 1
         return {"confirmed": self.confirmed}
 
 
@@ -1384,6 +1464,109 @@ class EffectTests(unittest.TestCase):
         with self.assertRaises(effects.EffectConflict):
             driver.prepare(changed)
 
+    def test_campaign_metadata_is_bound_to_current_store_before_backend_query(self) -> None:
+        baseline = {
+            "head": "a" * 40,
+            "candidate_head": "a" * 40,
+            "expected_campaign_id": "campaign-1",
+            "expected_specification_digest": "b" * 64,
+            "expected_base_sha": "a" * 40,
+        }
+        for kind in ("CREATE_PULL_REQUEST", "MERGE"):
+            for field in (None, *baseline):
+                with self.subTest(kind=kind, field=field):
+                    store = _MemoryEffectStore()
+                    backend = _FakeEffectBackend()
+                    driver = effects.ExternalEffectDriver(store, backend)
+                    payload = dict(baseline)
+                    if field:
+                        payload[field] = "different"
+                    driver.prepare(effects.EffectIntent.create(
+                        operation_id="op-1", campaign_id="campaign-1", node_id="node-1",
+                        kind=kind, payload=payload,
+                    ))
+                    result = driver.run("op-1")
+                    self.assertEqual(result["state"], "FAILED" if field else "CONFIRMED")
+                    self.assertEqual(backend.executions, 0 if field else 1)
+                    if field:
+                        self.assertEqual(backend.queries, 0)
+
+    def test_specification_revision_after_prepare_cannot_publish(self) -> None:
+        store = _MemoryEffectStore()
+        backend = _FakeEffectBackend()
+        driver = effects.ExternalEffectDriver(store, backend)
+        driver.prepare(effects.EffectIntent.create(
+            operation_id="op-1", campaign_id="campaign-1", node_id="node-1", kind="MERGE",
+            payload={"head": "a" * 40, "candidate_head": "a" * 40,
+                     "expected_campaign_id": "campaign-1",
+                     "expected_specification_digest": "b" * 64,
+                     "expected_base_sha": "a" * 40},
+        ))
+        store.spec.specification_digest = "c" * 64
+        self.assertEqual(driver.run("op-1")["state"], "FAILED")
+        self.assertEqual(backend.queries, 0)
+        self.assertEqual(backend.executions, 0)
+
+    def test_source_hash_is_checked_after_preflight_and_before_mutation(self) -> None:
+        for change_during_query in (False, True):
+            with self.subTest(change_during_query=change_during_query):
+                with tempfile.TemporaryDirectory() as raw:
+                    root = Path(raw)
+                    source = root / "requirements.md"
+                    source.write_bytes(b"approved behavior\n")
+                    store = _MemoryEffectStore()
+                    store.spec_data = {
+                        "worktree": str(root),
+                        "nodes": [{"node_id": "node-1", "acceptance_scenarios": [{
+                            "scenario_id": "scenario-1", "sources": [{
+                                "requirement_id": "req-1", "path": "requirements.md",
+                                "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                            }],
+                        }]}],
+                    }
+
+                    class SourceChangingBackend(_FakeEffectBackend):
+                        def query(self, kind, payload):
+                            if change_during_query and not self.confirmed:
+                                source.write_bytes(b"different behavior\n")
+                            return super().query(kind, payload)
+
+                    backend = SourceChangingBackend()
+                    driver = effects.ExternalEffectDriver(store, backend)
+                    driver.prepare(self.intent())
+                    if change_during_query:
+                        with self.assertRaisesRegex(admission.SourceDriftError, "source changed"):
+                            driver.run("op-1")
+                        self.assertEqual(store.get_effect("op-1")["state"], "FAILED")
+                        self.assertEqual(driver.run("op-1")["state"], "FAILED")
+                        self.assertEqual(backend.executions, 0)
+                    else:
+                        self.assertEqual(driver.run("op-1")["state"], "CONFIRMED")
+                        self.assertEqual(backend.executions, 1)
+
+    def test_ambiguous_reconciliation_does_not_reopen_source_authority(self) -> None:
+        store = _MemoryEffectStore()
+        backend = _FakeEffectBackend(ambiguous=True)
+        driver = effects.ExternalEffectDriver(store, backend)
+        driver.prepare(self.intent())
+        with patch.object(effects, "verify_acceptance_sources", return_value=[]) as verify:
+            result = driver.run("op-1")
+            driver.run("op-1")
+        self.assertEqual(result["state"], "CONFIRMED")
+        self.assertEqual(backend.executions, 1)
+        self.assertEqual(verify.call_count, 1)
+
+    def test_standalone_nonpublication_effect_preserves_all_node_source_check(self) -> None:
+        store = _MemoryEffectStore()
+        backend = _FakeEffectBackend()
+        driver = effects.ExternalEffectDriver(store, backend)
+        driver.prepare(self.intent())
+        store.records["op-1"]["node_id"] = None
+        with patch.object(effects, "verify_acceptance_sources", return_value=[]) as verify:
+            self.assertEqual(driver.run("op-1")["state"], "CONFIRMED")
+        verify.assert_called_once_with(store.spec_data, node_id=None)
+        self.assertEqual(backend.executions, 1)
+
     def test_exact_file_replacement_verifies_baseline_and_replays(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -1455,6 +1638,11 @@ class GitHubBackendTests(unittest.TestCase):
         return {
             "root": str(root),
             "head": "a" * 40,
+            "candidate_head": "a" * 40,
+            "expected_campaign_id": "campaign-1",
+            "expected_specification_digest": "b" * 64,
+            "expected_base_sha": "a" * 40,
+            "body": PR_BODY_CHECKER.fixture_body("a" * 40),
             "head_branch": "codex/exact-head",
             "base": "main",
             "repository_remote": "https://example.invalid/acme/repo.git",
@@ -1469,6 +1657,7 @@ class GitHubBackendTests(unittest.TestCase):
             "headRefOid": "a" * 40,
             "baseRefName": "main",
             "mergeCommit": None,
+            "body": PR_BODY_CHECKER.fixture_body("a" * 40),
         }
 
     def test_duplicate_exact_head_pull_requests_fail_without_mutation(self) -> None:
@@ -1492,6 +1681,64 @@ class GitHubBackendTests(unittest.TestCase):
             self.assertIn("example.invalid/acme/repo", backend.mutations[0])
             self.assertIn("--match-head-commit", backend.mutations[0])
             self.assertIn("a" * 40, backend.mutations[0])
+
+    def test_campaign_create_rejects_manual_body_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            for manual in (False, True):
+                with self.subTest(manual=manual):
+                    backend = _ScriptedGitHubBackend([])
+                    payload = self.payload(Path(raw))
+                    if manual:
+                        payload["body"] = PR_BODY_CHECKER.manual_fixture_body("a" * 40)
+                        with self.assertRaisesRegex(effects.EffectConflict, "Work mode"):
+                            backend.execute("CREATE_PULL_REQUEST", payload)
+                        self.assertEqual(backend.mutations, [])
+                    else:
+                        self.assertTrue(backend.execute("CREATE_PULL_REQUEST", payload)["created"])
+                        self.assertEqual(len(backend.mutations), 1)
+
+    def test_remote_campaign_body_cannot_downgrade_or_change_bound_revisions(self) -> None:
+        original = PR_BODY_CHECKER.fixture_body("a" * 40)
+        variants = {
+            "manual": PR_BODY_CHECKER.manual_fixture_body("a" * 40),
+            "campaign": original.replace("Campaign ID: campaign-1", "Campaign ID: campaign-2"),
+            "specification": original.replace("b" * 64, "d" * 64),
+            "base": original.replace("Exact base SHA: " + "a" * 40, "Exact base SHA: " + "d" * 40),
+            "head": original.replace("Exact candidate head SHA: " + "a" * 40,
+                                     "Exact candidate head SHA: " + "d" * 40),
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            for kind in ("CREATE_PULL_REQUEST", "MERGE"):
+                for label, body in variants.items():
+                    with self.subTest(kind=kind, label=label):
+                        row = {**self.pull_request(17), "body": body}
+                        backend = _ScriptedGitHubBackend([row])
+                        with self.assertRaisesRegex(effects.EffectConflict, "metadata"):
+                            backend.execute(kind, self.payload(Path(raw)))
+                        self.assertEqual(backend.mutations, [])
+
+    def test_merge_rereads_body_changed_after_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            row = self.pull_request(17)
+            backend = _ScriptedGitHubBackend([], pull_request_view=row)
+            payload = {**self.payload(Path(raw)), "pull_request": 17}
+            self.assertFalse(backend.query("MERGE", payload)["confirmed"])
+            row["body"] = PR_BODY_CHECKER.manual_fixture_body("a" * 40)
+            with self.assertRaisesRegex(effects.EffectConflict, "Work mode"):
+                backend.execute("MERGE", payload)
+            self.assertEqual(len(backend.queries), 2)
+            self.assertTrue(all("body" in query[-1].split(",") for query in backend.queries))
+            self.assertEqual(backend.mutations, [])
+
+    def test_already_merged_confirmation_does_not_repeat_after_body_edit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            row = {**self.pull_request(17), "state": "MERGED",
+                   "mergeCommit": {"oid": "d" * 40},
+                   "body": PR_BODY_CHECKER.manual_fixture_body("a" * 40)}
+            backend = _ScriptedGitHubBackend([row])
+            result = backend.execute("MERGE", self.payload(Path(raw)))
+            self.assertTrue(result["replayed"])
+            self.assertEqual(backend.mutations, [])
 
     def test_execute_rechecks_exact_remote_before_any_github_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -1626,6 +1873,107 @@ class GitHubBackendTests(unittest.TestCase):
                             cwd=Path.cwd(),
                             mutation=True,
                         )
+
+
+class LocalBarePushTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.repo = self.root / "repo"
+        self.head = make_repo(self.repo)
+        self.remote = self.root / "local delivery.git"
+        git(self.root, "init", "--bare", "-q", str(self.remote))
+        git(self.repo, "remote", "set-url", "origin", self.remote.as_uri())
+        self.payload = {"root": str(self.repo), "head": self.head,
+                        "candidate_head": self.head, "branch": "main",
+                        "repository_remote": self.remote.as_uri()}
+
+        class ObservedBackend(effects.GitHubBackend):
+            def __init__(self):
+                super().__init__(gh_executable="gh-must-not-run")
+                self.mutations = []
+
+            def _run(self, argv, *, cwd, timeout=120, mutation):
+                if mutation:
+                    self.mutations.append(tuple(argv))
+                return super()._run(argv, cwd=cwd, timeout=timeout, mutation=mutation)
+
+        self.backend = ObservedBackend()
+
+    def driver(self):
+        store = _MemoryEffectStore()
+        store.spec_data = {"worktree": str(self.repo), "nodes": []}
+        driver = effects.ExternalEffectDriver(store, self.backend)
+        driver.prepare(effects.EffectIntent.create(operation_id="local-push", campaign_id="campaign-1",
+                       node_id="node-1", kind="PUSH", payload=self.payload))
+        return driver
+
+    def test_real_local_push_query_and_confirmed_replay_use_one_mutation(self):
+        self.assertFalse(self.backend.query("PUSH", self.payload)["confirmed"])
+        driver = self.driver()
+        self.assertEqual(driver.run("local-push")["state"], "CONFIRMED")
+        self.assertEqual(git(self.remote, "rev-parse", "refs/heads/main"), self.head)
+        self.assertEqual(git(self.remote, "show", f"{self.head}:src/one.txt"), "one")
+        self.assertTrue(self.backend.query("PUSH", self.payload)["confirmed"])
+        self.assertEqual(driver.run("local-push")["state"], "CONFIRMED")
+        self.assertEqual(len(self.backend.mutations), 1)
+        self.assertIn(self.remote.as_uri(), self.backend.mutations[0])
+
+    def test_already_delivered_local_head_is_queried_without_another_push(self):
+        git(self.repo, "push", self.remote.as_uri(), f"{self.head}:refs/heads/main")
+        self.assertEqual(self.driver().run("local-push")["state"], "CONFIRMED")
+        self.assertEqual(self.backend.mutations, [])
+
+    def test_changed_local_head_is_rejected_before_push(self):
+        self.assertFalse(self.backend.query("PUSH", self.payload)["confirmed"])
+        (self.repo / "src/one.txt").write_text("changed\n", encoding="utf-8")
+        git(self.repo, "commit", "-qam", "candidate changed")
+        with self.assertRaisesRegex(effects.EffectConflict, "HEAD changed"):
+            self.backend.execute("PUSH", self.payload)
+        self.assertEqual(self.backend.mutations, [])
+        self.assertEqual(git(self.repo, "ls-remote", "--heads", self.remote.as_uri()), "")
+
+    def test_changed_fetch_or_push_remote_is_rejected_before_query_or_mutation(self):
+        other = self.root / "other.git"
+        git(self.root, "init", "--bare", "-q", str(other))
+        for mode in ((), ("--push",)):
+            git(self.repo, "remote", "set-url", *mode, "origin", other.as_uri())
+            for method in (self.backend.query, self.backend.execute):
+                with self.subTest(mode=mode, method=method.__name__), self.assertRaisesRegex(
+                        effects.EffectConflict, "remote changed"):
+                    method("PUSH", self.payload)
+            git(self.repo, "remote", "set-url", *mode, "origin", self.remote.as_uri())
+        self.assertEqual(self.backend.mutations, [])
+
+    def test_nonbare_destination_and_wrong_worktree_root_are_rejected(self):
+        git(self.repo, "remote", "set-url", "origin", self.repo.as_uri())
+        for method in (self.backend.query, self.backend.execute):
+            with self.subTest(method=method.__name__), self.assertRaisesRegex(
+                    effects.EffectConflict, "bare Git repository"):
+                method("PUSH", {**self.payload, "repository_remote": self.repo.as_uri()})
+        git(self.repo, "remote", "set-url", "origin", self.remote.as_uri())
+        with self.assertRaisesRegex(effects.EffectConflict, "exact Git root"):
+            self.backend.execute("PUSH", {**self.payload, "root": str(self.repo / "src")})
+        self.assertEqual(self.backend.mutations, [])
+
+    def test_local_remote_rejects_host_query_fragment_and_noncanonical_path(self):
+        for uri in (self.remote.as_uri().replace("file:///", "file://other-host/"),
+                    self.remote.as_uri() + "?other", self.remote.as_uri() + "#other",
+                    (self.remote / ".." / self.remote.name).as_uri()):
+            with self.subTest(uri=uri), self.assertRaises(effects.EffectConflict):
+                self.backend.execute("PUSH", {**self.payload, "repository_remote": uri})
+        self.assertEqual(self.backend.mutations, [])
+
+    def test_provider_operations_cannot_use_local_bare_repository(self):
+        for kind in ("CREATE_PULL_REQUEST", "UPSERT_COMMENT", "MERGE"):
+            for method in (self.backend.query, self.backend.execute):
+                with self.subTest(kind=kind, method=method.__name__), self.assertRaisesRegex(
+                        effects.EffectConflict, "PUSH only"):
+                    method(kind, self.payload)
+        with self.assertRaisesRegex(effects.EffectConflict, "repository selector"):
+            self.backend.execute("PUSH", {**self.payload, "repository": "example/project"})
+        self.assertEqual(self.backend.mutations, [])
 
 
 class LegacyTests(unittest.TestCase):

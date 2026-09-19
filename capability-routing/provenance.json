@@ -73,14 +73,14 @@
     "capability-routing/routing-policy.yaml": "5829ce4967cc4968c3afb1fb35cc433ed67267e627dac1c737fe52ca1d68398b",
     "capability-routing/worker-runtime-bom.example.json": "1800b3ba0e02b300ae80a51063b3b841ccca889c0be54121476c07790cbcfc04",
     "capability-routing/worker-runtime-bom.schema.json": "25416b9648c8ad99c457724db0fef8751cc3b644ef232bdd143599ece5e2ef6a",
-    "tests/test_capability_manifest_builder.py": "f120879d1554eadb8311c2fbf7bd375b5fe274b107b6059ec2a70e762636f71e",
-    "tests/test_capability_manifest_recovery.py": "de8eecbf89730a567f456594dc911d97954b0d3c34472aac2e4cdf456a1d4f7f",
+    "tests/test_capability_manifest_builder.py": "91859b892ff82d02ea811e24c8038d3fd57f39ee3338bdd5f48e6ef6ff44f529",
+    "tests/test_capability_manifest_recovery.py": "1b1c8916ef4a9f7aec0f8de4a43a3e418507f544701b62884e9c5d43af5cbaeb",
     "tests/test_catalogue_router_wrapper.py": "94570606f1432cc23c5a90a3b74650113951e80d710301a01f103c9fa24216db",
-    "tests/test_repository_capability_router.py": "550691fcb692eb62e7e9a0b8f1a6bd53756d50d4bcb5f05a4c91872568967918",
+    "tests/test_repository_capability_router.py": "bbfa2e301ac39747d472099966b7b160c917e24765a8b0cbf61e7a2aa63b188e",
     "tests/test_router_authority_deployment.py": "026c7f9b3b540b9857663b7d2c9904290f438120a9e44f0bfa63c8e07ab79973",
     "tests/test_routing_policy_materializer.py": "5169093649092afdac95ae7207bb2109dcc1d70780582a2d32c733fec67a7f6e",
     "tests/test_security_capability_routing.py": "138ec0a4eaa930f6a5ac8648f6be663534afda06322a43ddcf996683f75705a1",
-    "tests/test_worker_runtime_bom_promotion.py": "d027fdb8558012623f5a01f74557f1a0cc304a959be8528d13aae40634f8fd18"
+    "tests/test_worker_runtime_bom_promotion.py": "4b6d403cdbba021783f653651f7a4c93ba36dc8210d29eb8d57c943f6ba2987b"
   },
   "repository_adaptations": [
     "removed private project roots, source scopes, memory scopes, and project-specific policy rules",

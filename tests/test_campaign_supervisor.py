@@ -56,6 +56,7 @@ from tests.ed25519_test_helper import (
     sign,
     verifies_without_subgroup_checks,
 )
+from tests.test_pr_body import CHECKER as PR_BODY_CHECKER
 
 
 NOW = datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)
@@ -453,7 +454,8 @@ class SupervisorFixture(unittest.TestCase):
             "finding_id": "F-1",
             "title": "repair the frozen blocker",
             "blocking": True,
-            "details": {"candidate_head": self.base_sha},
+            "details": {"candidate_head": self.base_sha, "invariant": "approved result",
+                        "evidence": "candidate output violates the expected result"},
         }
         events = (
             (
@@ -887,6 +889,13 @@ class CampaignSupervisorLifecycleTests(SupervisorFixture):
         spec = self.make_spec(
             "campaign", mode="AUTOMATED", publication_automated=True
         )
+        proposed = spec.to_dict()
+        proposed.pop("specification_digest")
+        narrative = "Complete the approved file change."
+        proposed["publication_authority"]["effect_payloads"] = {
+            "CREATE_PULL_REQUEST": {"title": "Approved file change", "body": narrative}
+        }
+        spec = CampaignSpec.from_dict(proposed)
         initial_rank = self.create_approved(spec).autonomous_rank_remaining
         host = FakeHost()
         backend = FakePublicationBackend()
@@ -954,6 +963,20 @@ class CampaignSupervisorLifecycleTests(SupervisorFixture):
         self.assertIsNone(freeze.wait_event)
         self.assertEqual(supervisor.step("campaign").action, "READY_TO_PUBLISH")
 
+        ready = self.store.get_snapshot("campaign")
+        for conflicting in ("- Work mode: MANUAL", "## Requested outcome\nExisting metadata"):
+            with self.subTest(conflicting=conflicting), self.assertRaisesRegex(
+                SupervisorError, "reserved metadata"
+            ):
+                supervisor._render_campaign_pr_body(
+                    ready, ready.node("node-1"), conflicting, "pr-1"
+                )
+        with patch.object(self.store, "get_evidence", return_value=None):
+            with self.assertRaisesRegex(SupervisorError, "persisted exact-candidate"):
+                supervisor._render_campaign_pr_body(
+                    ready, ready.node("node-1"), narrative, "pr-1"
+                )
+
         observed: list[str] = []
         for expected_kind in ("PUSH", "CREATE_PULL_REQUEST", "MERGE"):
             prepared = supervisor.step("campaign")
@@ -974,6 +997,24 @@ class CampaignSupervisorLifecycleTests(SupervisorFixture):
         outbox = self.store.list_outbox(campaign_id="campaign")
         self.assertEqual([item["kind"] for item in outbox], observed)
         self.assertTrue(all(item["state"] == EffectState.CONFIRMED.value for item in outbox))
+        created = next(item for item in outbox if item["kind"] == "CREATE_PULL_REQUEST")
+        body = created["payload"]["body"]
+        self.assertTrue(body.startswith(narrative + "\n\n"))
+        self.assertEqual(body.count("## Requested outcome"), 1)
+        self.assertEqual(PR_BODY_CHECKER.validate_body(
+            body, expected_work_mode="CAMPAIGN", expected_campaign_id=spec.campaign_id,
+            expected_specification_digest=spec.specification_digest,
+            expected_current_head=candidate_head, expected_base_sha=spec.base_sha,
+        ), [])
+        self.assertIn("- Changed paths: src/app.txt", body)
+        self.assertIn("| unit |", body)
+        self.assertIn("| product-quality | Not configured for this node |", body)
+        self.assertIn("NOT_CONFIGURED", body)
+        self.assertIn(created["operation_id"], body)
+        self.assertNotIn(outbox[-1]["operation_id"], body)
+        self.assertEqual(spec.publication_authority["effect_payloads"]["CREATE_PULL_REQUEST"]["body"], narrative)
+        self.assertEqual(self.store.get_snapshot("campaign").spec.specification_digest,
+                         spec.specification_digest)
         snapshot = self.store.get_snapshot("campaign")
         expected_consumption = {
             BudgetToken.CHILD_CREATION: 3,
@@ -1032,7 +1073,8 @@ class CampaignSupervisorLifecycleTests(SupervisorFixture):
             "finding_id": "F-1",
             "title": "repair the deterministic defect",
             "blocking": True,
-            "details": {"candidate_head": candidate_head},
+            "details": {"candidate_head": candidate_head, "invariant": "approved result",
+                        "evidence": "candidate output violates the expected result"},
         }
         leases = list(review.details["leases"])
         for index, (reviewer_id, lease_id) in enumerate(
@@ -1790,40 +1832,21 @@ class CampaignSupervisorControlTests(SupervisorFixture):
             mode="MANUAL",
             publication_automated=True,
         )
-        snapshot = self.create_approved(spec)
-        for event_type, payload in (
-            (EventType.START, {}),
-            (EventType.ADMIT_NODE, {"start_head": self.base_sha}),
-            (EventType.START_IMPLEMENTATION, {}),
-            (EventType.IMPLEMENTATION_COMPLETED, {}),
-            (
-                EventType.VALIDATION_PASSED,
-                {
-                    "candidate_head": self.base_sha,
-                    "candidate_tree": git(self.repo, "rev-parse", "HEAD^{tree}"),
-                    "candidate_diff_digest": "d" * 64,
-                    "candidate_node_diff_digest": "d" * 64,
-                },
-            ),
-            (
-                EventType.START_REVIEW,
-                {
-                    "review_id": "restart-review",
-                    "review_cohort": list(spec.required_review_cohort),
-                },
-            ),
-            (EventType.FREEZE_FINDINGS, {"findings": []}),
-            (EventType.MARK_READY_TO_PUBLISH, {}),
-        ):
-            node_id = None if event_type is EventType.START else "node-1"
-            snapshot = self.store.apply_event(
-                self.event(snapshot, event_type, node_id=node_id, payload=payload)
-            )[0]
+        self.create_approved(spec)
+        host = FakeHost()
+        supervisor = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        lease_id = self.dispatch_implementer(supervisor)
+        self.commit_text("accepted candidate\n", "produce real candidate evidence")
+        candidate_head = git(self.repo, "rev-parse", "HEAD")
+        host.set_result(lease_id, {"status": "completed"})
+        supervisor.complete_worker(lease_id)
+        self.assertEqual(supervisor.validate_node("campaign", "node-1").action, "CANDIDATE_FROZEN")
+        receipts, findings = self.collect_passing_review(supervisor, host, spec)
+        supervisor.freeze_review("campaign", "node-1", receipts=receipts, findings=findings)
+        self.assertEqual(supervisor.step("campaign").action, "READY_TO_PUBLISH")
         backend = FakePublicationBackend()
         driver = ExternalEffectDriver(self.store, backend)
-        supervisor = DeterministicSupervisor(
-            self.store, host=FakeHost(), effect_driver=driver, now=lambda: NOW
-        )
+        supervisor.effect_driver = driver
         prepared = supervisor.start_publication("campaign", "node-1")
         operation_id = str(prepared.details["operation_id"])
         self.store.update_effect(
@@ -1831,7 +1854,7 @@ class CampaignSupervisorControlTests(SupervisorFixture):
             expected_state=EffectState.PREPARED.value,
             state=EffectState.EXECUTING.value,
         )
-        backend.confirmed.add(("PUSH", self.base_sha))
+        backend.confirmed.add(("PUSH", candidate_head))
 
         restarted = DeterministicSupervisor(
             self.store,

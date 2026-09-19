@@ -213,6 +213,89 @@ def _synthetic_bundled_marketplace_origin(
     return result
 
 
+def _write_bundled_marketplace_fixture(codex_home: Path) -> None:
+    """Materialize the reference layout without depending on a Codex installation."""
+    app_version = "26.810.41047"
+    versions = {
+        "browser": app_version,
+        "chrome": app_version,
+        "computer-use": app_version,
+        "latex": "0.2.5",
+        "sites": "0.1.34",
+        "visualize": "1.0.20",
+    }
+    bundle_root = codex_home / recovery.BUNDLED_MARKETPLACE_RELATIVE
+    cache_root = codex_home / "plugins" / "cache" / "openai-bundled"
+    for plugin_name, plugin_version in versions.items():
+        packages = [bundle_root / "plugins" / plugin_name]
+        if plugin_name != "latex":
+            packages.append(cache_root / plugin_name / plugin_version)
+        if plugin_name == "chrome":
+            # A byte-identical directory exercises the supported alias on Windows
+            # without requiring permission to create a symbolic link.
+            packages.append(cache_root / plugin_name / "latest")
+        for package in packages:
+            manifest_path = package / ".codex-plugin" / "plugin.json"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {"name": plugin_name, "version": plugin_version},
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            skill_path = package / "skills" / plugin_name / "SKILL.md"
+            skill_path.parent.mkdir(parents=True)
+            skill_path.write_text(
+                f"---\nname: {plugin_name}\n---\nRepository fixture.\n",
+                encoding="utf-8",
+            )
+
+    visualize_skill = (
+        bundle_root / "plugins" / "visualize" / "skills" / "visualize" / "SKILL.md"
+    )
+    materialization = {
+        "version": 1,
+        "appVersion": app_version,
+        "bundleId": str(uuid.uuid5(uuid.NAMESPACE_DNS, "bundled-marketplace-fixture")),
+        "marketplaceName": "openai-bundled",
+        "computerUseSkillVariant": None,
+        "liveVisualizationSkillVariant": None,
+        "visualizeSkillContentHash": hashlib.sha256(
+            visualize_skill.read_bytes()
+        ).hexdigest(),
+        "plugins": [
+            {"name": name, "version": version}
+            for name, version in sorted(versions.items())
+        ],
+    }
+    (bundle_root / ".materialization-key").write_text(
+        json.dumps(materialization, sort_keys=True), encoding="utf-8"
+    )
+    marketplace_path = bundle_root / ".agents" / "plugins" / "marketplace.json"
+    marketplace_path.parent.mkdir(parents=True)
+    marketplace_path.write_text(
+        json.dumps(
+            {
+                "name": "openai-bundled",
+                "plugins": [
+                    {
+                        "name": name,
+                        "source": {"source": "local", "path": f"./plugins/{name}"},
+                        "policy": {
+                            "installation": "AVAILABLE",
+                            "authentication": "ON_USE",
+                        },
+                    }
+                    for name in sorted(versions)
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
 def _receipt(
     version: str,
     runtime_id: str,
@@ -1087,45 +1170,16 @@ class RecoveryClassificationTests(unittest.TestCase):
                     codex_home, runtime_root=runtime_root
                 )
 
-    @unittest.skipUnless(
-        (
-            Path.home()
-            / ".cache"
-            / "codex-runtimes"
-            / "codex-primary-runtime"
-            / "runtime.json"
-        ).is_file()
-        and (Path.home() / ".codex" / "plugins" / "cache").is_dir(),
-        "canonical Codex primary-runtime bundle is unavailable",
-    )
-    def test_current_primary_runtime_layout_is_byte_coherent(self) -> None:
-        origin = recovery._primary_runtime_bundle_origin(
-            Path.home() / ".codex"
-        )
+    def test_bundled_marketplace_fixture_closes_full_active_cohort(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            codex_home = Path(temp_dir) / ".codex"
+            _write_bundled_marketplace_fixture(codex_home)
+            with mock.patch.object(
+                Path, "home", side_effect=AssertionError("host home is not a fixture")
+            ):
+                origin = recovery._bundled_marketplace_origin(codex_home)
 
-        self.assertEqual(origin["schema_version"], recovery.PRIMARY_RUNTIME_BUNDLE_SCHEMA)
-        self.assertEqual(
-            set(origin["packages"]), recovery.PRIMARY_RUNTIME_REQUIRED_PACKAGES
-        )
-        for package in origin["packages"].values():
-            self.assertEqual(
-                package["bundle_authority_sha256"],
-                package["cache_authority_sha256"],
-            )
-
-    @unittest.skipUnless(
-        (
-            Path.home()
-            / ".codex"
-            / recovery.BUNDLED_MARKETPLACE_RELATIVE
-            / ".materialization-key"
-        ).is_file()
-        and (Path.home() / ".codex" / "plugins" / "cache" / "openai-bundled").is_dir(),
-        "materialized bundled marketplace is unavailable",
-    )
-    def test_current_bundled_marketplace_closes_full_active_cohort(self) -> None:
-        origin = recovery._bundled_marketplace_origin(Path.home() / ".codex")
-
+        self.assertTrue(recovery._valid_bundled_marketplace_origin(origin))
         self.assertEqual(
             set(origin["packages"]),
             {"browser", "chrome", "computer-use", "latex", "sites", "visualize"},
@@ -1139,6 +1193,48 @@ class RecoveryClassificationTests(unittest.TestCase):
             },
             {"browser", "chrome", "computer-use", "sites", "visualize"},
         )
+        self.assertEqual(
+            origin["packages"]["chrome"]["cache_packages"],
+            ["openai-bundled/chrome/26.810.41047", "openai-bundled/chrome/latest"],
+        )
+        for package in origin["packages"].values():
+            self.assertEqual(
+                set(package["cache_authority_sha256s"].values()),
+                {package["bundle_authority_sha256"]}
+                if package["cache_packages"]
+                else set(),
+            )
+
+    def test_bundled_marketplace_fixture_rejects_invalid_materialization(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            codex_home = Path(temp_dir) / ".codex"
+            _write_bundled_marketplace_fixture(codex_home)
+            key_path = (
+                codex_home / recovery.BUNDLED_MARKETPLACE_RELATIVE / ".materialization-key"
+            )
+            materialization = json.loads(key_path.read_text(encoding="utf-8"))
+            materialization["version"] = 2
+            key_path.write_text(json.dumps(materialization), encoding="utf-8")
+            with self.assertRaisesRegex(
+                RuntimeError, "bundled marketplace materialization key is invalid"
+            ):
+                recovery._bundled_marketplace_origin(codex_home)
+
+    def test_bundled_marketplace_fixture_rejects_changed_cache_authority(self) -> None:
+        for cache_package in ("browser/26.810.41047", "chrome/latest", "sites/0.1.34"):
+            with self.subTest(package=cache_package), tempfile.TemporaryDirectory() as temp_dir:
+                codex_home = Path(temp_dir) / ".codex"
+                _write_bundled_marketplace_fixture(codex_home)
+                plugin_name = cache_package.split("/")[0]
+                cache_skill = (
+                    codex_home / "plugins" / "cache" / "openai-bundled" / cache_package
+                    / "skills" / plugin_name / "SKILL.md"
+                )
+                cache_skill.write_text("changed\n", encoding="utf-8")
+                with self.assertRaisesRegex(
+                    RuntimeError, "bundled marketplace and cache authority content differ"
+                ):
+                    recovery._bundled_marketplace_origin(codex_home)
 
     def test_unknown_config_leaf_change_is_denied(self) -> None:
         previous = _receipt("26.803.41515", "runtime-old", "cli-old", "A")
@@ -1956,6 +2052,48 @@ class RecoveryClassificationTests(unittest.TestCase):
                 )
                 self.assertFalse(allowed)
                 self.assertEqual(reason, "INVALID_CURRENT_AUTHORITY_RECEIPT")
+
+
+@unittest.skipUnless(
+    os.environ.get("CODEX_ROUTER_HOST_INTEGRATION") == "1",
+    "set CODEX_ROUTER_HOST_INTEGRATION=1 to check the installed Codex layout",
+)
+class InstalledCodexLayoutIntegrationTests(unittest.TestCase):
+    """Opt-in checks of the installed layout against the reference runtime contract.
+
+    These checks are separate from portable package acceptance. When explicitly
+    enabled, an absent or incompatible installation fails instead of being skipped.
+    """
+
+    def test_current_primary_runtime_layout_is_byte_coherent(self) -> None:
+        origin = recovery._primary_runtime_bundle_origin(Path.home() / ".codex")
+
+        self.assertEqual(origin["schema_version"], recovery.PRIMARY_RUNTIME_BUNDLE_SCHEMA)
+        self.assertEqual(
+            set(origin["packages"]), recovery.PRIMARY_RUNTIME_REQUIRED_PACKAGES
+        )
+        for package in origin["packages"].values():
+            self.assertEqual(
+                package["bundle_authority_sha256"],
+                package["cache_authority_sha256"],
+            )
+
+    def test_current_bundled_marketplace_closes_full_active_cohort(self) -> None:
+        origin = recovery._bundled_marketplace_origin(Path.home() / ".codex")
+
+        self.assertEqual(
+            set(origin["packages"]),
+            {"browser", "chrome", "computer-use", "latex", "sites", "visualize"},
+        )
+        self.assertEqual(origin["packages"]["latex"]["cache_packages"], [])
+        self.assertEqual(
+            {
+                package.split("/")[1]
+                for item in origin["packages"].values()
+                for package in item["cache_packages"]
+            },
+            {"browser", "chrome", "computer-use", "sites", "visualize"},
+        )
 
 
 class StableReadTests(unittest.TestCase):

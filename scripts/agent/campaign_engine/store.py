@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 from contextlib import closing
+from datetime import datetime, timezone
 import fnmatch
 import json
 from pathlib import Path
@@ -278,6 +279,37 @@ READ_ONLY_ACTOR_ROLES = {
     ActorRole.PARENT,
 }
 CONCURRENT_READ_ONLY_ACTOR_ROLES = READ_ONLY_ACTOR_ROLES - {ActorRole.VALIDATOR}
+
+NATIVE_USAGE_CATEGORY = "native_provider_usage"
+NATIVE_USAGE_FIELDS = {
+    "inputTokens": "input_tokens",
+    "cachedInputTokens": "cached_input_tokens",
+    "cacheWriteInputTokens": "cache_write_input_tokens",
+    "outputTokens": "output_tokens",
+    "reasoningOutputTokens": "reasoning_output_tokens",
+    "totalTokens": "total_tokens",
+}
+
+
+def _native_usage_breakdown(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, Mapping):
+        return None
+    result = {}
+    for native, name in NATIVE_USAGE_FIELDS.items():
+        count = value.get(native, 0 if native == "cacheWriteInputTokens" else None)
+        if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count < 2**63:
+            return None
+        result[name] = count
+    # Context-window saturation events can contain synthetic totals without
+    # provider input/output counts. Preserve them as unavailable measurements.
+    if (
+        result["total_tokens"] != result["input_tokens"] + result["output_tokens"]
+        or result["cached_input_tokens"] > result["input_tokens"]
+        or result["cache_write_input_tokens"] > result["input_tokens"]
+        or result["reasoning_output_tokens"] > result["output_tokens"]
+    ):
+        return None
+    return result
 
 
 class CampaignStore:
@@ -825,6 +857,18 @@ class CampaignStore:
                 tuple(ExternalEffectIntent.from_dict(item) for item in prior["effects"]),
             )
         snapshot = self._load_snapshot(connection, event.campaign_id)
+        if event.event_type is EventType.REQUEST_VALIDATION_CORRECTION:
+            correction = event.payload.get("correction", {})
+            row = connection.execute(
+                "SELECT campaign_id, node_id, kind, digest, candidate_head, payload_json "
+                "FROM evidence WHERE evidence_id=?", (correction.get("evidence_id"),)
+            ).fetchone()
+            if (row is None or row["campaign_id"] != event.campaign_id
+                    or row["node_id"] != event.node_id or row["kind"] != EvidenceKind.VALIDATION.value
+                    or row["digest"] != correction.get("evidence_digest")
+                    or row["candidate_head"] != correction.get("candidate_head")
+                    or row["payload_json"] != canonical_json(correction.get("failure_evidence", {}))):
+                raise AuthorityError("validation correction requires exact persisted failed command evidence")
         self._begin_operation(
             connection,
             request_id=event.event_id,
@@ -2234,6 +2278,8 @@ class CampaignStore:
                     "human_authorization_verifier": payload.get(
                         "human_authorization_verifier"
                     ),
+                    **({"acceptance_sources": payload["acceptance_sources"]}
+                       if "acceptance_sources" in payload else {}),
                 }
             )
         else:
@@ -2412,6 +2458,22 @@ class CampaignStore:
             if result != expected:
                 raise AuthorityError("native terminal receipt attestation tuple differs")
             return result
+
+    def get_evidence(self, evidence_id: str) -> Evidence | None:
+        """Read one immutable receipt without running or retrying its producer."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM evidence WHERE evidence_id=?", (evidence_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            return Evidence.from_dict({
+                "evidence_id": row["evidence_id"], "campaign_id": row["campaign_id"],
+                "node_id": row["node_id"], "kind": row["kind"], "digest": row["digest"],
+                "candidate_head": row["candidate_head"],
+                "payload": json.loads(str(row["payload_json"])),
+            })
 
     def find_evidence_by_digest(
         self,
@@ -2643,23 +2705,54 @@ class CampaignStore:
                 )
             ]
 
-    def recover_after_restart(self) -> dict[str, int]:
+    def recover_after_restart(self, *, retained_lease_ids: Iterable[str] = ()) -> dict[str, int]:
+        retained = tuple(retained_lease_ids)
+        if len(set(retained)) != len(retained):
+            raise StoreError("read-only recovery contains duplicate leases")
         with closing(self._connect()) as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                for lease_id in retained:
+                    row = connection.execute(
+                        "SELECT l.*, a.role, a.can_write, a.used, a.identity_digest, "
+                        "a.native_thread_id, a.authority_epoch, a.native_identity_json, "
+                        "a.actor_json, a.bound_request_id "
+                        "FROM leases l JOIN actors a ON a.actor_id=l.actor_id WHERE l.lease_id=?",
+                        (lease_id,),
+                    ).fetchone()
+                    if (row is None or row["state"] != "ACTIVE" or row["can_write"]
+                            or not row["used"] or not row["identity_digest"] or not row["bound_request_id"]
+                            or row["role"] not in {"REVIEWER", "CLOSURE_REVIEWER"}
+                            or row["native_thread_id"] == "UNBOUND"):
+                        raise StoreError("only an active bound read-only reviewer may survive recovery")
+                    snapshot = self._load_snapshot(connection, str(row["campaign_id"]))
+                    node = snapshot.node(str(row["node_id"]))
+                    expected_state = NodeState.CHECKS_AND_REVIEW if row["role"] == "REVIEWER" else NodeState.CLOSURE
+                    identity = json.loads(str(row["native_identity_json"]))
+                    actor = json.loads(str(row["actor_json"]))
+                    if (snapshot.state != CampaignState.RUNNING or node.state != expected_state
+                            or snapshot.active_node_id != node.node_id
+                            or actor.get("principal_id") not in snapshot.spec.required_review_cohort
+                            or row["authority_epoch"] != snapshot.authority_epoch
+                            or row["cancellation_epoch"] != snapshot.cancellation_epoch
+                            or row["fencing_epoch"] != node.fencing_epoch
+                            or canonical_json_digest(identity) != row["identity_digest"]):
+                        raise StoreError("read-only recovery state or identity changed")
+                    active = {str(item[0]) for item in connection.execute(
+                        "SELECT lease_id FROM leases WHERE campaign_id=? AND state='ACTIVE'",
+                        (snapshot.spec.campaign_id,),
+                    )}
+                    if not active.issubset(retained):
+                        raise StoreError("read-only recovery must retain the complete active cohort")
                 ambiguous = connection.execute(
                     "UPDATE external_effect_outbox SET state='AMBIGUOUS' WHERE state='EXECUTING'"
                 ).rowcount
-                # A supervisor restart loses the in-memory transport that owns
-                # every active native lease.  Keeping such a lease active would
-                # leave an unauditable writer or reviewer and a permanent
-                # resource lock.  Recovery therefore fences every orphaned
-                # active lease.  The supervisor then fails the exact affected
-                # node through the reducer instead of silently redispatching a
-                # second implementation or review generation.
-                invalidated = connection.execute(
-                    "UPDATE leases SET state='INVALIDATED' WHERE state='ACTIVE'"
-                ).rowcount
+                # Only connections verified by the supervisor and native host
+                # survive. Every other active lease remains an orphan.
+                query = "UPDATE leases SET state='INVALIDATED' WHERE state='ACTIVE'"
+                if retained:
+                    query += " AND lease_id NOT IN (" + ",".join("?" for _ in retained) + ")"
+                invalidated = connection.execute(query, retained).rowcount
                 connection.execute(
                     """
                     UPDATE resource_locks SET lease_id=NULL
@@ -2671,6 +2764,148 @@ class CampaignStore:
             except Exception:
                 connection.rollback()
                 raise
+
+    def record_native_usage(
+        self, actor_id: str, notification: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Retain native cumulative measurements, independent of lifecycle state."""
+
+        thread_id = notification.get("threadId")
+        turn_id = notification.get("turnId")
+        if any(not isinstance(value, str) or not value or len(value) > 256
+               for value in (thread_id, turn_id)):
+            raise AuthorityError("native usage requires exact thread and turn identifiers")
+        usage = notification.get("tokenUsage")
+        usage = usage if isinstance(usage, Mapping) else {}
+        cumulative = _native_usage_breakdown(usage.get("total"))
+        last = _native_usage_breakdown(usage.get("last"))
+        report = {
+            "native_thread_id": thread_id,
+            "native_turn_id": turn_id,
+            "cumulative": cumulative,
+            "last": last,
+            "status": "observed" if cumulative is not None and last is not None else "unavailable",
+        }
+        telemetry_id = "native-usage:" + canonical_json_digest({
+            "actor_id": actor_id, "report": report,
+        })
+        with closing(self._connect()) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                actor = connection.execute(
+                    "SELECT * FROM actors WHERE actor_id=?", (actor_id,)
+                ).fetchone()
+                if (
+                    actor is None
+                    or not actor["used"]
+                    or not actor["identity_digest"]
+                    or not actor["bound_request_id"]
+                    or actor["native_thread_id"] == "UNBOUND"
+                    or actor["native_thread_id"] != thread_id
+                ):
+                    raise AuthorityError("native usage does not match a durably bound actor")
+                prior = connection.execute(
+                    "SELECT payload_json FROM telemetry WHERE telemetry_id=?", (telemetry_id,)
+                ).fetchone()
+                if prior is not None:
+                    connection.commit()
+                    return json.loads(str(prior["payload_json"]))
+                snapshot = self._load_snapshot(connection, str(actor["campaign_id"]))
+                payload = {
+                    "protocol_version": "ccos-native-provider-usage-v1",
+                    "source": "thread/tokenUsage/updated",
+                    "actor_id": actor_id,
+                    "role": str(actor["role"]),
+                    "node_id": actor["node_id"],
+                    "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "recorded_campaign_state": snapshot.state.value,
+                    **report,
+                }
+                connection.execute(
+                    "INSERT INTO telemetry(telemetry_id, campaign_id, category, payload_json) "
+                    "VALUES (?, ?, ?, ?)",
+                    (telemetry_id, actor["campaign_id"], NATIVE_USAGE_CATEGORY, canonical_json(payload)),
+                )
+                connection.commit()
+                return payload
+            except Exception:
+                connection.rollback()
+                raise
+
+    def usage_summary(self, campaign_id: str) -> dict[str, Any]:
+        """Sum one observed cumulative snapshot per bound native actor thread.
+
+        This is reported usage, not a billing total or an assertion that every
+        model request emitted telemetry. Missing actors never become zeroes.
+        """
+
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            self._load_snapshot(connection, campaign_id)
+            actors = [dict(row) for row in connection.execute(
+                "SELECT actor_id, role, node_id, native_thread_id, used FROM actors "
+                "WHERE campaign_id=? ORDER BY actor_id", (campaign_id,),
+            )]
+            reports = [json.loads(str(row["payload_json"])) for row in connection.execute(
+                "SELECT payload_json FROM telemetry WHERE campaign_id=? AND category=? "
+                "ORDER BY rowid", (campaign_id, NATIVE_USAGE_CATEGORY),
+            )]
+            connection.commit()
+        by_actor: dict[str, list[dict[str, Any]]] = {}
+        for report in reports:
+            by_actor.setdefault(report["actor_id"], []).append(report)
+        summaries = []
+        totals = {name: 0 for name in NATIVE_USAGE_FIELDS.values()}
+        measured = 0
+        for actor in actors:
+            observed = by_actor.get(actor["actor_id"], [])
+            valid = [item for item in observed if item["status"] == "observed"]
+            latest = max(valid, key=lambda item: (
+                item["cumulative"]["total_tokens"],
+                canonical_json(item["cumulative"]),
+            )) if valid else None
+            cumulative = latest["cumulative"] if latest is not None else None
+            discontinuity = bool(cumulative is not None and any(
+                any(item["cumulative"][name] > cumulative[name] for name in totals)
+                for item in valid
+            ))
+            status = "unavailable"
+            if cumulative is not None:
+                measured += 1
+                for name in totals:
+                    totals[name] += cumulative[name]
+                status = "partial" if len(valid) != len(observed) or discontinuity else "observed"
+            summaries.append({
+                "actor_id": actor["actor_id"],
+                "role": actor["role"],
+                "node_id": actor["node_id"],
+                "native_thread_id": actor["native_thread_id"] if actor["used"] else None,
+                "status": status,
+                "totals": cumulative,
+                "observed_report_count": len(valid),
+                "unavailable_report_count": len(observed) - len(valid),
+                "counter_discontinuity": discontinuity,
+            })
+        return {
+            "campaign_id": campaign_id,
+            "source": "native_app_server_notifications",
+            "status": (
+                "unavailable" if not measured else "observed"
+                if all(item["status"] == "observed" for item in summaries) else "partial"
+            ),
+            "totals": totals if measured else None,
+            "coverage": {
+                "scope": "bound_native_actor_threads",
+                "actor_count": len(actors),
+                "bound_actor_count": sum(bool(item["used"]) for item in actors),
+                "measured_actor_count": measured,
+                "unavailable_actor_ids": [item["actor_id"] for item in summaries
+                                          if item["status"] == "unavailable"],
+                "unbound_parent_usage": "unavailable",
+                "complete_provider_spend": False,
+            },
+            "actors": summaries,
+        }
 
     def telemetry_counts(self, campaign_id: str | None = None) -> dict[str, int]:
         query = "SELECT category, COUNT(*) AS count FROM telemetry"

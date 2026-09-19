@@ -726,12 +726,14 @@ class AppServerTransport:
         environment: Mapping[str, str] | None = None,
         dynamic_tool_handler: Callable[[Mapping[str, Any]], Mapping[str, Any]]
         | None = None,
+        usage_handler: Callable[[Mapping[str, Any]], Any] | None = None,
     ) -> None:
         self.executable = _resolve_codex_executable(executable)
         self.cwd = Path(cwd).resolve(strict=True)
         self.timeout = timeout
         self.environment = dict(environment or os.environ)
         self.dynamic_tool_handler = dynamic_tool_handler
+        self.usage_handler = usage_handler
         self.command = [
             str(self.executable),
             "--strict-config",
@@ -743,7 +745,10 @@ class AppServerTransport:
             "remote_plugin",
             "--disable",
             "code_mode",
-            "--disable",
+            # Codex 0.154 model metadata can require code-mode-only tools even
+            # when code_mode is disabled. Its helper delegates campaign calls
+            # through the same checked dynamic-tool handler below.
+            "--enable",
             "code_mode_host",
             "--disable",
             "multi_agent",
@@ -818,6 +823,24 @@ class AppServerTransport:
                 value = json.loads(line)
             except json.JSONDecodeError:
                 value = {"method": "campaign/nonJson", "params": {"line": line[:1000]}}
+            if (
+                isinstance(value, dict)
+                and value.get("method") == "thread/tokenUsage/updated"
+                and "id" not in value
+                and self.usage_handler is not None
+            ):
+                try:
+                    params = value.get("params")
+                    if not isinstance(params, Mapping):
+                        raise HostProtocolError("native usage notification has no object payload")
+                    # Persist while reading, including when no caller is waiting
+                    # for a terminal receipt or the turn will later be rejected.
+                    self.usage_handler(params)
+                except Exception as exc:
+                    self.inbox.put({
+                        "method": "campaign/usageCaptureFailed",
+                        "params": {"error_type": type(exc).__name__},
+                    })
             self.inbox.put(value if isinstance(value, dict) else {"method": "campaign/nonObject"})
         self.inbox.put(None)
 
@@ -875,6 +898,8 @@ class AppServerTransport:
         if "method" not in message:
             self.responses[str(message.get("id"))] = message
             return message
+        if message.get("method") == "campaign/usageCaptureFailed":
+            raise HostProtocolError("native usage could not be durably recorded")
         if "id" in message:
             method = str(message.get("method"))
             # Authority never depends on a model approval request. All host-side
@@ -1015,13 +1040,16 @@ class NativeCodexHost:
         reasoning_effort: str = "max",
         transport_factory: Callable[..., Any] = AppServerTransport,
         probe_write_denial_canary: bool = False,
+        usage_recorder: Callable[[str, Mapping[str, Any]], Any] | None = None,
     ) -> None:
         self.executable = executable
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.transport_factory = transport_factory
         self.probe_write_denial_canary = bool(probe_write_denial_canary)
+        self.usage_recorder = usage_recorder
         self._bindings: dict[str, ActorBinding] = {}
+        self._native_identities: dict[str, Mapping[str, Any]] = {}
         self._transports: dict[str, Any] = {}
         self._action_authorities: dict[str, ActionAuthority] = {}
         self._review_candidate_identities: dict[str, Mapping[str, str]] = {}
@@ -1404,6 +1432,8 @@ class NativeCodexHost:
                 "write actor requires a live scoped action-authority callback"
             )
         transport = self.transport_factory(self.executable, cwd=worktree)
+        if self.usage_recorder is not None:
+            transport.usage_handler = lambda params: self._record_usage(lease, params)
         if hasattr(transport, "dynamic_tool_handler"):
             transport.dynamic_tool_handler = lambda params: self._handle_dynamic_tool(
                 lease, params
@@ -1421,7 +1451,13 @@ class NativeCodexHost:
                     "dynamicTools": dynamic_tools,
                     "ephemeral": ephemeral,
                     "model": self.model,
-                    "config": {"model_reasoning_effort": self.reasoning_effort},
+                    "config": {
+                        "model_reasoning_effort": self.reasoning_effort,
+                        # The parent already selected the scoped worker tools.
+                        # A full automatic skill catalogue both repeats context
+                        # and invites unavailable skill-provider detours.
+                        "skills.include_instructions": False,
+                    },
                     "runtimeWorkspaceRoots": [str(worktree)],
                     "selectedCapabilityRoots": [],
                     "environments": [],
@@ -1505,6 +1541,7 @@ class NativeCodexHost:
                 bound_before_turn=True,
             )
             self._bindings[lease.lease_id] = binding
+            self._native_identities[lease.lease_id] = dict(native_identity)
             self._transports[lease.lease_id] = transport
             with self._host_lock:
                 self._interrupted.discard(lease.lease_id)
@@ -1517,6 +1554,21 @@ class NativeCodexHost:
         except BaseException:
             transport.close()
             raise
+
+    def _record_usage(self, lease: ActorLease, params: Mapping[str, Any]) -> None:
+        binding = self._bindings.get(lease.lease_id)
+        if (
+            self.usage_recorder is None
+            or binding is None
+            or not binding.bound_before_turn
+            or not binding.lease_consumed
+            or params.get("threadId") != binding.native_thread_id
+            or (binding.turn_id is not None and params.get("turnId") != binding.turn_id)
+        ):
+            return
+        # A report may precede turn/start's response or arrive after STOP.
+        # It is metering evidence only and never authorizes a state transition.
+        self.usage_recorder(lease.actor_id, params)
 
     def start_actor_turn(self, lease_id: str, prompt: str) -> ActorBinding:
         binding = self._bindings.get(lease_id)
@@ -1566,6 +1618,41 @@ class NativeCodexHost:
         updated = replace(current, turn_id=turn_id, lease_consumed=True)
         self._bindings[lease_id] = updated
         return updated
+
+    def recover_read_only_actor(
+        self, lease_id: str, *, native_identity: Mapping[str, Any],
+        current_epochs: CurrentEpochs,
+    ) -> ActorBinding:
+        """Reuse a surviving connection and turn, never create or resume a turn."""
+        with self._host_lock:
+            binding = self._bindings.get(lease_id)
+            transport = self._transports.get(lease_id)
+            if (binding is None or transport is None or lease_id in self._interrupted
+                    or binding.lease.role not in {"REVIEWER", "CLOSURE_REVIEWER"}
+                    or not binding.bound_before_turn or not binding.lease_consumed
+                    or not binding.turn_id or binding.sandbox_type != "read-only"
+                    or binding.lease.allowed_paths):
+                raise HostAuthorityError("original started read-only connection is unavailable")
+            if (self._native_identities.get(lease_id) != dict(native_identity)
+                    or native_identity.get("thread_id") != binding.native_thread_id
+                    or native_identity.get("lease_digest") != binding.lease.payload_digest):
+                raise HostAuthorityError("original native identity changed")
+            process = getattr(transport, "process", None)
+            expected_process = native_identity.get("host_process_identity")
+            if (process is None or process.poll() is not None
+                    or not isinstance(expected_process, Mapping)
+                    or process.pid != native_identity.get("host_pid")
+                    or process_identity(process.pid) != dict(expected_process)):
+                raise HostAuthorityError("original native process is not verifiably alive")
+            reader = getattr(transport, "reader", None)
+            if reader is None or not reader.is_alive():
+                raise HostAuthorityError("original native connection reader is unavailable")
+            epochs = current_epochs(binding.lease.campaign_id, binding.lease.node_id)
+            if any(epochs.get(key) != getattr(binding.lease, key) for key in
+                   ("authority_epoch", "cancellation_epoch", "fencing_epoch")):
+                raise LateResultError("read-only recovery authority changed")
+            self._require_review_candidate(binding)
+            return binding
 
     def collect_terminal_receipt(
         self,

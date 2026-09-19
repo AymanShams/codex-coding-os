@@ -1,16 +1,55 @@
 # Codex Coding OS
 
-Codex Coding OS is a deterministic campaign engine for bounded AI-assisted
-software delivery. One immutable campaign specification binds the repository,
-worktree, branch, base commit, allowed paths, finite dependency graph,
-validation commands, reviewers, budgets, stop conditions, runtime pin, and
-publication authority.
+Codex Coding OS helps founders and small teams delegate software changes to
+Codex across sessions. You define the customer outcome and approve the business
+choices. The agent prepares the engineering work, checks the resulting behavior,
+and delivers within the agreed scope and limits.
+
+Use ordinary Codex tasks for small changes. Use a campaign when work needs
+durable progress, bounded attempts, independent review, and controlled delivery
+across sessions. A campaign is an approved plan with a fixed scope, budget, and
+stopping point.
 
 The campaign reducer and the external SQLite store are the only lifecycle
 authority. Repository state files, handoffs, comments, branch names, and
 caller-declared roles do not authorize or block work.
 
+Start with [Getting Started](docs/getting-started.md), read the
+[philosophy](docs/philosophy.md), or download a verified package from
+[GitHub Releases](https://github.com/AymanShams/codex-coding-os/releases).
+
+## How we work
+
+- Start from the requested customer behavior and existing project sources.
+  Reuse the current architecture and requirements where they fit.
+- Ask the founder about unresolved customer behavior, priorities, spending,
+  commitments, or consequential actions. The agent derives routine file paths,
+  libraries, test commands, and runtime values.
+- Keep attempts finite. A recognized acceptance failure can use one approved
+  correction allowance. Unknown failures, exhausted budgets, stale evidence,
+  and cancellation stop the campaign with an explicit reason.
+- Review the actual behavior against the accepted outcome. Material defects
+  block completion. Nonblocking observations remain recorded without creating
+  another repair cycle.
+- Recover only work the engine can still identify and verify. Attempts and
+  expenditure survive restart. An uncertain external action is checked before
+  any further action.
+- Keep worker context focused and update lasting documentation when behavior
+  or decisions change. Current status belongs in the external store. Report
+  measured token use, including failed attempts and gaps in coverage.
+
+The release work demonstrated a controlled public-install journey with real
+Codex workers, a failed acceptance test and bounded correction, two independent
+reviews, observable recovery, and verified delivery to a disposable Git
+repository. Platform checks cover Windows, Linux, and macOS. Independent
+adoption, lower token cost, and fewer founder interruptions still require
+matched trials. See [System scope](docs/system-scope.md) for the evidence limits.
+
 ## Engine
+
+One immutable campaign specification binds the repository, worktree, branch,
+base commit, allowed paths, finite dependency graph, validation commands,
+reviewers, budgets, stop conditions, runtime pin, and publication authority.
 
 The implementation lives in `scripts/agent/campaign_engine/`:
 
@@ -126,6 +165,7 @@ Use the installed executable:
 ```powershell
 $Engine = "$env:USERPROFILE\.codex\coding-os\scripts\agent\campaign_engine\cli.py"
 python -B $Engine --json doctor
+python -B $Engine --json prepare --spec .\proposed.json --repository C:\path\to\project --output .\campaign.json
 python -B $Engine --json admit --spec .\campaign.json
 python -B $Engine --json approve --campaign-id <id> --specification-digest <digest>
 python -B $Engine --json run --campaign-id <id>
@@ -134,6 +174,10 @@ python -B $Engine --json cancel --campaign-id <id>
 python -B $Engine --json reconcile --operation-id <operation-id>
 python -B $Engine --json legacy inspect --source "$env:USERPROFILE\.codex\case-state"
 ```
+
+`prepare` derives engineering values and source bindings without starting a
+campaign. The command examples are an agent reference. The founder approves
+the outcome, cost, and delivery scope described in [Getting Started](docs/getting-started.md).
 
 `run` advances until a named external event or terminal result. It does not
 poll indefinitely. Every autonomous operation spends its durable budget token
@@ -186,9 +230,10 @@ passing assertions.
 
 The review cohort evaluates one frozen exact-head diff. The finding set freezes
 once. A campaign can use one combined repair, one complete revalidation, and
-one closure review. Remaining or repair-introduced findings fail that exact
-node. The engine cannot create another repair, review generation, or successor
-campaign.
+one closure review. Remaining or repair-introduced blocking defects fail that
+exact node. Explicit nonblocking observations remain in the evidence without
+opening another repair. The engine cannot create another repair, review
+generation, or successor campaign.
 
 ## External effects
 

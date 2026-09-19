@@ -248,10 +248,13 @@ class CapabilityManifestBuilderTests(unittest.TestCase):
             "    raise SystemExit(2)\n"
             "print(path.read_text(encoding='utf-8'))\n",
         )
-        self.fake_codex = self.root / "fake-codex.cmd"
+        self.fake_codex = self.root / "fake-codex.ps1"
+        python_literal = sys.executable.replace("'", "''")
+        script_literal = str(fake_codex_script).replace("'", "''")
         self._write(
             self.fake_codex,
-            f'@"{sys.executable}" "{fake_codex_script}" %*\n',
+            f"& '{python_literal}' '{script_literal}' @args\n"
+            "exit $LASTEXITCODE\n",
         )
         self.builder_receipt["app_identity"].update(
             {
