@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "300e085b62796f51a92f9832caedb0745b9dc4bfe597688fd7079fe76742112c",
+  "aggregate_sha256": "8667efee61f8c3d057cc9c014caefa482100e57634a49888f1b45af084583024",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2183,8 +2183,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "115a22a749b290102fb4a513534ba0726e3c42cf64c6d77e9cb9e0e580bab02b",
-      "size": 24477
+      "sha256": "5c44d2ddad271dd38908e21d7b6f1c70a9ec7292b1c7b1b0e814b3a691d62fa3",
+      "size": 26954
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2208,8 +2208,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "3ad7b63a1b0cad1d7ab16c77acf2776c66809b1e47f5e44da932cb4795575f1a",
-      "size": 14214
+      "sha256": "8c2e6b8ff75de0e13c863e236bff74a2d397dac03e64b6cc814bc46c7c645f29",
+      "size": 16186
     },
     {
       "path": "SECURITY.md",
@@ -2303,8 +2303,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "1c37f4a0f6d17251067b637b152cd7112d9c7fe83a5a524f5809616262aa2f11",
-      "size": 13919
+      "sha256": "6e98282e425a096f3b10871fe0c9a2570df4a5fdbe3c74b4af1fe2a5f55fc852",
+      "size": 14709
     },
     {
       "path": "docs/license-strategy.md",
@@ -2328,8 +2328,8 @@
     },
     {
       "path": "docs/philosophy.md",
-      "sha256": "c0e2e764dba2e12ad8e8861ef1ed34c91b003e1d64864aaec3b91c2db50ffd37",
-      "size": 1026
+      "sha256": "b1eb844867ca33a5dfa6e5f627e1a5a263af8e0bcaa865f6827aa179ca5b55cf",
+      "size": 3348
     },
     {
       "path": "docs/publishing-checklist.md",
@@ -2338,8 +2338,8 @@
     },
     {
       "path": "docs/review-doctrine.md",
-      "sha256": "566954f68cea2ecbfeb31778dfff10874852b6c29a2570b9d429314680a2d304",
-      "size": 1087
+      "sha256": "dffa573ccf8dde83507946a596bef2c8be3fcfc235d5846d762ac219b2d4b87a",
+      "size": 1484
     },
     {
       "path": "docs/security-capability-operating-model.md",
@@ -2353,8 +2353,8 @@
     },
     {
       "path": "docs/system-scope.md",
-      "sha256": "5c3a882a6ea0a25fefdfd9de1819ae795a34f78c412f41c92b4f6d23093603a6",
-      "size": 2551
+      "sha256": "8b8ddfec2e8647d544f385b496b94426af0bc5c72feb950de9b6c41684ec1205",
+      "size": 3825
     },
     {
       "path": "external-skills/manifest.json",

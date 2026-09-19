@@ -1,5 +1,19 @@
 # Getting Started
 
+Describe the customer behavior you want to change and point the agent to the
+existing project requirements. Include any agreed spending or delivery limits.
+The agent should prepare engineering details and ask only about unresolved
+business choices. For example:
+
+> Correct the order summary so refunds reduce the total and zero-value orders
+> still count. Use the existing requirements and tests. Show the result for
+> normal orders, refunds, and an empty order list before delivery.
+
+Use an ordinary Codex task for a small change. Choose a campaign when the work
+needs durable progress, independent review, and bounded attempts across
+sessions. The steps below establish the runtime and provide the agent's
+technical reference. [Philosophy](philosophy.md) explains the working agreement.
+
 ## Install an exact source commit
 
 The package requires Python 3.11 or newer and Git. Automated native workers

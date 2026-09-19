@@ -4,10 +4,20 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
-## [1.3.0] - 2026-08-15
+## [1.3.0] - 2026-09-19
 
 ### Added
 
+- Added public campaign preparation that derives engineering values and binds
+  acceptance scenarios to existing requirements and source sections.
+- Added one bounded correction for a recognized acceptance assertion failure,
+  with original attempts, authority, deadlines, and delivery budgets preserved.
+- Added observable recovery of existing read-only review turns through their
+  surviving native host connection and actual native token usage accounting.
+- Added a reproducible installed native journey covering correction, independent
+  reviews, recovery, accepted local Git delivery, reinstallation, and removal.
+- Added executable formal conformance, bounded model checking, and mutation
+  coverage for the completed lifecycle behavior.
 - Added immutable Catalogue Router manifest generations, compare-and-swap pointer promotion, durable update transactions, and idempotent recovery receipts.
 - Added a separate explicit source-to-live router deployment transaction while preserving the ordinary Coding OS installer quarantine.
 - Added an exact worker runtime bill of materials for Local Agent Stack and Antigravity release identities.
@@ -15,14 +25,41 @@ All notable package changes are recorded here. The authoritative package release
 
 ### Changed
 
+- Centered the README, philosophy, onboarding, and review doctrine on accepted
+  customer behavior. The agent derives routine engineering choices and asks
+  the founder only about material business consequences.
+- Kept nonblocking review observations as evidence without starting another
+  repair. Material findings still block completion within the existing limits.
+- Limited native worker context to the approved task, relevant sources, project
+  instructions, and mediated tools. Worker sessions no longer repeat the
+  parent's automatic skill catalogue selection.
+- Consolidated repeated public package validation and archive construction.
+  Lasting documentation follows changed behavior while live status stays outside Git.
 - Split static authority failure from provable dynamic drift. Static mismatches still deny the complete router, while package, app-surface, and worker-runtime drift are isolated to their verified dependency closures.
 - Added component-level status output so manifest authority, plugin inventory, configuration projection, and worker identity failures cannot collapse into one ambiguous stale flag.
 - Retained route schema 3.0 and registry schema 3 while binding each new manifest to an immutable generation.
 
 ### Fixed
 
+- Corrected Codex 0.154.0 host configuration and the exact reviewer response
+  contract used by the real installed journey.
+- Completed Windows native directory-read setup before validation and documented
+  the required platform prerequisites with executable checks.
+- Preserved zero-value orders and refunds in the independently checked example
+  delivery. This fixture exercises business acceptance rather than test status alone.
 - Preserved the Word document critique hotfix while integrating generation and dynamic-authority behavior.
 - Prevented operator transaction replay, pointer promotion failure, and terminal-receipt write failure from producing ambiguous success.
+
+### Validation
+
+- Passed public package, product, documentation, adapter, metadata, and Windows,
+  Linux, and macOS installation and validation checks.
+- Completed a real native journey on Linux with a failed first proposal, one
+  correction, two independent reviews, recovery without replacement turns, and
+  exact delivery readback. Platform checks do not imply native model acceptance
+  on Windows or macOS.
+- Retained unsuccessful native attempts and their available usage. Independent
+  adoption, comparative savings, and founder time improvements remain unproven.
 
 ## [1.2.1] - 2026-08-13
 
