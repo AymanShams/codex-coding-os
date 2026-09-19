@@ -137,6 +137,12 @@ finding identifiers with identical evidence collapse into one finding even when
 their titles differ. Conflicting evidence under one identifier is rejected.
 Different identifiers are not merged through text similarity.
 
+Native workers receive the approved node, its relevant sources, and the scoped
+campaign tools. Automatic skill-catalogue instructions are disabled for those
+worker sessions so they do not repeat the parent's capability selection.
+Project instructions and the existing execution boundary still apply. Review
+responses use `PASS` or `BLOCK`; unsupported verdicts remain rejected.
+
 Recovery consumes already attested completed worker results and reconciles
 uncertain effects through their existing identifiers. It does not restart an
 uncertain writer. Cancellation, attempts, and expenditure survive restart.

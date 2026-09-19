@@ -1451,7 +1451,13 @@ class NativeCodexHost:
                     "dynamicTools": dynamic_tools,
                     "ephemeral": ephemeral,
                     "model": self.model,
-                    "config": {"model_reasoning_effort": self.reasoning_effort},
+                    "config": {
+                        "model_reasoning_effort": self.reasoning_effort,
+                        # The parent already selected the scoped worker tools.
+                        # A full automatic skill catalogue both repeats context
+                        # and invites unavailable skill-provider detours.
+                        "skills.include_instructions": False,
+                    },
                     "runtimeWorkspaceRoots": [str(worktree)],
                     "selectedCapabilityRoots": [],
                     "environments": [],

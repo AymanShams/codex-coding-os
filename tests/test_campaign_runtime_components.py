@@ -560,6 +560,7 @@ class HostTests(unittest.TestCase):
             )
             self.assertEqual(thread_start["sandbox"], "read-only")
             self.assertEqual(thread_start["selectedCapabilityRoots"], [])
+            self.assertIs(thread_start["config"]["skills.include_instructions"], False)
             self.assertEqual(thread_start["environments"], [])
             self.assertEqual(
                 {item["name"] for item in thread_start["dynamicTools"]},
