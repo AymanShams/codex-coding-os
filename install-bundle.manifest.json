@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "8667efee61f8c3d057cc9c014caefa482100e57634a49888f1b45af084583024",
+  "aggregate_sha256": "92f39b21b842700b096d8eaf5354760d5fd589f1388ba48dc5ad54fdb5a91994",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2183,8 +2183,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "5c44d2ddad271dd38908e21d7b6f1c70a9ec7292b1c7b1b0e814b3a691d62fa3",
-      "size": 26954
+      "sha256": "53b6bdefc3ee59fac0aa8a52c3315e4362ee313fe116e000737d5b26bd471a50",
+      "size": 27173
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2523,8 +2523,8 @@
     },
     {
       "path": "scripts/release-safety-trufflehog-allowlist.json",
-      "sha256": "79765f20ade02cbf617bd8372a0c7bed7342ad2d997307d99fddda3047e3440f",
-      "size": 2384
+      "sha256": "5e9443d7e1a1121dc6fe647df924855d2e26540c23b102f2f23a2e866d492cd4",
+      "size": 545
     },
     {
       "path": "scripts/run_campaign_tlc.py",

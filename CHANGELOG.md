@@ -45,6 +45,9 @@ All notable package changes are recorded here. The authoritative package release
   contract used by the real installed journey.
 - Completed Windows native directory-read setup before validation and documented
   the required platform prerequisites with executable checks.
+- Removed four obsolete history-scanner exceptions after TruffleHog 3.97.5
+  stopped reporting the corresponding test identifiers. The strict result gate
+  and exact remaining synthetic-fixture exception are unchanged.
 - Preserved zero-value orders and refunds in the independently checked example
   delivery. This fixture exercises business acceptance rather than test status alone.
 - Preserved the Word document critique hotfix while integrating generation and dynamic-authority behavior.
