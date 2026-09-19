@@ -356,6 +356,27 @@ class BoundedContinuationTests(SupervisorFixture):
 
 
 class ClosureAndRecoveryTests(SupervisorFixture):
+    def test_native_approve_alias_is_rejected_without_normalizing_terminal_evidence(self):
+        spec, _ = self.create_manual_candidate()
+        host = FakeHost()
+        supervisor = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        leases = supervisor.begin_review("campaign", "node-1").details["leases"]
+        for reviewer, lease in zip(spec.required_review_cohort, leases):
+            host.set_result(lease, {"reviewer_id": reviewer, "candidate_head": self.base_sha,
+                "findings": [], "verdict": "APPROVE"})
+        receipts, findings = supervisor.collect_review_cohort(leases)
+        before = self.store.get_snapshot("campaign")
+        with self.assertRaisesRegex(SupervisorError, "verdict"):
+            supervisor.freeze_review("campaign", "node-1", receipts=receipts, findings=findings)
+        self.assertEqual(self.store.get_snapshot("campaign"), before)
+        self.assertTrue(all(receipt["verdict"] == "APPROVE" for receipt in receipts))
+
+    def test_closure_rejects_unknown_verdict_even_when_finding_is_nonblocking(self):
+        with self.assertRaisesRegex(SupervisorError, "verdict"):
+            self.closure_result({"finding_id": "O-1", "title": "observation",
+                "blocking": False, "details": {"observation": "No behavior impact"}},
+                verdict="APPROVE")
+
     def test_cancelled_campaign_remains_terminal_after_its_deadline(self):
         spec = self.make_spec("campaign", campaign_deadline="2026-08-04T11:00:00Z")
         self.create_approved(spec)

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "ec6c69f2b016915f760cbbe12d411f53179e24599076d8298b9c1fc72cb33db8",
+  "aggregate_sha256": "542a8f23f25e18fb64362d7a6f637e75c6c292f51f68052be15093428029474d",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2453,8 +2453,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/supervisor.py",
-      "sha256": "d98a897afc7db1194a2404decfebee2b897ec739730be45dd029472ef71ceace",
-      "size": 116791
+      "sha256": "fe2b8f348c10f2accb1195bab4005e2f185cc2d0231b20e35ef7c23d056b7991",
+      "size": 116989
     },
     {
       "path": "scripts/agent/case_state.py",
@@ -2828,8 +2828,8 @@
     },
     {
       "path": "tests/test_campaign_bounded_continuation.py",
-      "sha256": "d7245b5e18edd7599c25b8a57b7a8c8157394a244105970f0cb1070d02f72aa0",
-      "size": 30258
+      "sha256": "5d6201449170f30e564c949140e52514332ae6b3c649fe1683318562c6acaa4a",
+      "size": 31604
     },
     {
       "path": "tests/test_campaign_cli.py",

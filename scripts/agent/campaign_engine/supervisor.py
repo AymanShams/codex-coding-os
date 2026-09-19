@@ -628,7 +628,9 @@ class DeterministicSupervisor:
             instruction = (
                 "Review the exact frozen candidate read-only. Return evidence-bound finding "
                 "records only. Do not edit, publish, or create another task. Return one JSON "
-                "object with reviewer_id, candidate_head, findings, and verdict. Each finding "
+                "object with reviewer_id, candidate_head, findings, and verdict. The verdict "
+                "must be exactly PASS when there are no material findings, or BLOCK when "
+                "there are material findings. Nonblocking observations do not require BLOCK. Each finding "
                 "must contain finding_id, title, blocking, and details. Use only the supplied "
                 "campaign_list_files, campaign_read_file, campaign_search, campaign_git_status, "
                 "and campaign_git_diff tools."
