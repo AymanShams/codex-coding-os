@@ -4,6 +4,13 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-20
+
+- Isolate campaign connections using the effective project configuration and
+  verify that every connection is disabled before binding a native worker.
+- Allow shared configuration metadata owned by other tools while retaining
+  the campaign's explicit read-only scope and mediated tool controls.
+
 ## [1.3.1] - 2026-09-20
 
 - Preserve explicitly selected external ownership of the optional design and

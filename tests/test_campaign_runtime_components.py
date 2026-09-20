@@ -220,6 +220,10 @@ class _FakeTransport:
         self.calls.append((method, params))
         if method == "initialize":
             return {"userAgent": "fake"}
+        if method == "config/read":
+            return {"config": {"mcp_servers": {"inherited.server": {"enabled": True}}}}
+        if method == "mcpServerStatus/list":
+            return {"data": [], "nextCursor": None}
         if method == "thread/start":
             return {
                 "thread": {
@@ -295,6 +299,8 @@ class _ProbeTransport(_FakeTransport):
         self.calls.append((method, params))
         if method == "initialize":
             return {"userAgent": "deterministic-probe-transport"}
+        if method in {"config/read", "mcpServerStatus/list"}:
+            return super().request(method, params, timeout)
         if method == "thread/start":
             return {
                 "thread": {
@@ -441,9 +447,47 @@ class HostTests(unittest.TestCase):
                      "in_app_browser", "computer_use", "image_generation", "goals", "memories", "hooks"):
             with self.subTest(feature=name):
                 self.assertFalse(features[name])
-        self.assertIn("--strict-config", transport.command)
-        self.assertIn("mcp_servers={}", transport.command)
+        self.assertNotIn("--strict-config", transport.command)
+        self.assertNotIn("mcp_servers={}", transport.command)
         self.assertIn('web_search="disabled"', transport.command)
+
+    def test_native_actor_disables_effective_connections_before_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            head = make_repo(root)
+            transport = _FakeTransport()
+            native = host.NativeCodexHost(transport_factory=lambda *a, **k: transport)
+            bound = []
+            native.create_idle_actor(self.lease(root, "REVIEWER", candidate_head=head),
+                                     bind_authority=lambda *a: bound.append(a))
+            params = next(p for m, p in transport.calls if m == "thread/start")
+            self.assertEqual(params["config"]["mcp_servers"], {"inherited.server": {"enabled": False}})
+            self.assertTrue(bound)
+            self.assertNotIn("turn/start", [m for m, _ in transport.calls])
+            native.close()
+
+    def test_native_actor_rejects_unisolated_or_incomplete_connections(self) -> None:
+        disabled = {"runtimeStatus": "disabled", "tools": {}, "resources": [], "resourceTemplates": []}
+        cases = [None, {"data": [], "nextCursor": "more"}]
+        for changes in ({"runtimeStatus": "ready"}, {"runtimeStatus": "failed"},
+                        {"tools": {"write": {}}}, {"resources": [{}]}, {"resourceTemplates": [{}]}):
+            cases.append({"data": [{**disabled, **changes}], "nextCursor": None})
+        for inventory in cases:
+            with self.subTest(inventory=inventory), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw) / "repo"
+                head = make_repo(root)
+                transport = _FakeTransport()
+                original_request = transport.request
+                transport.request = lambda method, params=None, timeout=None: (
+                    inventory or {} if method == "mcpServerStatus/list" else original_request(method, params, timeout))
+                native = host.NativeCodexHost(transport_factory=lambda *a, **k: transport)
+                bound = []
+                with self.assertRaisesRegex(host.HostAuthorityError, "connection"):
+                    native.create_idle_actor(self.lease(root, "REVIEWER", candidate_head=head),
+                                             bind_authority=lambda *a: bound.append(a))
+                self.assertFalse(bound)
+                self.assertTrue(transport.closed)
+                self.assertNotIn("turn/start", [m for m, _ in transport.calls])
 
     def test_native_protocol_denies_approval_unknown_tools_and_foreign_threads(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

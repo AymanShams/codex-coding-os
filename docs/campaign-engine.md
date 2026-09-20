@@ -77,6 +77,10 @@ events, runtime installations, telemetry, and legacy archive records.
 
 - The supervisor chooses only from the approved finite graph.
 - Native workers are bound while idle before their first turn.
+- Campaign threads explicitly disable inherited connections from the effective
+  project configuration. Native runtime status must confirm disabled connections
+  with no tools or resources before a worker can bind or start a turn. An empty
+  configuration table does not remove inherited connections.
 - Write-capable workers receive only the exact approved scope.
 - Parent and reviewer workers are read-only.
 - Validation commands are executed only by the trusted runner.

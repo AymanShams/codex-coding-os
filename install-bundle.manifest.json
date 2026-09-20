@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "6102606b8ae3fd061daf63b6902108b52eafd0dacf0dd4b1b38c537d9317ebd0",
+  "aggregate_sha256": "fd67136d5223cae9cfee7123cedb6e18f4f62da21c22e04c955bc6ceb38e8363",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2183,8 +2183,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "54dd00b0bf09a5218a01976f56ec2d827fad872e59be6f0cdc9a1aaa4bd670d2",
-      "size": 27794
+      "sha256": "7cad537b3b59e4378fc23f4ab6f10c7909ba6d297a1c9665d27e3bbbe685f2d8",
+      "size": 28117
     },
     {
       "path": "COMMERCIAL-USE.md",
@@ -2268,8 +2268,8 @@
     },
     {
       "path": "docs/campaign-engine.md",
-      "sha256": "e0634180bbf088efeefb369340eb1a62c4521b634ddb228ba46ef0c382f933b0",
-      "size": 11328
+      "sha256": "5d86820dc0bde922e4f54590f416891de497ae06e5171248fc5abef446f27a33",
+      "size": 11629
     },
     {
       "path": "docs/case-state-contract.md",
@@ -2368,7 +2368,7 @@
     },
     {
       "path": "pack.manifest.json",
-      "sha256": "b5bb08ecfc9576cd98ab8d729ad360dc1b517a23347a63cb516f2a68fb562946",
+      "sha256": "a08bbacc79ad08898956fc38216058f1c45ef39b30d04aacbdf61a03a7dacb85",
       "size": 27165
     },
     {
@@ -2423,8 +2423,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/host.py",
-      "sha256": "4b9ce0b793593e7cfd85d875e55ce4127462c7ca90383b762b8336033966fec3",
-      "size": 97020
+      "sha256": "36ba25f7aef6bb80b02ef4ab36a1ed9b2282ff059136a0fe42013163eea8e95e",
+      "size": 98814
     },
     {
       "path": "scripts/agent/campaign_engine/legacy.py",
@@ -2868,8 +2868,8 @@
     },
     {
       "path": "tests/test_campaign_runtime_components.py",
-      "sha256": "d475887c09c79f6a4d89f286976ab98666bfca1b82ba16bc15711de619caa5dc",
-      "size": 93466
+      "sha256": "6602c341cbd00a602510a949652bd89be5dc46ed5b0731e1f4313cb321aa5300",
+      "size": 96239
     },
     {
       "path": "tests/test_campaign_store.py",
@@ -3019,7 +3019,7 @@
   ],
   "package": {
     "name": "codex-coding-os",
-    "version": "1.3.1"
+    "version": "1.3.2"
   },
   "protocol": "CCOS-INSTALL-BUNDLE-v1"
 }

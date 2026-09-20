@@ -736,7 +736,6 @@ class AppServerTransport:
         self.usage_handler = usage_handler
         self.command = [
             str(self.executable),
-            "--strict-config",
             "--disable",
             "apps",
             "--disable",
@@ -766,8 +765,6 @@ class AppServerTransport:
             "memories",
             "--disable",
             "hooks",
-            "-c",
-            "mcp_servers={}",
             "-c",
             'web_search="disabled"',
             "app-server",
@@ -1076,6 +1073,44 @@ class NativeCodexHost:
         )
         transport.notify("initialized", {})
         return result
+
+    def _campaign_config(self, transport: Any, worktree: Path) -> dict[str, Any]:
+        # Shared config can contain metadata owned by other consumers. Inspect
+        # the effective project layers and override the campaign's own scope.
+        response = transport.request("config/read", {
+            "cwd": str(worktree), "includeLayers": False,
+        })
+        config = response.get("config")
+        if not isinstance(config, Mapping):
+            raise HostAuthorityError("native host returned no effective configuration")
+        servers = config.get("mcp_servers", {})
+        if not isinstance(servers, Mapping) or any(not isinstance(name, str) or not name for name in servers):
+            raise HostAuthorityError("native host returned an invalid connection inventory")
+        # Empty tables merge with inherited config. Disable each server using a
+        # nested object so names containing dots are not parsed as key paths.
+        return {
+            "mcp_servers": {name: {"enabled": False} for name in servers},
+            "model_reasoning_effort": self.reasoning_effort,
+            "skills.include_instructions": False,
+        }
+
+    @staticmethod
+    def _verify_campaign_connections(transport: Any, thread_id: str) -> None:
+        response = transport.request("mcpServerStatus/list", {
+            "threadId": thread_id, "limit": 100,
+        })
+        servers = response.get("data")
+        # Reject incomplete inventory as well as enabled, starting, failed or
+        # unrecognized connections. Nothing has permission to start a turn yet.
+        if not isinstance(servers, list) or response.get("nextCursor") is not None:
+            raise HostAuthorityError("native campaign connection inventory is incomplete")
+        for server in servers:
+            if (not isinstance(server, Mapping)
+                    or server.get("runtimeStatus") != "disabled"
+                    or server.get("tools") != {}
+                    or server.get("resources") != []
+                    or server.get("resourceTemplates") != []):
+                raise HostAuthorityError("native campaign inherited an unisolated connection")
 
     def _require_review_candidate(self, binding: ActorBinding) -> Mapping[str, str] | None:
         if binding.lease.role not in {"REVIEWER", "CLOSURE_REVIEWER"}:
@@ -1451,13 +1486,7 @@ class NativeCodexHost:
                     "dynamicTools": dynamic_tools,
                     "ephemeral": ephemeral,
                     "model": self.model,
-                    "config": {
-                        "model_reasoning_effort": self.reasoning_effort,
-                        # The parent already selected the scoped worker tools.
-                        # A full automatic skill catalogue both repeats context
-                        # and invites unavailable skill-provider detours.
-                        "skills.include_instructions": False,
-                    },
+                    "config": self._campaign_config(transport, worktree),
                     "runtimeWorkspaceRoots": [str(worktree)],
                     "selectedCapabilityRoots": [],
                     "environments": [],
@@ -1471,6 +1500,7 @@ class NativeCodexHost:
             if not isinstance(thread, Mapping):
                 raise HostProtocolError("thread/start returned no native thread object")
             thread_id = _require_id(thread.get("id"), "native thread id")
+            self._verify_campaign_connections(transport, thread_id)
             status = thread.get("status")
             if not isinstance(status, Mapping) or status.get("type") != "idle":
                 raise HostAuthorityError("native actor was not created in idle state")
