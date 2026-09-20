@@ -83,6 +83,11 @@ def _resolve_codex_executable(executable: str | Path) -> Path:
     configured = os.environ.get("CODEX_CAMPAIGN_HOST_EXECUTABLE")
     if configured:
         candidates.append(Path(configured).expanduser())
+    discovered = shutil.which(str(executable)) or shutil.which("codex.exe")
+    if discovered:
+        candidates.append(Path(discovered))
+    # Private helper copies can outlive an app update. Use them only when the
+    # requested executable is unavailable through the normal PATH resolution.
     if os.name == "nt":
         profile = Path(os.environ.get("USERPROFILE") or Path.home())
         candidates.extend(
@@ -91,9 +96,6 @@ def _resolve_codex_executable(executable: str | Path) -> Path:
                 profile / ".codex" / "plugins" / ".plugin-appserver" / "codex.exe",
             )
         )
-    discovered = shutil.which(str(executable)) or shutil.which("codex.exe")
-    if discovered:
-        candidates.append(Path(discovered))
     for candidate in candidates:
         try:
             resolved = candidate.resolve(strict=True)

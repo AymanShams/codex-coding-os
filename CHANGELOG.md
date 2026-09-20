@@ -6,6 +6,8 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [1.3.2] - 2026-09-20
 
+- Resolve the current Codex executable on PATH before private Windows helper
+  copies that can remain after an app update.
 - Isolate campaign connections using the effective project configuration and
   verify that every connection is disabled before binding a native worker.
 - Allow shared configuration metadata owned by other tools while retaining

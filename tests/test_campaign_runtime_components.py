@@ -435,6 +435,22 @@ class _ProbeTransportFactory:
 
 
 class HostTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows helper fallback ordering")
+    def test_current_path_host_precedes_stale_private_windows_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            profile = Path(raw)
+            stale = profile / ".codex/.sandbox-bin/codex.exe"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"old helper")
+            current = profile / "current-codex.exe"
+            current.write_bytes(b"current app")
+            with patch.dict(os.environ, {"USERPROFILE": str(profile), "CODEX_CAMPAIGN_HOST_EXECUTABLE": ""}), \
+                 patch.object(host.shutil, "which", return_value=str(current)):
+                self.assertEqual(host._resolve_codex_executable("codex"), current.resolve())
+            with patch.dict(os.environ, {"USERPROFILE": str(profile), "CODEX_CAMPAIGN_HOST_EXECUTABLE": ""}), \
+                 patch.object(host.shutil, "which", return_value=None):
+                self.assertEqual(host._resolve_codex_executable("codex"), stale.resolve())
+
     def test_native_transport_enables_required_helper_without_other_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             transport = host.AppServerTransport(sys.executable, cwd=raw)
