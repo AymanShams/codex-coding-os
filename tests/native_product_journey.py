@@ -141,7 +141,9 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
     deadline = datetime.now(timezone.utc) + timedelta(seconds=worker_timeout * 4 + 120)
     deadline_text = deadline.isoformat(timespec="seconds").replace("+00:00", "Z")
     with tempfile.TemporaryDirectory(prefix="native-product-", dir=None if os.name == "nt" else "/tmp") as temporary:
-        root = Path(temporary)
+        # Windows TEMP can use an 8.3 alias. Bind its canonical identity before
+        # creating the remote URI that prepare and delivery must both verify.
+        root = Path(temporary).resolve(strict=True)
         repo, remote = root / "repo", root / "delivery.git"
         (repo / "src").mkdir(parents=True)
         git(repo, "init", "-q", "-b", "main")
@@ -167,6 +169,13 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "existing order summary and fixed acceptance conditions")
         native["base_head"] = git(repo, "rev-parse", "HEAD")
+        native["delivery_preflight"] = GitHubBackend().query("PUSH", {
+            "root": str(repo), "repository_remote": remote.as_uri(),
+            "branch": "main", "head": native["base_head"],
+        })
+        require(native["delivery_preflight"] == {
+            "confirmed": False, "remote_head": None, "expected_head": native["base_head"],
+        }, "Native delivery target must be an empty, canonically bound bare repository")
         native["fixed_sources"] = fixed
         native["source_contents"] = {"base_program": ORDER_SUMMARY_BASE_SOURCE,
             **{name: (repo / name).read_text() for name in fixed}}
