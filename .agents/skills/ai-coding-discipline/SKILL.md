@@ -14,7 +14,9 @@ description: Use for bounded repository implementation and verification, manuall
   process exit is failure regardless of assertion text.
 - Review the exact diff. Freeze one complete finding set, perform no more than
   the repair authorized by the campaign, and rerun the declared validation.
-- Publish only the frozen reviewed head through the campaign engine outbox.
+- For automated campaigns, publish only the frozen reviewed head through the
+  campaign engine outbox. Manual delivery follows the current user authorization
+  and repository checks and does not require a campaign.
 - Manual tasks do not require volatile Git state. Automated tasks require a
   current actor lease from the executable engine.
 - Stop immediately through `campaign_engine/cli.py cancel` when the user says

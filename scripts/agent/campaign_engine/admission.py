@@ -22,6 +22,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
+from .runtime_bootstrap import preserved_skill_names, RuntimeBootstrapError
+
 
 RUNTIME_PROTOCOL_VERSION = "ccos-campaign-v1"
 SCHEMA_COMPATIBILITY = "campaign-store-v1"
@@ -527,14 +529,21 @@ def verify_installed_runtime(
         raise RuntimePinError(
             "install manifest skills_root differs from the admitted skills root"
         )
+    try:
+        preserved = preserved_skill_names(manifest)
+    except RuntimeBootstrapError as exc:
+        raise RuntimePinError(str(exc)) from exc
     for entry in entries:
         relative = str(entry["path"])
-        path = _installed_path(relative, support_root=support_root, skills_root=skills_root)
+        parts = PurePosixPath(relative).parts
+        stored_copy = len(parts) >= 4 and parts[:2] == (".agents", "skills") and parts[2] in preserved
+        path = (support_root.joinpath(*parts) if stored_copy
+                else _installed_path(relative, support_root=support_root, skills_root=skills_root))
         try:
             resolved_path = path.resolve(strict=True)
             expected_parent = (
                 skills_root
-                if PurePosixPath(relative).parts[:2] == (".agents", "skills")
+                if PurePosixPath(relative).parts[:2] == (".agents", "skills") and not stored_copy
                 else support_root
             )
             resolved_path.relative_to(expected_parent)

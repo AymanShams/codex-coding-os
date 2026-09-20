@@ -122,6 +122,25 @@ class WindowsValidationSetupTests(unittest.TestCase):
         self.assertEqual(self.clock, .25)
         self.assertEqual(sum(method == "windowsSandbox/setupStart" for method, _ in self.calls), 1)
 
+    def test_current_package_colocates_the_bound_helper_with_codex(self):
+        destination = self.executable.parent / self.helper.name
+        self.helper.rename(destination)
+        self.helper = destination
+        result = self.prepare()
+        self.assertEqual(result["status"], "ready")
+        self.assertIn(str(destination), result["sources"])
+
+    def test_missing_or_ambiguous_package_helper_never_starts_setup(self):
+        second = self.executable.parent / self.helper.name
+        second.write_bytes(b"different helper")
+        with self.assertRaisesRegex(RuntimeError, "unambiguous"):
+            self.prepare()
+        second.unlink()
+        self.helper.unlink()
+        with self.assertRaisesRegex(RuntimeError, "unambiguous"):
+            self.prepare()
+        self.assertEqual(self.calls, [])
+
     def test_success_notification_cannot_reuse_completion_before_request(self):
         self.append(self.complete_log())
         self.on_setup = lambda: None

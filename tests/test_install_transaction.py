@@ -996,6 +996,79 @@ class RepositoryNormalizationTests(unittest.TestCase):
 
 
 class InstallTransactionTests(unittest.TestCase):
+    def test_external_skill_migration_preserves_changes_and_absence_through_removal(self) -> None:
+        from scripts.agent.campaign_engine.admission import verify_installed_runtime, RuntimePinError
+        from scripts.agent.campaign_engine.runtime_bootstrap import (
+            RuntimeLayout, RuntimeBootstrapError, verify_installed_bundle)
+
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            write_text(env.source / "scripts/agent/campaign_engine/runtime_bootstrap.py",
+                       "# synthetic bootstrap inventory entry\n")
+            write_text(env.source / "scripts/agent/campaign_engine/cli.py",
+                       "# synthetic CLI inventory entry\n")
+            for name in ("codex-design-artifacts", "doc"):
+                write_text(env.source / f".agents/skills/{name}/SKILL.md", f"stock {name}\n")
+                env.pack["bundled_skills"].append(
+                    {"name": name, "category": "synthetic", "required": True, "source": "local"})
+            write_text(env.source / "pack.manifest.json", json.dumps(env.pack))
+            env.bundle_hash = it.build_bundle_manifest(env.source)["aggregate_sha256"]
+            it.install(env.archive_options())
+            design = env.skills / "codex-design-artifacts"
+            write_text(design / "SKILL.md", "local design entry\n")
+            write_text(design / "references/editorial/example.html", "local addition\n")
+            shutil.rmtree(env.skills / "doc")
+            retained = it._tree_hash(design)
+            before = it._tree_hash(env.codex)
+            with self.assertRaisesRegex(it.OwnershipError, "managed skill changed"):
+                it.install(env.archive_options(dry_run=True))
+            self.assertEqual(before, it._tree_hash(env.codex))
+            options = env.archive_options(preserve_skills=("codex-design-artifacts", "doc"))
+            self.assertEqual(it.install(options)["status"], "committed")
+            self.assertEqual(retained, it._tree_hash(design))
+            self.assertFalse((env.skills / "doc").exists())
+            support = env.codex / "coding-os"
+            manifest = json.loads((support / "install-manifest.json").read_text())
+            self.assertEqual(set(manifest["preserved_paths"]["skills"]), {"codex-design-artifacts", "doc"})
+            self.assertEqual([r["name"] for r in manifest["targets"]["managed_skills"]], ["alpha"])
+            pin = manifest["runtime_pin"]
+            layout = RuntimeLayout(env.root, env.codex, support, env.skills,
+                env.codex / "coding-os-state/campaigns.sqlite3", support / "install-manifest.json",
+                support / "install-bundle.manifest.json")
+            def verify():
+                return verify_installed_runtime(support, expected_source_commit=pin["source_commit"],
+                    expected_bundle_digest=pin["bundle_digest"],
+                    expected_install_transaction=pin["install_transaction"], expected_skills_root=env.skills)
+            verify()
+            self.assertEqual(verify_installed_bundle(layout).bundle_digest, pin["bundle_digest"])
+            stock = support / ".agents/skills/doc/SKILL.md"
+            original = stock.read_bytes()
+            stock.write_text("altered stock copy", encoding="utf-8")
+            with self.assertRaises(RuntimePinError):
+                verify()
+            with self.assertRaises(RuntimeBootstrapError):
+                verify_installed_bundle(layout)
+            stock.write_bytes(original)
+            self.assertEqual(it.install(env.archive_options())["status"], "already_committed")
+            write_text(design / "references/editorial/later.html", "external owner update\n")
+            retained = it._tree_hash(design)
+            verify()
+            it.uninstall(it.UninstallOptions(skills_root=env.skills, codex_home=env.codex))
+            self.assertEqual(retained, it._tree_hash(design))
+            self.assertFalse((env.skills / "doc").exists())
+
+    def test_preservation_cannot_exempt_core_skills_or_unapproved_managed_changes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            with self.assertRaises(it.OwnershipError):
+                it.install(env.archive_options(preserve_skills=("alpha",)))
+            it.install(env.archive_options())
+            write_text(env.skills / "alpha/SKILL.md", "unapproved change\n")
+            before = it._tree_hash(env.skills)
+            with self.assertRaisesRegex(it.OwnershipError, "managed skill changed"):
+                it.install(env.archive_options(preserve_skills=("doc",), dry_run=True))
+            self.assertEqual(before, it._tree_hash(env.skills))
+
     def test_verified_runtime_import_isolated_without_bytecode_writes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))

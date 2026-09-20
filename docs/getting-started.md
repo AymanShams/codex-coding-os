@@ -115,6 +115,16 @@ transaction, protocol version, schema compatibility, and host capability probe
 version. The source runtime record and installed bundle must agree with every
 field.
 
+When the optional `codex-design-artifacts` or `doc` skill is maintained by an
+existing universal or plugin owner, pass `-PreserveSkill` with those exact names
+(`--preserve-skill NAME`, repeated as needed, in Bash). The active skill directory
+or its existing absence stays unchanged. Stock package files are retained under
+the installed support root and remain hash-verified. The existing install
+manifest records this ownership and preserves it on subsequent upgrades and
+removal. Core skills and runtime files cannot use this option. A modified managed
+skill without an explicit supported ownership migration stops the upgrade before
+replacement. Run the dry run first to verify that boundary.
+
 Use `-ArchiveLegacyState` only when the unchanged legacy source at
 `$env:USERPROFILE\.codex\case-state` should be ingested as read-only evidence.
 Universal policy handling is tri-state. Omitting both policy action flags

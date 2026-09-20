@@ -1,11 +1,15 @@
 ---
 name: new-project-documentation-system
-description: Use when the user asks Codex to start or review a software project, turn an idea or source folder into a complete stable documentation system, create a project brief, PRD, app flow, tech stack, frontend, backend, implementation plan, TDD, repo docs, AGENTS.md, CLAUDE.md, or prepare a repo for implementation.
+description: Use when the user requests creation, revision, or review of software project documentation, including a project brief, PRD, app flow, tech stack, frontend or backend specification, implementation plan, TDD, repo docs, AGENTS.md, or CLAUDE.md. Ordinary implementation, repository code review, and status requests do not start this documentation workflow.
 ---
 
 # New Project Documentation System
 
 Turn an idea or source set into stable product and engineering documentation. This skill owns documentation creation and validation only. It never owns coding, review, publication, cancellation, or campaign status.
+
+Activate this workflow only for requested documentation work. Existing-project
+implementation, code review, and status use the existing approved sources without
+starting a documentation run or requiring new document approval.
 
 When `codex-coding-os-master` is available for a complete software delivery request, use this skill as its documentation owner. Route detailed drafting to the narrowest specialist skill instead of duplicating specialist templates.
 

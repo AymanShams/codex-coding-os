@@ -4,6 +4,17 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-20
+
+- Preserve explicitly selected external ownership of the optional design and
+  document skills during installation, upgrade, and removal. Retain and verify
+  their stock package files inside the support payload.
+- Reject replacement of modified managed skills before an upgrade writes files.
+- Limit the documentation workflow to requested documentation work and clarify
+  that authorized manual delivery does not require an automated campaign.
+- Support both native Windows helper package layouts and Windows paths in the
+  opt-in acceptance fixture, while retaining existing campaign history.
+
 ## [1.3.0] - 2026-09-19
 
 ### Added

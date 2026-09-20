@@ -20,6 +20,7 @@ universal_bundle_id="campaign-engine-policy-v1"
 legacy_overlap_migration=0
 archive_mode=0
 dry_run=0
+preserve_skills=()
 
 usage() {
   cat <<'USAGE'
@@ -42,6 +43,7 @@ Options:
   --legacy-overlap-migration
   --archive-mode
   --dry-run
+  --preserve-skill codex-design-artifacts|doc
   -h, --help
 USAGE
 }
@@ -66,6 +68,7 @@ while [[ $# -gt 0 ]]; do
     --legacy-overlap-migration) legacy_overlap_migration=1; shift ;;
     --archive-mode) archive_mode=1; shift ;;
     --dry-run) dry_run=1; shift ;;
+    --preserve-skill) preserve_skills+=(--preserve-skill "$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -139,4 +142,5 @@ args+=(--expected-source-commit "$expected_commit")
 [[ "$archive_mode" -eq 0 ]] || args+=(--archive-mode)
 [[ "$legacy_overlap_migration" -eq 0 ]] || args+=(--legacy-overlap-migration)
 [[ "$dry_run" -eq 0 ]] || args+=(--dry-run)
+args+=("${preserve_skills[@]}")
 exec "$python_cmd" "${args[@]}"
