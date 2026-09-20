@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "9b81ad1d165823e504e3f551e8b033560092a48b70efee74430613fa8768bf00",
+  "aggregate_sha256": "9c68b5a10eb44e0ca480bb338135c7579f1168e068c3fbf43d9ee2bf417dd62d",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2813,8 +2813,8 @@
     },
     {
       "path": "tests/native_product_journey.py",
-      "sha256": "56e395ece9346d5f558fa0300e81e272699c166390db16f9175b8fb29a7d9092",
-      "size": 27639
+      "sha256": "662f93ce5bbd25ec8730a60a299ee326c93824617ff9ec13213e9d4ca1d39ee3",
+      "size": 28258
     },
     {
       "path": "tests/supported_install_journey.py",
