@@ -619,6 +619,21 @@ class BundleContractTests(unittest.TestCase):
 
 
 class PolicyMigrationTests(unittest.TestCase):
+    def test_packaged_rules_remove_prior_ambient_prompts_only(self) -> None:
+        source = (REPO_ROOT / "universal/rules/gh-pr-merge-authority.rules").read_bytes()
+        prior = b"""# BEGIN CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS
+prefix_rule(pattern=["gh", "pr", ["create", "merge"]], decision="prompt")
+prefix_rule(pattern=["git", "push"], decision="prompt")
+# END CODEX CODING OS MANAGED: CAMPAIGN EXTERNAL EFFECTS"""
+        before = b'prefix_rule(pattern=["git", "status"], decision="allow")\r\n'
+        after = b'\nprefix_rule(pattern=["gh", "api"], decision="allow")\n'
+
+        migrated = it.migrate_rules_bytes(before + prior + after, source)
+
+        self.assertEqual(migrated, before + source.rstrip(b"\r\n") + after)
+        self.assertNotIn(b"prefix_rule(", source)
+        self.assertNotIn(b'decision="prompt"', migrated)
+
     def test_first_migrations_preserve_all_outside_bytes_and_mixed_newlines(self) -> None:
         agents = b"pre\r\n" + AGENTS_LEGACY.encode() + b"\npost\rmore"
         migrated = it.migrate_agents_bytes(agents, (AGENTS_POLICY + "\n").encode())

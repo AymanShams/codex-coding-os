@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "9c68b5a10eb44e0ca480bb338135c7579f1168e068c3fbf43d9ee2bf417dd62d",
+  "aggregate_sha256": "592a80e4538a3d75dd95279cf76c3899e90d9e047a7605008cceb7199950ed47",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2283,8 +2283,8 @@
     },
     {
       "path": "docs/codex-rules.md",
-      "sha256": "525f98692445bc9543f8368f1b0d518dd6629630fea0a0386448333d0dbab592",
-      "size": 2491
+      "sha256": "8a03d1aef31cd0c8c59520c0459cbb1e9d1abe36ca0c8c71f4f4ac4d579a6616",
+      "size": 2678
     },
     {
       "path": "docs/component-classification.md",
@@ -2918,8 +2918,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "362095e845b80a91687a4df4553cf69200e2b1d942cbe5528a9ecf427017273b",
-      "size": 133401
+      "sha256": "877dcdfc0aea8937800ae9789dc6c7ae6a7ad183a6056810ed5feffef764cfe1",
+      "size": 134254
     },
     {
       "path": "tests/test_local_security_skill_parity.py",
@@ -3008,8 +3008,8 @@
     },
     {
       "path": "universal/rules/gh-pr-merge-authority.rules",
-      "sha256": "81bb57de51ed58611666c3ff4590a4966f7afaef79c560f09051d420d412d7c0",
-      "size": 506
+      "sha256": "03e6a38a0013ef42bee1dbe8f1ab9a182630f5da5b2767a6af8ac82e103a8f43",
+      "size": 250
     },
     {
       "path": "validation-evidence.schema.json",
