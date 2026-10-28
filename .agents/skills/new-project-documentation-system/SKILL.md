@@ -50,9 +50,9 @@ Use the founder decision boundary in `../codex-coding-os-master/SKILL.md`: ask o
 
 Record each derived choice with its source and scope in the existing decision register. Do not present model inference as user approval. Resolve conflicting sources through established precedence. If a business choice remains unresolved, consolidate the smallest necessary questions and pause dependent drafting. Technical investigation and status reporting do not require a founder decision.
 
-## Capability Routing
+## Relevant Skills
 
-Start with `catalogue-router`. Use one primary skill per phase and add support only when it materially changes that phase.
+Use Codex native discovery to choose the skill that fits the current documentation phase. Add another skill only when it materially improves that phase.
 
 | Phase | Primary skill | Optional support |
 |---|---|---|

@@ -580,23 +580,6 @@ def command_doctor(args: argparse.Namespace) -> dict[str, Any]:
         if host_probe.get("probe_version") != pin["host_capability_probe_version"]:
             raise ValueError("live host capability probe version differs from runtime pin")
     retirement = _old_engine_retirement(installed)
-    router = _layout().codex_home / "capability-routing"
-    router_prerequisite: dict[str, Any] = {
-        "available": False, "required_for": "routed skill entry",
-        "path": str(router), "route_admission": "not_checked",
-    }
-    try:
-        pointer = _json_object(router / "current-generation.json", "canonical router pointer")
-        manifest = (router / pointer["manifest_path"]).resolve(strict=True)
-        if not manifest.is_relative_to(router.resolve(strict=True)):
-            raise ValueError("canonical router pointer escapes its root")
-        if hashlib.sha256(manifest.read_bytes()).hexdigest() != pointer["manifest_sha256"]:
-            raise ValueError("canonical router manifest hash differs from its pointer")
-        if not (_layout().codex_home / "hooks" / "capability_index_cli.py").is_file():
-            raise ValueError("canonical router CLI is unavailable")
-        router_prerequisite.update(available=True, generation_id=pointer["generation_id"])
-    except (KeyError, ValueError, OSError) as exc:
-        router_prerequisite["reason"] = str(exc)
     return {
         "ok": True,
         "state_db": str(_state_path()),
@@ -610,7 +593,7 @@ def command_doctor(args: argparse.Namespace) -> dict[str, Any]:
             "live": False,
         },
         "retirement": retirement,
-        "entry_prerequisites": {"canonical_router": router_prerequisite},
+        "entry_prerequisites": {"native_skill_discovery": {"owner": "codex", "status": "not_checked"}},
     }
 
 

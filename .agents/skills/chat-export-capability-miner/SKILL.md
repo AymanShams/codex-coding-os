@@ -9,13 +9,11 @@ metadata:
 
 Use this skill to run a selective capability-delta review over local AI chat exports.
 
-Default catalogue:
-
-`references/capability-catalogue.md` from the bundled `catalogue-router` skill, or the user's project-local capability catalogue when one exists.
+Default comparison ledger: `references/capability-catalogue.md`, or a project-local catalogue when one exists. This ledger records candidates and is not task-routing authority.
 
 ## Workflow
 
-1. Use `catalogue-router` first and keep the catalogue as the decision ledger.
+1. Choose the output ledger and inspect its current candidate entries.
 2. Inventory export folders by file type and count. Do not read every chat into context.
 3. Run a mechanical scan for:
    - GitHub repos
@@ -40,14 +38,14 @@ Default catalogue:
 - Re-verify live sources before installing or running external code.
 - Do not globally install broad packs, clone ecosystems, prompt libraries, or catalogues.
 - Prefer selective mining of the useful subset over wholesale install.
-- For regulated, client, or sensitive workflows, keep protected data, credentials, and production systems out of pilots unless a governance review exists.
+- Keep credentials and live business systems out of candidate pilots unless the current task explicitly authorizes their use.
 
 ## Useful Commands
 
 Run the scanner:
 
 ```powershell
-python ".agents\skills\chat-export-capability-miner\scripts\chat_capability_scanner.py" --roots "<EXPORT_ROOT_1>" "<EXPORT_ROOT_2>" --out "<OUTPUT_DIR>" --catalogue ".agents\skills\catalogue-router\references\capability-catalogue.md"
+python ".agents\skills\chat-export-capability-miner\scripts\chat_capability_scanner.py" --roots "<EXPORT_ROOT_1>" "<EXPORT_ROOT_2>" --out "<OUTPUT_DIR>" --catalogue ".agents\skills\chat-export-capability-miner\references\capability-catalogue.md"
 ```
 
 Then inspect:

@@ -27,19 +27,12 @@
   receipts, required review receipts, and publication evidence.
 - Never commit credentials, tokens, private keys, or real production values.
 
-## Capability routing
+## Skills and retained reference material
 
-- The installed canonical router under `CODEX_HOME` is the only live routing
-  authority. Use the bundled `catalogue-router` helper to query that router for
-  non-trivial work.
-- `capability-routing/` is dormant, public-safe reference and release source.
-  Never execute its entry points with default paths, register it in
-  `hooks.json`, install it into `CODEX_HOME`, build live manifests from it, or
-  create route receipts without separate universal-layer authorization.
-- A route selects one primary skill and no more than two supporting skills. It
-  does not grant edit, provider-write, merge, publication, or installation
-  authority.
-- Codex Security, Supabase, and Neon Postgres remain Codex-managed third-party
-  plugins. Record their capability and fallback contracts in repository
-  manifests and routing policy, but never vendor their plugin skill bodies,
-  app state, MCP configuration, or authentication material.
+- Use Codex native skill discovery for relevant installed skills. Skills do
+  not grant edit, provider-write, merge, publication, or installation authority.
+- `capability-routing/` is dormant historical reference material. Never
+  execute its entry points, register its hooks, install it into `CODEX_HOME`,
+  or restore the retired universal router.
+- Codex Security, Supabase, and Neon Postgres remain Codex-managed plugins.
+  Never vendor their skill bodies, app state, MCP configuration, or credentials.
