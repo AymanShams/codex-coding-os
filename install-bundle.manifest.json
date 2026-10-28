@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "806f5a336f0d84a2536ee9349b107da3419d918b1d27ba2be1e94ad06a99b3b6",
+  "aggregate_sha256": "bb40ea45f327199e1bd7d92a72879dfcd3576f911c1b11d282752faa7c706dc6",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -183,13 +183,13 @@
     },
     {
       "path": ".agents/skills/deep-critic/SKILL.md",
-      "sha256": "7b138b911a312f93cebcc3cb3f3c70ac5f1d18978febbafd996b34f1778f37ad",
-      "size": 4770
+      "sha256": "839d954cc3cd38c0c56f5427169595e4cc33350749350013320ce80490127695",
+      "size": 4141
     },
     {
       "path": ".agents/skills/deep-critic/templates/full-12-step-analysis.md",
-      "sha256": "172dcfaf824b0c2570d0c6cd8bd4a15d580aa0f25905f88c4a2890cfaa91e419",
-      "size": 4317
+      "sha256": "2e8bb67737b04f9f6f8f9e709de3f95c586f0617acaf96d1587cbe5558dc9633",
+      "size": 3769
     },
     {
       "path": ".agents/skills/defensive-security-checklist/SKILL.md",

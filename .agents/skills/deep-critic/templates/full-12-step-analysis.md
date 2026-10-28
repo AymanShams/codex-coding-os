@@ -66,21 +66,14 @@ Assume the rule, recommendation, or process fails in the opposite direction.
 
 Explain:
 - what would be skipped
-- how bugs, risk, security gaps, architecture drift, financial loss, customer harm, or operational failure could compound
+- how the task's relevant failure could compound
 - what signal would have caught it earlier
 
 ## 8. Stress Test Adversarial Cases
 
 Use adversarial or ambiguous cases where the wording can be misread.
 
-Consider:
-- a safety label used as a fake waiver
-- high-risk path with formatting-only change
-- low-risk path with dangerous behavior change
-- controlled-source wording change disguised as coordination
-- validation passes but review is still needed
-- stale state hides out-of-scope files
-- multiple small changes compound into material risk
+Choose adversarial cases that fit the actual task. For software, consider misleading formatting changes, stale state, and checks that pass while behavior is wrong. For business, consider weak samples, incentives, missing customer evidence, and assumptions that break under a different market condition. Do not import unrelated review lenses.
 
 ## 9. Premortem
 
@@ -96,47 +89,21 @@ Work backward and identify:
 
 ## 10. Self-Grill
 
-Ask at least 12 hard questions, adapted to the task.
+Ask hard questions adapted to the task. Use 12 when the user asks for the full 12-step workflow.
 
 Include questions like:
 - Am I treating the prompt as source truth?
 - Am I overcorrecting against the last failure?
-- Would this suppress necessary review, approval, testing, or escalation?
+- Would this skip a check the outcome requires?
 - Would this create a new blocker or process loop?
-- Would this make agents ask for more handoffs, artifacts, or sessions?
-- Would this fail differently across projects, teams, repos, markets, or customer segments?
-- Is this enforceable by humans, models, hooks, scripts, and managers?
+- Would this fail differently across relevant projects, teams, markets, or customer segments?
+- Can the proposed change actually be carried out by its owner?
 - Is the wording precise enough that another model cannot call it optional?
 
 ## 11. Frameworks
 
-Use relevant frameworks from the canonical framework index, but do not decorate the answer with unnecessary jargon. At minimum consider:
-- Root Cause Analysis
-- 5 Whys
-- FMEA
-- Bowtie analysis
-- Fault Tree Analysis
-- Poka-Yoke
-- Control Plan
-- PDCA or PDSA
-- OODA Loop
-- Cynefin
-- RACI or DACI where ownership matters
-- Second-order thinking
-- Inversion
-
-State only the frameworks that materially changed the critique or recommendation.
+Use a framework only when it materially changes the critique or recommendation. State it only if useful to the reader.
 
 ## 12. Final Deliverable
 
-Provide:
-- final verdict
-- source-backed findings
-- recommended rule wording
-- exact placement recommendations by repo and control surface
-- what not to change
-- acceptance tests
-- examples of correct agent responses
-- examples of forbidden agent responses
-- residual risks
-- specific next action for the user to approve or reject
+Provide the verdict, source-backed findings, practical recommendation, relevant checks, residual uncertainty, and next action. Add rule wording, repository placement, examples, or an approval decision only when the task needs them.
