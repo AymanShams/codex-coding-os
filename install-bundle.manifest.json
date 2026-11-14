@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "d61265dcdc0ebe76b550b324e6c7bab863865e6d8aa792031bf02d2411342222",
+  "aggregate_sha256": "d207beb9b16d9ede485767b746a23b35adf313e11bff709992a460c586048ba6",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2888,8 +2888,8 @@
     },
     {
       "path": "tests/test_campaign_supervisor.py",
-      "sha256": "2f1cb057b945e7550286067bc1aed846e464327cbb5b6a64c113068090e4a978",
-      "size": 104953
+      "sha256": "43f416c484a9ddae2f4ff787522a62e6569bfb033a2cbd06abde2dab1687851b",
+      "size": 104960
     },
     {
       "path": "tests/test_campaign_tlc_runner.py",

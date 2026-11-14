@@ -1368,7 +1368,7 @@ class CampaignSupervisorControlTests(SupervisorFixture):
                 prompt = DeterministicSupervisor._worker_prompt(
                     snapshot, "node-1", role, "reviewer-a"
                 )
-                self.assertIn(f'"node_start_head": "{self.base_sha}"', prompt)
+                self.assertIn(repr({"node_start_head": self.base_sha})[1:-1], prompt)
                 self.assertIn("Pass node_start_head as the base to campaign_git_diff", prompt)
                 for field in ("finding_id", "title", "blocking", "details"):
                     self.assertIn(field, prompt)
