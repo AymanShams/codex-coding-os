@@ -1084,6 +1084,37 @@ class InstallTransactionTests(unittest.TestCase):
                 it.install(env.archive_options(preserve_skills=("doc",), dry_run=True))
             self.assertEqual(before, it._tree_hash(env.skills))
 
+    def test_repair_adopts_exact_incoming_skill_without_replacing_live_tree(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            it.install(env.archive_options())
+            live = env.skills / "alpha/SKILL.md"
+            write_text(live, "already updated skill\n")
+            write_text(env.source / ".agents/skills/alpha/SKILL.md", live.read_text())
+            env.bundle_hash = it.build_bundle_manifest(env.source)["aggregate_sha256"]
+            before = (it._tree_hash(env.skills), live.stat().st_mtime_ns)
+            self.assertEqual("dry_run", it.install(env.archive_options(dry_run=True))["status"])
+            result = it.install(env.archive_options())
+            self.assertEqual("committed", result["status"])
+            self.assertEqual(before, (it._tree_hash(env.skills), live.stat().st_mtime_ns))
+            manifest = json.loads((env.codex / "coding-os/install-manifest.json").read_text())
+            self.assertEqual(it._tree_hash(live.parent), manifest["targets"]["managed_skills"][0]["sha256"])
+            journal = json.loads((env.codex / ".coding-os-install/transactions" / result["transaction_id"] / "journal.json").read_text())
+            self.assertNotIn("skill:alpha", [target["target_id"] for target in journal["targets"]])
+
+    def test_repair_refuses_extra_live_files_even_when_skill_text_matches_incoming(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
+            env = SyntheticEnvironment(Path(raw))
+            it.install(env.archive_options())
+            write_text(env.skills / "alpha/SKILL.md", "updated skill\n")
+            write_text(env.source / ".agents/skills/alpha/SKILL.md", "updated skill\n")
+            write_text(env.skills / "alpha/extra.md", "unapproved extra file\n")
+            env.bundle_hash = it.build_bundle_manifest(env.source)["aggregate_sha256"]
+            before = it._tree_hash(env.skills)
+            with self.assertRaisesRegex(it.OwnershipError, "managed skill changed"):
+                it.install(env.archive_options(dry_run=True))
+            self.assertEqual(before, it._tree_hash(env.skills))
+
     def test_verified_runtime_import_isolated_without_bytecode_writes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ccos-tx-test-") as raw:
             env = SyntheticEnvironment(Path(raw))

@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "d7f92d92923d9017b14160cef49e0fb20b77bb86acdf1c51e97a98deb46eb8cc",
+  "aggregate_sha256": "55b68ff61b7fbd50f6edf9af9e386e3519010d8b00fb0a5275ef25b35a762657",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2308,8 +2308,8 @@
     },
     {
       "path": "docs/getting-started.md",
-      "sha256": "58535f85bd7a61a8258d824a0a8d607002d949e459266b92d96c864c35e3298c",
-      "size": 15405
+      "sha256": "b1553b77a5fc353c4caeb5894d12f7d41afc38595a01f09c99267c378a177705",
+      "size": 15675
     },
     {
       "path": "docs/license-strategy.md",
@@ -2498,8 +2498,8 @@
     },
     {
       "path": "scripts/install_transaction.py",
-      "sha256": "41a23f72b74550c398ae78381b55e6836e238a3b08dd40a61fef3bad21c5d238",
-      "size": 193987
+      "sha256": "008c41a7a06f315e94e807c9d5902aa8e965545753cf3ffdce3560dc1a2c31f2",
+      "size": 194903
     },
     {
       "path": "scripts/json-schema-validation.ps1",
@@ -2923,8 +2923,8 @@
     },
     {
       "path": "tests/test_install_transaction.py",
-      "sha256": "877dcdfc0aea8937800ae9789dc6c7ae6a7ad183a6056810ed5feffef764cfe1",
-      "size": 134254
+      "sha256": "ec00cd788dec05300893ff257fcc5321a1bdd4889b1cbe227e7b868d998bc5e9",
+      "size": 136468
     },
     {
       "path": "tests/test_local_security_skill_parity.py",

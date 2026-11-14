@@ -123,7 +123,11 @@ the installed support root and remain hash-verified. The existing install
 manifest records this ownership and preserves it on subsequent upgrades and
 removal. Core skills and runtime files cannot use this option. A modified managed
 skill without an explicit supported ownership migration stops the upgrade before
-replacement. Run the dry run first to verify that boundary.
+replacement unless its complete live tree already equals the incoming verified
+bundle. That exact-match repair updates installation provenance without replacing
+the identical skill directory. Extra or differing files still stop the upgrade,
+and changes after preflight are rejected. Run the dry run first to verify that
+boundary.
 
 Use `-ArchiveLegacyState` only when the unchanged legacy source at
 `$env:USERPROFILE\.codex\case-state` should be ingested as read-only evidence.

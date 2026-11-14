@@ -1746,13 +1746,22 @@ def _validate_unowned_collisions(
     new_skill_names: Sequence[str],
     previous: dict[str, Any] | None,
     preserved: frozenset[str] = frozenset(),
+    incoming_skill_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     previous_records = [record for record in _previous_skill_records(previous, skills_root)
                         if record["name"] not in preserved]
     if previous is not None and previous.get("manifest_version") == 3:
         for record in previous_records:
-            if _tree_hash(Path(record["path"])) != record.get("sha256"):
-                raise OwnershipError(f"managed skill changed since install; refusing replacement: {record['name']}")
+            live_hash = _tree_hash(Path(record["path"]))
+            if live_hash != record.get("sha256"):
+                incoming_hash = (
+                    _tree_hash(incoming_skill_root / record["name"])
+                    if incoming_skill_root is not None and record["name"] in new_skill_names
+                    else None
+                )
+                if live_hash is None or live_hash != incoming_hash:
+                    raise OwnershipError(f"managed skill changed since install; refusing replacement: {record['name']}")
+            record["validated_live_sha256"] = live_hash
     owned = {str(record["name"]).casefold(): Path(str(record["path"])).resolve(strict=False) for record in previous_records}
     if skills_root.exists():
         for child in skills_root.iterdir():
@@ -2997,12 +3006,18 @@ def _prepare_install_targets(
     codex_rollback = transaction_workspaces["codex_home"] / "rollback" / "codex-home"
     new_names = {record["name"] for record in staged["managed_skills"]}
     old_names = {str(record["name"]) for record in previous_records}
+    for record in previous_records:
+        if "validated_live_sha256" in record and _tree_hash(Path(record["path"])) != record["validated_live_sha256"]:
+            raise RecoveryError(f"managed skill drifted after preflight: {record['name']}")
     targets: list[dict[str, Any]] = []
     for name in sorted(new_names | old_names, key=lambda value: value.casefold()):
         if name in staged["preserved_skills"]:
             continue
         staged_path = staged["skill_stage_root"] / name if name in new_names else None
-        targets.append(_make_target(f"skill:{name}", skills_root / name, staged_path, skill_rollback / name))
+        target = _make_target(f"skill:{name}", skills_root / name, staged_path, skill_rollback / name)
+        if staged_path is not None and target["prior_sha256"] == target["new_sha256"]:
+            continue
+        targets.append(target)
     targets.append(
         _make_target(
             "support",
@@ -3606,6 +3621,7 @@ def _install_preflight(
         names,
         previous,
         _preserved_skills(previous, options.preserve_skills),
+        _safe_repo_path(source_root, str(pack["installation"]["managed_skill_root"])),
     )
     _validate_legacy_v2_skill_descendants(previous, previous_records, source_root, pack)
     _preflight_campaign_hook(pack, previous, source_root, codex_home)
