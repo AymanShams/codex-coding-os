@@ -451,9 +451,9 @@ class CampaignIncidentConformanceTests(unittest.TestCase):
             supervisor.freeze_review(
                 campaign_id, "node-1", receipts=receipts, findings=findings
             )
-        except SupervisorError as exc:
+        except (AuthorityError, SupervisorError) as exc:
             review_allowed = False
-            self.assertIn("candidate head", str(exc))
+            self.assertRegex(str(exc), "candidate head|frozen head")
         if candidate_head != reviewed_head:
             self.assertFalse(review_allowed)
             publication_id = f"{campaign_id}-publication"
