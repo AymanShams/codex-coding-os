@@ -624,6 +624,7 @@ class DeterministicSupervisor:
             "role": role.value,
             "reviewer_id": reviewer_id,
             "candidate_head": node.candidate_head,
+            "node_start_head": node.start_head,
             "allowed_paths": list(spec.allowed_paths),
             "objective": spec.objective,
             "acceptance_scenarios": spec.to_dict().get("acceptance_scenarios", []),
@@ -647,7 +648,8 @@ class DeterministicSupervisor:
                 "there are material findings. Nonblocking observations do not require BLOCK. Each finding "
                 "must contain finding_id, title, blocking, and details. Use only the supplied "
                 "campaign_list_files, campaign_read_file, campaign_search, campaign_git_status, "
-                "and campaign_git_diff tools."
+                "and campaign_git_diff tools. Pass node_start_head as the base to campaign_git_diff "
+                "to verify the complete node change from its admitted starting commit."
             )
             instruction += (
                 " Reuse established finding identifiers when reporting the same evidence."
@@ -1481,7 +1483,6 @@ class DeterministicSupervisor:
                                           reviewer_id=reviewer)
             self.host.create_idle_actor(actor_lease, bind_authority=self._bind_native)
             prompt = self._worker_prompt(snapshot, node_id, ActorRole.REVIEWER, reviewer)
-            prompt += f"\nThe frozen diff starts at {node.start_head}. Pass that exact base to campaign_git_diff."
             self.host.start_actor_turn(lease_id, prompt)
             receipt = self.host.collect_terminal_receipt(
                 lease_id, current_epochs=self.store.current_epochs, timeout=timeout,
