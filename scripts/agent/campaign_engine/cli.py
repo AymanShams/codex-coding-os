@@ -432,6 +432,8 @@ def _status_summary(snapshot) -> dict[str, Any]:
         "WAITING_HUMAN": "Decision required", "COMPLETED": "Completed authorized delivery",
         "FAILED": "Stopped with work remaining", "CANCELLED": "Cancelled",
     }[snapshot.state.value]
+    if snapshot.state is CampaignState.COMPLETED and snapshot.spec.publication_authority.get("local_only"):
+        status = "Completed local validation and review"
     if snapshot.state is CampaignState.RUNNING and snapshot.active_node_id:
         node = snapshot.node(snapshot.active_node_id)
         if node.state.value == "FINDINGS_FROZEN" and any(item.blocking for item in node.findings):
@@ -804,7 +806,7 @@ def main(
     try:
         result = args.handler(args)
         _emit(result, json_output=bool(args.json))
-        if args.command == "review-existing" and not result.get("ok"):
+        if args.command in {"run", "review-existing"} and not result.get("ok"):
             return EXIT_FAILED
         return 0
     except PermissionError as exc:

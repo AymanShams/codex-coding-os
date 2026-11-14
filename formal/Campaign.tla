@@ -32,7 +32,7 @@ ASSUME /\ Nodes # {}
        /\ TopoRank \in [Nodes -> Nat]
        /\ InitialBudget \in Nat \ {0}
        /\ MaxRevision \in Nat \ {0}
-       /\ RequiredPublicationEffects \in Nat \ {0}
+       /\ RequiredPublicationEffects \in Nat
 
 CampaignStates == {
   "DRAFT", "APPROVED", "RUNNING", "WAITING_EXTERNAL", "WAITING_HUMAN",
@@ -64,12 +64,14 @@ CoreReducerNodeTransitions == {
   <<"START_REVIEW", "CANDIDATE_FROZEN", "CHECKS_AND_REVIEW">>,
   <<"FREEZE_FINDINGS", "CHECKS_AND_REVIEW", "FINDINGS_FROZEN">>,
   <<"MARK_READY_TO_PUBLISH", "FINDINGS_FROZEN", "READY_TO_PUBLISH">>,
+  <<"MARK_READY_TO_PUBLISH", "FINDINGS_FROZEN", "DONE">>,
   <<"AUTHORIZE_REPAIR", "FINDINGS_FROZEN", "REPAIR_AUTHORIZED">>,
   <<"START_REPAIR", "REPAIR_AUTHORIZED", "REPAIRING">>,
   <<"REPAIR_COMPLETED", "REPAIRING", "REVALIDATING">>,
   <<"REVALIDATION_PASSED", "REVALIDATING", "CLOSURE">>,
   <<"REVALIDATION_FAILED", "REVALIDATING", "FAILED_EXACT_NODE">>,
   <<"COMPLETE_CLOSURE", "CLOSURE", "READY_TO_PUBLISH">>,
+  <<"COMPLETE_CLOSURE", "CLOSURE", "DONE">>,
   <<"COMPLETE_CLOSURE", "CLOSURE", "FAILED_EXACT_NODE">>,
   <<"START_PUBLISH", "READY_TO_PUBLISH", "PUBLISHING">>,
   <<"PUBLISH_CONFIRMED", "PUBLISHING", "READY_TO_PUBLISH">>,
@@ -290,9 +292,13 @@ MarkReady(n) ==
   /\ Running
   /\ nodeState[n] = "FINDINGS_FROZEN"
   /\ ~blockersFrozen[n]
-  /\ nodeState' = [nodeState EXCEPT ![n] = "READY_TO_PUBLISH"]
+  /\ nodeState' = [nodeState EXCEPT
+       ![n] = IF RequiredPublicationEffects = 0 THEN "DONE" ELSE "READY_TO_PUBLISH"]
+  /\ campaign' = IF RequiredPublicationEffects = 0
+                     /\ \A m \in Nodes \ {n} : nodeState[m] = "DONE"
+                  THEN "COMPLETED" ELSE campaign
   /\ revision' = revision + 1
-  /\ UNCHANGED <<campaign, authorityEpoch, cancellationEpoch,
+  /\ UNCHANGED <<authorityEpoch, cancellationEpoch,
                   implementationUsed, validationCorrectionUsed, reviewUsed,
                   repairUsed, closureUsed, blockersFrozen,
                   publicationRemaining>>
@@ -354,9 +360,13 @@ RevalidationPass(n) ==
 ClosurePass(n) ==
   /\ Running
   /\ nodeState[n] = "CLOSURE"
-  /\ nodeState' = [nodeState EXCEPT ![n] = "READY_TO_PUBLISH"]
+  /\ nodeState' = [nodeState EXCEPT
+       ![n] = IF RequiredPublicationEffects = 0 THEN "DONE" ELSE "READY_TO_PUBLISH"]
+  /\ campaign' = IF RequiredPublicationEffects = 0
+                     /\ \A m \in Nodes \ {n} : nodeState[m] = "DONE"
+                  THEN "COMPLETED" ELSE campaign
   /\ revision' = revision + 1
-  /\ UNCHANGED <<campaign, authorityEpoch, cancellationEpoch,
+  /\ UNCHANGED <<authorityEpoch, cancellationEpoch,
                   implementationUsed, validationCorrectionUsed, reviewUsed,
                   repairUsed, closureUsed, blockersFrozen,
                   publicationRemaining>>

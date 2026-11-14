@@ -19,6 +19,19 @@ The graph and specification cannot change after approval. A material change
 requires a new user-approved specification revision. The engine cannot create
 that revision itself.
 
+### Local implementation campaigns
+
+An approved campaign can finish after local validation and independent review,
+including closure review after any authorized repair. Set
+`publication_authority.local_only` to `true` and explicitly set both
+`allowed_effects` and `required_effects` to empty arrays. Leave hosted checks,
+publication payloads and automated publication disabled. The campaign retains
+the normal validation and reviewer requirements. A passing review finishes
+the node locally and allows dependent nodes to proceed. A failed campaign
+reported by `run` returns a nonzero process exit code. The engine creates no
+publication action and requests no delivery approval. The existing signature
+verifier requirement still applies for any separately authorized repair.
+
 ### Native actor model selection
 
 An optional `model_policy` is part of the immutable specification and its digest:

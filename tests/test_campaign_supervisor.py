@@ -636,6 +636,32 @@ class SupervisorFixture(unittest.TestCase):
 
 
 class CampaignSupervisorLifecycleTests(SupervisorFixture):
+    def test_local_campaign_finishes_after_attested_review_without_outbox(self) -> None:
+        raw = self.make_spec("local", mode="AUTOMATED").to_dict()
+        raw.pop("specification_digest")
+        raw["publication_authority"].update(local_only=True, allowed_effects=[], required_effects=[])
+        spec = CampaignSpec.from_dict(raw)
+        self.create_approved(spec)
+        host = FakeHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        engine.step("local")
+        engine.step("local")
+        implementer = engine.step("local").details["lease_id"]
+        host.write_file(implementer, "src/app.txt", b"candidate\n")
+        git(self.repo, "add", "src/app.txt")
+        git(self.repo, "commit", "-q", "-m", "local candidate")
+        host.set_result(implementer, {"status": "completed", "action_count": 1})
+        engine.complete_worker(implementer)
+        self.assertEqual(engine.step("local").action, "CANDIDATE_FROZEN")
+        self.assertEqual(self.store.get_snapshot("local").state, CampaignState.RUNNING)
+        receipts, findings = self.collect_passing_review(engine, host, spec, campaign_id="local")
+        engine.freeze_review("local", "node-1", receipts=receipts, findings=findings)
+        self.assertEqual(engine.step("local").action, "LOCAL_NODE_COMPLETED")
+        result = self.store.get_snapshot("local")
+        self.assertEqual(result.state, CampaignState.COMPLETED)
+        self.assertEqual(result.node("node-1").completed_publication_effects, ())
+        self.assertFalse(self.store.list_outbox(campaign_id="local"))
+
     def test_approved_model_policy_reaches_actor_lease_and_native_binding(self) -> None:
         raw = self.make_spec("models", mode="AUTOMATED").to_dict()
         raw.pop("specification_digest")

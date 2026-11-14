@@ -117,6 +117,15 @@ def blocking_repair_recorder() -> ReducerRecorder:
     return recorder
 
 
+def use_local_delivery(recorder: ReducerRecorder) -> None:
+    raw = recorder.snapshot.spec.to_dict()
+    raw.pop("specification_digest")
+    raw["publication_authority"] = {
+        "local_only": True, "allowed_effects": [], "required_effects": [],
+    }
+    recorder.snapshot = replace(recorder.snapshot, spec=CampaignSpec.from_dict(raw))
+
+
 class CampaignFormalConformanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -171,6 +180,15 @@ class CampaignFormalConformanceTests(unittest.TestCase):
             )
         observed.update(clean.edges)
 
+        local = candidate_recorder()
+        use_local_delivery(local)
+        local.apply(EventType.START_REVIEW, node_id="node-1",
+                    payload={"review_cohort": ["reviewer-1", "reviewer-2"]})
+        local.apply(EventType.FREEZE_FINDINGS, node_id="node-1", payload={"findings": []})
+        local.apply(EventType.MARK_READY_TO_PUBLISH, node_id="node-1")
+        self.assertEqual(local.snapshot.state, CampaignState.COMPLETED)
+        observed.update(local.edges)
+
         corrected_events, corrected_snapshot = running_snapshot()
         raw = corrected_snapshot.spec.to_dict()
         raw.pop("specification_digest")
@@ -210,6 +228,18 @@ class CampaignFormalConformanceTests(unittest.TestCase):
             payload={"resolved_finding_ids": ["F-1"], "findings": []},
         )
         observed.update(repaired.edges)
+
+        local_repair = blocking_repair_recorder()
+        use_local_delivery(local_repair)
+        local_repair.apply(
+            EventType.REVALIDATION_PASSED, node_id="node-1",
+            payload={"candidate_head": "1" * 40, "candidate_tree": "2" * 40,
+                     "candidate_diff_digest": "3" * 64, "candidate_node_diff_digest": "4" * 64},
+        )
+        local_repair.apply(EventType.COMPLETE_CLOSURE, node_id="node-1",
+                           payload={"resolved_finding_ids": ["F-1"], "findings": []})
+        self.assertEqual(local_repair.snapshot.state, CampaignState.COMPLETED)
+        observed.update(local_repair.edges)
 
         closure_failed = blocking_repair_recorder()
         closure_failed.apply(

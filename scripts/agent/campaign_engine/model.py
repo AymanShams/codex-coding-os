@@ -603,7 +603,17 @@ class CampaignSpec:
         required_effects = tuple(
             self.publication_authority.get("required_effects", allowed_effects)
         )
-        if not allowed_effects or not required_effects:
+        local_only = self.publication_authority.get("local_only", False)
+        if type(local_only) is not bool:
+            raise ModelValidationError("publication local_only must be a boolean")
+        if local_only:
+            if (self.publication_authority.get("allowed_effects") != ()
+                    or self.publication_authority.get("required_effects") != ()
+                    or self.publication_authority.get("automated")
+                    or self.publication_authority.get("required_hosted_checks")
+                    or self.publication_authority.get("effect_payloads")):
+                raise ModelValidationError("local-only campaigns must explicitly declare empty publication effects")
+        elif not allowed_effects or not required_effects:
             raise ModelValidationError("publication authority requires a finite effect sequence")
         if len(set(allowed_effects)) != len(allowed_effects) or len(
             set(required_effects)

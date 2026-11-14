@@ -379,6 +379,12 @@ class CampaignCliTests(unittest.TestCase):
         self.assertEqual(exit_code, cli.EXIT_FAILED)
         self.assertIn("differs from its pin", denied["message"])
 
+    def test_run_returns_nonzero_for_a_failed_campaign_result(self) -> None:
+        with mock.patch.object(cli, "command_run", return_value={"ok": False, "state": "FAILED"}):
+            code, result = self.run_cli("run", "--campaign-id", "cli-campaign")
+        self.assertEqual(code, cli.EXIT_FAILED)
+        self.assertEqual(result["state"], "FAILED")
+
     def test_run_without_external_effects_yields_after_publication_prepared(self) -> None:
         self.admit()
         step_calls: list[str] = []

@@ -197,6 +197,19 @@ def _dispatch_effect(
     )
 
 
+def _complete_node(snapshot: CampaignSnapshot, node: NodeSnapshot) -> CampaignSnapshot:
+    completed = _replace_node(snapshot, replace(node, state=NodeState.DONE))
+    state = (CampaignState.COMPLETED if all(item.state is NodeState.DONE for item in completed.nodes)
+             else completed.state)
+    return replace(completed, state=state, active_node_id=None)
+
+
+def _after_passing_review(snapshot: CampaignSnapshot, node: NodeSnapshot) -> CampaignSnapshot:
+    if snapshot.spec.publication_authority.get("local_only"):
+        return _complete_node(snapshot, node)
+    return _replace_node(snapshot, replace(node, state=NodeState.READY_TO_PUBLISH))
+
+
 def _fail_exact_node(
     snapshot: CampaignSnapshot, node: NodeSnapshot, reason: str
 ) -> CampaignSnapshot:
@@ -552,9 +565,7 @@ def reduce(
             "node is not eligible for clean publication before findings freeze",
         )
         _require(not any(item.blocking for item in node.findings), "blocking findings require repair")
-        next_snapshot = _replace_node(
-            snapshot, replace(node, state=NodeState.READY_TO_PUBLISH)
-        )
+        next_snapshot = _after_passing_review(snapshot, node)
 
     elif event_type is EventType.AUTHORIZE_REPAIR:
         node = _node_for(snapshot, event)
@@ -665,9 +676,7 @@ def reduce(
                 snapshot, closed, "closure_failed:" + ";".join(reasons)
             )
         else:
-            next_snapshot = _replace_node(
-                snapshot, replace(closed, state=NodeState.READY_TO_PUBLISH)
-            )
+            next_snapshot = _after_passing_review(snapshot, closed)
 
     elif event_type is EventType.AUTHORIZE_PUBLICATION:
         node = _node_for(snapshot, event)
@@ -794,15 +803,8 @@ def reduce(
             pending_publication_effect=None,
             pending_publication_operation_id=None,
         )
-        next_snapshot = _replace_node(snapshot, published_node)
-        if publication_complete and all(
-            item.state is NodeState.DONE for item in next_snapshot.nodes
-        ):
-            next_snapshot = replace(
-                next_snapshot, state=CampaignState.COMPLETED, active_node_id=None
-            )
-        elif publication_complete:
-            next_snapshot = replace(next_snapshot, active_node_id=None)
+        next_snapshot = (_complete_node(snapshot, published_node) if publication_complete
+                         else _replace_node(snapshot, published_node))
 
     elif event_type is EventType.PUBLISH_FAILED:
         node = _node_for(snapshot, event)

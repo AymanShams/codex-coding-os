@@ -274,6 +274,20 @@ class CampaignModelTests(unittest.TestCase):
         with self.assertRaises(ModelValidationError):
             CampaignSpec.from_dict(changed)
 
+    def test_local_delivery_requires_explicit_empty_external_effects(self) -> None:
+        for unsafe in (
+            {"allowed_effects": ["PUSH"]}, {"required_effects": ["PUSH"]},
+            {"automated": True}, {"required_hosted_checks": ["product-tests"]},
+            {"effect_payloads": {"PUSH": {}}}, {"local_only": "true"},
+        ):
+            with self.subTest(unsafe=unsafe):
+                raw = spec_dict()
+                raw["publication_authority"] = {
+                    "local_only": True, "allowed_effects": [], "required_effects": [], **unsafe,
+                }
+                with self.assertRaises(ModelValidationError):
+                    CampaignSpec.from_dict(raw)
+
     def test_digest_covers_runtime_pin_and_deadlines(self) -> None:
         base = make_spec()
         for field, value in (

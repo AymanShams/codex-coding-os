@@ -1906,6 +1906,20 @@ class DeterministicSupervisor:
             node_id,
         )
 
+    @staticmethod
+    def _verify_local_candidate(snapshot: CampaignSnapshot, node: NodeSnapshot) -> None:
+        try:
+            observed = exact_repository_evidence(
+                snapshot.spec.worktree, base_sha=snapshot.spec.base_sha,
+                candidate_head=str(node.candidate_head),
+            )
+        except EvidenceError as exc:
+            raise SourceDriftError("local delivery could not verify the reviewed candidate") from exc
+        if (observed["tree_sha"] != node.candidate_tree
+                or observed["diff_sha256"] != node.candidate_diff_digest
+                or observed["status_sha256"] != hashlib.sha256(b"").hexdigest()):
+            raise SourceDriftError("local delivery requires the clean reviewed candidate")
+
     def complete_closure(
         self,
         campaign_id: str,
@@ -1938,6 +1952,8 @@ class DeterministicSupervisor:
             raise SupervisorError(
                 "closure resolution differs from the exact verified cohort receipts"
             )
+        if snapshot.spec.publication_authority.get("local_only"):
+            self._verify_local_candidate(snapshot, node_before)
         snapshot = self._apply(
             self._event(
                 snapshot,
@@ -1972,7 +1988,7 @@ class DeterministicSupervisor:
             campaign_id,
             snapshot.revision,
             snapshot.state.value,
-            "CLOSURE_PASSED" if node.state is NodeState.READY_TO_PUBLISH else "CLOSURE_FAILED",
+            "CLOSURE_FAILED" if node.state is NodeState.FAILED_EXACT_NODE else "CLOSURE_PASSED",
             node_id,
         )
 
@@ -2788,6 +2804,9 @@ class DeterministicSupervisor:
                     wait_event="repair_authorized",
                     details={"finding_ids": [item.finding_id for item in blockers]},
                 )
+            if snapshot.spec.publication_authority.get("local_only"):
+                self._verify_sources(snapshot, node.node_id)
+                self._verify_local_candidate(snapshot, node)
             snapshot = self._apply(
                 self._event(
                     snapshot,
@@ -2800,7 +2819,7 @@ class DeterministicSupervisor:
                 campaign_id,
                 snapshot.revision,
                 snapshot.state.value,
-                "READY_TO_PUBLISH",
+                "LOCAL_NODE_COMPLETED" if snapshot.spec.publication_authority.get("local_only") else "READY_TO_PUBLISH",
                 node.node_id,
             )
         if node.state is NodeState.REPAIR_AUTHORIZED:
