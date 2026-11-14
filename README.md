@@ -303,6 +303,14 @@ claim that product behavior is defective.
 
 ## Development validation
 
+Campaign specifications may select explicit native actor models and reasoning
+efforts through an immutable `model_policy`. See the [model-selection contract](docs/campaign-engine.md#native-actor-model-selection).
+The installed CLI can verify a policy without a campaign or model turn:
+
+```powershell
+python -B "$env:USERPROFILE\.codex\coding-os\scripts\agent\campaign_engine\cli.py" --json models --repository-root . --policy model-policy.json --verify-bindings
+```
+
 Run the focused engine suite first:
 
 ```powershell

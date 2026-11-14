@@ -19,6 +19,58 @@ The graph and specification cannot change after approval. A material change
 requires a new user-approved specification revision. The engine cannot create
 that revision itself.
 
+### Native actor model selection
+
+An optional `model_policy` is part of the immutable specification and its digest:
+
+```json
+{
+  "model_policy": {
+    "roles": {
+      "PARENT": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+      "IMPLEMENTER": {"model": "gpt-6.1-terra", "reasoning_effort": "high"},
+      "REPAIRER": {"model": "gpt-6.1-terra", "reasoning_effort": "high"},
+      "REVIEWER": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+      "CLOSURE_REVIEWER": {"model": "gpt-6.1-sol", "reasoning_effort": "high"}
+    },
+    "reviewers": {
+      "architecture": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"}
+    }
+  }
+}
+```
+
+The example's `architecture` must already be in `required_review_cohort`.
+Reviewer overrides apply to ordinary and closure review. A simple bounded
+evidence reviewer can instead select `gpt-6-luna` with `medium`. Add only needed
+reviewers, not an automatic specialist cohort. Other actors use their role
+choice. A missing role or absent policy retains the legacy host default,
+`gpt-5.6-sol` / `max`. Absence serializes exactly as before, preserving historical
+specification and lease digests. Validators and the deterministic supervisor
+do not accept model assignments. A parent policy does not configure a user chat.
+
+Each choice requires exactly `model` and `reasoning_effort`. Unknown groups,
+roles, cohort members, malformed identifiers or effort values are rejected.
+Preparation and admission verify explicit pairs against live native `model/list`.
+Dispatch checks availability again, includes the choice in the actor lease
+digest, verifies `thread/start` returns the exact model and reasoning effort,
+and persists that observation in the native actor identity before binding.
+`turn/start` uses the bound pair rather than mutable host defaults. Unavailable
+or substituted choices fail before the turn, without automatic fallback.
+
+The public `models --repository-root <repo> --policy <policy.json>` command
+checks a JSON object containing `roles` and optional `reviewers`. It creates no
+campaign or approval. Add `--verify-bindings` to verify each distinct pair using
+idle, ephemeral, read-only native threads. It starts no model turn. The policy
+file is a preset, never an automatically loaded execution authority. Copy its
+object into the campaign before preparation. Changing a choice requires new
+approval of the changed specification digest.
+
+`doctor --live-host-probe --model-policy <policy.json>` uses the parent,
+implementer and reviewer role choices for the existing disposable-repository
+probe. The result reports observed `model_assignments`. This exercises real
+model turns only in that disposable repository, not product implementation.
+
 `prepare` derives repository identities, the installed runtime pin, command
 working directories, and source hashes from a proposed change. It writes a new
 specification file without creating or starting a campaign. Business scope,

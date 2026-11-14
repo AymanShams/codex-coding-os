@@ -58,7 +58,7 @@ def _load_engine() -> None:
         from campaign_engine.admission import (acceptance_source_content, admit_campaign_spec,
                                                 run_git, verify_acceptance_sources, verify_installed_runtime)
         from campaign_engine.effects import ExternalEffectDriver, GitHubBackend
-        from campaign_engine.host import probe_native_host_capability
+        from campaign_engine.host import inspect_model_policy, probe_native_host_capability
         from campaign_engine.legacy import (
             inspect_legacy_case,
             inspect_legacy_root,
@@ -79,7 +79,7 @@ def _load_engine() -> None:
         from .admission import (acceptance_source_content, admit_campaign_spec,
                                 run_git, verify_acceptance_sources, verify_installed_runtime)
         from .effects import ExternalEffectDriver, GitHubBackend
-        from .host import probe_native_host_capability
+        from .host import inspect_model_policy, probe_native_host_capability
         from .legacy import inspect_legacy_case, inspect_legacy_root, verify_legacy_archive
         from .model import (
             CampaignSpec,
@@ -575,8 +575,12 @@ def command_doctor(args: argparse.Namespace) -> dict[str, Any]:
         )
         installations = store.list_runtime_installations()
     host_probe: Mapping[str, Any] | None = None
+    policy_path = getattr(args, "model_policy", None)
+    if policy_path and not args.live_host_probe:
+        raise ValueError("doctor --model-policy requires --live-host-probe")
     if args.live_host_probe:
-        host_probe = probe_native_host_capability(cwd=args.probe_root or installed)
+        probe_options = {"model_policy": _json_object(policy_path, "model policy")} if policy_path else {}
+        host_probe = probe_native_host_capability(cwd=args.probe_root or installed, **probe_options)
         if host_probe.get("probe_version") != pin["host_capability_probe_version"]:
             raise ValueError("live host capability probe version differs from runtime pin")
     retirement = _old_engine_retirement(installed)
@@ -595,6 +599,14 @@ def command_doctor(args: argparse.Namespace) -> dict[str, Any]:
         "retirement": retirement,
         "entry_prerequisites": {"native_skill_discovery": {"owner": "codex", "status": "not_checked"}},
     }
+
+
+def command_models(args: argparse.Namespace) -> dict[str, Any]:
+    if args.verify_bindings and not args.policy:
+        raise ValueError("models --verify-bindings requires --policy")
+    return inspect_model_policy(cwd=args.repository_root,
+        policy=_json_object(args.policy, "model policy") if args.policy else None,
+        verify_bindings=args.verify_bindings)
 
 
 def command_legacy_inspect(args: argparse.Namespace) -> dict[str, Any]:
@@ -680,7 +692,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--recover", action="store_true")
     doctor.add_argument("--live-host-probe", action="store_true")
     doctor.add_argument("--probe-root")
+    doctor.add_argument("--model-policy", help="model policy for disposable live host-probe actors")
     doctor.set_defaults(handler=command_doctor)
+
+    models = sub.add_parser("models", help="inspect native model support without starting a campaign or turn")
+    models.add_argument("--repository-root", required=True)
+    models.add_argument("--policy", help="JSON object containing roles and optional reviewers")
+    models.add_argument("--verify-bindings", action="store_true", help="verify idle native thread model/effort readback")
+    models.set_defaults(handler=command_models)
 
     legacy = sub.add_parser("legacy")
     legacy_sub = legacy.add_subparsers(dest="legacy_command", required=True)

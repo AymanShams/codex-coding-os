@@ -27,6 +27,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from .admission import HOST_CAPABILITY_PROBE_VERSION, normalize_allowed_path
+from .model import ModelValidationError, validate_actor_model, validate_model_policy
 
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -254,6 +255,8 @@ class ActorLease:
     fencing_epoch: int
     candidate_head: str
     payload_digest: str
+    model: str | None = None
+    reasoning_effort: str | None = None
 
     @classmethod
     def issue(
@@ -271,6 +274,8 @@ class ActorLease:
         cancellation_epoch: int,
         fencing_epoch: int,
         candidate_head: str,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> "ActorLease":
         body = {
             "lease_id": _require_id(lease_id, "lease id"),
@@ -294,6 +299,11 @@ class ActorLease:
             raise HostAuthorityError("write-capable actors require at least one allowed path")
         if body["role"] in READ_ONLY_ROLES and body["allowed_paths"]:
             raise HostAuthorityError("parent and reviewer leases must have no writable paths")
+        if model is not None or reasoning_effort is not None:
+            try:
+                body.update(validate_actor_model({"model": model, "reasoning_effort": reasoning_effort}))
+            except ModelValidationError as exc:
+                raise HostAuthorityError(str(exc)) from exc
         return cls(**body, payload_digest=_digest(body))
 
     @classmethod
@@ -312,13 +322,19 @@ class ActorLease:
             cancellation_epoch=raw.get("cancellation_epoch"),
             fencing_epoch=raw.get("fencing_epoch"),
             candidate_head=str(raw.get("candidate_head", "")),
+            model=raw.get("model"),
+            reasoning_effort=raw.get("reasoning_effort"),
         )
         if not SHA256_RE.fullmatch(supplied) or supplied != issued.payload_digest:
             raise HostAuthorityError("actor lease payload digest is invalid")
         return issued
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        if self.model is None and self.reasoning_effort is None:
+            result.pop("model")
+            result.pop("reasoning_effort")
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -1030,6 +1046,91 @@ class AppServerTransport:
             self.stderr_reader.join(timeout=5)
 
 
+def read_model_catalogue(transport: Any) -> dict[str, Mapping[str, Any]]:
+    """Read the live native catalogue, refusing incomplete or ambiguous pages."""
+    catalogue: dict[str, Mapping[str, Any]] = {}
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    for _ in range(20):
+        params: dict[str, Any] = {"limit": 100}
+        if cursor is not None:
+            params["cursor"] = cursor
+        page = transport.request("model/list", params)
+        rows = page.get("data")
+        if not isinstance(rows, list):
+            raise HostProtocolError("native model catalogue returned no data list")
+        for row in rows:
+            if not isinstance(row, Mapping) or not isinstance(row.get("model"), str) or not row["model"]:
+                raise HostProtocolError("native model catalogue has an invalid model")
+            name = row["model"]
+            if name in catalogue:
+                raise HostProtocolError("native model catalogue has duplicate model identifiers")
+            catalogue[name] = row
+        cursor = page.get("nextCursor")
+        if cursor is None:
+            return catalogue
+        if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+            raise HostProtocolError("native model catalogue pagination is invalid")
+        seen_cursors.add(cursor)
+    raise HostProtocolError("native model catalogue exceeds the bounded page limit")
+
+
+def verify_model_selection(catalogue: Mapping[str, Mapping[str, Any]], selection: Mapping[str, str]) -> None:
+    selected = validate_actor_model(selection)
+    row = catalogue.get(selected["model"])
+    if row is None:
+        raise HostAuthorityError(f"requested model is not available: {selected['model']}")
+    efforts = row.get("supportedReasoningEfforts")
+    if not isinstance(efforts, list) or any(not isinstance(item, Mapping) for item in efforts):
+        raise HostProtocolError("native model catalogue has invalid reasoning capabilities")
+    if selected["reasoning_effort"] not in {item.get("reasoningEffort") for item in efforts}:
+        raise HostAuthorityError(f"requested reasoning effort is unavailable for {selected['model']}: {selected['reasoning_effort']}")
+
+
+def inspect_model_policy(
+    *, cwd: str | Path, policy: Mapping[str, Any] | None = None,
+    verify_bindings: bool = False, executable: str | Path = "codex",
+    transport_factory: Callable[..., Any] = AppServerTransport,
+) -> dict[str, Any]:
+    """Inspect choices without a campaign, turn, provider generation or edits."""
+    worktree = Path(cwd).resolve(strict=True)
+    checked = validate_model_policy(policy if policy is not None else {})
+    transport = transport_factory(executable, cwd=worktree)
+    transport.start()
+    try:
+        NativeCodexHost()._initialize(transport)
+        catalogue = read_model_catalogue(transport)
+        for choices in checked.values():
+            for selection in choices.values():
+                verify_model_selection(catalogue, selection)
+    finally:
+        transport.close()
+    observations = []
+    if verify_bindings:
+        selections = sorted({(choice["model"], choice["reasoning_effort"])
+                             for choices in checked.values() for choice in choices.values()})
+        head = _git_read(worktree, "rev-parse", "HEAD").strip()
+        for ordinal, (model, effort) in enumerate(selections):
+            native = NativeCodexHost(executable=executable, transport_factory=transport_factory)
+            lease = ActorLease.issue(lease_id=f"model-probe-{ordinal}", request_id=f"model-probe-{ordinal}",
+                campaign_id="model-configuration-probe", node_id="idle-only", actor_id=f"probe-{ordinal}",
+                role="PARENT", worktree=str(worktree), allowed_paths=(), authority_epoch=0,
+                cancellation_epoch=0, fencing_epoch=0, candidate_head=head,
+                model=model, reasoning_effort=effort)
+            try:
+                native.create_idle_actor(lease, bind_authority=lambda lease, identity: observations.append({
+                    "model": identity["model"], "reasoning_effort": identity["reasoning_effort"],
+                    "thread_id": identity["thread_id"], "thread_created_idle": identity["thread_created_idle"],
+                }), ephemeral=True)
+            finally:
+                native.close()
+    return {"ok": True, "model_policy": checked, "verified_bindings": observations,
+            "turns_started": 0, "campaign_created": False,
+            "available_models": [{"model": name, "supported_reasoning_efforts": [
+                item["reasoningEffort"] for item in row.get("supportedReasoningEfforts", [])]}
+                for name, row in sorted(catalogue.items())]}
+
+
 class NativeCodexHost:
     def __init__(
         self,
@@ -1076,7 +1177,7 @@ class NativeCodexHost:
         transport.notify("initialized", {})
         return result
 
-    def _campaign_config(self, transport: Any, worktree: Path) -> dict[str, Any]:
+    def _campaign_config(self, transport: Any, worktree: Path, *, reasoning_effort: str | None = None) -> dict[str, Any]:
         # Shared config can contain metadata owned by other consumers. Inspect
         # the effective project layers and override the campaign's own scope.
         response = transport.request("config/read", {
@@ -1092,7 +1193,7 @@ class NativeCodexHost:
         # nested object so names containing dots are not parsed as key paths.
         return {
             "mcp_servers": {name: {"enabled": False} for name in servers},
-            "model_reasoning_effort": self.reasoning_effort,
+            "model_reasoning_effort": reasoning_effort if reasoning_effort is not None else self.reasoning_effort,
             "skills.include_instructions": False,
         }
 
@@ -1478,6 +1579,12 @@ class NativeCodexHost:
         transport.start()
         try:
             self._initialize(transport)
+            selection = validate_actor_model({
+                "model": lease.model if lease.model is not None else self.model,
+                "reasoning_effort": lease.reasoning_effort if lease.reasoning_effort is not None else self.reasoning_effort,
+            })
+            if lease.model is not None:
+                verify_model_selection(read_model_catalogue(transport), selection)
             response = transport.request(
                 "thread/start",
                 {
@@ -1487,8 +1594,8 @@ class NativeCodexHost:
                     "approvalsReviewer": "user",
                     "dynamicTools": dynamic_tools,
                     "ephemeral": ephemeral,
-                    "model": self.model,
-                    "config": self._campaign_config(transport, worktree),
+                    "model": selection["model"],
+                    "config": self._campaign_config(transport, worktree, reasoning_effort=selection["reasoning_effort"]),
                     "runtimeWorkspaceRoots": [str(worktree)],
                     "selectedCapabilityRoots": [],
                     "environments": [],
@@ -1502,6 +1609,8 @@ class NativeCodexHost:
             if not isinstance(thread, Mapping):
                 raise HostProtocolError("thread/start returned no native thread object")
             thread_id = _require_id(thread.get("id"), "native thread id")
+            if response.get("model") != selection["model"] or response.get("reasoningEffort") != selection["reasoning_effort"]:
+                raise HostAuthorityError("native thread model or reasoning effort differs from the requested selection")
             self._verify_campaign_connections(transport, thread_id)
             status = thread.get("status")
             if not isinstance(status, Mapping) or status.get("type") != "idle":
@@ -1528,6 +1637,8 @@ class NativeCodexHost:
             }:
                 raise HostAuthorityError("native actor effective sandbox is not read-only")
             native_identity = {
+                "model": response["model"],
+                "reasoning_effort": response["reasoningEffort"],
                 "thread_id": thread_id,
                 "host_pid": (
                     int(transport.process.pid)
@@ -1612,6 +1723,7 @@ class NativeCodexHost:
         if not binding.bound_before_turn or not binding.thread_created_idle:
             raise HostAuthorityError("actor was not bound while idle")
         self._require_review_candidate(binding)
+        selection = self._native_identities[lease_id]
         _sandbox_name, sandbox_policy, _roots = self._sandbox_for(binding.lease)
         # Consume the one-use lease before dispatch.  This also lets the
         # dynamic-tool handler safely bind an early server-owned turn id while
@@ -1628,8 +1740,8 @@ class NativeCodexHost:
                     "approvalsReviewer": "user",
                     "environments": [],
                     "runtimeWorkspaceRoots": [binding.native_cwd],
-                    "model": self.model,
-                    "effort": self.reasoning_effort,
+                    "model": selection["model"],
+                    "effort": selection["reasoning_effort"],
                 },
             )
         except BaseException:
@@ -1793,6 +1905,8 @@ class FakeHost:
         native_id = f"native-{lease.actor_id}"
         identity = {
             "thread_id": native_id,
+            "model": lease.model or "gpt-5.6-sol",
+            "reasoning_effort": lease.reasoning_effort or "max",
             "host_pid": None,
             "host_process_identity": None,
             "cwd": lease.worktree,
@@ -1902,6 +2016,7 @@ def probe_native_host_capability(
     cwd: str | Path,
     transport_factory: Callable[..., Any] = AppServerTransport,
     turn_timeout_seconds: float = 120,
+    model_policy: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Prove native bind-before-turn writes and read-only denial end to end.
 
@@ -1913,6 +2028,7 @@ def probe_native_host_capability(
     """
 
     requested_root = Path(cwd).resolve(strict=True)
+    checked_policy = validate_model_policy(model_policy if model_policy is not None else {})
     resolved_executable = _resolve_codex_executable(executable)
     timeout = float(turn_timeout_seconds)
     if timeout <= 0 or timeout > 600:
@@ -1962,6 +2078,7 @@ def probe_native_host_capability(
             cancellation_epoch=0,
             fencing_epoch=1,
             candidate_head=base_head,
+            **checked_policy.get("roles", {}).get("IMPLEMENTER", {}),
         )
         implementer_bindings: list[Mapping[str, Any]] = []
         authorized_actions: list[tuple[str, str]] = []
@@ -2058,6 +2175,7 @@ def probe_native_host_capability(
             cancellation_epoch=0,
             fencing_epoch=1,
             candidate_head=candidate_head,
+            **checked_policy.get("roles", {}).get("PARENT", {}),
         )
         parent = NativeCodexHost(
             executable=resolved_executable,
@@ -2139,6 +2257,7 @@ def probe_native_host_capability(
             cancellation_epoch=0,
             fencing_epoch=1,
             candidate_head=candidate_head,
+            **checked_policy.get("roles", {}).get("REVIEWER", {}),
         )
         reviewer = NativeCodexHost(
             executable=resolved_executable,
@@ -2313,5 +2432,8 @@ def probe_native_host_capability(
         }
         if not evidence["actors_bound_only_to_disposable_repository"]:
             raise HostProtocolError("native probe actor escaped the disposable repository")
+        evidence["model_assignments"] = {item["role"]: {
+            "model": item["model"], "reasoning_effort": item["reasoning_effort"]
+        } for item in implementer_bindings + parent_bindings + reviewer_bindings}
         evidence["evidence_digest"] = _digest(evidence)
         return evidence

@@ -582,6 +582,43 @@ class CampaignCliTests(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_FAILED)
         self.assertEqual(output.read_bytes(), before)
 
+    def test_prepare_and_admit_preserve_model_policy_and_check_live_support(self) -> None:
+        from scripts.agent.campaign_engine import host
+        policy = {"roles": {"IMPLEMENTER": {"model": "gpt-6.1-terra", "reasoning_effort": "high"}}}
+        raw = self.proposed_product_change()
+        raw["model_policy"] = policy
+        draft, output = self.root / "model-draft.json", self.root / "model-prepared.json"
+        draft.write_text(json.dumps(raw), encoding="utf-8")
+        available = {"model_policy": policy, "available_models": [
+            {"model": "gpt-6.1-terra", "supported_reasoning_efforts": ["high"]}]}
+        with mock.patch.object(host, "inspect_model_policy", return_value=available) as inspect:
+            code, prepared = self.run_cli("prepare", "--spec", str(draft), "--repository", str(self.repo), "--output", str(output))
+            self.assertEqual(code, 0, prepared)
+            self.assertFalse(self.state_db.exists())
+            self.assertEqual(json.loads(output.read_text())["model_policy"], policy)
+            inspect.assert_called_once_with(cwd=self.repo.resolve(), policy=policy)
+        with mock.patch.object(host, "inspect_model_policy", side_effect=host.HostAuthorityError("requested model is not available")):
+            code, denied = self.run_cli("admit", "--spec", str(output))
+            self.assertEqual(code, cli.EXIT_FAILED)
+            self.assertFalse(self.state_db.exists())
+        with mock.patch.object(host, "inspect_model_policy", return_value=available):
+            code, admitted = self.run_cli("admit", "--spec", str(output))
+            self.assertEqual(code, 0, admitted)
+            self.assertEqual(admitted["admission"]["model_selection"]["model_policy"], policy)
+            with CampaignStore(self.state_db) as store:
+                self.assertEqual(store.get_snapshot(self.spec.campaign_id).spec.to_dict()["model_policy"], policy)
+
+    def test_models_command_checks_idle_configuration_without_campaign_state(self) -> None:
+        cli._load_engine()
+        path = self.root / "models.json"
+        policy = {"roles": {"PARENT": {"model": "gpt-6.1-sol", "reasoning_effort": "high"}}}
+        path.write_text(json.dumps(policy), encoding="utf-8")
+        with mock.patch.object(cli, "inspect_model_policy", return_value={"ok": True, "turns_started": 0}) as inspect:
+            code, result = self.run_cli("models", "--repository-root", str(self.repo), "--policy", str(path), "--verify-bindings")
+            self.assertEqual(code, 0, result)
+            inspect.assert_called_once_with(cwd=str(self.repo), policy=policy, verify_bindings=True)
+            self.assertFalse(self.state_db.exists())
+
     def test_prepare_rejects_conflicting_identity_and_changed_declared_source(self) -> None:
         raw = self.proposed_product_change()
         raw["branch"] = "another-branch"
@@ -663,13 +700,12 @@ class CampaignCliTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertEqual(result["state"], "PROPOSED")
 
-    def test_doctor_distinguishes_missing_entry_router_from_verified_engine(self):
+    def test_doctor_reports_native_discovery_without_retired_router_dependency(self):
         code, result = self.run_cli("doctor")
         self.assertEqual(code, 0, result)
-        prerequisite = result["entry_prerequisites"]["canonical_router"]
-        self.assertFalse(prerequisite["available"])
-        self.assertEqual(prerequisite["required_for"], "routed skill entry")
-        self.assertEqual(prerequisite["route_admission"], "not_checked")
+        self.assertEqual(result["entry_prerequisites"], {
+            "native_skill_discovery": {"owner": "codex", "status": "not_checked"},
+        })
         self.assertTrue(result["runtime_pin"])
 
 

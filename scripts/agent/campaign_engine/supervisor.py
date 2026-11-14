@@ -542,6 +542,7 @@ class DeterministicSupervisor:
         )
         if role is ActorRole.IMPLEMENTER and node.validation_correction is not None:
             candidate_head = str(node.validation_correction["candidate_head"])
+        selection = snapshot.spec.actor_model(role.value, reviewer_id) or {}
         return ActorLease.issue(
             lease_id=lease.lease_id,
             request_id=_stable_id("native", lease.lease_id),
@@ -555,11 +556,15 @@ class DeterministicSupervisor:
             cancellation_epoch=snapshot.cancellation_epoch,
             fencing_epoch=lease.fencing_epoch,
             candidate_head=candidate_head,
+            **selection,
         )
 
     def _bind_native(
         self, lease: ActorLease, native_identity: Mapping[str, Any]
     ) -> None:
+        if lease.model is not None and (native_identity.get("model") != lease.model
+                or native_identity.get("reasoning_effort") != lease.reasoning_effort):
+            raise SupervisorError("native model selection differs from the approved actor lease")
         thread_id = str(native_identity.get("thread_id", ""))
         self.store.bind_actor(
             lease.lease_id,

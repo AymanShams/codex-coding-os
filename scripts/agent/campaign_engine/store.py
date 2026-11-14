@@ -2280,6 +2280,8 @@ class CampaignStore:
                     ),
                     **({"acceptance_sources": payload["acceptance_sources"]}
                        if "acceptance_sources" in payload else {}),
+                    **({"model_selection": payload["model_selection"]}
+                       if "model_selection" in payload else {}),
                 }
             )
         else:

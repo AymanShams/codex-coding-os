@@ -832,6 +832,18 @@ def admit_campaign_spec(
         "public_key_sha256": _sha256_bytes(authorization_public_key),
     }
     acceptance_sources = verify_acceptance_sources(spec)
+    model_evidence: dict[str, Any] = {}
+    if "model_policy" in spec:
+        from .model import validate_model_policy
+        from .host import inspect_model_policy
+        policy = validate_model_policy(spec["model_policy"], spec.get("required_review_cohort", ()))
+        if policy:
+            inspected = inspect_model_policy(cwd=exact_worktree, policy=policy)
+            chosen = {entry["model"] for group in policy.values() for entry in group.values()}
+            model_evidence["model_selection"] = {
+                "model_policy": policy,
+                "available_models": [row for row in inspected["available_models"] if row["model"] in chosen],
+            }
     return {
         "protocol_version": RUNTIME_PROTOCOL_VERSION,
         "repository": repo_evidence.to_dict(),
@@ -840,6 +852,7 @@ def admit_campaign_spec(
         "validation_commands": admitted_commands,
         "human_authorization_verifier": authorization_verifier,
         "acceptance_sources": acceptance_sources,
+        **model_evidence,
         "admission_sha256": _sha256_bytes(
             _canonical_json(
                 {
@@ -849,6 +862,7 @@ def admit_campaign_spec(
                     "validation_commands": admitted_commands,
                     "human_authorization_verifier": authorization_verifier,
                     "acceptance_sources": acceptance_sources,
+                    **model_evidence,
                 }
             )
         ),

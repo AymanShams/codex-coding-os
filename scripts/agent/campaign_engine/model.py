@@ -33,6 +33,37 @@ class ModelValidationError(CampaignError, ValueError):
     """A model value violates the campaign contract."""
 
 
+NATIVE_MODEL_ROLES = frozenset({"PARENT", "IMPLEMENTER", "REPAIRER", "REVIEWER", "CLOSURE_REVIEWER"})
+REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"})
+
+
+def validate_actor_model(value: Mapping[str, Any]) -> dict[str, str]:
+    if not isinstance(value, Mapping) or set(value) != {"model", "reasoning_effort"}:
+        raise ModelValidationError("actor model requires exactly model and reasoning_effort")
+    model, effort = value["model"], value["reasoning_effort"]
+    if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", model):
+        raise ModelValidationError("actor model must be an exact model identifier")
+    if not isinstance(effort, str) or effort not in REASONING_EFFORTS:
+        raise ModelValidationError("actor reasoning_effort is invalid")
+    return {"model": model, "reasoning_effort": effort}
+
+
+def validate_model_policy(value: Mapping[str, Any], reviewer_ids: Iterable[str] | None = None) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) - {"roles", "reviewers"}:
+        raise ModelValidationError("model_policy permits only roles and reviewers")
+    result = {}
+    for group, choices in value.items():
+        if not isinstance(choices, Mapping):
+            raise ModelValidationError(f"model_policy.{group} must be an object")
+        allowed = NATIVE_MODEL_ROLES if group == "roles" else (set(reviewer_ids) if reviewer_ids is not None else None)
+        result[group] = {}
+        for name, selection in choices.items():
+            if not isinstance(name, str) or not name.strip() or (allowed is not None and name not in allowed):
+                raise ModelValidationError(f"unknown model_policy {group} entry: {name}")
+            result[group][name] = validate_actor_model(selection)
+    return result
+
+
 class TransitionError(CampaignError):
     """An event is not legal from the current lifecycle state."""
 
@@ -531,11 +562,13 @@ class CampaignSpec:
     host_capability_probe_version: str = HOST_CAPABILITY_PROBE_VERSION
     autonomous_rank: int = 1
     deadline_utc: str | None = None
+    model_policy: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", _enum(CampaignMode, self.mode))
         object.__setattr__(self, "objective_kind", _enum(ObjectiveKind, self.objective_kind))
         object.__setattr__(self, "publication_authority", _freeze(self.publication_authority))
+        object.__setattr__(self, "model_policy", _freeze(validate_model_policy(self.model_policy, self.required_review_cohort)))
         for name in (
             "campaign_id",
             "objective",
@@ -775,6 +808,7 @@ class CampaignSpec:
             ),
             autonomous_rank=int(value.get("autonomous_rank", 1)),
             deadline_utc=(str(value["deadline_utc"]) if value.get("deadline_utc") else None),
+            model_policy=value.get("model_policy", {}),
         )
         computed = spec.compute_digest()
         if supplied_digest and verify_digest and supplied_digest != computed:
@@ -788,6 +822,13 @@ class CampaignSpec:
         payload.pop("specification_digest", None)
         return canonical_json_digest(payload)
 
+    def actor_model(self, role: str, reviewer_id: str | None = None) -> Mapping[str, str] | None:
+        if role in {"REVIEWER", "CLOSURE_REVIEWER"} and reviewer_id is not None:
+            selected = self.model_policy.get("reviewers", {}).get(reviewer_id)
+            if selected is not None:
+                return selected
+        return self.model_policy.get("roles", {}).get(role)
+
     def verify_digest(self) -> None:
         if not self.specification_digest or self.specification_digest != self.compute_digest():
             raise ModelValidationError(
@@ -795,7 +836,7 @@ class CampaignSpec:
             )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "campaign_id": self.campaign_id,
             "specification_revision": self.specification_revision,
             "specification_digest": self.specification_digest,
@@ -827,6 +868,10 @@ class CampaignSpec:
             "autonomous_rank": self.autonomous_rank,
             "deadline_utc": self.deadline_utc,
         }
+        # Existing approved digests do not acquire an ambient model default.
+        if self.model_policy:
+            result["model_policy"] = _primitive(self.model_policy)
+        return result
 
 
 @dataclass(frozen=True)

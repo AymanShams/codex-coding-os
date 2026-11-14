@@ -4,6 +4,11 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+- Support digest-bound native actor models and reasoning efforts by campaign role
+  and named reviewer, with live capability checks and exact idle-thread readback.
+- Add read-only model inspection and policy-aware disposable host probes without
+  changing existing campaign defaults or shared Codex configuration.
+
 ## [1.3.2] - 2026-09-20
 
 - Resolve the current Codex executable on PATH before private Windows helper

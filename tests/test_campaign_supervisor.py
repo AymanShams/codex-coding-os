@@ -632,6 +632,32 @@ class SupervisorFixture(unittest.TestCase):
 
 
 class CampaignSupervisorLifecycleTests(SupervisorFixture):
+    def test_approved_model_policy_reaches_actor_lease_and_native_binding(self) -> None:
+        raw = self.make_spec("models", mode="AUTOMATED").to_dict()
+        raw.pop("specification_digest")
+        raw["model_policy"] = {
+            "roles": {"IMPLEMENTER": {"model": "gpt-6.1-terra", "reasoning_effort": "high"}},
+            "reviewers": {"reviewer-a": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"}},
+        }
+        self.create_approved(CampaignSpec.from_dict(raw))
+        native = FakeHost()
+        supervisor = DeterministicSupervisor(self.store, host=native, now=lambda: NOW)
+        self.assertEqual(supervisor.step("models").action, "CAMPAIGN_STARTED")
+        supervisor.step("models")
+        dispatched = supervisor.step("models")
+        self.assertEqual(dispatched.action, "IMPLEMENTER_DISPATCHED")
+        lease = native.bindings[dispatched.details["lease_id"]].lease
+        self.assertEqual((lease.model, lease.reasoning_effort), ("gpt-6.1-terra", "high"))
+        # Use the same approved policy when a reviewer or closure reviewer is issued.
+        snapshot = self.store.get_snapshot("models")
+        actor = self.store.get_actor(lease.actor_id)
+        stored_lease = self.store.get_lease(lease.lease_id)
+        self.assertEqual(actor.native_identity["model"], "gpt-6.1-terra")
+        self.assertEqual(actor.native_identity["reasoning_effort"], "high")
+        for role in (ActorRole.REVIEWER, ActorRole.CLOSURE_REVIEWER):
+            reviewer = supervisor._host_lease(snapshot, "node-1", role, actor, stored_lease, reviewer_id="reviewer-a")
+            self.assertEqual((reviewer.model, reviewer.reasoning_effort), ("gpt-6-astra", "xhigh"))
+
     def test_two_disjoint_nodes_validate_from_immutable_node_start_and_publish(self) -> None:
         (self.repo / "docs").mkdir()
         (self.repo / "docs" / "guide.txt").write_text("base guide\n", encoding="utf-8")

@@ -226,6 +226,8 @@ class _FakeTransport:
             return {"data": [], "nextCursor": None}
         if method == "thread/start":
             return {
+                "model": params["model"],
+                "reasoningEffort": params["config"]["model_reasoning_effort"],
                 "thread": {
                     "id": "native-thread-1",
                     "cwd": params["cwd"],
@@ -303,6 +305,8 @@ class _ProbeTransport(_FakeTransport):
             return super().request(method, params, timeout)
         if method == "thread/start":
             return {
+                "model": params["model"],
+                "reasoningEffort": params["config"]["model_reasoning_effort"],
                 "thread": {
                     "id": self.thread_id,
                     "cwd": params["cwd"],
