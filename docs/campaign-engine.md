@@ -226,8 +226,10 @@ installation and the current verified, compatible installation.
 The original failed campaign and its attempt budgets remain intact. A separate
 operation reserves one reviewer start per candidate and stores the attested
 verdict and findings. Repeating the same request reads its recorded result
-without starting another turn. An interrupted attempt without a result stays
-recorded for inspection. The command has no implementation, validation
+without starting another turn. If a completed receipt was attested before
+finalization failed, the command may reverify that exact receipt and append a
+result while preserving the earlier failure. An attempt without an attested
+result stays recorded for inspection. The command has no implementation, validation
 execution, repair or publication actions.
 
 A failed native reviewer turn is kept as diagnostic evidence with its native

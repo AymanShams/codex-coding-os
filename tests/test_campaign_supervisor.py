@@ -1278,6 +1278,46 @@ class ExistingCandidateReviewTests(SupervisorFixture):
         self.assertEqual(len(result["validation_evidence_ids"]), 1)
         self.assertEqual(self.store.get_evidence(result["review_evidence_id"]).kind, EvidenceKind.REVIEW)
 
+    def test_attested_block_is_reverified_without_another_turn(self):
+        failed = self.prepare_failed_review()
+        node = failed.node("node-1")
+
+        class BlockingHost(FakeHost):
+            def start_actor_turn(self, lease_id, prompt):
+                binding = super().start_actor_turn(lease_id, prompt)
+                self.set_result(lease_id, {
+                    "reviewer_id": "reviewer-a", "candidate_head": node.candidate_head,
+                    "candidate_tree": node.candidate_tree, "verdict": "BLOCK",
+                    "findings": [{
+                        "finding_id": "independent-db-check", "title": "Database check omitted a row",
+                        "blocking": True, "details": {
+                            "invariant": "The original assessment evidence must be complete.",
+                            "evidence": ["readback.sql:20", "assessment.sql:10"],
+                        },
+                    }],
+                })
+                return binding
+
+        host = BlockingHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        inputs = dict(specification_digest=failed.spec.specification_digest,
+                      candidate_head=node.candidate_head, recovery_runtime={"test": 1}, timeout=20)
+        with patch.object(engine, "_verify_review_receipts", side_effect=SupervisorError("old verifier rejected citations")):
+            rejected = engine.review_existing_candidate("recovery", "node-1", **inputs)
+        self.assertFalse(rejected["ok"])
+        self.assertIn("old verifier", rejected["error"])
+        inputs["recovery_runtime"] = {"test": 2}
+        result = engine.review_existing_candidate("recovery", "node-1", **inputs)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["verdict"], "BLOCK")
+        self.assertEqual(result["findings"][0]["finding_id"], "independent-db-check")
+        self.assertEqual(result["recovery_runtime"], {"test": 1})
+        self.assertEqual(result["receipt_verification_runtime"], {"test": 2})
+        self.assertEqual(result, engine.review_existing_candidate("recovery", "node-1", **inputs))
+        self.assertEqual(len(host.turns), 1)
+        self.assertEqual(self.store.get_snapshot("recovery"), failed)
+        self.assertFalse(self.store.list_outbox(campaign_id="recovery"))
+
     def test_review_refuses_wrong_digest_and_dirty_candidate_before_dispatch(self):
         failed = self.prepare_failed_review()
         host = FakeHost()

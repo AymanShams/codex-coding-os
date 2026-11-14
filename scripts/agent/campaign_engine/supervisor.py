@@ -652,7 +652,8 @@ class DeterministicSupervisor:
             instruction += (
                 " Reuse established finding identifiers when reporting the same evidence."
                 " Tie each blocker in details to acceptance_expectation_id, an invariant "
-                "with evidence, or a regression with reproduction, expected, and actual. "
+                "with evidence (a nonempty citation string or list of citation strings), "
+                "or a regression object with reproduction, expected, and actual. "
                 "For a nonblocking observation supply details.observation explaining why "
                 "it does not violate an acceptance expectation or invariant. At closure "
                 "report resolved_finding_ids only for frozen blockers verified as fixed."
@@ -1427,14 +1428,38 @@ class DeterministicSupervisor:
             "approved_runtime_transaction": spec.install_transaction,
             "recovery_runtime": dict(recovery_runtime),
         }
+        lease_id = _stable_id("review-existing-lease", operation)
         prior = self.store.get_runtime_operation(operation)
         if prior is not None:
-            result = self.store.get_runtime_operation(result_id)
-            if prior["result"]["payload"] != binding:
+            reserved = prior["result"]["payload"]
+            if any(reserved.get(key) != value for key, value in binding.items()
+                   if key != "recovery_runtime"):
                 raise SupervisorError("review-only request differs from the reserved attempt")
-            if result is None:
-                raise SupervisorError("original review-only attempt has no recorded result")
-            return dict(result["result"]["result"])
+            result = self.store.get_runtime_operation(result_id)
+            if result is not None and result["result"]["result"].get("ok"):
+                return dict(result["result"]["result"])
+            # A previous process may have attested the completed turn before
+            # result validation or finalization failed. Recover that exact
+            # receipt, never re-dispatch the reserved reviewer.
+            if self.store.get_evidence(_stable_id("receipt", lease_id)) is None:
+                if result is not None:
+                    return dict(result["result"]["result"])
+                raise SupervisorError("original review-only attempt has no attested result")
+            replay_binding = dict(reserved)
+            replay_binding["receipt_verification_runtime"] = dict(recovery_runtime)
+            final_id = _stable_id("review-existing-verified", operation)
+            finalized = self.store.get_runtime_operation(final_id)
+            if finalized is not None:
+                return dict(finalized["result"]["result"])
+            outcome = self._finalize_existing_review(
+                snapshot, node, reviewer, lease_id, validation, verify_candidate,
+            )
+            outcome.update(replay_binding, operation_id=operation)
+            self.store.record_runtime_operation(
+                request_id=final_id, campaign_id=campaign_id, kind="REVIEW_EXISTING_VERIFIED",
+                payload=replay_binding, result=outcome, revision=snapshot.revision,
+            )
+            return outcome
 
         self.store.record_runtime_operation(
             request_id=operation, campaign_id=campaign_id, kind="REVIEW_EXISTING_RESERVED",
@@ -1444,7 +1469,6 @@ class DeterministicSupervisor:
         actor = Actor(_stable_id("review-existing-actor", operation), campaign_id, node_id,
                       ActorRole.REVIEWER, "UNBOUND", snapshot.authority_epoch, False,
                       principal_id=reviewer)
-        lease_id = _stable_id("review-existing-lease", operation)
         lease = None
         try:
             lease = self.store.acquire_lease(
@@ -1463,30 +1487,15 @@ class DeterministicSupervisor:
                 lease_id, current_epochs=self.store.current_epochs, timeout=timeout,
             )
             completed = receipt.turn_status.casefold() in {"completed", "complete"}
-            evidence = self._attest_native_terminal(receipt, completed=completed)
-            if not completed:
-                raise SupervisorError(self._native_failure(receipt))
             if (receipt.lease_id != lease_id or receipt.candidate_tree != node.candidate_tree
                     or self.store.get_snapshot(campaign_id) != snapshot):
                 raise SupervisorError("review completed outside the frozen candidate or failed revision")
-            payload = receipt.result_payload
-            raw_findings = receipt.to_dict()["result_payload"].get("findings")
-            summary = {
-                "reviewer_id": reviewer, "candidate_head": candidate_head,
-                "receipt_digest": receipt.receipt_digest, "verdict": payload.get("verdict"),
-                "resolved_finding_ids": [],
-            }
-            findings = self._verify_review_receipts(
-                snapshot, node, [summary], raw_findings if isinstance(raw_findings, list) else [],
-                expected_role=ActorRole.REVIEWER,
+            self._attest_native_terminal(receipt, completed=completed)
+            if not completed:
+                raise SupervisorError(self._native_failure(receipt))
+            result = self._finalize_existing_review(
+                snapshot, node, reviewer, lease_id, validation, verify_candidate,
             )
-            if verify_candidate() != validation:
-                raise SourceDriftError("validation evidence changed during the review")
-            result = {
-                "ok": True, "verdict": summary["verdict"], "findings": findings,
-                "review_evidence_id": evidence.evidence_id, "receipt_digest": evidence.digest,
-                "native_thread_id": receipt.native_thread_id, "native_turn_id": receipt.native_turn_id,
-            }
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:
@@ -1505,6 +1514,36 @@ class DeterministicSupervisor:
             payload=binding, result=result, revision=snapshot.revision,
         )
         return result
+
+    def _finalize_existing_review(
+        self, snapshot: CampaignSnapshot, node: NodeSnapshot, reviewer: str,
+        lease_id: str, validation: list[str], verify_candidate: Callable[[], list[str]],
+    ) -> dict[str, Any]:
+        evidence = self.store.get_evidence(_stable_id("receipt", lease_id))
+        if (evidence is None or evidence.kind is not EvidenceKind.REVIEW
+                or evidence.payload.get("lease_id") != lease_id
+                or evidence.payload.get("candidate_tree") != node.candidate_tree
+                or self.store.get_snapshot(snapshot.spec.campaign_id) != snapshot):
+            raise SupervisorError("stored review is outside the frozen candidate or failed revision")
+        payload = evidence.to_dict()["payload"]
+        result = payload["result_payload"]
+        raw_findings = result.get("findings")
+        summary = {
+            "reviewer_id": reviewer, "candidate_head": node.candidate_head,
+            "receipt_digest": evidence.digest, "verdict": result.get("verdict"),
+            "resolved_finding_ids": [],
+        }
+        findings = self._verify_review_receipts(
+            snapshot, node, [summary], raw_findings if isinstance(raw_findings, list) else [],
+            expected_role=ActorRole.REVIEWER,
+        )
+        if verify_candidate() != validation:
+            raise SourceDriftError("validation evidence changed during the review")
+        return {
+            "ok": True, "verdict": summary["verdict"], "findings": findings,
+            "review_evidence_id": evidence.evidence_id, "receipt_digest": evidence.digest,
+            "native_thread_id": payload["native_thread_id"], "native_turn_id": payload["native_turn_id"],
+        }
 
     def freeze_review(
         self,
@@ -1668,14 +1707,17 @@ class DeterministicSupervisor:
                 if finding.closure_blocking:
                     details = finding.details
                     regression = details.get("regression")
+                    evidence_text = details.get("evidence")
+                    has_evidence = (isinstance(evidence_text, str) and bool(evidence_text.strip())
+                                    or isinstance(evidence_text, (list, tuple)) and bool(evidence_text)
+                                    and all(isinstance(entry, str) and entry.strip() for entry in evidence_text))
                     acceptance_ids = {scenario["scenario_id"] for scenario in
                                       snapshot.node_spec(node.node_id).acceptance_scenarios}
                     has_basis = (
                         details.get("acceptance_expectation_id") in acceptance_ids
                         or (isinstance(details.get("invariant"), str)
                             and bool(details["invariant"].strip())
-                            and isinstance(details.get("evidence"), str)
-                            and bool(details["evidence"].strip()))
+                            and has_evidence)
                         or (isinstance(regression, Mapping)
                             and all(isinstance(regression.get(key), str) and regression[key].strip()
                                     for key in ("reproduction", "expected", "actual")))
