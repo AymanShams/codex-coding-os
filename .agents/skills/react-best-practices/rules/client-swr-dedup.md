@@ -9,6 +9,8 @@ tags: client, swr, deduplication, data-fetching
 
 SWR enables request deduplication, caching, and revalidation across component instances.
 
+When results vary by signed-in user or account, include that context in the cache key and use the same context in the fetcher. Clear or revalidate affected entries on logout, account switching, or relevant data changes. Use the immutable-data pattern only for values that remain unchanged within that scope.
+
 **Incorrect (no deduplication, each instance fetches):**
 
 ```tsx
@@ -45,7 +47,7 @@ function StaticContent() {
 **For mutations:**
 
 ```tsx
-import { useSWRMutation } from 'swr/mutation'
+import useSWRMutation from 'swr/mutation'
 
 function UpdateButton() {
   const { trigger } = useSWRMutation('/api/user', updateUser)

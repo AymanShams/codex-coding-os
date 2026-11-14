@@ -528,7 +528,12 @@ export default function RootLayout({ children }) {
 
 **Correct: loads after hydration**
 
+Keep the browser-only dynamic import in a separate Client Component. The root layout remains a Server Component.
+
 ```tsx
+// app/deferred-analytics.tsx
+'use client'
+
 import dynamic from 'next/dynamic'
 
 const Analytics = dynamic(
@@ -536,12 +541,21 @@ const Analytics = dynamic(
   { ssr: false }
 )
 
+export default function DeferredAnalytics() {
+  return <Analytics />
+}
+```
+
+```tsx
+// app/layout.tsx
+import DeferredAnalytics from './deferred-analytics'
+
 export default function RootLayout({ children }) {
   return (
     <html>
       <body>
         {children}
-        <Analytics />
+        <DeferredAnalytics />
       </body>
     </html>
   )
@@ -895,7 +909,7 @@ For static assets and config, see [Hoist Static I/O to Module Level](./rules/ser
 
 **Impact: HIGH (caches across requests)**
 
-`React.cache()` only works within one request. For data shared across sequential requests (user clicks button A then button B), use an LRU cache.
+`React.cache()` only works within one request. For data shared across sequential requests (user clicks button A then button B), consider an LRU cache when repeated reads justify reuse.
 
 **Implementation:**
 
@@ -922,9 +936,11 @@ export async function getUser(id: string) {
 
 Use when sequential user actions hit multiple endpoints needing the same data within seconds.
 
-**With Vercel's [Fluid Compute](https://vercel.com/docs/fluid-compute):** LRU caching is especially effective because multiple concurrent requests can share the same function instance and cache. This means the cache persists across requests without needing external storage like Redis.
+Choose the size limit and acceptable freshness for the actual workload rather than copying the example values. Include user/account context in keys when results differ by that context. Invalidate or refresh affected entries after updates or relevant account changes.
 
-**In traditional serverless:** Each invocation runs in isolation, so consider Redis for cross-process caching.
+**With Vercel's [Fluid Compute](https://vercel.com/docs/fluid-compute):** Requests handled by the same function instance can reuse its in-memory cache. Other instances have separate caches.
+
+**In other serverless runtimes:** An instance may be reused, but reuse and lifetime are not guaranteed. This cache is instance-local and non-durable. On a miss or instance replacement, read the authoritative source and preserve existing error handling. Keep fallback reads within the source's capacity.
 
 Reference: [https://github.com/isaacs/node-lru-cache](https://github.com/isaacs/node-lru-cache)
 
@@ -1489,6 +1505,8 @@ useEffect(() => {
 
 SWR enables request deduplication, caching, and revalidation across component instances.
 
+When results vary by signed-in user or account, include that context in the cache key and use the same context in the fetcher. Clear or revalidate affected entries on logout, account switching, or relevant data changes. Use the immutable-data pattern only for values that remain unchanged within that scope.
+
 **Incorrect: no deduplication, each instance fetches**
 
 ```tsx
@@ -1525,7 +1543,7 @@ function StaticContent() {
 **For mutations:**
 
 ```tsx
-import { useSWRMutation } from 'swr/mutation'
+import useSWRMutation from 'swr/mutation'
 
 function UpdateButton() {
   const { trigger } = useSWRMutation('/api/user', updateUser)
@@ -3011,6 +3029,8 @@ for (let i = 0; i < len; i++) {
 
 Use a module-level Map to cache function results when the same function is called repeatedly with the same inputs during render.
 
+The Map example assumes a bounded set of inputs. If distinct inputs can grow without limit, cap stored entries with eviction or use a shorter-lived cache. Include every input that affects the result in the key, including user/account context when relevant. Clear or refresh entries after relevant state changes, and recompute on a miss. Module-level caches are instance-local and non-durable.
+
 **Incorrect: redundant computation**
 
 ```typescript
@@ -3058,6 +3078,8 @@ function ProjectList({ projects }: { projects: Project[] }) {
 ```
 
 **Simpler pattern for single-value functions:**
+
+For this browser-only example, call `onAuthChange()` whenever login, logout, or account switching changes the state being cached.
 
 ```typescript
 let isLoggedInCache: boolean | null = null

@@ -1,10 +1,10 @@
 {
-  "aggregate_sha256": "bb40ea45f327199e1bd7d92a72879dfcd3576f911c1b11d282752faa7c706dc6",
+  "aggregate_sha256": "d7f92d92923d9017b14160cef49e0fb20b77bb86acdf1c51e97a98deb46eb8cc",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
-      "sha256": "ef282de9842075708b791e874317be8edd69dc620ed7cba4fefb59acf373aa22",
-      "size": 1369
+      "sha256": "cd2e54d88cffb11e6986fbbda543b9f3840423eec0bd2fd602bfa37c117a2719",
+      "size": 1615
     },
     {
       "path": ".agents/skills/artifact-system-designer/SKILL.md",
@@ -568,8 +568,8 @@
     },
     {
       "path": ".agents/skills/react-best-practices/AGENTS.md",
-      "sha256": "1fe182a457585dc5d1f532beef4c956f2d071d452a1fa243602297c97b7eb7e4",
-      "size": 108279
+      "sha256": "06d194ed75ebdbdc338ce8a216e81f5fdb4b086469be2f6cc37e82291e6fe748",
+      "size": 109833
     },
     {
       "path": ".agents/skills/react-best-practices/README.md",
@@ -663,8 +663,8 @@
     },
     {
       "path": ".agents/skills/react-best-practices/rules/bundle-defer-third-party.md",
-      "sha256": "3719fb47b191e8db4fe22686ec88448ad5af9e6838585425abbe103d0b642e37",
-      "size": 920
+      "sha256": "5e4b5e6adce4e1ce5b717064f346f231ebde51f6574203355f2053e84dff1eaa",
+      "size": 1241
     },
     {
       "path": ".agents/skills/react-best-practices/rules/bundle-dynamic-imports.md",
@@ -693,8 +693,8 @@
     },
     {
       "path": ".agents/skills/react-best-practices/rules/client-swr-dedup.md",
-      "sha256": "644652c39c6cc00de8d1c77a7273612e868dc3f7edda30764164c12ec0f764a3",
-      "size": 1159
+      "sha256": "19d957c21394eb6ea29bdbf13eb038ac15e78202873e6ab61794f45acf8c4a48",
+      "size": 1464
     },
     {
       "path": ".agents/skills/react-best-practices/rules/js-batch-dom-css.md",
@@ -703,8 +703,8 @@
     },
     {
       "path": ".agents/skills/react-best-practices/rules/js-cache-function-results.md",
-      "sha256": "3daaa11d24f4295cb6be8bc6f407f2ce83cc7b5bd1f0e68891ea8ab835721dc7",
-      "size": 1949
+      "sha256": "87e6a9d0eddd76361bc4da8b65c5b92b15abd97d968cab1cff30e80f9920cf35",
+      "size": 2474
     },
     {
       "path": ".agents/skills/react-best-practices/rules/js-cache-property-access.md",
@@ -908,8 +908,8 @@
     },
     {
       "path": ".agents/skills/react-best-practices/rules/server-cache-lru.md",
-      "sha256": "1924b64561841923b88a657085097a0aeba3e0ba2d5470b9f5c15cc10d6ae70f",
-      "size": 1353
+      "sha256": "5e73634124dac3648332b9b57811e3f4a02eac358a314d887ed829cddb5fb556",
+      "size": 1756
     },
     {
       "path": ".agents/skills/react-best-practices/rules/server-cache-react.md",
@@ -1288,13 +1288,13 @@
     },
     {
       "path": ".agents/skills/ssot-auditor/SKILL.md",
-      "sha256": "5b6ad7c5e5e4e658fa70f13fd80537f8b9a33da02f4a366966316aa5f78dfeb9",
-      "size": 2834
+      "sha256": "5c955b3ddab43cd9f0bba7b6865b36f26e973f1aad99798473792c608324be95",
+      "size": 2833
     },
     {
       "path": ".agents/skills/ssot-drafter/SKILL.md",
-      "sha256": "518a656323796f788c16c6a03199b143360bddf5eebfe32fb4596fd4149e6b9b",
-      "size": 4505
+      "sha256": "c277b9ed65d059e728e61af61ff8b5ce284ee1416132f4abf1b7d79a5cfe96fd",
+      "size": 5044
     },
     {
       "path": ".agents/skills/storyscope-structural-audit/SKILL.md",
@@ -1313,8 +1313,8 @@
     },
     {
       "path": ".agents/skills/technical-docs-pack/SKILL.md",
-      "sha256": "d47bb1317cc7974c46aa71030458abd601bcaded1404853a219fe6b11cb415d1",
-      "size": 8096
+      "sha256": "03f67527555ef0eb75c00e0d3cee317a695976eeb7d6dba150df185831cb2159",
+      "size": 7971
     },
     {
       "path": ".agents/skills/technical-docs-pack/agents/openai.yaml",
@@ -1333,8 +1333,8 @@
     },
     {
       "path": ".agents/skills/technical-docs-pack/references/repo-docs-template.md",
-      "sha256": "472292c2966f95bf6ec3de1e9d6512fdd54197998ed6ce0ed414890e9d951707",
-      "size": 9059
+      "sha256": "97952bd2030edce19d9bbfc46bf55bb5f5ff1de97e59d1374f7e736e44975af3",
+      "size": 9695
     },
     {
       "path": ".agents/skills/technical-docs-pack/references/search-documentation-template.md",

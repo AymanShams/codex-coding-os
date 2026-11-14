@@ -12,14 +12,18 @@ description: Use for bounded repository implementation and verification, manuall
   code before adding abstractions or dependencies.
 - Run trusted validation commands bound to the exact candidate head. A nonzero
   process exit is failure regardless of assertion text.
-- Review the exact diff. Freeze one complete finding set, perform no more than
-  the repair authorized by the campaign, and rerun the declared validation.
+- Review the exact diff. For automated campaigns, freeze the required finding
+  set, follow the campaign's repair limits, and rerun its declared validation.
+  For manual work, address relevant findings within the current task and rerun
+  affected checks when changes warrant it.
 - For automated campaigns, publish only the frozen reviewed head through the
   campaign engine outbox. Manual delivery follows the current user authorization
   and repository checks and does not require a campaign.
 - Manual tasks do not require volatile Git state. Automated tasks require a
   current actor lease from the executable engine.
-- Stop immediately through `campaign_engine/cli.py cancel` when the user says
-  STOP. Do not resume a cancelled campaign from another task or branch.
+- Stop work immediately when the user says STOP. For an active automated
+  campaign owned by this task, cancel it through `campaign_engine/cli.py cancel`.
+  Manual work does not require a campaign command. Do not resume a cancelled
+  campaign from another task or branch.
 
 Lifecycle details belong only to `campaign_engine/reducer.py`, not this skill.
