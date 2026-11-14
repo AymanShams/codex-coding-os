@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,8 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from scripts.agent.campaign_engine import supervisor as supervisor_module
+from scripts.agent.campaign_engine.admission import AdmissionError
 from scripts.agent.campaign_engine.ed25519 import verify as verify_ed25519
 from scripts.agent.campaign_engine.effects import ExternalEffectDriver
 from scripts.agent.campaign_engine.evidence import (
@@ -25,6 +28,7 @@ from scripts.agent.campaign_engine.evidence import (
 )
 from scripts.agent.campaign_engine.host import (
     FakeHost,
+    _structured_result,
     HostProtocolError,
     LateResultError,
 )
@@ -1195,6 +1199,99 @@ class CampaignSupervisorLifecycleTests(SupervisorFixture):
         self.assertEqual(waiting.action, "YIELD")
         self.assertEqual(waiting.wait_event, "publication_authorized")
         self.assertEqual(self.store.get_snapshot("campaign").budget_receipts, ())
+
+
+class ExistingCandidateReviewTests(SupervisorFixture):
+    def prepare_failed_review(self):
+        raw = self.make_spec("recovery", mode="AUTOMATED").to_dict()
+        raw.pop("specification_digest")
+        raw["required_review_cohort"] = ["reviewer-a"]
+        raw["nodes"][0]["acceptance_scenarios"] = [{
+            "scenario_id": "bounded-result", "expectation": "the source remains exact",
+            "validation_command_id": "unit",
+            "sources": [{
+                "path": "README.md", "requirement_id": "fixture-source",
+                "sha256": hashlib.sha256(b"contract").hexdigest(),
+            }],
+        }]
+        (self.repo / "README.md").write_bytes(b"contract")
+        git(self.repo, "add", "README.md")
+        git(self.repo, "commit", "-q", "-m", "add contract")
+        raw["base_sha"] = git(self.repo, "rev-parse", "HEAD")
+        spec = CampaignSpec.from_dict(raw)
+        self.create_approved(spec)
+        host = FakeHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        engine.step("recovery")
+        engine.step("recovery")
+        implementer = engine.step("recovery").details["lease_id"]
+        host.write_file(implementer, "src/app.txt", b"candidate\n")
+        git(self.repo, "add", "src/app.txt")
+        git(self.repo, "commit", "-q", "-m", "candidate")
+        host.set_result(implementer, {"status": "completed", "action_count": 1})
+        engine.complete_worker(implementer)
+        self.assertEqual(engine.step("recovery").action, "CANDIDATE_FROZEN")
+        review = engine.step("recovery")
+        lease_id = review.details["leases"][0]
+        payload = _structured_result([], {"status": "failed", "error": {
+            "message": "workspace routing discovery timed out",
+        }})
+        host.set_result(lease_id, payload)
+        with self.assertRaisesRegex(SupervisorError, "workspace routing discovery timed out"):
+            engine.collect_review_cohort([lease_id])
+        failed = self.store.get_snapshot("recovery")
+        self.assertEqual(failed.state, CampaignState.FAILED)
+        self.assertIn("workspace routing discovery timed out", failed.node("node-1").failure_reason)
+        failure = self.store.get_evidence(supervisor_module._stable_id("receipt", lease_id))
+        self.assertEqual(failure.kind, EvidenceKind.GIT)
+        self.assertEqual(failure.payload["result_payload"]["native_error"],
+                         "workspace routing discovery timed out")
+        self.assertEqual([], self.store.list_active_leases("recovery"))
+        return failed
+
+    def test_review_preserves_failure_and_validations_and_only_starts_one_reader(self):
+        failed = self.prepare_failed_review()
+        node = failed.node("node-1")
+        class PassingHost(FakeHost):
+            def start_actor_turn(self, lease_id, prompt):
+                binding = super().start_actor_turn(lease_id, prompt)
+                self.set_result(lease_id, {
+                    "reviewer_id": "reviewer-a", "candidate_head": node.candidate_head,
+                    "candidate_tree": node.candidate_tree, "findings": [], "verdict": "PASS",
+                })
+                return binding
+
+        host = PassingHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        inputs = dict(specification_digest=failed.spec.specification_digest,
+                      candidate_head=node.candidate_head, recovery_runtime={"test": True}, timeout=20)
+        with patch.object(supervisor_module, "execute_trusted_command", side_effect=AssertionError("reran validation")):
+            result = engine.review_existing_candidate("recovery", "node-1", **inputs)
+            self.assertEqual(result["verdict"], "PASS", result)
+            self.assertEqual(result, engine.review_existing_candidate("recovery", "node-1", **inputs))
+        self.assertEqual(len(host.bindings), 1)
+        lease = next(iter(host.bindings.values())).lease
+        self.assertEqual((lease.role, lease.allowed_paths), ("REVIEWER", ()))
+        self.assertEqual(self.store.get_snapshot("recovery"), failed)
+        self.assertEqual([], self.store.list_active_leases("recovery"))
+        self.assertEqual([], self.store.list_outbox(campaign_id="recovery"))
+        self.assertEqual(len(result["validation_evidence_ids"]), 1)
+        self.assertEqual(self.store.get_evidence(result["review_evidence_id"]).kind, EvidenceKind.REVIEW)
+
+    def test_review_refuses_wrong_digest_and_dirty_candidate_before_dispatch(self):
+        failed = self.prepare_failed_review()
+        host = FakeHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        inputs = dict(candidate_head=failed.node("node-1").candidate_head,
+                      recovery_runtime={"test": True}, timeout=20)
+        with self.assertRaisesRegex(SupervisorError, "frozen specification"):
+            engine.review_existing_candidate("recovery", "node-1",
+                                             specification_digest="0" * 64, **inputs)
+        (self.repo / "README.md").write_bytes(b"changed")
+        with self.assertRaisesRegex(AdmissionError, "exactly clean"):
+            engine.review_existing_candidate("recovery", "node-1",
+                                             specification_digest=failed.spec.specification_digest, **inputs)
+        self.assertFalse(host.bindings)
 
 
 class CampaignSupervisorControlTests(SupervisorFixture):

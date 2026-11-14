@@ -453,6 +453,34 @@ def _status_summary(snapshot) -> dict[str, Any]:
             "total_changes": len(snapshot.nodes)}
 
 
+def command_review_existing(args: argparse.Namespace) -> dict[str, Any]:
+    if not 0 < args.worker_timeout <= 900:
+        raise ValueError("review-only worker timeout must be between zero and 900 seconds")
+    with _store(args) as store:
+        spec = store.get_snapshot(args.campaign_id).spec
+        installed = _runtime_pin(_installed_root())
+        original = {
+            "source_commit": spec.installed_source_commit,
+            "bundle_digest": spec.installed_bundle_digest,
+            "install_transaction": spec.install_transaction,
+            "protocol_version": spec.protocol_version,
+            "schema_compatibility": spec.schema_compatibility,
+            "host_capability_probe_version": spec.host_capability_probe_version,
+        }
+        if any(original[key] != installed[key] for key in (
+            "protocol_version", "schema_compatibility", "host_capability_probe_version",
+        )):
+            raise ValueError("review recovery runtime is incompatible with the original campaign")
+        if not any(all(item.get(key) == value for key, value in original.items())
+                   for item in store.list_runtime_installations()):
+            raise ValueError("original campaign runtime has no recorded installation")
+        return DeterministicSupervisor(store).review_existing_candidate(
+            args.campaign_id, args.node_id,
+            specification_digest=args.specification_digest, candidate_head=args.candidate_head,
+            recovery_runtime=installed, timeout=args.worker_timeout,
+        )
+
+
 def command_status(args: argparse.Namespace) -> dict[str, Any]:
     with _store(args) as store:
         if args.campaign_id:
@@ -674,6 +702,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--no-external-effects", action="store_true")
     run.set_defaults(handler=command_run)
 
+    review = sub.add_parser("review-existing", help="review one already validated commit from a failed campaign")
+    review.add_argument("--campaign-id", required=True)
+    review.add_argument("--node-id", required=True)
+    review.add_argument("--specification-digest", required=True)
+    review.add_argument("--candidate-head", required=True)
+    review.add_argument("--worker-timeout", type=float, default=600)
+    review.set_defaults(handler=command_review_existing)
+
     status = sub.add_parser("status")
     status.add_argument("--campaign-id")
     status.add_argument("--repository-root")
@@ -768,6 +804,8 @@ def main(
     try:
         result = args.handler(args)
         _emit(result, json_output=bool(args.json))
+        if args.command == "review-existing" and not result.get("ok"):
+            return EXIT_FAILED
         return 0
     except PermissionError as exc:
         _emit(

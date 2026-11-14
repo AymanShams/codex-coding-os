@@ -3028,14 +3028,14 @@ def _prepare_install_targets(
     )
     previous_hook = _previous_campaign_hook(previous, codex_home)
     if staged["hook_stage"] is not None or previous_hook is not None:
-        targets.append(
-            _make_target(
-                "campaign_hook",
-                codex_home / "hooks" / "campaign-engine",
-                staged["hook_stage"],
-                codex_rollback / "hooks" / "campaign-engine",
-            )
+        hook = _make_target(
+            "campaign_hook",
+            codex_home / "hooks" / "campaign-engine",
+            staged["hook_stage"],
+            codex_rollback / "hooks" / "campaign-engine",
         )
+        if hook["prior_sha256"] != hook["new_sha256"]:
+            targets.append(hook)
     live_hooks_config = _hooks_configuration_path(codex_home)
     hooks_record = staged["hooks_config_target"]
     expected_present = hooks_record["transaction_prior_state"] == "present"
@@ -3045,14 +3045,12 @@ def _prepare_install_targets(
         != hooks_record["transaction_prior_sha256"]
     ):
         raise RecoveryError("hooks.json drifted after migration staging")
-    targets.append(
-        _make_target(
-            "hooks_configuration",
-            live_hooks_config,
-            staged["staged_hooks_config"],
-            codex_rollback / "hooks.json",
-        )
+    hooks = _make_target(
+        "hooks_configuration", live_hooks_config,
+        staged["staged_hooks_config"], codex_rollback / "hooks.json",
     )
+    if hooks["prior_sha256"] != hooks["new_sha256"]:
+        targets.append(hooks)
     if staged["staged_agents"] is not None:
         targets.append(
             _make_target(

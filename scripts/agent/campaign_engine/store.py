@@ -1230,6 +1230,7 @@ class CampaignStore:
         payload: Mapping[str, Any],
         result: Mapping[str, Any],
         revision: int | None = None,
+        require_new: bool = False,
     ) -> dict[str, Any]:
         """Persist one idempotent non-lifecycle runtime receipt.
 
@@ -1243,6 +1244,8 @@ class CampaignStore:
             connection.execute("BEGIN IMMEDIATE")
             prior = self._operation_result(connection, request_id, payload_digest)
             if prior is not None:
+                if require_new:
+                    raise RequestConflict("runtime attempt was already reserved")
                 connection.commit()
                 return dict(prior)
             self._begin_operation(
@@ -2393,13 +2396,17 @@ class CampaignStore:
                 if item.candidate_head != payload.get("candidate_head"):
                     raise AuthorityError("terminal receipt candidate head was changed")
                 if actor.role in {ActorRole.REVIEWER, ActorRole.CLOSURE_REVIEWER}:
+                    node = snapshot.node(str(item.node_id))
+                    if not actor.principal_id or node.candidate_head != item.candidate_head:
+                        raise AuthorityError("review evidence differs from its assigned actor or frozen head")
+                    completed = str(payload.get("turn_status", "")).casefold() in {"completed", "complete"}
+                    if completed != (item.kind is EvidenceKind.REVIEW):
+                        raise AuthorityError("a failed reviewer turn may only be kept as diagnostic evidence")
                     result_payload = payload.get("result_payload")
-                    if (
-                        not actor.principal_id
-                        or not isinstance(result_payload, Mapping)
+                    if completed and (
+                        not isinstance(result_payload, Mapping)
                         or result_payload.get("reviewer_id") != actor.principal_id
-                        or snapshot.node(str(item.node_id)).candidate_head
-                        != item.candidate_head
+                        or result_payload.get("candidate_head") != item.candidate_head
                     ):
                         raise AuthorityError(
                             "review receipt is not bound to its assigned reviewer and frozen head"

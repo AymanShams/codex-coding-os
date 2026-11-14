@@ -210,6 +210,30 @@ no new attempt. Losing that connection or any required cohort member fences the
 affected work. This branch does not reconnect a lost native process or replace
 a writer.
 
+### Review a validated commit after a failed review
+
+Run the installed CLI with explicit authorization for one fresh read-only turn:
+
+```powershell
+python -B $Engine --json review-existing --campaign-id <id> --node-id <id> --specification-digest <digest> --candidate-head <commit>
+```
+
+The command accepts a failed first review with one assigned reviewer, no active
+leases or external effects, and the original deadline still open. It rechecks
+the clean worktree, frozen tree and diffs, source hashes and passing validation
+receipts before and after the turn. It records both the original approved
+installation and the current verified, compatible installation.
+The original failed campaign and its attempt budgets remain intact. A separate
+operation reserves one reviewer start per candidate and stores the attested
+verdict and findings. Repeating the same request reads its recorded result
+without starting another turn. An interrupted attempt without a result stays
+recorded for inspection. The command has no implementation, validation
+execution, repair or publication actions.
+
+A failed native reviewer turn is kept as diagnostic evidence with its native
+error and actor binding. Successful verdicts still require the assigned
+reviewer, exact commit and native terminal receipt.
+
 ## Evidence
 
 Objective completion is reported from exact product evidence. Engine state and

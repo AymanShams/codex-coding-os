@@ -439,6 +439,28 @@ class _ProbeTransportFactory:
 
 
 class HostTests(unittest.TestCase):
+    def test_turn_result_uses_completions_from_only_the_assigned_thread_and_turn(self):
+        transport = host.AppServerTransport.__new__(host.AppServerTransport)
+        def event(thread, turn, text):
+            return {"method": "item/completed", "params": {
+                "threadId": thread, "turnId": turn,
+                "item": {"type": "agentMessage", "text": text},
+            }}
+        transport.events = [
+            event("assigned", "turn", '{"verdict":"PASS"}'),
+            event("assigned", "other-turn", '{"verdict":"BLOCK"}'),
+            event("other-thread", "turn", '{"verdict":"BLOCK"}'),
+            {"method": "turn/completed", "params": {
+                "threadId": "assigned", "turn": {"id": "turn", "status": "completed", "items": []},
+            }},
+        ]
+        native = transport.wait_turn("assigned", "turn")
+        self.assertEqual(host._structured_result(native["items"], native), {"verdict": "PASS"})
+        self.assertEqual(host._structured_result([{
+            "type": "dynamicToolCall", "output": '{"verdict":"PASS"}',
+        }], native)["structured"], False)
+
+
     @unittest.skipUnless(os.name == "nt", "Windows helper fallback ordering")
     def test_current_path_host_precedes_stale_private_windows_copy(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

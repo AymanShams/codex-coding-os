@@ -381,9 +381,19 @@ class TerminalReceipt:
 
 
 def _structured_result(items: Sequence[Any], turn: Mapping[str, Any]) -> dict[str, Any]:
+    status = str(turn.get("status", "unknown"))
+    if status.casefold() not in {"completed", "complete"}:
+        # App Server supplies the diagnostic separately from agent-message items.
+        error = turn.get("error")
+        message = error.get("message") if isinstance(error, Mapping) else error
+        return {
+            "status": status,
+            "structured": False,
+            "native_error": str(message)[:1000] if isinstance(message, str) else None,
+        }
     candidates: list[str] = []
     for item in items:
-        if not isinstance(item, Mapping):
+        if not isinstance(item, Mapping) or item.get("type") != "agentMessage":
             continue
         for key in ("text", "content", "message", "output"):
             value = item.get(key)
@@ -1007,7 +1017,20 @@ class AppServerTransport:
             turn = params.get("turn")
             if not isinstance(turn, Mapping) or turn.get("id") != turn_id:
                 return None
-            return dict(turn)
+            result = dict(turn)
+            if not any(isinstance(item, Mapping) and item.get("type") == "agentMessage"
+                       for item in result.get("items") or ()):
+                messages = []
+                for event in self.events:
+                    data = event.get("params")
+                    if (event.get("method") != "item/completed" or not isinstance(data, Mapping)
+                            or data.get("threadId") != thread_id or data.get("turnId") != turn_id):
+                        continue
+                    item = data.get("item")
+                    if isinstance(item, Mapping) and item.get("type") == "agentMessage":
+                        messages.append(dict(item))
+                result["items"] = [*(result.get("items") or ()), *messages]
+            return result
 
         for event in self.events:
             found = match(event)
