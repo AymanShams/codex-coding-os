@@ -26,4 +26,8 @@ description: Use for bounded repository implementation and verification, manuall
   Manual work does not require a campaign command. Do not resume a cancelled
   campaign from another task or branch.
 
+For workspace isolation, implementation planning, fault isolation, test-first
+work, delegated changes, review feedback or branch integration, use the applicable section of
+[Repository work](references/repository-work.md) within the current assignment.
+
 Lifecycle details belong only to `campaign_engine/reducer.py`, not this skill.

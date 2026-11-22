@@ -1,10 +1,15 @@
 {
-  "aggregate_sha256": "d207beb9b16d9ede485767b746a23b35adf313e11bff709992a460c586048ba6",
+  "aggregate_sha256": "d1580237db115795121b030ebf8498f07d5a35d25f83d9a8d54e0e3357359cae",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
-      "sha256": "cd2e54d88cffb11e6986fbbda543b9f3840423eec0bd2fd602bfa37c117a2719",
-      "size": 1615
+      "sha256": "fdf083d1c239545674e746213962d7dac2282ea8976e1d43501f67b6bc082bff",
+      "size": 1868
+    },
+    {
+      "path": ".agents/skills/ai-coding-discipline/references/repository-work.md",
+      "sha256": "91556e8ad3423d6f7d78d0e1c314c623fdcf13bbe347a66e7402d971a8f79947",
+      "size": 2616
     },
     {
       "path": ".agents/skills/artifact-system-designer/SKILL.md",
@@ -53,8 +58,8 @@
     },
     {
       "path": ".agents/skills/cli-creator/SKILL.md",
-      "sha256": "434cda9ee70429721c8b1330531adb8b0ac5cee8815b9b278ef9fdf9ba747e60",
-      "size": 11081
+      "sha256": "c106616b69d974e655142f24bb5fd1369c493cc333aad29239a4438e985f231c",
+      "size": 11367
     },
     {
       "path": ".agents/skills/cli-creator/agents/openai.yaml",
@@ -73,8 +78,8 @@
     },
     {
       "path": ".agents/skills/code-review-graph/SKILL.md",
-      "sha256": "76e5f1f5fa097f83067a3c923e4b368865c5243e5e8eee4313c63181ce6e7abb",
-      "size": 3428
+      "sha256": "cd1daccea2f1a6e6924ae0d1e3464c286cede562b12bf59455e8dafcb3008de2",
+      "size": 3753
     },
     {
       "path": ".agents/skills/codex-coding-os-master/SKILL.md",
@@ -298,8 +303,8 @@
     },
     {
       "path": ".agents/skills/improve-codebase-architecture/INTERFACE-DESIGN.md",
-      "sha256": "678c3e34f1339015053212b3316bf0b676c70aa251050a0613667d4e755fb35e",
-      "size": 2725
+      "sha256": "cef605f4d822057a6095e2620f5de4b7217ea97ac99d8b2cfe024603c1c3d4c5",
+      "size": 3061
     },
     {
       "path": ".agents/skills/improve-codebase-architecture/LANGUAGE.md",
