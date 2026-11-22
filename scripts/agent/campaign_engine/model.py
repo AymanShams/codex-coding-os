@@ -306,6 +306,12 @@ def _nonempty(value: Any, name: str) -> str:
     return text
 
 
+def terminal_actions_were_read_only(payload: Mapping[str, Any]) -> bool:
+    total = payload.get("action_count")
+    non_read = payload.get("non_read_action_count", total)
+    return type(total) is int and total >= 0 and type(non_read) is int and non_read == 0
+
+
 @dataclass(frozen=True)
 class ValidationCommand:
     command_id: str

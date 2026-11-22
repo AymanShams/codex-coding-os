@@ -59,6 +59,7 @@ from .model import (
     TransitionError,
     ValidationCommand,
     canonical_json_digest,
+    terminal_actions_were_read_only,
     unique_findings,
 )
 from .store import CampaignStore
@@ -670,6 +671,14 @@ class DeterministicSupervisor:
                 "Make changes only through campaign_apply_patch, then use campaign_commit to "
                 "commit the exact candidate and leave the worktree clean."
             )
+            if spec.require_commit:
+                instruction += " The engine runs the trusted validation commands after you commit."
+            if role is ActorRole.IMPLEMENTER and node.no_op_retries and not node.validation_correction:
+                instruction += (
+                    " The first turn ended after at most read-only inspection. This is the one "
+                    "approved retry at the unchanged starting commit. Make the scoped product "
+                    "change now and commit it through the campaign tools."
+                )
         return f"{instruction}\n\nCurrent change and acceptance:\n{binding!r}"
 
     def dispatch_worker(
@@ -1010,10 +1019,12 @@ class DeterministicSupervisor:
                 ))
             active = self.store.list_active_leases(snapshot.spec.campaign_id)
             remaining = {balance.token: balance.remaining for balance in snapshot.budgets}
+            terminal = receipt.to_dict()
             safe_retry = (
                 spec.no_op_retry_limit == 1 and node.no_op_retries == 0
                 and node.implementation_attempts == 1 and node.validation_corrections == 0
-                and head == node.start_head and identity.clean and receipt.action_count == 0
+                and head == node.start_head and identity.clean
+                and terminal_actions_were_read_only(terminal)
                 and receipt.candidate_tree is None
                 and len(active) == 1 and active[0].lease_id == receipt.lease_id
                 and not self.store.list_outbox(campaign_id=snapshot.spec.campaign_id)
@@ -1024,13 +1035,15 @@ class DeterministicSupervisor:
             )
             if safe_retry:
                 self._verify_unchanged_no_op_start(snapshot, node.node_id)
+                actions = {key: value for key, value in terminal.items()
+                           if key in {"action_count", "non_read_action_count"}}
                 return self._apply(self._event(
                     snapshot, EventType.RETRY_NO_OP_IMPLEMENTATION, label=f"no-op:{receipt.lease_id}",
                     node_id=node.node_id, actor_id=receipt.actor_id, fencing_epoch=receipt.fencing_epoch,
                     payload={"budget_token": BudgetToken.NO_OP_ATTEMPT.value,
                              "evidence_id": _stable_id("receipt", receipt.lease_id),
                              "receipt_digest": receipt.receipt_digest,
-                             "start_head": node.start_head, "action_count": receipt.action_count},
+                             "start_head": node.start_head, **actions},
                 ))
             reason += "; no approved safe no-op retry remains"
         except (AdmissionError, EvidenceError, SupervisorDeadlineExceeded, OSError,

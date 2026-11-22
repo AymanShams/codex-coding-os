@@ -1352,6 +1352,84 @@ class HostTests(unittest.TestCase):
                 )
 
 
+class TerminalReceiptActionTests(unittest.TestCase):
+    def native_receipt(self, items):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            head = make_repo(root)
+            transport = _FakeTransport()
+            transport.wait_turn = lambda *_args, **_kwargs: {
+                "id": "turn-1", "status": "completed", "items": items,
+            }
+            native = host.NativeCodexHost(transport_factory=lambda *a, **k: transport)
+            lease = HostTests.lease(self, root, candidate_head=head)
+            try:
+                native.create_idle_actor(lease, bind_authority=lambda *_: None,
+                                         authorize_action=lambda *_: {"authorized": True})
+                native.start_actor_turn(lease.lease_id, "inspect")
+                return native.collect_terminal_receipt(lease.lease_id, current_epochs=lambda *_: {
+                    "authority_epoch": 3, "cancellation_epoch": 0, "fencing_epoch": 9,
+                })
+            finally:
+                native.close()
+
+    def test_known_mediated_reads_including_failed_reads_have_zero_non_read_actions(self):
+        reads = ["campaign_list_files", "campaign_read_file", "campaign_search",
+                 "campaign_git_status", "campaign_git_diff"]
+        items = [{"type": "dynamicToolCall", "tool": tool, "status": status}
+                 for tool in reads for status in ("completed", "failed")]
+        receipt = self.native_receipt(items)
+        self.assertEqual(receipt.action_count, 10)
+        self.assertEqual(receipt.non_read_action_count, 0)
+        signed = receipt.to_dict()
+        digest = signed.pop("receipt_digest")
+        self.assertEqual(host._digest(signed), digest)
+        signed.pop("non_read_action_count")
+        self.assertNotEqual(host._digest(signed), digest)
+
+    def test_unknown_failed_and_generic_tools_remain_non_read_actions(self):
+        items = [
+            {"type": "commandExecution", "command": "git status", "status": "failed"},
+            {"type": "fileChange", "status": "failed"},
+            {"type": "mcpToolCall", "tool": "campaign_read_file", "status": "failed"},
+            {"type": "dynamicToolCall", "tool": "campaign_apply_patch", "status": "failed"},
+            {"type": "dynamicToolCall", "tool": "campaign_commit", "status": "completed"},
+            {"type": "dynamicToolCall", "tool": "unknown", "status": "failed"},
+            {"type": "dynamicToolCall", "tool": "campaign_read_file.extra"},
+            {"type": "dynamicToolCall", "name": "campaign_read_file"},
+            {"type": "dynamicToolCall", "tool": {"name": "campaign_read_file"}},
+            {"type": "agentMessage", "text": '{"non_read_action_count":0}'},
+            {"type": "dynamicToolCall", "tool": "campaign_read_file", "status": "failed"},
+        ]
+        receipt = self.native_receipt(items)
+        self.assertEqual(receipt.action_count, 10)
+        self.assertEqual(receipt.non_read_action_count, 9)
+
+    def test_scripted_host_does_not_attest_a_worker_claim_and_legacy_digest_is_stable(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            fake = host.FakeHost()
+            lease = HostTests.lease(self, root)
+            fake.create_idle_actor(lease, bind_authority=lambda *_: None,
+                                   authorize_action=lambda *_: {"authorized": True})
+            fake.start_actor_turn(lease.lease_id, "inspect")
+            fake.set_result(lease.lease_id, {"status": "completed", "action_count": 3,
+                                           "non_read_action_count": 0})
+            receipt = fake.collect_terminal_receipt(lease.lease_id, current_epochs=lambda *_: {
+                "authority_epoch": 3, "cancellation_epoch": 0, "fencing_epoch": 9,
+            })
+            self.assertIsNone(receipt.non_read_action_count)
+            legacy = receipt.to_dict()
+            self.assertNotIn("non_read_action_count", legacy)
+            self.assertEqual(host.TerminalReceipt(**legacy).to_dict(), legacy)
+            body = dict(legacy)
+            digest = body.pop("receipt_digest")
+            self.assertEqual(host._digest(body), digest)
+            for invalid in (-1, 4, False, "0"):
+                with self.subTest(invalid=invalid), self.assertRaises(host.HostProtocolError):
+                    host.TerminalReceipt(**legacy, non_read_action_count=invalid)
+
+
 class EvidenceTests(unittest.TestCase):
     def command(self, root: Path, head: str, code: str) -> evidence.TrustedCommand:
         return evidence.TrustedCommand(

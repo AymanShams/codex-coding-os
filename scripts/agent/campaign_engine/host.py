@@ -375,9 +375,38 @@ class TerminalReceipt:
     action_count: int
     result_payload: Mapping[str, Any]
     receipt_digest: str
+    non_read_action_count: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.non_read_action_count is not None and (
+            type(self.non_read_action_count) is not int
+            or type(self.action_count) is not int
+            or not 0 <= self.non_read_action_count <= self.action_count
+        ):
+            raise HostProtocolError("terminal non-read action count is invalid")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        if self.non_read_action_count is None:
+            result.pop("non_read_action_count")
+        return result
+
+
+_READ_ONLY_CAMPAIGN_TOOLS = frozenset({
+    "campaign_list_files", "campaign_read_file", "campaign_search",
+    "campaign_git_status", "campaign_git_diff",
+})
+
+
+def _non_read_action_count(actions: Sequence[Mapping[str, Any]]) -> int:
+    # A failed or unknown action may still have effects. Only exact mediated
+    # read tools are exempt, independently of their reported result/status.
+    return sum(
+        item.get("type") != "dynamicToolCall"
+        or not isinstance(item.get("tool"), str)
+        or item.get("tool") not in _READ_ONLY_CAMPAIGN_TOOLS
+        for item in actions
+    )
 
 
 def _structured_result(items: Sequence[Any], turn: Mapping[str, Any]) -> dict[str, Any]:
@@ -1868,6 +1897,7 @@ class NativeCodexHost:
             "turn_status": str(turn.get("status", "unknown")),
             "output_digest": _digest(items),
             "action_count": len(actions),
+            "non_read_action_count": _non_read_action_count(actions),
             "result_payload": _structured_result(items, turn),
         }
         body["receipt_digest"] = _digest(body)

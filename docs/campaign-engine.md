@@ -73,8 +73,9 @@ Portfolio execution creates no publication or branch integration effect.
 
 Product nodes can opt into `require_commit: true` to reject a missing candidate
 before validation. With `no_op_retry_limit: 1`, the run can use one budgeted
-new worker after a completed, attested zero-action turn at the exact clean
-start. A dirty worktree, uncertain effects, changed sources, expired deadline,
+new worker after a completed, attested turn with only known reads or no
+actions at the exact clean start. A dirty worktree, any possible write,
+uncertain effects, changed sources, expired deadline,
 or spent budget prevents that retry.
 
 An automated local-only node with `require_commit: true` can additionally bind

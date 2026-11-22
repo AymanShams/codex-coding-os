@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "27a84f82bb7b49f803be0f3b3ce94dc34ec50189a23b9934bd88de426cf3a7b7",
+  "aggregate_sha256": "98911645f87066262f07cd74a10c6616d9d5d7570108c7efdc1f2b6c08dc09a4",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2278,8 +2278,8 @@
     },
     {
       "path": "docs/campaign-engine.md",
-      "sha256": "2d5e25f61c33cc931f6eb844dfc1fd929142987bc966b4bc1dcb4257f5e391a7",
-      "size": 19023
+      "sha256": "21ae25a234cb10fd0abfce512f1efd12412a21abcdeca9e3862f6ae914af6a14",
+      "size": 19067
     },
     {
       "path": "docs/case-state-contract.md",
@@ -2433,8 +2433,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/host.py",
-      "sha256": "c460d55f4e7f899e74707e331e6d575c33136201a71c15dcbe11292429427820",
-      "size": 107334
+      "sha256": "904bd6d718374a18a9d08215f24478ce98e8af093de03e5f60e35e2772fd3214",
+      "size": 108527
     },
     {
       "path": "scripts/agent/campaign_engine/legacy.py",
@@ -2443,13 +2443,13 @@
     },
     {
       "path": "scripts/agent/campaign_engine/model.py",
-      "sha256": "03e913ede0c0fbdfd63986148a7592f348c6237c7d338621039c90dd9f2c036d",
-      "size": 67762
+      "sha256": "f52ef612259c1be1e7253d7c72e83c9f5040d7b57ebf4a8fc05719712cc0a848",
+      "size": 68025
     },
     {
       "path": "scripts/agent/campaign_engine/reducer.py",
-      "sha256": "84e297001d09c4373d2494126c7bb4b9a1e4e9e769ce958bff587169b96224f0",
-      "size": 38498
+      "sha256": "2c037b2a5b03927cc840c65163b6d8e8633fd72b7c7c7cce1bf1629d6d600ed3",
+      "size": 38473
     },
     {
       "path": "scripts/agent/campaign_engine/runtime_bootstrap.py",
@@ -2458,13 +2458,13 @@
     },
     {
       "path": "scripts/agent/campaign_engine/store.py",
-      "sha256": "f3c56d935f5064970da479b88e2868999207bbca83aad390e05640ada7a767ef",
-      "size": 133040
+      "sha256": "f4d0adb25a5f4022971507c3d44bfeb2a43c7e5d5a2737227506e721014383e2",
+      "size": 133238
     },
     {
       "path": "scripts/agent/campaign_engine/supervisor.py",
-      "sha256": "f6177638fec3c1aa0c8a34c6d828c83792919c53764209e950a8d89fcf788219",
-      "size": 137639
+      "sha256": "0053358d0e5d450fd242133950ee4afcfc74f228b4cb738b366baecf3e25f3ba",
+      "size": 138434
     },
     {
       "path": "scripts/agent/case_state.py",
@@ -2883,8 +2883,8 @@
     },
     {
       "path": "tests/test_campaign_runtime_components.py",
-      "sha256": "221d0a63d1d4da45aea953ddc736d543aa0774e5456c350b2e438e47019a83b4",
-      "size": 98655
+      "sha256": "d498b20054a644370422bef29bf0815c1e1186e38e3e302a8f1fc2ce90d7faf9",
+      "size": 103090
     },
     {
       "path": "tests/test_campaign_store.py",
@@ -2893,8 +2893,8 @@
     },
     {
       "path": "tests/test_campaign_supervisor.py",
-      "sha256": "abe4fd4af2daa63017e05d725844c865b14af897bbd6d788c6666db8b64dbb44",
-      "size": 114083
+      "sha256": "4571eca2d4011ad29b4315531fa12ad09cecb9a6565c3c440343981a696361fb",
+      "size": 115295
     },
     {
       "path": "tests/test_campaign_tlc_runner.py",

@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import hashlib
 from contextlib import closing
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 import json
@@ -2482,6 +2483,27 @@ class CommitRequiredNoOpTests(SupervisorFixture):
         supervisor.complete_worker(lease)
         self.assertEqual(self.store.get_snapshot("campaign").state, CampaignState.FAILED)
         self.assertEqual(len(host.bindings), 1)
+
+    def test_attested_read_only_actions_retry_from_the_same_clean_start(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        collect = host.collect_terminal_receipt
+        host.set_result(lease, {"status": "completed", "action_count": 31})
+
+        def attested_reads(*args, **kwargs):
+            receipt = replace(collect(*args, **kwargs), non_read_action_count=0)
+            payload = receipt.to_dict()
+            payload.pop("receipt_digest")
+            return replace(receipt, receipt_digest=canonical_json_digest(payload))
+
+        with patch.object(host, "collect_terminal_receipt", side_effect=attested_reads):
+            completed = supervisor.complete_worker(lease)
+        self.assertEqual(completed.action_count, 31)
+        self.assertEqual(completed.non_read_action_count, 0)
+        snapshot = self.store.get_snapshot("campaign")
+        self.assertEqual(snapshot.node("node-1").state, NodeState.ADMITTED)
+        self.assertEqual(snapshot.node("node-1").no_op_retries, 1)
+        self.assertEqual(snapshot.node("node-1").start_head, self.base_sha)
+        self.assertEqual(supervisor.step("campaign").action, "IMPLEMENTER_DISPATCHED")
 
     def test_dirty_no_op_does_not_retry_or_discard_bytes(self):
         supervisor, host, lease = self.prepare_commit_node()

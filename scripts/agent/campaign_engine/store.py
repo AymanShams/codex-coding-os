@@ -40,6 +40,7 @@ from .model import (
     TransitionError,
     canonical_json,
     canonical_json_digest,
+    terminal_actions_were_read_only,
 )
 from .reducer import reduce
 
@@ -887,11 +888,13 @@ class CampaignStore:
                     or terminal.get("fencing_epoch") != event.fencing_epoch
                     or terminal.get("authority_epoch") != event.authority_epoch
                     or terminal.get("cancellation_epoch") != event.cancellation_epoch
-                    or type(terminal.get("action_count")) is not int or terminal["action_count"] != 0
+                    or not terminal_actions_were_read_only(terminal)
+                    or terminal.get("action_count") != event.payload.get("action_count")
+                    or terminal.get("non_read_action_count") != event.payload.get("non_read_action_count")
                     or terminal.get("role") != ActorRole.IMPLEMENTER.value
                     or terminal.get("candidate_tree") is not None
                     or str(terminal.get("turn_status", "")).casefold() not in {"complete", "completed"}):
-                raise AuthorityError("no-op retry receipt differs from the exact complete zero-action turn")
+                raise AuthorityError("no-op retry receipt differs from the exact complete read-only turn")
         self._begin_operation(
             connection,
             request_id=event.event_id,

@@ -29,6 +29,7 @@ from .model import (
     RevisionConflict,
     TransitionError,
     replace_node,
+    terminal_actions_were_read_only,
     unique_findings,
 )
 
@@ -452,11 +453,10 @@ def reduce(
         _require(node.validation_corrections == 0 and node.candidate_head is None,
                  "no-op retry cannot reopen a correction or frozen candidate")
         _require(event.payload.get("start_head") == node.start_head
-                 and type(event.payload.get("action_count")) is int
-                 and event.payload.get("action_count") == 0
+                 and terminal_actions_were_read_only(event.payload)
                  and len(str(event.payload.get("receipt_digest", ""))) == 64
                  and all(c in "0123456789abcdef" for c in event.payload["receipt_digest"]),
-                 "no-op retry requires the exact attested zero-action result")
+                 "no-op retry requires the exact attested read-only result")
         next_snapshot = _consume_automated(snapshot, event, BudgetToken.NO_OP_ATTEMPT)
         next_snapshot = _replace_node(next_snapshot, replace(node, state=NodeState.ADMITTED,
                                                             no_op_retries=1))
