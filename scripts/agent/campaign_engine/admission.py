@@ -659,8 +659,10 @@ def admit_campaign_spec(
 ) -> dict[str, Any]:
     """Verify the exact repository and installed runtime fields of one spec."""
 
-    # This is the actual mediated host surface, not a second capability catalogue.
+    from .evidence import EvidenceError, validate_environment_allowlist
     from .host import _dynamic_tool_specs
+
+    # This is the actual mediated host surface, not a second capability catalogue.
     available_tools = {item["name"] for item in _dynamic_tool_specs(True)}
     for node in spec.get("nodes", ()):
         missing = sorted(set(node.get("required_tools", ())) - available_tools)
@@ -731,6 +733,10 @@ def admit_campaign_spec(
                 "validation command identifiers must be unique and nonempty"
             )
         command_ids.add(command_id)
+        try:
+            validate_environment_allowlist(raw_command.get("environment_allowlist", ()))
+        except EvidenceError as exc:
+            raise AdmissionError(f"validation command {command_id}: {exc}") from exc
         working = Path(
             str(raw_command.get("working_directory", ""))
         ).expanduser().resolve(strict=True)

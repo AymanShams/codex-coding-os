@@ -86,7 +86,8 @@ model turns only in that disposable repository, not product implementation.
 
 `prepare` derives repository identities, the installed runtime pin, command
 working directories, and source hashes from a proposed change. It writes a new
-specification file without creating or starting a campaign. Business scope,
+specification file without creating or starting a campaign. Preparation and admission reject validation
+commands with environment names that execution would deny. Business scope,
 spending, deadlines, operation limits, and external-action authority remain
 explicit approved inputs. Routine engineering values are prepared by the agent.
 

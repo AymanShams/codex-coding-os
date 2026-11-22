@@ -588,6 +588,27 @@ class CampaignCliTests(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_FAILED)
         self.assertEqual(output.read_bytes(), before)
 
+    def test_prepare_and_admit_reject_environment_that_cannot_execute(self) -> None:
+        proposed = self.proposed_product_change()
+        admitted = self.spec.to_dict()
+        draft = self.root / "unsupported-env.json"
+        output = self.root / "prepared.json"
+        for command, raw, args in (
+            ("prepare", proposed, ("--repository", str(self.repo), "--output", str(output))),
+            ("admit", admitted, ()),
+        ):
+            with self.subTest(command=command):
+                raw.pop("specification_digest", None)
+                validation = raw["required_validation_commands"][0]
+                validation["environment_allowlist"].append("APPDATA")
+                draft.write_text(json.dumps(raw), encoding="utf-8")
+                code, result = self.run_cli(command, "--spec", str(draft), *args)
+                self.assertEqual(code, cli.EXIT_FAILED)
+                self.assertIn(validation["command_id"], result["message"])
+                self.assertIn("not allowlisted: ['APPDATA']", result["message"])
+                self.assertFalse(output.exists())
+                self.assertFalse(self.state_db.exists())
+
     def test_prepare_and_admit_preserve_model_policy_and_check_live_support(self) -> None:
         from scripts.agent.campaign_engine import host
         policy = {"roles": {"IMPLEMENTER": {"model": "gpt-6.1-terra", "reasoning_effort": "high"}}}
