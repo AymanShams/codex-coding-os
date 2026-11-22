@@ -1,5 +1,5 @@
 {
-  "aggregate_sha256": "56893f3585f177717ac56565acd07b43e06a5210f134aa3c2a5dd9437661ebe5",
+  "aggregate_sha256": "cbd9b79185dc1f647b1668e6aa78d5dc08f5f427a263ebda1fab35fba0d90d17",
   "entries": [
     {
       "path": ".agents/skills/ai-coding-discipline/SKILL.md",
@@ -2433,8 +2433,8 @@
     },
     {
       "path": "scripts/agent/campaign_engine/host.py",
-      "sha256": "9028a8018e21f8fb1638ccf70d8fb2af5991bcca998368f9bdb656afe06b57d0",
-      "size": 107422
+      "sha256": "c460d55f4e7f899e74707e331e6d575c33136201a71c15dcbe11292429427820",
+      "size": 107334
     },
     {
       "path": "scripts/agent/campaign_engine/legacy.py",

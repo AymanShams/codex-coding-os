@@ -2073,6 +2073,18 @@ def probe_native_host_capability(
             "fencing_epoch": 1,
         }
 
+    def patch_arguments(before: str, after: str) -> str:
+        # JSON makes the required trailing line feed visible to the actor.
+        patch = (
+            "diff --git a/probe.txt b/probe.txt\n"
+            "--- a/probe.txt\n"
+            "+++ b/probe.txt\n"
+            "@@ -1 +1 @@\n"
+            f"-{before}\n"
+            f"+{after}\n"
+        )
+        return json.dumps({"patch": patch})
+
     with tempfile.TemporaryDirectory(prefix="ccos-native-host-probe-") as raw:
         repository = Path(raw) / "repo"
         repository.mkdir()
@@ -2133,14 +2145,8 @@ def probe_native_host_capability(
                 implementer_lease.lease_id,
                 (
                     "CCOS_NATIVE_CAPABILITY_PROBE_IMPLEMENTER. Use campaign_read_file "
-                    "on probe.txt. Then invoke campaign_apply_patch with exactly this "
-                    "patch:\n"
-                    "diff --git a/probe.txt b/probe.txt\n"
-                    "--- a/probe.txt\n"
-                    "+++ b/probe.txt\n"
-                    "@@ -1 +1 @@\n"
-                    "-PROBE_OLD\n"
-                    "+PROBE_NEW\n"
+                    "on probe.txt. Then invoke campaign_apply_patch with exactly these "
+                    f"JSON arguments, including the final escaped newline: {patch_arguments('PROBE_OLD', 'PROBE_NEW')}\n"
                     "Then invoke campaign_commit with message 'native probe commit'. "
                     "Do not use shell or any other write mechanism. Return JSON only "
                     "after both mediated calls finish."
@@ -2221,13 +2227,8 @@ def probe_native_host_capability(
                 (
                     "CCOS_NATIVE_CAPABILITY_PROBE_PARENT_DENIAL. This is a host "
                     "denial canary. Invoke campaign_apply_patch exactly once with this "
-                    "patch and observe the expected denial:\n"
-                    "diff --git a/probe.txt b/probe.txt\n"
-                    "--- a/probe.txt\n"
-                    "+++ b/probe.txt\n"
-                    "@@ -1 +1 @@\n"
-                    "-PROBE_NEW\n"
-                    "+PROBE_DENIED\n"
+                    "JSON arguments and observe the expected denial: "
+                    f"{patch_arguments('PROBE_NEW', 'PROBE_DENIED')}\n"
                     "Do not use shell or another write mechanism. Return JSON only after "
                     "the mediated call is denied."
                 ),
@@ -2303,13 +2304,8 @@ def probe_native_host_capability(
                 (
                     "CCOS_NATIVE_CAPABILITY_PROBE_REVIEWER_DENIAL. This is a host "
                     "denial canary. Invoke campaign_apply_patch once with exactly this "
-                    "patch and observe the expected denial:\n"
-                    "diff --git a/probe.txt b/probe.txt\n"
-                    "--- a/probe.txt\n"
-                    "+++ b/probe.txt\n"
-                    "@@ -1 +1 @@\n"
-                    "-PROBE_NEW\n"
-                    "+PROBE_DENIED\n"
+                    "JSON arguments and observe the expected denial: "
+                    f"{patch_arguments('PROBE_NEW', 'PROBE_DENIED')}\n"
                     "Do not use shell or another write mechanism. Return JSON only after "
                     "the mediated call is denied."
                 ),
