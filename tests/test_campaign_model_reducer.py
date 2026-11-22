@@ -216,6 +216,38 @@ def candidate_snapshot():
 
 
 class CampaignModelTests(unittest.TestCase):
+    def test_commit_requirement_is_opt_in_and_preserves_existing_digests(self):
+        raw = spec_dict()
+        old = CampaignSpec.from_dict(raw)
+        self.assertNotIn("require_commit", old.to_dict()["nodes"][0])
+        self.assertNotIn("no_op_retry_limit", old.to_dict()["nodes"][0])
+        self.assertEqual(CampaignSpec.from_dict(old.to_dict()).specification_digest,
+                         old.specification_digest)
+        explicit_default = old.to_dict()
+        explicit_default["nodes"][0].update(require_commit=False, no_op_retry_limit=0)
+        self.assertEqual(CampaignSpec.from_dict(explicit_default).specification_digest,
+                         old.specification_digest)
+        raw["objective_kind"] = "PRODUCT_CODE"
+        raw["mode"] = "AUTOMATED"
+        raw["nodes"][0].update(require_commit=True, no_op_retry_limit=1)
+        selected = CampaignSpec.from_dict(raw)
+        self.assertNotEqual(selected.specification_digest, old.specification_digest)
+        self.assertTrue(CampaignSpec.from_dict(selected.to_dict()).nodes[0].require_commit)
+
+    def test_commit_retry_requires_exact_finite_product_opt_in(self):
+        for settings in ({"require_commit": "true"}, {"require_commit": True, "no_op_retry_limit": True},
+                         {"require_commit": True, "no_op_retry_limit": 2}, {"no_op_retry_limit": 1}):
+            with self.subTest(settings=settings):
+                raw = spec_dict()
+                raw["objective_kind"] = "PRODUCT_CODE"
+                raw["nodes"][0].update(settings)
+                with self.assertRaises(ModelValidationError):
+                    CampaignSpec.from_dict(raw)
+        raw = spec_dict()
+        raw["nodes"][0]["require_commit"] = True
+        with self.assertRaisesRegex(ModelValidationError, "product objective"):
+            CampaignSpec.from_dict(raw)
+
     def test_same_finding_identity_deduplicates_wording_without_losing_evidence(self) -> None:
         first = {"finding_id": "F-1", "title": "Wrong output", "blocking": True,
                  "details": {"invariant": "exact result", "evidence": "actual differs"}}
@@ -386,6 +418,41 @@ class CampaignModelTests(unittest.TestCase):
 
 
 class CampaignReducerTests(unittest.TestCase):
+    def test_commit_required_no_op_retry_is_fenced_one_use_and_consumes_existing_budget(self):
+        raw = spec_dict(mode="AUTOMATED")
+        raw["objective_kind"] = "PRODUCT_CODE"
+        raw["nodes"][0].update(require_commit=True, no_op_retry_limit=1)
+        spec = CampaignSpec.from_dict(raw)
+        initial = CampaignSnapshot.initial(spec)
+        node = replace(initial.nodes[0], state=NodeState.IMPLEMENTING,
+                       implementation_attempts=1, start_head=spec.base_sha,
+                       lease_actor_id="implementer", fencing_epoch=1)
+        snapshot = replace(initial, state=CampaignState.RUNNING, nodes=(node,), active_node_id=node.node_id)
+        events = Events()
+        payload = {"budget_token": "NO_OP_ATTEMPT", "start_head": spec.base_sha,
+                   "action_count": 0, "receipt_digest": "d" * 64}
+        with self.assertRaisesRegex(TransitionError, "committed candidate evidence"):
+            events.apply(snapshot, EventType.IMPLEMENTATION_COMPLETED, node_id=node.node_id,
+                         actor_id="implementer", fencing_epoch=1)
+        with self.assertRaises(FencingError):
+            events.apply(snapshot, EventType.RETRY_NO_OP_IMPLEMENTATION, node_id=node.node_id,
+                         actor_id="other", fencing_epoch=1, payload=payload)
+        with self.assertRaises(TransitionError):
+            events.apply(snapshot, EventType.RETRY_NO_OP_IMPLEMENTATION, node_id=node.node_id,
+                         actor_id="implementer", fencing_epoch=1, payload={**payload, "action_count": 1})
+        retried, effects = events.apply(snapshot, EventType.RETRY_NO_OP_IMPLEMENTATION,
+            node_id=node.node_id, actor_id="implementer", fencing_epoch=1, payload=payload)
+        self.assertEqual(effects, ())
+        self.assertEqual(retried.node(node.node_id).state, NodeState.ADMITTED)
+        self.assertEqual(retried.node(node.node_id).implementation_attempts, 1)
+        self.assertEqual(retried.node(node.node_id).no_op_retries, 1)
+        self.assertEqual(retried.autonomous_rank_remaining, snapshot.autonomous_rank_remaining - 1)
+        second = replace(retried, nodes=(replace(retried.node(node.node_id),
+                         state=NodeState.IMPLEMENTING, implementation_attempts=2),))
+        with self.assertRaises(TransitionError):
+            events.apply(second, EventType.RETRY_NO_OP_IMPLEMENTATION, node_id=node.node_id,
+                         actor_id="implementer", fencing_epoch=1, payload=payload)
+
     def test_clean_lifecycle_requires_exact_publication_sequence(self) -> None:
         events, snapshot = candidate_snapshot()
         snapshot, _ = events.apply(

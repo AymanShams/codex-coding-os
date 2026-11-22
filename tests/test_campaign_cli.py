@@ -588,6 +588,89 @@ class CampaignCliTests(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_FAILED)
         self.assertEqual(output.read_bytes(), before)
 
+    def make_portfolio(self, *, overlapping: bool = False):
+        other = self.root / "second-worktree"
+        git(self.repo, "worktree", "add", "-q", "-b", "second", str(other))
+        members = []
+        for index, root in enumerate((self.repo, other), 1):
+            raw = self.spec.to_dict()
+            raw.pop("specification_digest")
+            raw["campaign_id"] = f"portfolio-lane-{index}"
+            raw["mode"] = "AUTOMATED"
+            raw["branch"] = "main" if index == 1 else "second"
+            raw["worktree"] = raw["git_root"] = str(root.resolve())
+            paths = ["src/first.txt" if index == 1 or overlapping else "src/second.txt"]
+            raw["allowed_paths"] = raw["nodes"][0]["allowed_paths"] = paths
+            raw["required_validation_commands"][0]["working_directory"] = str(root.resolve())
+            raw["publication_authority"].update(local_only=True, allowed_effects=[], required_effects=[])
+            spec = CampaignSpec.from_dict(raw)
+            with CampaignStore(self.state_db) as store:
+                store.create_campaign(spec)
+            members.append({"campaign_id": spec.campaign_id, "specification_digest": spec.specification_digest})
+        manifest = self.root / "portfolio.json"
+        manifest.write_text(json.dumps({
+            "schema": "ccos-local-portfolio-v1", "portfolio_id": "two-local-lanes", "campaigns": members,
+        }), encoding="utf-8")
+        return manifest
+
+    def test_portfolio_approval_is_exact_and_runs_other_lane_after_failure(self) -> None:
+        manifest = self.make_portfolio()
+        code, prepared = self.run_cli("prepare-portfolio", "--manifest", str(manifest))
+        self.assertEqual(code, 0, prepared)
+        digest = prepared["portfolio_digest"]
+        args = ("--manifest", str(manifest), "--portfolio-digest", digest)
+        code, denied = self.run_cli("run-portfolio", *args)
+        self.assertEqual(code, cli.EXIT_FAILED)
+        self.assertIn("no exact portfolio approval", denied["message"])
+        code, denied = self.run_cli("approve-portfolio", "--manifest", str(manifest),
+                                    "--portfolio-digest", "0" * 64)
+        self.assertEqual(code, cli.EXIT_FAILED)
+        self.assertIn("differs", denied["message"])
+        with CampaignStore(self.state_db) as store:
+            self.assertEqual([store.get_snapshot(f"portfolio-lane-{i}").state.value for i in (1, 2)],
+                             ["DRAFT", "DRAFT"])
+        code, approved = self.run_cli("approve-portfolio", *args)
+        self.assertEqual(code, 0, approved)
+        code, replay = self.run_cli("approve-portfolio", *args)
+        self.assertEqual(code, 0, replay)
+        self.assertEqual(approved, replay)
+        with mock.patch.object(cli, "command_run", side_effect=[
+            RuntimeError("first lane rejected"),
+            {"campaign_id": "portfolio-lane-2", "state": "COMPLETED", "ok": True},
+        ]) as run:
+            code, result = self.run_cli("run-portfolio", *args)
+            self.assertEqual(code, cli.EXIT_FAILED)
+            self.assertEqual([call.args[0].campaign_id for call in run.call_args_list],
+                             ["portfolio-lane-1", "portfolio-lane-2"])
+            self.assertTrue(all(call.args[0].no_external_effects for call in run.call_args_list))
+            self.assertEqual(result["campaigns"][1]["state"], "COMPLETED")
+        with mock.patch.object(cli, "command_run") as run:
+            code, result = self.run_cli("run-portfolio", *args)
+            self.assertEqual(code, cli.EXIT_FAILED)
+            run.assert_not_called()
+            self.assertTrue(all(not item["dispatched"] for item in result["campaigns"]))
+
+    def test_portfolio_approval_rolls_back_all_members_on_changed_state(self) -> None:
+        manifest = self.make_portfolio()
+        code, prepared = self.run_cli("prepare-portfolio", "--manifest", str(manifest))
+        self.assertEqual(code, 0, prepared)
+        second = prepared["campaigns"][1]
+        code, approved = self.run_cli("approve", "--campaign-id", second["campaign_id"],
+                                      "--specification-digest", second["specification_digest"])
+        self.assertEqual(code, 0, approved)
+        code, denied = self.run_cli("approve-portfolio", "--manifest", str(manifest),
+                                    "--portfolio-digest", prepared["portfolio_digest"])
+        self.assertEqual(code, cli.EXIT_FAILED, denied)
+        with CampaignStore(self.state_db) as store:
+            self.assertEqual(store.get_snapshot("portfolio-lane-1").state.value, "DRAFT")
+            self.assertIsNone(store.get_runtime_operation(
+                f"portfolio-approval:{prepared['portfolio_digest']}"))
+
+    def test_portfolio_rejects_overlapping_write_scopes(self) -> None:
+        code, denied = self.run_cli("prepare-portfolio", "--manifest", str(self.make_portfolio(overlapping=True)))
+        self.assertEqual(code, cli.EXIT_FAILED)
+        self.assertIn("overlapping write scopes", denied["message"])
+
     def test_prepare_and_admit_reject_environment_that_cannot_execute(self) -> None:
         proposed = self.proposed_product_change()
         admitted = self.spec.to_dict()

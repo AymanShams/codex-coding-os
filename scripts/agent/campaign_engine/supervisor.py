@@ -16,7 +16,7 @@ import re
 import subprocess
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
-from .admission import SourceDriftError, resolve_repository, verify_acceptance_sources
+from .admission import AdmissionError, SourceDriftError, resolve_repository, run_git, verify_acceptance_sources
 from .effects import ExternalEffectDriver, pr_body_contract
 from .evidence import (
     EvidenceError,
@@ -485,7 +485,9 @@ class DeterministicSupervisor:
             BudgetToken.CHILD_CREATION,
             node_id=node_id,
             label=(f"create:{node_id}:{role.value}:{reviewer_id or 'single'}:"
-                   f"correction:{snapshot.node(node_id).validation_corrections}"),
+                   f"correction:{snapshot.node(node_id).validation_corrections}"
+                   + (f":no-op:{snapshot.node(node_id).no_op_retries}"
+                      if snapshot.node(node_id).no_op_retries else "")),
         ) if native_worker else snapshot
         actor_id = _stable_id(
             snapshot.spec.campaign_id,
@@ -682,6 +684,13 @@ class DeterministicSupervisor:
         snapshot = self.store.get_snapshot(campaign_id)
         self._check_deadline(snapshot, snapshot.node(node_id))
         self._verify_sources(snapshot, node_id)
+        if (role is ActorRole.IMPLEMENTER and snapshot.node(node_id).no_op_retries
+                and snapshot.node(node_id).state is NodeState.ADMITTED):
+            try:
+                self._verify_unchanged_no_op_start(snapshot, node_id)
+            except (AdmissionError, OSError, subprocess.SubprocessError) as exc:
+                self._fail_dispatch(campaign_id, node_id, role, exc)
+                raise
         snapshot, actor, lease = self._acquire_actor(
             snapshot,
             node_id,
@@ -932,6 +941,9 @@ class DeterministicSupervisor:
                     payload={"reason": self._native_failure(receipt)},
                 )
             )
+        elif (runtime.role is ActorRole.IMPLEMENTER
+              and snapshot.node_spec(receipt.node_id).require_commit):
+            snapshot = self._complete_commit_required(snapshot, receipt)
         elif event_type is not None:
             snapshot = self._apply(
                 self._event(
@@ -957,11 +969,78 @@ class DeterministicSupervisor:
                 cancellation_epoch=snapshot.cancellation_epoch,
             )
         self._workers.pop(lease_id, None)
+        if completed and snapshot.node(receipt.node_id).state is NodeState.ADMITTED:
+            self.host.interrupt(lease_id)
         if not completed:
             self.host.interrupt(lease_id)
             if runtime.role in {ActorRole.REVIEWER, ActorRole.CLOSURE_REVIEWER}:
                 raise SupervisorError(self._native_failure(receipt))
         return receipt
+
+    def _verify_unchanged_no_op_start(self, snapshot: CampaignSnapshot, node_id: str) -> None:
+        resolve_repository(
+            git_root=snapshot.spec.git_root, worktree=snapshot.spec.worktree,
+            expected_remote=snapshot.spec.repository_remote, expected_branch=snapshot.spec.branch,
+            expected_base_sha=str(snapshot.node(node_id).start_head), mode=CampaignMode.AUTOMATED.value,
+        )
+
+    def _complete_commit_required(self, snapshot: CampaignSnapshot, receipt: TerminalReceipt) -> CampaignSnapshot:
+        """Accept a committed product candidate or reserve one approved no-action retry."""
+        node = snapshot.node(receipt.node_id)
+        spec = snapshot.node_spec(node.node_id)
+        reason = "implementation produced no committed candidate diff"
+        try:
+            self._check_deadline(snapshot, node)
+            self._verify_sources(snapshot, node.node_id)
+            head = run_git(snapshot.spec.worktree, "rev-parse", "HEAD").casefold()
+            identity = resolve_repository(
+                git_root=snapshot.spec.git_root, worktree=snapshot.spec.worktree,
+                expected_remote=snapshot.spec.repository_remote, expected_branch=snapshot.spec.branch,
+                expected_base_sha=head, mode=CampaignMode.AUTOMATED.value,
+            )
+            evidence = exact_repository_evidence(snapshot.spec.worktree,
+                base_sha=str(node.start_head), candidate_head=head)
+            if head != node.start_head and evidence.get("changed_entries"):
+                return self._apply(self._event(
+                    snapshot, EventType.IMPLEMENTATION_COMPLETED, label=f"terminal:{receipt.lease_id}",
+                    node_id=node.node_id, actor_id=receipt.actor_id, fencing_epoch=receipt.fencing_epoch,
+                    payload={"receipt_digest": receipt.receipt_digest,
+                             "committed_candidate_head": head,
+                             "committed_candidate_diff": evidence["diff_sha256"]},
+                ))
+            active = self.store.list_active_leases(snapshot.spec.campaign_id)
+            remaining = {balance.token: balance.remaining for balance in snapshot.budgets}
+            safe_retry = (
+                spec.no_op_retry_limit == 1 and node.no_op_retries == 0
+                and node.implementation_attempts == 1 and node.validation_corrections == 0
+                and head == node.start_head and identity.clean and receipt.action_count == 0
+                and receipt.candidate_tree is None
+                and len(active) == 1 and active[0].lease_id == receipt.lease_id
+                and not self.store.list_outbox(campaign_id=snapshot.spec.campaign_id)
+                and self.store.get_runtime_operation(_stable_id("transport-failure", receipt.lease_id)) is None
+                and all(remaining.get(token, 0) > 0 for token in (
+                    BudgetToken.NO_OP_ATTEMPT, BudgetToken.CHILD_CREATION, BudgetToken.CHILD_START))
+                and snapshot.autonomous_rank_remaining >= 3
+            )
+            if safe_retry:
+                self._verify_unchanged_no_op_start(snapshot, node.node_id)
+                return self._apply(self._event(
+                    snapshot, EventType.RETRY_NO_OP_IMPLEMENTATION, label=f"no-op:{receipt.lease_id}",
+                    node_id=node.node_id, actor_id=receipt.actor_id, fencing_epoch=receipt.fencing_epoch,
+                    payload={"budget_token": BudgetToken.NO_OP_ATTEMPT.value,
+                             "evidence_id": _stable_id("receipt", receipt.lease_id),
+                             "receipt_digest": receipt.receipt_digest,
+                             "start_head": node.start_head, "action_count": receipt.action_count},
+                ))
+            reason += "; no approved safe no-op retry remains"
+        except (AdmissionError, EvidenceError, SupervisorDeadlineExceeded, OSError,
+                subprocess.SubprocessError) as exc:
+            reason += f"; {type(exc).__name__}: {exc}"
+        return self._apply(self._event(
+            snapshot, EventType.FAIL_NODE, label=f"missing-commit:{receipt.lease_id}",
+            node_id=node.node_id, actor_id=receipt.actor_id, fencing_epoch=receipt.fencing_epoch,
+            payload={"reason": reason, "receipt_digest": receipt.receipt_digest},
+        ))
 
     def _persisted_terminal(self, lease_id: str) -> TerminalReceipt:
         """Reattach only a completed, attested result, without contacting its host."""
@@ -1595,7 +1674,9 @@ class DeterministicSupervisor:
             snapshot.state.value,
             "FINDINGS_FROZEN",
             node_id,
-            wait_event=("repair_authorized" if blocking else None),
+            wait_event=("repair_authorized" if blocking and not (
+                snapshot.node_spec(node_id).allow_automatic_repair
+            ) else None),
             details={"blocking_finding_ids": blocking},
         )
 
@@ -2499,18 +2580,23 @@ class DeterministicSupervisor:
                     ActorRole.REPAIRER.value: (NodeState.REPAIRING, EventType.REPAIR_COMPLETED),
                 }.get(receipt.role)
                 if expected is not None and node.state is expected[0]:
-                    snapshot = self._apply(self._event(
-                        snapshot, expected[1], label=f"terminal:{lease_id}",
-                        node_id=receipt.node_id, actor_id=receipt.actor_id,
-                        fencing_epoch=receipt.fencing_epoch,
-                        payload={"receipt_digest": receipt.receipt_digest},
-                    ))
-                snapshot = self.store.release_lease(
-                    lease_id, request_id=_stable_id("release", lease_id),
-                    expected_revision=snapshot.revision,
-                    authority_epoch=snapshot.authority_epoch,
-                    cancellation_epoch=snapshot.cancellation_epoch,
-                )
+                    if (receipt.role == ActorRole.IMPLEMENTER.value
+                            and snapshot.node_spec(receipt.node_id).require_commit):
+                        snapshot = self._complete_commit_required(snapshot, receipt)
+                    else:
+                        snapshot = self._apply(self._event(
+                            snapshot, expected[1], label=f"terminal:{lease_id}",
+                            node_id=receipt.node_id, actor_id=receipt.actor_id,
+                            fencing_epoch=receipt.fencing_epoch,
+                            payload={"receipt_digest": receipt.receipt_digest},
+                        ))
+                if snapshot.state not in {CampaignState.FAILED, CampaignState.CANCELLED, CampaignState.COMPLETED}:
+                    snapshot = self.store.release_lease(
+                        lease_id, request_id=_stable_id("release", lease_id),
+                        expected_revision=snapshot.revision,
+                        authority_epoch=snapshot.authority_epoch,
+                        cancellation_epoch=snapshot.cancellation_epoch,
+                    )
                 self._workers.pop(lease_id, None)
                 reattached.append(lease_id)
             except Exception:
@@ -2796,6 +2882,23 @@ class DeterministicSupervisor:
         if node.state is NodeState.FINDINGS_FROZEN:
             blockers = [item for item in node.findings if item.blocking]
             if blockers:
+                if snapshot.node_spec(node.node_id).allow_automatic_repair:
+                    self._verify_sources(snapshot, node.node_id)
+                    self._verify_local_candidate(snapshot, node)
+                    snapshot = self._apply(self._event(
+                        snapshot, EventType.AUTHORIZE_AUTOMATIC_REPAIR,
+                        label="approved-scoped-repair", node_id=node.node_id,
+                        payload={
+                            "finding_ids": [item.finding_id for item in blockers],
+                            "specification_digest": snapshot.spec.specification_digest,
+                            "candidate_head": node.candidate_head,
+                            "candidate_diff_digest": node.candidate_diff_digest,
+                        },
+                    ))
+                    return SupervisorDecision(
+                        campaign_id, snapshot.revision, snapshot.state.value,
+                        "AUTOMATIC_REPAIR_AUTHORIZED", node.node_id,
+                    )
                 return SupervisorDecision(
                     campaign_id,
                     snapshot.revision,

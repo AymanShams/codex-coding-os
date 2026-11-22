@@ -225,6 +225,7 @@ class EventType(str, Enum):
     CONSUME_BUDGET = "CONSUME_BUDGET"
     START_IMPLEMENTATION = "START_IMPLEMENTATION"
     IMPLEMENTATION_COMPLETED = "IMPLEMENTATION_COMPLETED"
+    RETRY_NO_OP_IMPLEMENTATION = "RETRY_NO_OP_IMPLEMENTATION"
     REQUEST_VALIDATION_CORRECTION = "REQUEST_VALIDATION_CORRECTION"
     VALIDATION_PASSED = "VALIDATION_PASSED"
     VALIDATION_FAILED = "VALIDATION_FAILED"
@@ -232,6 +233,7 @@ class EventType(str, Enum):
     FREEZE_FINDINGS = "FREEZE_FINDINGS"
     MARK_READY_TO_PUBLISH = "MARK_READY_TO_PUBLISH"
     AUTHORIZE_REPAIR = "AUTHORIZE_REPAIR"
+    AUTHORIZE_AUTOMATIC_REPAIR = "AUTHORIZE_AUTOMATIC_REPAIR"
     AUTHORIZE_PUBLICATION = "AUTHORIZE_PUBLICATION"
     START_REPAIR = "START_REPAIR"
     REPAIR_COMPLETED = "REPAIR_COMPLETED"
@@ -455,10 +457,23 @@ class NodeSpec:
     deadline_utc: str | None = None
     acceptance_scenarios: tuple[Mapping[str, Any], ...] = ()
     required_tools: tuple[str, ...] = ()
+    require_commit: bool = False
+    no_op_retry_limit: int = 0
+    allow_automatic_repair: bool = False
 
     def __post_init__(self) -> None:
         _nonempty(self.node_id, "node_id")
         _nonempty(self.objective, "node objective")
+        if type(self.require_commit) is not bool:
+            raise ModelValidationError("require_commit must be a boolean")
+        if type(self.no_op_retry_limit) is not int or self.no_op_retry_limit not in {0, 1}:
+            raise ModelValidationError("no_op_retry_limit must be zero or one")
+        if self.no_op_retry_limit and not self.require_commit:
+            raise ModelValidationError("no-op retry requires an explicit commit requirement")
+        if type(self.allow_automatic_repair) is not bool:
+            raise ModelValidationError("allow_automatic_repair must be a boolean")
+        if self.allow_automatic_repair and not self.require_commit:
+            raise ModelValidationError("automatic repair requires an explicit commit requirement")
         if len(set(self.dependencies)) != len(self.dependencies):
             raise ModelValidationError(f"node {self.node_id} has duplicate dependencies")
         if len(set(self.allowed_paths)) != len(self.allowed_paths):
@@ -513,6 +528,9 @@ class NodeSpec:
             deadline_utc=(str(value["deadline_utc"]) if value.get("deadline_utc") else None),
             acceptance_scenarios=tuple(value.get("acceptance_scenarios", ())),
             required_tools=tuple(value.get("required_tools", ())),
+            require_commit=value.get("require_commit", False),
+            no_op_retry_limit=value.get("no_op_retry_limit", 0),
+            allow_automatic_repair=value.get("allow_automatic_repair", False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -529,6 +547,12 @@ class NodeSpec:
             result["acceptance_scenarios"] = _primitive(self.acceptance_scenarios)
         if self.required_tools:
             result["required_tools"] = list(self.required_tools)
+        if self.require_commit:
+            result["require_commit"] = True
+        if self.no_op_retry_limit:
+            result["no_op_retry_limit"] = self.no_op_retry_limit
+        if self.allow_automatic_repair:
+            result["allow_automatic_repair"] = True
         return result
 
 
@@ -717,6 +741,16 @@ class CampaignSpec:
                     "must be the exact campaign worktree"
                 )
         for node in self.nodes:
+            if node.require_commit and self.objective_kind not in {
+                ObjectiveKind.PRODUCT_CODE, ObjectiveKind.PRODUCT_DOCUMENTATION,
+            }:
+                raise ModelValidationError("commit-required nodes require a product objective")
+            if node.no_op_retry_limit and self.mode is not CampaignMode.AUTOMATED:
+                raise ModelValidationError("automatic no-op retry requires automated mode")
+            if node.allow_automatic_repair and (
+                self.mode is not CampaignMode.AUTOMATED or not self.publication_authority.get("local_only")
+            ):
+                raise ModelValidationError("automatic repair requires an automated local-only campaign")
             missing = set(node.dependencies) - known
             if missing:
                 raise ModelValidationError(
@@ -1204,6 +1238,7 @@ class NodeSnapshot:
     fencing_epoch: int = 0
     lease_actor_id: str | None = None
     implementation_attempts: int = 0
+    no_op_retries: int = 0
     validation_corrections: int = 0
     validation_correction: Mapping[str, Any] | None = None
     review_generations: int = 0
@@ -1227,12 +1262,15 @@ class NodeSnapshot:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "state", _enum(NodeState, self.state))
+        if self.no_op_retries > 1:
+            raise ModelValidationError("node permits at most one no-op retry")
         if self.validation_correction is not None:
             object.__setattr__(self, "validation_correction", _freeze(self.validation_correction))
         _nonempty(self.node_id, "node_id")
         for value in (
             self.fencing_epoch,
             self.implementation_attempts,
+            self.no_op_retries,
             self.validation_corrections,
             self.review_generations,
             self.repair_attempts,
@@ -1249,6 +1287,7 @@ class NodeSnapshot:
             fencing_epoch=int(value.get("fencing_epoch", 0)),
             lease_actor_id=(str(value["lease_actor_id"]) if value.get("lease_actor_id") else None),
             implementation_attempts=int(value.get("implementation_attempts", 0)),
+            no_op_retries=int(value.get("no_op_retries", 0)),
             validation_corrections=int(value.get("validation_corrections", 0)),
             validation_correction=value.get("validation_correction"),
             review_generations=int(value.get("review_generations", 0)),
@@ -1305,6 +1344,7 @@ class NodeSnapshot:
             "fencing_epoch": self.fencing_epoch,
             "lease_actor_id": self.lease_actor_id,
             "implementation_attempts": self.implementation_attempts,
+            **({"no_op_retries": self.no_op_retries} if self.no_op_retries else {}),
             "validation_corrections": self.validation_corrections,
             **({"validation_correction": _primitive(self.validation_correction)}
                if self.validation_correction is not None else {}),

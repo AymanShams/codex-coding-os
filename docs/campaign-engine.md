@@ -32,6 +32,56 @@ reported by `run` returns a nonzero process exit code. The engine creates no
 publication action and requests no delivery approval. The existing signature
 verifier requirement still applies for any separately authorized repair.
 
+### Finite local portfolios
+
+A local portfolio groups two to 32 admitted automated local-only campaigns
+under one approval. Keep each independent implementation chain in a separate
+worktree of the same repository with disjoint write paths. Put dependencies
+within a member's normal node graph.
+
+The portfolio JSON contains only its schema, stable ID, and exact admitted
+member identities in run order:
+
+```json
+{
+  "schema": "ccos-local-portfolio-v1",
+  "portfolio_id": "local-implementation-wave",
+  "campaigns": [
+    {"campaign_id": "first-chain", "specification_digest": "<exact first digest>"},
+    {"campaign_id": "second-chain", "specification_digest": "<exact second digest>"}
+  ]
+}
+```
+
+Run the installed commands:
+
+```powershell
+python -B $Engine --json prepare-portfolio --manifest <manifest.json>
+python -B $Engine --json approve-portfolio --manifest <manifest.json> --portfolio-digest <exact portfolio digest>
+python -B $Engine --json run-portfolio --manifest <manifest.json> --portfolio-digest <exact portfolio digest>
+```
+
+Preparation verifies all admitted draft members. Approval applies all
+constituent approvals and writes one exact portfolio receipt in a single
+transaction. Use the receipt's `public_command` to start execution. The runner
+checks that receipt, reserves each new member once,
+and invokes its normal local campaign run. A failed lane remains failed
+while other isolated lanes continue. A reserved or in-flight lane is reported
+for reconciliation and does not get a duplicate worker. Each member retains
+its own leases, budgets, deadlines, validations, reviews and terminal evidence.
+Portfolio execution creates no publication or branch integration effect.
+
+Product nodes can opt into `require_commit: true` to reject a missing candidate
+before validation. With `no_op_retry_limit: 1`, the run can use one budgeted
+new worker after a completed, attested zero-action turn at the exact clean
+start. A dirty worktree, uncertain effects, changed sources, expired deadline,
+or spent budget prevents that retry.
+
+An automated local-only node with `require_commit: true` can additionally bind
+`allow_automatic_repair: true` in its approved digest. The engine authorizes one
+combined repair against the frozen blocker set and exact candidate. The repair
+uses the existing fenced worker, validation and independent closure cohort.
+
 ### Native actor model selection
 
 An optional `model_policy` is part of the immutable specification and its digest:

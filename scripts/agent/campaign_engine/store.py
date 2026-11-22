@@ -10,7 +10,7 @@ import fnmatch
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from .admission import ScopeOverlapError, scopes_overlap
 from .ed25519 import verify as verify_ed25519_signature
@@ -869,6 +869,29 @@ class CampaignStore:
                     or row["candidate_head"] != correction.get("candidate_head")
                     or row["payload_json"] != canonical_json(correction.get("failure_evidence", {}))):
                 raise AuthorityError("validation correction requires exact persisted failed command evidence")
+        if event.event_type is EventType.RETRY_NO_OP_IMPLEMENTATION:
+            evidence_id = event.payload.get("evidence_id")
+            row = connection.execute(
+                "SELECT e.campaign_id, e.node_id, e.kind, e.digest, e.payload_json, a.result_json "
+                "FROM evidence e JOIN operations a ON a.request_id=? "
+                "WHERE e.evidence_id=? AND a.kind='ATTEST_NATIVE_TERMINAL_RECEIPT' AND a.status='CONFIRMED'",
+                (f"attest:{evidence_id}", evidence_id),
+            ).fetchone()
+            if (row is None or row["campaign_id"] != event.campaign_id
+                    or row["node_id"] != event.node_id or row["kind"] != EvidenceKind.GIT.value
+                    or row["digest"] != event.payload.get("receipt_digest")):
+                raise AuthorityError("no-op retry requires the exact attested native terminal receipt")
+            terminal = json.loads(row["payload_json"])
+            attestation = json.loads(row["result_json"])
+            if (attestation["digest"] != row["digest"] or terminal.get("actor_id") != event.actor_id
+                    or terminal.get("fencing_epoch") != event.fencing_epoch
+                    or terminal.get("authority_epoch") != event.authority_epoch
+                    or terminal.get("cancellation_epoch") != event.cancellation_epoch
+                    or type(terminal.get("action_count")) is not int or terminal["action_count"] != 0
+                    or terminal.get("role") != ActorRole.IMPLEMENTER.value
+                    or terminal.get("candidate_tree") is not None
+                    or str(terminal.get("turn_status", "")).casefold() not in {"complete", "completed"}):
+                raise AuthorityError("no-op retry receipt differs from the exact complete zero-action turn")
         self._begin_operation(
             connection,
             request_id=event.event_id,
@@ -933,6 +956,46 @@ class CampaignStore:
                 connection.rollback()
                 self._record_rejection(campaign_event, exc)
                 raise
+
+    def approve_portfolio(
+        self, portfolio_digest: str, manifest: Mapping[str, Any],
+        approvals: Sequence[Event],
+    ) -> dict[str, Any]:
+        """Apply exact constituent approvals and retain one atomic portfolio receipt."""
+        request_id = f"portfolio-approval:{portfolio_digest}"
+        payload_digest = canonical_json_digest(manifest)
+        members = manifest["campaigns"]
+        if (
+            payload_digest != portfolio_digest
+            or not approvals
+            or len(approvals) != len(members)
+            or len({event.campaign_id for event in approvals}) != len(approvals)
+            or any(
+                event.event_type is not EventType.APPROVE
+                or event.campaign_id != member["campaign_id"]
+                or event.payload.get("specification_digest") != member["specification_digest"]
+                for event, member in zip(approvals, members)
+            )
+        ):
+            raise AuthorityError("portfolio approval does not bind the exact constituent specifications")
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            prior = self._operation_result(connection, request_id, payload_digest)
+            if prior is not None:
+                connection.commit()
+                return dict(prior)
+            revisions = []
+            for event in approvals:
+                approved, _ = self._apply_event_tx(connection, event)
+                revisions.append({"campaign_id": event.campaign_id, "revision": approved.revision})
+            self._begin_operation(
+                connection, request_id=request_id, campaign_id=approvals[0].campaign_id,
+                kind="PORTFOLIO_APPROVAL", payload_digest=payload_digest, revision=revisions[0]["revision"],
+            )
+            record = {"manifest": dict(manifest), "revisions": revisions}
+            self._finish_operation(connection, request_id, record)
+            connection.commit()
+            return record
 
     @staticmethod
     def _verify_human_authorization_signature(
