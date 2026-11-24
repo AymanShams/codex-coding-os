@@ -9,9 +9,9 @@ $Parent = Split-Path -Parent $RepoRoot
 $ManifestPath = Join-Path $RepoRoot "pack.manifest.json"
 $Validate = Join-Path $RepoRoot "scripts\validate-pack.ps1"
 $RequiredDormantRoutingFiles = @(
-  ".agents/skills/catalogue-router/SKILL.md",
-  ".agents/skills/catalogue-router/references/capability-catalogue.md",
-  ".agents/skills/catalogue-router/scripts/query-catalogue.ps1",
+  "capability-routing/reference-skill/catalogue-router/SKILL.md",
+  "capability-routing/reference-skill/catalogue-router/references/capability-catalogue.md",
+  "capability-routing/reference-skill/catalogue-router/scripts/query-catalogue.ps1",
   "capability-routing/README.md",
   "capability-routing/requirements-test.txt",
   "capability-routing/provenance.json",

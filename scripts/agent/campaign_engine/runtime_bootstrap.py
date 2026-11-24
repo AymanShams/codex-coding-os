@@ -264,9 +264,24 @@ def _aggregate_entries(entries: Sequence[Mapping[str, Any]]) -> str:
     return digest.hexdigest()
 
 
-def _entry_path(relative: str, layout: RuntimeLayout) -> Path:
+def preserved_skill_names(manifest: Mapping[str, Any]) -> frozenset[str]:
+    """Two optional capability owners may retain their active, unbundled skills.
+
+    Their stock package bytes stay inside the support payload and remain pinned.
+    No engine or lifecycle entry skill can use this projection.
+    """
+    records = manifest.get("preserved_paths", {}).get("skills", {})
+    if not isinstance(records, dict) or not set(records).issubset({"codex-design-artifacts", "doc"}):
+        raise RuntimeBootstrapError("invalid preserved skill ownership")
+    if any(not isinstance(record, dict) or record.get("managed") is not False
+           for record in records.values()):
+        raise RuntimeBootstrapError("invalid preserved skill ownership record")
+    return frozenset(records)
+
+
+def _entry_path(relative: str, layout: RuntimeLayout, preserved: frozenset[str] = frozenset()) -> Path:
     parts = PurePosixPath(relative).parts
-    if len(parts) >= 3 and parts[:2] == (".agents", "skills"):
+    if len(parts) >= 3 and parts[:2] == (".agents", "skills") and parts[2] not in preserved:
         return layout.skills_root.joinpath(*parts[2:])
     return layout.installed_root.joinpath(*parts)
 
@@ -339,8 +354,9 @@ def verify_installed_bundle(layout: RuntimeLayout) -> BootstrapEvidence:
     if bundle.get("aggregate_sha256") != aggregate or bundle_digest != aggregate:
         raise RuntimeBootstrapError("installed bundle aggregate differs from its runtime pin")
 
+    preserved = preserved_skill_names(manifest)
     for entry, relative in zip(raw_entries, paths, strict=True):
-        target = _regular_file(_entry_path(relative, layout), f"installed file {relative}")
+        target = _regular_file(_entry_path(relative, layout, preserved), f"installed file {relative}")
         metadata = target.stat()
         if metadata.st_size != entry.get("size") or _sha256_file(target) != entry.get("sha256"):
             raise RuntimeBootstrapError(f"installed bundle file differs from its pin: {relative}")

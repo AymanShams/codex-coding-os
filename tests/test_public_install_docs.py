@@ -41,14 +41,6 @@ class PublicInstallDocumentationTests(unittest.TestCase):
         cls.claude_template = (
             cls.repo_root / "templates" / "CLAUDE.md"
         ).read_text(encoding="utf-8")
-        cls.capability_catalogue = (
-            cls.repo_root
-            / ".agents"
-            / "skills"
-            / "catalogue-router"
-            / "references"
-            / "capability-catalogue.md"
-        ).read_text(encoding="utf-8")
         cls.historical_adr = (
             cls.repo_root
             / "docs"
@@ -261,7 +253,6 @@ class PublicInstallDocumentationTests(unittest.TestCase):
             "LEGACY_ARCHIVED_UNRESOLVED",
         ):
             self.assertIn(phrase, self.retirement_contract)
-        self.assertNotIn("manifest blocks coding", self.capability_catalogue)
         self.assertNotIn("decisions in this ADR remain current", self.historical_adr)
         self.assertIn("deterministic `LEGACY_ENGINE_RETIRED` denial stub", self.historical_adr)
         self.assertIn("non-operative in version 1.0", self.historical_adr_2)
@@ -422,12 +413,19 @@ class PublicInstallDocumentationTests(unittest.TestCase):
             r"^[0-9a-f]{64}$",
         )
 
-    def test_capability_catalogue_matches_bundled_skill_manifest(self) -> None:
-        section = self.capability_catalogue.split("## Bundled Full Local Skills", 1)[1]
-        section = section.split("## External Reference Repositories", 1)[0]
-        listed = set(re.findall(r"^- `([^`]+)`$", section, re.MULTILINE))
+    def test_bundled_skill_manifest_matches_install_bundle(self) -> None:
         declared = {item["name"] for item in self.pack_manifest["bundled_skills"]}
-        self.assertEqual(listed, declared)
+        bundled = {
+            parts[2]
+            for item in self.bundle_manifest["entries"]
+            if len(parts := item["path"].replace("\\", "/").split("/")) == 4
+            and parts[:2] == [".agents", "skills"]
+            and parts[3] == "SKILL.md"
+        }
+        self.assertEqual(declared, bundled)
+        for name in declared:
+            with self.subTest(skill=name):
+                self.assertTrue((self.repo_root / ".agents" / "skills" / name / "SKILL.md").is_file())
 
     def test_catalogue_router_is_not_owned_by_the_ordinary_install_bundle(self) -> None:
         declared = {item["name"] for item in self.pack_manifest["bundled_skills"]}

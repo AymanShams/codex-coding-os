@@ -19,7 +19,8 @@ param(
   [switch]$ArchiveMode,
   [switch]$InstallExternalSkills,
   [switch]$AllowUnpinnedExternalSkills,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [ValidateSet("codex-design-artifacts", "doc")][string[]]$PreserveSkill = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -99,6 +100,7 @@ if ($LegacyStateRoot) { $Arguments += @("--legacy-state-root", $LegacyStateRoot)
 if ($ArchiveMode) { $Arguments += "--archive-mode" }
 if ($LegacyOverlapMigration) { $Arguments += "--legacy-overlap-migration" }
 if ($DryRun) { $Arguments += "--dry-run" }
+foreach ($SkillName in $PreserveSkill) { $Arguments += @("--preserve-skill", $SkillName) }
 
 $TargetDescription = "SkillsRoot=$SkillsRoot; CodexHome=$CodexHome; Bundle=$ExpectedBundleSha256"
 if ($DryRun -or $PSCmdlet.ShouldProcess($TargetDescription, "Run one transactional Codex Coding OS install")) {

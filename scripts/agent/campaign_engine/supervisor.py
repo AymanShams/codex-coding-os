@@ -16,7 +16,7 @@ import re
 import subprocess
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
-from .admission import SourceDriftError, verify_acceptance_sources
+from .admission import AdmissionError, SourceDriftError, resolve_repository, run_git, verify_acceptance_sources
 from .effects import ExternalEffectDriver, pr_body_contract
 from .evidence import (
     EvidenceError,
@@ -59,6 +59,7 @@ from .model import (
     TransitionError,
     ValidationCommand,
     canonical_json_digest,
+    terminal_actions_were_read_only,
     unique_findings,
 )
 from .store import CampaignStore
@@ -322,6 +323,11 @@ class DeterministicSupervisor:
             NodeState.CLOSURE, NodeState.READY_TO_PUBLISH, NodeState.PUBLISHING,
         }:
             return
+        self._verify_validation_receipts(snapshot, node_id)
+
+    def _verify_validation_receipts(self, snapshot: CampaignSnapshot, node_id: str) -> list[str]:
+        node = snapshot.node(node_id)
+        verified: list[str] = []
         commands = {item.command_id: item for item in snapshot.spec.required_validation_commands}
         for command_id in snapshot.node_spec(node_id).validation_command_ids:
             evidence = next((item for state in (NodeState.REVALIDATING, NodeState.VALIDATING)
@@ -329,13 +335,17 @@ class DeterministicSupervisor:
                                  "validation", snapshot.spec.campaign_id, node_id, command_id,
                                  node.candidate_head, state.value, node.validation_corrections,
                              ))) is not None), None)
-            if evidence is None:
+            if (evidence is None or evidence.kind is not EvidenceKind.VALIDATION
+                    or evidence.candidate_head != node.candidate_head
+                    or evidence.payload.get("evidence_sha256") != evidence.digest):
                 raise SourceDriftError(f"passing acceptance evidence unavailable: {node_id}/{command_id}")
             try:
                 verify_command_evidence(self._trusted_command(commands[command_id], str(node.candidate_head)),
                                         evidence.to_dict()["payload"])
             except EvidenceError as exc:
                 raise SourceDriftError(f"acceptance command inputs changed: {node_id}/{command_id}: {exc}") from exc
+            verified.append(evidence.evidence_id)
+        return verified
 
     @staticmethod
     def _trusted_command(command: ValidationCommand, candidate_head: str) -> TrustedCommand:
@@ -476,7 +486,9 @@ class DeterministicSupervisor:
             BudgetToken.CHILD_CREATION,
             node_id=node_id,
             label=(f"create:{node_id}:{role.value}:{reviewer_id or 'single'}:"
-                   f"correction:{snapshot.node(node_id).validation_corrections}"),
+                   f"correction:{snapshot.node(node_id).validation_corrections}"
+                   + (f":no-op:{snapshot.node(node_id).no_op_retries}"
+                      if snapshot.node(node_id).no_op_retries else "")),
         ) if native_worker else snapshot
         actor_id = _stable_id(
             snapshot.spec.campaign_id,
@@ -542,6 +554,7 @@ class DeterministicSupervisor:
         )
         if role is ActorRole.IMPLEMENTER and node.validation_correction is not None:
             candidate_head = str(node.validation_correction["candidate_head"])
+        selection = snapshot.spec.actor_model(role.value, reviewer_id) or {}
         return ActorLease.issue(
             lease_id=lease.lease_id,
             request_id=_stable_id("native", lease.lease_id),
@@ -555,11 +568,15 @@ class DeterministicSupervisor:
             cancellation_epoch=snapshot.cancellation_epoch,
             fencing_epoch=lease.fencing_epoch,
             candidate_head=candidate_head,
+            **selection,
         )
 
     def _bind_native(
         self, lease: ActorLease, native_identity: Mapping[str, Any]
     ) -> None:
+        if lease.model is not None and (native_identity.get("model") != lease.model
+                or native_identity.get("reasoning_effort") != lease.reasoning_effort):
+            raise SupervisorError("native model selection differs from the approved actor lease")
         thread_id = str(native_identity.get("thread_id", ""))
         self.store.bind_actor(
             lease.lease_id,
@@ -610,6 +627,7 @@ class DeterministicSupervisor:
             "role": role.value,
             "reviewer_id": reviewer_id,
             "candidate_head": node.candidate_head,
+            "node_start_head": node.start_head,
             "allowed_paths": list(spec.allowed_paths),
             "objective": spec.objective,
             "acceptance_scenarios": spec.to_dict().get("acceptance_scenarios", []),
@@ -633,12 +651,14 @@ class DeterministicSupervisor:
                 "there are material findings. Nonblocking observations do not require BLOCK. Each finding "
                 "must contain finding_id, title, blocking, and details. Use only the supplied "
                 "campaign_list_files, campaign_read_file, campaign_search, campaign_git_status, "
-                "and campaign_git_diff tools."
+                "and campaign_git_diff tools. Pass node_start_head as the base to campaign_git_diff "
+                "to verify the complete node change from its admitted starting commit."
             )
             instruction += (
                 " Reuse established finding identifiers when reporting the same evidence."
                 " Tie each blocker in details to acceptance_expectation_id, an invariant "
-                "with evidence, or a regression with reproduction, expected, and actual. "
+                "with evidence (a nonempty citation string or list of citation strings), "
+                "or a regression object with reproduction, expected, and actual. "
                 "For a nonblocking observation supply details.observation explaining why "
                 "it does not violate an acceptance expectation or invariant. At closure "
                 "report resolved_finding_ids only for frozen blockers verified as fixed."
@@ -651,6 +671,14 @@ class DeterministicSupervisor:
                 "Make changes only through campaign_apply_patch, then use campaign_commit to "
                 "commit the exact candidate and leave the worktree clean."
             )
+            if spec.require_commit:
+                instruction += " The engine runs the trusted validation commands after you commit."
+            if role is ActorRole.IMPLEMENTER and node.no_op_retries and not node.validation_correction:
+                instruction += (
+                    " The first turn ended after at most read-only inspection. This is the one "
+                    "approved retry at the unchanged starting commit. Make the scoped product "
+                    "change now and commit it through the campaign tools."
+                )
         return f"{instruction}\n\nCurrent change and acceptance:\n{binding!r}"
 
     def dispatch_worker(
@@ -665,6 +693,13 @@ class DeterministicSupervisor:
         snapshot = self.store.get_snapshot(campaign_id)
         self._check_deadline(snapshot, snapshot.node(node_id))
         self._verify_sources(snapshot, node_id)
+        if (role is ActorRole.IMPLEMENTER and snapshot.node(node_id).no_op_retries
+                and snapshot.node(node_id).state is NodeState.ADMITTED):
+            try:
+                self._verify_unchanged_no_op_start(snapshot, node_id)
+            except (AdmissionError, OSError, subprocess.SubprocessError) as exc:
+                self._fail_dispatch(campaign_id, node_id, role, exc)
+                raise
         snapshot, actor, lease = self._acquire_actor(
             snapshot,
             node_id,
@@ -753,6 +788,24 @@ class DeterministicSupervisor:
             self._workers.pop(host_lease.lease_id, None)
             self._fail_dispatch(campaign_id, node_id, role, exc)
             raise
+
+    def _attest_native_terminal(self, receipt: TerminalReceipt, *, completed: bool) -> Evidence:
+        reviewer = receipt.role in {ActorRole.REVIEWER.value, ActorRole.CLOSURE_REVIEWER.value}
+        return self.store.record_terminal_evidence(Evidence(
+            evidence_id=_stable_id("receipt", receipt.lease_id),
+            campaign_id=receipt.campaign_id,
+            node_id=receipt.node_id,
+            kind=EvidenceKind.REVIEW if reviewer and completed else EvidenceKind.GIT,
+            digest=receipt.receipt_digest,
+            payload=receipt.to_dict(),
+            candidate_head=receipt.candidate_head,
+        ))
+
+    @staticmethod
+    def _native_failure(receipt: TerminalReceipt) -> str:
+        message = receipt.result_payload.get("native_error")
+        return (f"worker_terminal:{receipt.turn_status}: {message}"
+                if isinstance(message, str) and message else f"worker_terminal:{receipt.turn_status}")
 
     def complete_worker(
         self,
@@ -879,28 +932,13 @@ class DeterministicSupervisor:
             )
             raise error
         snapshot = self.store.get_snapshot(receipt.campaign_id)
-        # Native terminal receipts use the attested path below. Generic
-        # evidence insertion deliberately rejects this receipt protocol.
-        self.store.record_terminal_evidence(
-            Evidence(
-                evidence_id=_stable_id("receipt", lease_id),
-                campaign_id=receipt.campaign_id,
-                node_id=receipt.node_id,
-                kind=(
-                    EvidenceKind.REVIEW
-                    if runtime.role in {ActorRole.REVIEWER, ActorRole.CLOSURE_REVIEWER}
-                    else EvidenceKind.GIT
-                ),
-                digest=receipt.receipt_digest,
-                payload=evidence_payload,
-                candidate_head=receipt.candidate_head,
-            )
-        )
+        completed = receipt.turn_status.casefold() in {"completed", "complete"}
+        self._attest_native_terminal(receipt, completed=completed)
         event_type = {
             ActorRole.IMPLEMENTER: EventType.IMPLEMENTATION_COMPLETED,
             ActorRole.REPAIRER: EventType.REPAIR_COMPLETED,
         }.get(runtime.role)
-        if receipt.turn_status.casefold() not in {"completed", "complete"}:
+        if not completed:
             snapshot = self._apply(
                 self._event(
                     snapshot,
@@ -909,9 +947,12 @@ class DeterministicSupervisor:
                     node_id=receipt.node_id,
                     actor_id=receipt.actor_id,
                     fencing_epoch=receipt.fencing_epoch,
-                    payload={"reason": f"worker_terminal:{receipt.turn_status}"},
+                    payload={"reason": self._native_failure(receipt)},
                 )
             )
+        elif (runtime.role is ActorRole.IMPLEMENTER
+              and snapshot.node_spec(receipt.node_id).require_commit):
+            snapshot = self._complete_commit_required(snapshot, receipt)
         elif event_type is not None:
             snapshot = self._apply(
                 self._event(
@@ -937,7 +978,82 @@ class DeterministicSupervisor:
                 cancellation_epoch=snapshot.cancellation_epoch,
             )
         self._workers.pop(lease_id, None)
+        if completed and snapshot.node(receipt.node_id).state is NodeState.ADMITTED:
+            self.host.interrupt(lease_id)
+        if not completed:
+            self.host.interrupt(lease_id)
+            if runtime.role in {ActorRole.REVIEWER, ActorRole.CLOSURE_REVIEWER}:
+                raise SupervisorError(self._native_failure(receipt))
         return receipt
+
+    def _verify_unchanged_no_op_start(self, snapshot: CampaignSnapshot, node_id: str) -> None:
+        resolve_repository(
+            git_root=snapshot.spec.git_root, worktree=snapshot.spec.worktree,
+            expected_remote=snapshot.spec.repository_remote, expected_branch=snapshot.spec.branch,
+            expected_base_sha=str(snapshot.node(node_id).start_head), mode=CampaignMode.AUTOMATED.value,
+        )
+
+    def _complete_commit_required(self, snapshot: CampaignSnapshot, receipt: TerminalReceipt) -> CampaignSnapshot:
+        """Accept a committed product candidate or reserve one approved no-action retry."""
+        node = snapshot.node(receipt.node_id)
+        spec = snapshot.node_spec(node.node_id)
+        reason = "implementation produced no committed candidate diff"
+        try:
+            self._check_deadline(snapshot, node)
+            self._verify_sources(snapshot, node.node_id)
+            head = run_git(snapshot.spec.worktree, "rev-parse", "HEAD").casefold()
+            identity = resolve_repository(
+                git_root=snapshot.spec.git_root, worktree=snapshot.spec.worktree,
+                expected_remote=snapshot.spec.repository_remote, expected_branch=snapshot.spec.branch,
+                expected_base_sha=head, mode=CampaignMode.AUTOMATED.value,
+            )
+            evidence = exact_repository_evidence(snapshot.spec.worktree,
+                base_sha=str(node.start_head), candidate_head=head)
+            if head != node.start_head and evidence.get("changed_entries"):
+                return self._apply(self._event(
+                    snapshot, EventType.IMPLEMENTATION_COMPLETED, label=f"terminal:{receipt.lease_id}",
+                    node_id=node.node_id, actor_id=receipt.actor_id, fencing_epoch=receipt.fencing_epoch,
+                    payload={"receipt_digest": receipt.receipt_digest,
+                             "committed_candidate_head": head,
+                             "committed_candidate_diff": evidence["diff_sha256"]},
+                ))
+            active = self.store.list_active_leases(snapshot.spec.campaign_id)
+            remaining = {balance.token: balance.remaining for balance in snapshot.budgets}
+            terminal = receipt.to_dict()
+            safe_retry = (
+                spec.no_op_retry_limit == 1 and node.no_op_retries == 0
+                and node.implementation_attempts == 1 and node.validation_corrections == 0
+                and head == node.start_head and identity.clean
+                and terminal_actions_were_read_only(terminal)
+                and receipt.candidate_tree is None
+                and len(active) == 1 and active[0].lease_id == receipt.lease_id
+                and not self.store.list_outbox(campaign_id=snapshot.spec.campaign_id)
+                and self.store.get_runtime_operation(_stable_id("transport-failure", receipt.lease_id)) is None
+                and all(remaining.get(token, 0) > 0 for token in (
+                    BudgetToken.NO_OP_ATTEMPT, BudgetToken.CHILD_CREATION, BudgetToken.CHILD_START))
+                and snapshot.autonomous_rank_remaining >= 3
+            )
+            if safe_retry:
+                self._verify_unchanged_no_op_start(snapshot, node.node_id)
+                actions = {key: value for key, value in terminal.items()
+                           if key in {"action_count", "non_read_action_count"}}
+                return self._apply(self._event(
+                    snapshot, EventType.RETRY_NO_OP_IMPLEMENTATION, label=f"no-op:{receipt.lease_id}",
+                    node_id=node.node_id, actor_id=receipt.actor_id, fencing_epoch=receipt.fencing_epoch,
+                    payload={"budget_token": BudgetToken.NO_OP_ATTEMPT.value,
+                             "evidence_id": _stable_id("receipt", receipt.lease_id),
+                             "receipt_digest": receipt.receipt_digest,
+                             "start_head": node.start_head, **actions},
+                ))
+            reason += "; no approved safe no-op retry remains"
+        except (AdmissionError, EvidenceError, SupervisorDeadlineExceeded, OSError,
+                subprocess.SubprocessError) as exc:
+            reason += f"; {type(exc).__name__}: {exc}"
+        return self._apply(self._event(
+            snapshot, EventType.FAIL_NODE, label=f"missing-commit:{receipt.lease_id}",
+            node_id=node.node_id, actor_id=receipt.actor_id, fencing_epoch=receipt.fencing_epoch,
+            payload={"reason": reason, "receipt_digest": receipt.receipt_digest},
+        ))
 
     def _persisted_terminal(self, lease_id: str) -> TerminalReceipt:
         """Reattach only a completed, attested result, without contacting its host."""
@@ -1336,6 +1452,192 @@ class DeterministicSupervisor:
             details={"review_id": review_id, "leases": leases},
         )
 
+    def review_existing_candidate(
+        self,
+        campaign_id: str,
+        node_id: str,
+        *,
+        specification_digest: str,
+        candidate_head: str,
+        recovery_runtime: Mapping[str, Any],
+        timeout: float,
+    ) -> dict[str, Any]:
+        """Collect a read-only review without reopening a failed campaign."""
+        snapshot = self.store.get_snapshot(campaign_id)
+        spec = snapshot.spec
+        node = snapshot.node(node_id)
+        if (snapshot.state is not CampaignState.FAILED
+                or node.state is not NodeState.FAILED_EXACT_NODE
+                or snapshot.cancellation_epoch != spec.cancellation_epoch
+                or node.review_generations != 1
+                or node.repair_attempts or node.closure_generations
+                or node.findings
+                or node.completed_publication_effects
+                or len(spec.required_review_cohort) != 1):
+            raise SupervisorError("review-only recovery requires a failed first review with one assigned reviewer")
+        if (spec.specification_digest != specification_digest or node.candidate_head != candidate_head
+                or not node.candidate_tree or not node.start_head):
+            raise SupervisorError("review authorization differs from the frozen specification or candidate")
+        self._check_deadline(snapshot, node)
+
+        def verify_candidate() -> list[str]:
+            identity = resolve_repository(
+                git_root=spec.git_root, worktree=spec.worktree,
+                expected_remote=spec.repository_remote, expected_branch=spec.branch,
+                expected_base_sha=candidate_head, mode=CampaignMode.AUTOMATED.value,
+            )
+            if identity.tree_sha != node.candidate_tree:
+                raise SourceDriftError("frozen review tree changed")
+            for label, base, frozen_diff in (
+                ("repository-node-local", node.start_head, node.candidate_node_diff_digest),
+                ("repository-campaign-cumulative", spec.base_sha, node.candidate_diff_digest),
+            ):
+                saved = self.store.get_evidence(_stable_id(label, campaign_id, node_id, base, candidate_head))
+                observed = exact_repository_evidence(spec.worktree, base_sha=base, candidate_head=candidate_head)
+                if (saved is None or saved.kind is not EvidenceKind.REPOSITORY
+                        or saved.candidate_head != candidate_head
+                        or saved.digest != observed["evidence_sha256"]
+                        or observed["diff_sha256"] != frozen_diff):
+                    raise SourceDriftError("frozen review diff or its stored evidence changed")
+            verify_acceptance_sources(spec.to_dict(), node_id=node_id)
+            return self._verify_validation_receipts(snapshot, node_id)
+
+        reviewer = spec.required_review_cohort[0]
+        if self.store.list_active_leases(campaign_id) or self.store.list_outbox(campaign_id=campaign_id):
+            raise SupervisorError("review-only recovery requires an inactive campaign with an empty outbox")
+        validation = verify_candidate()
+        operation = _stable_id("review-existing", campaign_id, node_id, candidate_head)
+        result_id = _stable_id("review-existing-result", operation)
+        binding = {
+            "campaign_id": campaign_id,
+            "node_id": node_id,
+            "specification_digest": specification_digest,
+            "candidate_head": candidate_head,
+            "candidate_tree": node.candidate_tree,
+            "failed_revision": snapshot.revision,
+            "reviewer_id": reviewer,
+            "validation_evidence_ids": validation,
+            "approved_runtime_source": spec.installed_source_commit,
+            "approved_runtime_bundle": spec.installed_bundle_digest,
+            "approved_runtime_transaction": spec.install_transaction,
+            "recovery_runtime": dict(recovery_runtime),
+        }
+        lease_id = _stable_id("review-existing-lease", operation)
+        prior = self.store.get_runtime_operation(operation)
+        if prior is not None:
+            reserved = prior["result"]["payload"]
+            if any(reserved.get(key) != value for key, value in binding.items()
+                   if key != "recovery_runtime"):
+                raise SupervisorError("review-only request differs from the reserved attempt")
+            result = self.store.get_runtime_operation(result_id)
+            if result is not None and result["result"]["result"].get("ok"):
+                return dict(result["result"]["result"])
+            # A previous process may have attested the completed turn before
+            # result validation or finalization failed. Recover that exact
+            # receipt, never re-dispatch the reserved reviewer.
+            if self.store.get_evidence(_stable_id("receipt", lease_id)) is None:
+                if result is not None:
+                    return dict(result["result"]["result"])
+                raise SupervisorError("original review-only attempt has no attested result")
+            replay_binding = dict(reserved)
+            replay_binding["receipt_verification_runtime"] = dict(recovery_runtime)
+            final_id = _stable_id("review-existing-verified", operation)
+            finalized = self.store.get_runtime_operation(final_id)
+            if finalized is not None:
+                return dict(finalized["result"]["result"])
+            outcome = self._finalize_existing_review(
+                snapshot, node, reviewer, lease_id, validation, verify_candidate,
+            )
+            outcome.update(replay_binding, operation_id=operation)
+            self.store.record_runtime_operation(
+                request_id=final_id, campaign_id=campaign_id, kind="REVIEW_EXISTING_VERIFIED",
+                payload=replay_binding, result=outcome, revision=snapshot.revision,
+            )
+            return outcome
+
+        self.store.record_runtime_operation(
+            request_id=operation, campaign_id=campaign_id, kind="REVIEW_EXISTING_RESERVED",
+            payload=binding, result={"reviewer_starts": 1, "write_allowed": False},
+            revision=snapshot.revision, require_new=True,
+        )
+        actor = Actor(_stable_id("review-existing-actor", operation), campaign_id, node_id,
+                      ActorRole.REVIEWER, "UNBOUND", snapshot.authority_epoch, False,
+                      principal_id=reviewer)
+        lease = None
+        try:
+            lease = self.store.acquire_lease(
+                campaign_id, node_id, f"review-existing:{campaign_id}:{node_id}", actor,
+                lease_id=lease_id, request_id=_stable_id("acquire", lease_id),
+                expected_revision=snapshot.revision, authority_epoch=snapshot.authority_epoch,
+                cancellation_epoch=snapshot.cancellation_epoch,
+            )
+            actor_lease = self._host_lease(snapshot, node_id, ActorRole.REVIEWER, actor, lease,
+                                          reviewer_id=reviewer)
+            self.host.create_idle_actor(actor_lease, bind_authority=self._bind_native)
+            prompt = self._worker_prompt(snapshot, node_id, ActorRole.REVIEWER, reviewer)
+            self.host.start_actor_turn(lease_id, prompt)
+            receipt = self.host.collect_terminal_receipt(
+                lease_id, current_epochs=self.store.current_epochs, timeout=timeout,
+            )
+            completed = receipt.turn_status.casefold() in {"completed", "complete"}
+            if (receipt.lease_id != lease_id or receipt.candidate_tree != node.candidate_tree
+                    or self.store.get_snapshot(campaign_id) != snapshot):
+                raise SupervisorError("review completed outside the frozen candidate or failed revision")
+            self._attest_native_terminal(receipt, completed=completed)
+            if not completed:
+                raise SupervisorError(self._native_failure(receipt))
+            result = self._finalize_existing_review(
+                snapshot, node, reviewer, lease_id, validation, verify_candidate,
+            )
+        except Exception as exc:
+            result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        finally:
+            self.host.interrupt(lease_id)
+            if lease is not None:
+                current = self.store.get_snapshot(campaign_id)
+                self.store.release_lease(
+                    lease_id, request_id=_stable_id("release", lease_id),
+                    expected_revision=current.revision, authority_epoch=current.authority_epoch,
+                    cancellation_epoch=current.cancellation_epoch,
+                )
+        result.update(binding)
+        result["operation_id"] = operation
+        self.store.record_runtime_operation(
+            request_id=result_id, campaign_id=campaign_id, kind="REVIEW_EXISTING_RESULT",
+            payload=binding, result=result, revision=snapshot.revision,
+        )
+        return result
+
+    def _finalize_existing_review(
+        self, snapshot: CampaignSnapshot, node: NodeSnapshot, reviewer: str,
+        lease_id: str, validation: list[str], verify_candidate: Callable[[], list[str]],
+    ) -> dict[str, Any]:
+        evidence = self.store.get_evidence(_stable_id("receipt", lease_id))
+        if (evidence is None or evidence.kind is not EvidenceKind.REVIEW
+                or evidence.payload.get("lease_id") != lease_id
+                or evidence.payload.get("candidate_tree") != node.candidate_tree
+                or self.store.get_snapshot(snapshot.spec.campaign_id) != snapshot):
+            raise SupervisorError("stored review is outside the frozen candidate or failed revision")
+        payload = evidence.to_dict()["payload"]
+        result = payload["result_payload"]
+        raw_findings = result.get("findings")
+        summary = {
+            "reviewer_id": reviewer, "candidate_head": node.candidate_head,
+            "receipt_digest": evidence.digest, "verdict": result.get("verdict"),
+            "resolved_finding_ids": [],
+        }
+        findings = self._verify_review_receipts(
+            snapshot, node, [summary], raw_findings if isinstance(raw_findings, list) else [],
+            expected_role=ActorRole.REVIEWER,
+        )
+        if verify_candidate() != validation:
+            raise SourceDriftError("validation evidence changed during the review")
+        return {
+            "ok": True, "verdict": summary["verdict"], "findings": findings,
+            "review_evidence_id": evidence.evidence_id, "receipt_digest": evidence.digest,
+            "native_thread_id": payload["native_thread_id"], "native_turn_id": payload["native_turn_id"],
+        }
+
     def freeze_review(
         self,
         campaign_id: str,
@@ -1385,7 +1687,9 @@ class DeterministicSupervisor:
             snapshot.state.value,
             "FINDINGS_FROZEN",
             node_id,
-            wait_event=("repair_authorized" if blocking else None),
+            wait_event=("repair_authorized" if blocking and not (
+                snapshot.node_spec(node_id).allow_automatic_repair
+            ) else None),
             details={"blocking_finding_ids": blocking},
         )
 
@@ -1438,6 +1742,7 @@ class DeterministicSupervisor:
                 or payload.get("node_id") != node.node_id
                 or payload.get("candidate_head") != candidate_head
                 or payload.get("role") != expected_role.value
+                or str(payload.get("turn_status", "")).casefold() not in {"completed", "complete"}
                 or result_payload.get("reviewer_id") != reviewer_id
                 or result_payload.get("candidate_head") != candidate_head
             ):
@@ -1497,14 +1802,17 @@ class DeterministicSupervisor:
                 if finding.closure_blocking:
                     details = finding.details
                     regression = details.get("regression")
+                    evidence_text = details.get("evidence")
+                    has_evidence = (isinstance(evidence_text, str) and bool(evidence_text.strip())
+                                    or isinstance(evidence_text, (list, tuple)) and bool(evidence_text)
+                                    and all(isinstance(entry, str) and entry.strip() for entry in evidence_text))
                     acceptance_ids = {scenario["scenario_id"] for scenario in
                                       snapshot.node_spec(node.node_id).acceptance_scenarios}
                     has_basis = (
                         details.get("acceptance_expectation_id") in acceptance_ids
                         or (isinstance(details.get("invariant"), str)
                             and bool(details["invariant"].strip())
-                            and isinstance(details.get("evidence"), str)
-                            and bool(details["evidence"].strip()))
+                            and has_evidence)
                         or (isinstance(regression, Mapping)
                             and all(isinstance(regression.get(key), str) and regression[key].strip()
                                     for key in ("reproduction", "expected", "actual")))
@@ -1693,6 +2001,20 @@ class DeterministicSupervisor:
             node_id,
         )
 
+    @staticmethod
+    def _verify_local_candidate(snapshot: CampaignSnapshot, node: NodeSnapshot) -> None:
+        try:
+            observed = exact_repository_evidence(
+                snapshot.spec.worktree, base_sha=snapshot.spec.base_sha,
+                candidate_head=str(node.candidate_head),
+            )
+        except EvidenceError as exc:
+            raise SourceDriftError("local delivery could not verify the reviewed candidate") from exc
+        if (observed["tree_sha"] != node.candidate_tree
+                or observed["diff_sha256"] != node.candidate_diff_digest
+                or observed["status_sha256"] != hashlib.sha256(b"").hexdigest()):
+            raise SourceDriftError("local delivery requires the clean reviewed candidate")
+
     def complete_closure(
         self,
         campaign_id: str,
@@ -1725,6 +2047,8 @@ class DeterministicSupervisor:
             raise SupervisorError(
                 "closure resolution differs from the exact verified cohort receipts"
             )
+        if snapshot.spec.publication_authority.get("local_only"):
+            self._verify_local_candidate(snapshot, node_before)
         snapshot = self._apply(
             self._event(
                 snapshot,
@@ -1759,7 +2083,7 @@ class DeterministicSupervisor:
             campaign_id,
             snapshot.revision,
             snapshot.state.value,
-            "CLOSURE_PASSED" if node.state is NodeState.READY_TO_PUBLISH else "CLOSURE_FAILED",
+            "CLOSURE_FAILED" if node.state is NodeState.FAILED_EXACT_NODE else "CLOSURE_PASSED",
             node_id,
         )
 
@@ -2269,18 +2593,23 @@ class DeterministicSupervisor:
                     ActorRole.REPAIRER.value: (NodeState.REPAIRING, EventType.REPAIR_COMPLETED),
                 }.get(receipt.role)
                 if expected is not None and node.state is expected[0]:
-                    snapshot = self._apply(self._event(
-                        snapshot, expected[1], label=f"terminal:{lease_id}",
-                        node_id=receipt.node_id, actor_id=receipt.actor_id,
-                        fencing_epoch=receipt.fencing_epoch,
-                        payload={"receipt_digest": receipt.receipt_digest},
-                    ))
-                snapshot = self.store.release_lease(
-                    lease_id, request_id=_stable_id("release", lease_id),
-                    expected_revision=snapshot.revision,
-                    authority_epoch=snapshot.authority_epoch,
-                    cancellation_epoch=snapshot.cancellation_epoch,
-                )
+                    if (receipt.role == ActorRole.IMPLEMENTER.value
+                            and snapshot.node_spec(receipt.node_id).require_commit):
+                        snapshot = self._complete_commit_required(snapshot, receipt)
+                    else:
+                        snapshot = self._apply(self._event(
+                            snapshot, expected[1], label=f"terminal:{lease_id}",
+                            node_id=receipt.node_id, actor_id=receipt.actor_id,
+                            fencing_epoch=receipt.fencing_epoch,
+                            payload={"receipt_digest": receipt.receipt_digest},
+                        ))
+                if snapshot.state not in {CampaignState.FAILED, CampaignState.CANCELLED, CampaignState.COMPLETED}:
+                    snapshot = self.store.release_lease(
+                        lease_id, request_id=_stable_id("release", lease_id),
+                        expected_revision=snapshot.revision,
+                        authority_epoch=snapshot.authority_epoch,
+                        cancellation_epoch=snapshot.cancellation_epoch,
+                    )
                 self._workers.pop(lease_id, None)
                 reattached.append(lease_id)
             except Exception:
@@ -2566,6 +2895,23 @@ class DeterministicSupervisor:
         if node.state is NodeState.FINDINGS_FROZEN:
             blockers = [item for item in node.findings if item.blocking]
             if blockers:
+                if snapshot.node_spec(node.node_id).allow_automatic_repair:
+                    self._verify_sources(snapshot, node.node_id)
+                    self._verify_local_candidate(snapshot, node)
+                    snapshot = self._apply(self._event(
+                        snapshot, EventType.AUTHORIZE_AUTOMATIC_REPAIR,
+                        label="approved-scoped-repair", node_id=node.node_id,
+                        payload={
+                            "finding_ids": [item.finding_id for item in blockers],
+                            "specification_digest": snapshot.spec.specification_digest,
+                            "candidate_head": node.candidate_head,
+                            "candidate_diff_digest": node.candidate_diff_digest,
+                        },
+                    ))
+                    return SupervisorDecision(
+                        campaign_id, snapshot.revision, snapshot.state.value,
+                        "AUTOMATIC_REPAIR_AUTHORIZED", node.node_id,
+                    )
                 return SupervisorDecision(
                     campaign_id,
                     snapshot.revision,
@@ -2575,6 +2921,9 @@ class DeterministicSupervisor:
                     wait_event="repair_authorized",
                     details={"finding_ids": [item.finding_id for item in blockers]},
                 )
+            if snapshot.spec.publication_authority.get("local_only"):
+                self._verify_sources(snapshot, node.node_id)
+                self._verify_local_candidate(snapshot, node)
             snapshot = self._apply(
                 self._event(
                     snapshot,
@@ -2587,7 +2936,7 @@ class DeterministicSupervisor:
                 campaign_id,
                 snapshot.revision,
                 snapshot.state.value,
-                "READY_TO_PUBLISH",
+                "LOCAL_NODE_COMPLETED" if snapshot.spec.publication_authority.get("local_only") else "READY_TO_PUBLISH",
                 node.node_id,
             )
         if node.state is NodeState.REPAIR_AUTHORIZED:

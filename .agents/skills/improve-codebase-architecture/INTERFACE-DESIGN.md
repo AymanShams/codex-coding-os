@@ -41,4 +41,10 @@ Each sub-agent outputs:
 
 Present designs sequentially so the user can absorb each one, then compare them in prose. Contrast by **depth** (leverage at the interface), **locality** (where change concentrates), and **seam placement**.
 
+If two interfaces still look equally viable, take the same representative
+caller from the repository and sketch its use of each interface with the same
+inputs and expected behavior. Compare which details the caller must know,
+which operations it must order, and which failures it must handle. Use the
+difference to explain the choice.
+
 After comparing, give your own recommendation: which design you think is strongest and why. If elements from different designs would combine well, propose a hybrid. Be opinionated — the user wants a strong read, not a menu.

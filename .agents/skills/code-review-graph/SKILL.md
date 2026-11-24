@@ -5,7 +5,7 @@ description: "Use when the user asks for code-review-graph, graph-backed code re
 
 # Code Review Graph
 
-Use this skill for the gap not covered by normal Codex file search, GitHub skills, Superpowers review workflows, or manual code review: persistent structural graph context.
+Use the persistent graph to inspect code structure, trace dependencies and find callers affected by a change.
 
 ## First Choice: MCP Tools
 
@@ -47,6 +47,13 @@ Use this skill for:
 Do not use it for tiny single-file edits where normal file reading is cheaper.
 
 ## Review Output
+
+For a change review, identify the intended behavior, the starting revision,
+the candidate revision and any uncommitted changes in scope. Trace callers
+and tests over that full range. Before reporting a defect, inspect a
+reachable call path and show which input or condition changes the caller's
+result. Report a graph connection without a demonstrated consequence as a
+place to inspect.
 
 For reviews, report:
 

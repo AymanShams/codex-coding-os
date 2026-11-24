@@ -388,6 +388,21 @@ What did we decide?
 - Metrics returned to normal:
 - Logs no longer show:
 
+When restoration is in scope, record:
+- What was restored:
+- Restoration environment:
+- Elapsed restoration time:
+- Missing work or data after restoration:
+- Functions checked and results:
+
+When email delivery is in scope, record:
+- Application submission result:
+- Provider acceptance result:
+- Delivery status and test-mailbox receipt, where observed:
+- Failed-delivery handling and result:
+
+Use these fields only for the operation in scope. Restoration or delivery evidence is not a prerequisite for unrelated analysis, drafts, or independent work. Keep unverified claims provisional and continue work that does not depend on them.
+
 ## Escalation
 | Condition | Owner | Time limit |
 |---|---|---|

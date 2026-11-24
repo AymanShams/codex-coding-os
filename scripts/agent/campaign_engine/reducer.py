@@ -29,6 +29,7 @@ from .model import (
     RevisionConflict,
     TransitionError,
     replace_node,
+    terminal_actions_were_read_only,
     unique_findings,
 )
 
@@ -65,6 +66,7 @@ _PUBLISH_TOKEN = {
 _FENCED_EVENTS = {
     EventType.START_IMPLEMENTATION,
     EventType.IMPLEMENTATION_COMPLETED,
+    EventType.RETRY_NO_OP_IMPLEMENTATION,
     EventType.REQUEST_VALIDATION_CORRECTION,
     EventType.VALIDATION_PASSED,
     EventType.VALIDATION_FAILED,
@@ -195,6 +197,19 @@ def _dispatch_effect(
             operation_id=operation_id,
         ),
     )
+
+
+def _complete_node(snapshot: CampaignSnapshot, node: NodeSnapshot) -> CampaignSnapshot:
+    completed = _replace_node(snapshot, replace(node, state=NodeState.DONE))
+    state = (CampaignState.COMPLETED if all(item.state is NodeState.DONE for item in completed.nodes)
+             else completed.state)
+    return replace(completed, state=state, active_node_id=None)
+
+
+def _after_passing_review(snapshot: CampaignSnapshot, node: NodeSnapshot) -> CampaignSnapshot:
+    if snapshot.spec.publication_authority.get("local_only"):
+        return _complete_node(snapshot, node)
+    return _replace_node(snapshot, replace(node, state=NodeState.READY_TO_PUBLISH))
 
 
 def _fail_exact_node(
@@ -410,7 +425,11 @@ def reduce(
         _check_fence(snapshot, event, node)
         _require(node.state is NodeState.ADMITTED, "node is not admitted")
         _require(bool(node.start_head), "node has no immutable admitted start head")
-        _require(node.implementation_attempts == 0, "implementation generation already used")
+        _require(
+            node.implementation_attempts == node.no_op_retries
+            and node.no_op_retries <= snapshot.node_spec(node.node_id).no_op_retry_limit,
+            "implementation generation already used",
+        )
         next_snapshot, effects = _dispatch_effect(snapshot, event, "IMPLEMENTER")
         node = next_snapshot.node(node.node_id)
         next_snapshot = _replace_node(
@@ -418,14 +437,41 @@ def reduce(
             replace(
                 node,
                 state=NodeState.IMPLEMENTING,
-                implementation_attempts=1,
+                implementation_attempts=node.implementation_attempts + 1,
             ),
         )
+
+    elif event_type is EventType.RETRY_NO_OP_IMPLEMENTATION:
+        node = _node_for(snapshot, event)
+        _check_fence(snapshot, event, node)
+        spec = snapshot.node_spec(node.node_id)
+        _require(snapshot.state is CampaignState.RUNNING, "campaign is not running")
+        _require(node.state is NodeState.IMPLEMENTING and node.implementation_attempts == 1,
+                 "no-op retry requires the first implementation attempt")
+        _require(spec.require_commit and spec.no_op_retry_limit == 1 and node.no_op_retries == 0,
+                 "no-op retry is not approved or already used")
+        _require(node.validation_corrections == 0 and node.candidate_head is None,
+                 "no-op retry cannot reopen a correction or frozen candidate")
+        _require(event.payload.get("start_head") == node.start_head
+                 and terminal_actions_were_read_only(event.payload)
+                 and len(str(event.payload.get("receipt_digest", ""))) == 64
+                 and all(c in "0123456789abcdef" for c in event.payload["receipt_digest"]),
+                 "no-op retry requires the exact attested read-only result")
+        next_snapshot = _consume_automated(snapshot, event, BudgetToken.NO_OP_ATTEMPT)
+        next_snapshot = _replace_node(next_snapshot, replace(node, state=NodeState.ADMITTED,
+                                                            no_op_retries=1))
 
     elif event_type is EventType.IMPLEMENTATION_COMPLETED:
         node = _node_for(snapshot, event)
         _check_fence(snapshot, event, node)
         _require(node.state is NodeState.IMPLEMENTING, "node is not implementing")
+        if snapshot.node_spec(node.node_id).require_commit:
+            head = str(event.payload.get("committed_candidate_head", ""))
+            diff = str(event.payload.get("committed_candidate_diff", ""))
+            _require(len(head) == 40 and all(c in "0123456789abcdef" for c in head)
+                     and head != node.start_head and len(diff) == 64
+                     and all(c in "0123456789abcdef" for c in diff),
+                     "commit-required implementation needs exact committed candidate evidence")
         next_snapshot = _replace_node(snapshot, replace(node, state=NodeState.VALIDATING))
 
     elif event_type is EventType.REQUEST_VALIDATION_CORRECTION:
@@ -552,11 +598,9 @@ def reduce(
             "node is not eligible for clean publication before findings freeze",
         )
         _require(not any(item.blocking for item in node.findings), "blocking findings require repair")
-        next_snapshot = _replace_node(
-            snapshot, replace(node, state=NodeState.READY_TO_PUBLISH)
-        )
+        next_snapshot = _after_passing_review(snapshot, node)
 
-    elif event_type is EventType.AUTHORIZE_REPAIR:
+    elif event_type in {EventType.AUTHORIZE_REPAIR, EventType.AUTHORIZE_AUTOMATIC_REPAIR}:
         node = _node_for(snapshot, event)
         _require(node.state is NodeState.FINDINGS_FROZEN, "findings are not frozen")
         _require(any(item.blocking for item in node.findings), "there are no blockers to repair")
@@ -564,11 +608,19 @@ def reduce(
         frozen_ids = tuple(item.finding_id for item in node.findings if item.blocking)
         requested = tuple(str(item) for item in event.payload.get("finding_ids", ()))
         _require(requested == frozen_ids, "repair must bind the exact frozen blocker set")
-        _require(
-            bool(str(event.payload.get("authorization_receipt_id", "")).strip())
-            and bool(str(event.payload.get("authorization_receipt_digest", "")).strip()),
-            "repair requires a consumed one-use human authorization receipt",
-        )
+        if event_type is EventType.AUTHORIZE_AUTOMATIC_REPAIR:
+            node_spec = snapshot.node_spec(node.node_id)
+            _require(node_spec.allow_automatic_repair, "approved specification does not authorize automatic repair")
+            _require(event.payload.get("specification_digest") == snapshot.spec.specification_digest
+                     and bool(node.candidate_head) and event.payload.get("candidate_head") == node.candidate_head
+                     and event.payload.get("candidate_diff_digest") == node.candidate_diff_digest,
+                     "automatic repair must bind the exact approved specification and reviewed candidate")
+        else:
+            _require(
+                bool(str(event.payload.get("authorization_receipt_id", "")).strip())
+                and bool(str(event.payload.get("authorization_receipt_digest", "")).strip()),
+                "repair requires a consumed one-use human authorization receipt",
+            )
         next_snapshot = _replace_node(
             snapshot, replace(node, state=NodeState.REPAIR_AUTHORIZED)
         )
@@ -665,9 +717,7 @@ def reduce(
                 snapshot, closed, "closure_failed:" + ";".join(reasons)
             )
         else:
-            next_snapshot = _replace_node(
-                snapshot, replace(closed, state=NodeState.READY_TO_PUBLISH)
-            )
+            next_snapshot = _after_passing_review(snapshot, closed)
 
     elif event_type is EventType.AUTHORIZE_PUBLICATION:
         node = _node_for(snapshot, event)
@@ -794,15 +844,8 @@ def reduce(
             pending_publication_effect=None,
             pending_publication_operation_id=None,
         )
-        next_snapshot = _replace_node(snapshot, published_node)
-        if publication_complete and all(
-            item.state is NodeState.DONE for item in next_snapshot.nodes
-        ):
-            next_snapshot = replace(
-                next_snapshot, state=CampaignState.COMPLETED, active_node_id=None
-            )
-        elif publication_complete:
-            next_snapshot = replace(next_snapshot, active_node_id=None)
+        next_snapshot = (_complete_node(snapshot, published_node) if publication_complete
+                         else _replace_node(snapshot, published_node))
 
     elif event_type is EventType.PUBLISH_FAILED:
         node = _node_for(snapshot, event)

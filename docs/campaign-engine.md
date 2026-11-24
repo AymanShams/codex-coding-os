@@ -19,9 +19,126 @@ The graph and specification cannot change after approval. A material change
 requires a new user-approved specification revision. The engine cannot create
 that revision itself.
 
+### Local implementation campaigns
+
+An approved campaign can finish after local validation and independent review,
+including closure review after any authorized repair. Set
+`publication_authority.local_only` to `true` and explicitly set both
+`allowed_effects` and `required_effects` to empty arrays. Leave hosted checks,
+publication payloads and automated publication disabled. The campaign retains
+the normal validation and reviewer requirements. A passing review finishes
+the node locally and allows dependent nodes to proceed. A failed campaign
+reported by `run` returns a nonzero process exit code. The engine creates no
+publication action and requests no delivery approval. The existing signature
+verifier requirement still applies for any separately authorized repair.
+
+### Finite local portfolios
+
+A local portfolio groups two to 32 admitted automated local-only campaigns
+under one approval. Keep each independent implementation chain in a separate
+worktree of the same repository with disjoint write paths. Put dependencies
+within a member's normal node graph.
+
+The portfolio JSON contains only its schema, stable ID, and exact admitted
+member identities in run order:
+
+```json
+{
+  "schema": "ccos-local-portfolio-v1",
+  "portfolio_id": "local-implementation-wave",
+  "campaigns": [
+    {"campaign_id": "first-chain", "specification_digest": "<exact first digest>"},
+    {"campaign_id": "second-chain", "specification_digest": "<exact second digest>"}
+  ]
+}
+```
+
+Run the installed commands:
+
+```powershell
+python -B $Engine --json prepare-portfolio --manifest <manifest.json>
+python -B $Engine --json approve-portfolio --manifest <manifest.json> --portfolio-digest <exact portfolio digest>
+python -B $Engine --json run-portfolio --manifest <manifest.json> --portfolio-digest <exact portfolio digest>
+```
+
+Preparation verifies all admitted draft members. Approval applies all
+constituent approvals and writes one exact portfolio receipt in a single
+transaction. Use the receipt's `public_command` to start execution. The runner
+checks that receipt, reserves each new member once,
+and invokes its normal local campaign run. A failed lane remains failed
+while other isolated lanes continue. A reserved or in-flight lane is reported
+for reconciliation and does not get a duplicate worker. Each member retains
+its own leases, budgets, deadlines, validations, reviews and terminal evidence.
+Portfolio execution creates no publication or branch integration effect.
+
+Product nodes can opt into `require_commit: true` to reject a missing candidate
+before validation. With `no_op_retry_limit: 1`, the run can use one budgeted
+new worker after a completed, attested turn with only known reads or no
+actions at the exact clean start. A dirty worktree, any possible write,
+uncertain effects, changed sources, expired deadline,
+or spent budget prevents that retry.
+
+An automated local-only node with `require_commit: true` can additionally bind
+`allow_automatic_repair: true` in its approved digest. The engine authorizes one
+combined repair against the frozen blocker set and exact candidate. The repair
+uses the existing fenced worker, validation and independent closure cohort.
+
+### Native actor model selection
+
+An optional `model_policy` is part of the immutable specification and its digest:
+
+```json
+{
+  "model_policy": {
+    "roles": {
+      "PARENT": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+      "IMPLEMENTER": {"model": "gpt-6.1-terra", "reasoning_effort": "high"},
+      "REPAIRER": {"model": "gpt-6.1-terra", "reasoning_effort": "high"},
+      "REVIEWER": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+      "CLOSURE_REVIEWER": {"model": "gpt-6.1-sol", "reasoning_effort": "high"}
+    },
+    "reviewers": {
+      "architecture": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"}
+    }
+  }
+}
+```
+
+The example's `architecture` must already be in `required_review_cohort`.
+Reviewer overrides apply to ordinary and closure review. A simple bounded
+evidence reviewer can instead select `gpt-6-luna` with `medium`. Add only needed
+reviewers, not an automatic specialist cohort. Other actors use their role
+choice. A missing role or absent policy retains the legacy host default,
+`gpt-5.6-sol` / `max`. Absence serializes exactly as before, preserving historical
+specification and lease digests. Validators and the deterministic supervisor
+do not accept model assignments. A parent policy does not configure a user chat.
+
+Each choice requires exactly `model` and `reasoning_effort`. Unknown groups,
+roles, cohort members, malformed identifiers or effort values are rejected.
+Preparation and admission verify explicit pairs against live native `model/list`.
+Dispatch checks availability again, includes the choice in the actor lease
+digest, verifies `thread/start` returns the exact model and reasoning effort,
+and persists that observation in the native actor identity before binding.
+`turn/start` uses the bound pair rather than mutable host defaults. Unavailable
+or substituted choices fail before the turn, without automatic fallback.
+
+The public `models --repository-root <repo> --policy <policy.json>` command
+checks a JSON object containing `roles` and optional `reviewers`. It creates no
+campaign or approval. Add `--verify-bindings` to verify each distinct pair using
+idle, ephemeral, read-only native threads. It starts no model turn. The policy
+file is a preset, never an automatically loaded execution authority. Copy its
+object into the campaign before preparation. Changing a choice requires new
+approval of the changed specification digest.
+
+`doctor --live-host-probe --model-policy <policy.json>` uses the parent,
+implementer and reviewer role choices for the existing disposable-repository
+probe. The result reports observed `model_assignments`. This exercises real
+model turns only in that disposable repository, not product implementation.
+
 `prepare` derives repository identities, the installed runtime pin, command
 working directories, and source hashes from a proposed change. It writes a new
-specification file without creating or starting a campaign. Business scope,
+specification file without creating or starting a campaign. Preparation and admission reject validation
+commands with environment names that execution would deny. Business scope,
 spending, deadlines, operation limits, and external-action authority remain
 explicit approved inputs. Routine engineering values are prepared by the agent.
 
@@ -77,6 +194,10 @@ events, runtime installations, telemetry, and legacy archive records.
 
 - The supervisor chooses only from the approved finite graph.
 - Native workers are bound while idle before their first turn.
+- Campaign threads explicitly disable inherited connections from the effective
+  project configuration. Native runtime status must confirm disabled connections
+  with no tools or resources before a worker can bind or start a turn. An empty
+  configuration table does not remove inherited connections.
 - Write-capable workers receive only the exact approved scope.
 - Parent and reviewer workers are read-only.
 - Validation commands are executed only by the trusted runner.
@@ -153,6 +274,32 @@ authority and complete active review cohort. It starts no new turn and spends
 no new attempt. Losing that connection or any required cohort member fences the
 affected work. This branch does not reconnect a lost native process or replace
 a writer.
+
+### Review a validated commit after a failed review
+
+Run the installed CLI with explicit authorization for one fresh read-only turn:
+
+```powershell
+python -B $Engine --json review-existing --campaign-id <id> --node-id <id> --specification-digest <digest> --candidate-head <commit>
+```
+
+The command accepts a failed first review with one assigned reviewer, no active
+leases or external effects, and the original deadline still open. It rechecks
+the clean worktree, frozen tree and diffs, source hashes and passing validation
+receipts before and after the turn. It records both the original approved
+installation and the current verified, compatible installation.
+The original failed campaign and its attempt budgets remain intact. A separate
+operation reserves one reviewer start per candidate and stores the attested
+verdict and findings. Repeating the same request reads its recorded result
+without starting another turn. If a completed receipt was attested before
+finalization failed, the command may reverify that exact receipt and append a
+result while preserving the earlier failure. An attempt without an attested
+result stays recorded for inspection. The command has no implementation, validation
+execution, repair or publication actions.
+
+A failed native reviewer turn is kept as diagnostic evidence with its native
+error and actor binding. Successful verdicts still require the assigned
+reviewer, exact commit and native terminal receipt.
 
 ## Evidence
 

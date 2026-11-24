@@ -278,11 +278,17 @@ def _resolve_executable(value: str, cwd: Path) -> Path:
     return resolved
 
 
-def _command_environment(spec: TrustedCommand) -> dict[str, str]:
-    requested = set(spec.environment_allowlist)
-    if not requested.issubset(DEFAULT_ENV_ALLOWLIST):
-        denied = sorted(requested - DEFAULT_ENV_ALLOWLIST)
+def validate_environment_allowlist(names: Iterable[str]) -> set[str]:
+    """Apply the same environment-name policy at admission and execution."""
+    requested = set(names)
+    denied = sorted(requested - DEFAULT_ENV_ALLOWLIST)
+    if denied:
         raise EvidenceError(f"validation environment names are not allowlisted: {denied}")
+    return requested
+
+
+def _command_environment(spec: TrustedCommand) -> dict[str, str]:
+    requested = validate_environment_allowlist(spec.environment_allowlist)
     if not set(spec.environment).issubset(requested):
         raise EvidenceError("explicit validation environment contains a non-allowlisted name")
     environment = {

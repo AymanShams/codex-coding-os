@@ -102,7 +102,8 @@ def close_native_run(host, supervisor, store, campaign_id, native):
 
 
 def run_native_product_journey(source, installed_root, invoke_cli, report, *,
-                               model, reasoning_effort, worker_timeout=180, artifact_directory=None):
+                               model, reasoning_effort, worker_timeout=180, artifact_directory=None,
+                               campaign_id="native-order-summary"):
     require(0 < worker_timeout <= 600, "Native worker timeout must be in (0, 600]")
     require(not os.environ.get("CODEX_CAMPAIGN_HOST_EXECUTABLE"),
             "Native acceptance must resolve the installed host through PATH")
@@ -119,8 +120,13 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
 
     layout = runtime_layout()
     require(layout.installed_root == installed_root, "Native journey must use the canonical installed engine")
-    artifacts = Path(artifact_directory or "/var/tmp").resolve(strict=True)
-    require(artifacts == Path("/var/tmp"), "Native artifacts require the dedicated /var/tmp mount")
+    if os.name == "nt":
+        require(artifact_directory is not None, "Windows acceptance requires an explicit artifact directory")
+        artifacts = Path(artifact_directory).resolve(strict=True)
+        require(artifacts.is_dir(), "Windows artifact directory must already exist")
+    else:
+        artifacts = Path(artifact_directory or "/var/tmp").resolve(strict=True)
+        require(artifacts == Path("/var/tmp"), "Native artifacts require the dedicated /var/tmp mount")
     native = {"status": "running", "model": model, "reasoning_effort": reasoning_effort,
               "runner_sha256": sha256(__file__),
               "model_turns": "native App Server", "terminal_receipts": [], "tool_calls": [],
@@ -131,16 +137,19 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
               "seed_provenance": "First native turn applies supplied faulty proposal. No correction is supplied."}
     report["native_journey"] = native
     started = time.monotonic()
-    campaign_id = "native-order-summary"
+    native["campaign_id"] = campaign_id
     deadline = datetime.now(timezone.utc) + timedelta(seconds=worker_timeout * 4 + 120)
     deadline_text = deadline.isoformat(timespec="seconds").replace("+00:00", "Z")
-    with tempfile.TemporaryDirectory(prefix="native-product-", dir="/tmp") as temporary:
-        root = Path(temporary)
+    with tempfile.TemporaryDirectory(prefix="native-product-", dir=None if os.name == "nt" else "/tmp") as temporary:
+        # Windows TEMP can use an 8.3 alias. Bind its canonical identity before
+        # creating the remote URI that prepare and delivery must both verify.
+        root = Path(temporary).resolve(strict=True)
         repo, remote = root / "repo", root / "delivery.git"
         (repo / "src").mkdir(parents=True)
         git(repo, "init", "-q", "-b", "main")
         git(repo, "config", "user.name", "Native Product Acceptance")
         git(repo, "config", "user.email", "native-acceptance@example.invalid")
+        git(repo, "config", "core.autocrlf", "false")
         git(root, "init", "--bare", "-q", str(remote))
         git(repo, "remote", "add", "origin", remote.as_uri())
         product = repo / "src/order_summary.py"
@@ -160,6 +169,13 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "existing order summary and fixed acceptance conditions")
         native["base_head"] = git(repo, "rev-parse", "HEAD")
+        native["delivery_preflight"] = GitHubBackend().query("PUSH", {
+            "root": str(repo), "repository_remote": remote.as_uri(),
+            "branch": "main", "head": native["base_head"],
+        })
+        require(native["delivery_preflight"] == {
+            "confirmed": False, "remote_head": None, "expected_head": native["base_head"],
+        }, "Native delivery target must be an empty, canonically bound bare repository")
         native["fixed_sources"] = fixed
         native["source_contents"] = {"base_program": ORDER_SUMMARY_BASE_SOURCE,
             **{name: (repo / name).read_text() for name in fixed}}
@@ -197,10 +213,16 @@ def run_native_product_journey(source, installed_root, invoke_cli, report, *,
             "allowed_effects": ["PUSH"], "required_effects": ["PUSH"], "required_hosted_checks": []}
         proposed, prepared = root / "proposed.json", root / "prepared.json"
         proposed.write_text(json.dumps(raw), encoding="utf-8")
+        before_count = invoke_cli("status")["campaign_count"]
         report["prepare"] = invoke_cli("prepare", "--spec", str(proposed), "--repository", str(repo),
                                        "--output", str(prepared))
         require(report["prepare"]["state"] == "PROPOSED", "Prepare did not remain a proposal")
-        require(invoke_cli("status")["campaign_count"] == 0, "Prepare admitted a campaign")
+        require(invoke_cli("status")["campaign_count"] == before_count, "Prepare admitted a campaign")
+        if os.name == "nt":
+            from scripts.prepare_windows_validation_boundary import prepare
+            executable = Path(shutil.which("codex") or "").resolve(strict=True)
+            native["windows_read_setup"] = prepare(executable, repo, sha256(executable),
+                                                    artifacts / "windows-read-setup.json")
         report["admit"] = invoke_cli("admit", "--spec", str(prepared))
         report["approve"] = invoke_cli("approve", "--campaign-id", campaign_id,
                                        "--specification-digest", report["prepare"]["specification_digest"])

@@ -29,6 +29,17 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def native_setup_executable(executable):
+    """Resolve the helper from either supported native package layout."""
+    name = "codex-windows-sandbox-setup.exe"
+    candidates = [executable.parent / name,
+                  executable.parent.parent / "codex-resources" / name]
+    present = [path for path in candidates if path.is_file()]
+    if len(present) != 1:
+        raise RuntimeError("Native package must contain one unambiguous setup helper")
+    return present[0].resolve(strict=True)
+
+
 def log_snapshot(paths):
     result = {}
     for path in paths:
@@ -94,7 +105,7 @@ def prepare(executable, cwd, expected_sha256, output, *, timeout=60):
         cwd = Path(cwd).resolve(strict=True)
         if not cwd.is_dir() or not 0 < timeout <= 120:
             raise RuntimeError("Existing setup cwd and a deadline of at most 120 seconds are required")
-        setup_executable = executable.parent.parent / "codex-resources" / "codex-windows-sandbox-setup.exe"
+        setup_executable = native_setup_executable(executable)
         sources = {str(path): digest(path.read_bytes()) for path in (executable, setup_executable)}
         if sources[str(executable)] != expected_sha256:
             raise RuntimeError("Native executable differs from the expected package identity")

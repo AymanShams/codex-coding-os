@@ -9,6 +9,7 @@ from dataclasses import asdict
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any, Mapping, Sequence
@@ -56,9 +57,10 @@ def _load_engine() -> None:
     if __package__ in {None, ""}:
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from campaign_engine.admission import (acceptance_source_content, admit_campaign_spec,
-                                                run_git, verify_acceptance_sources, verify_installed_runtime)
+                                                normalize_remote_url, resolve_repository, run_git, scopes_overlap,
+                                                verify_acceptance_sources, verify_installed_runtime)
         from campaign_engine.effects import ExternalEffectDriver, GitHubBackend
-        from campaign_engine.host import probe_native_host_capability
+        from campaign_engine.host import inspect_model_policy, probe_native_host_capability
         from campaign_engine.legacy import (
             inspect_legacy_case,
             inspect_legacy_root,
@@ -72,14 +74,16 @@ def _load_engine() -> None:
             EventType,
             Evidence,
             EvidenceKind,
+            canonical_json_digest,
         )
-        from campaign_engine.store import CampaignStore
+        from campaign_engine.store import CampaignStore, RequestConflict
         from campaign_engine.supervisor import DeterministicSupervisor, SupervisorDecision
     else:
         from .admission import (acceptance_source_content, admit_campaign_spec,
-                                run_git, verify_acceptance_sources, verify_installed_runtime)
+                                normalize_remote_url, resolve_repository, run_git, scopes_overlap,
+                                                verify_acceptance_sources, verify_installed_runtime)
         from .effects import ExternalEffectDriver, GitHubBackend
-        from .host import probe_native_host_capability
+        from .host import inspect_model_policy, probe_native_host_capability
         from .legacy import inspect_legacy_case, inspect_legacy_root, verify_legacy_archive
         from .model import (
             CampaignSpec,
@@ -89,8 +93,9 @@ def _load_engine() -> None:
             EventType,
             Evidence,
             EvidenceKind,
+            canonical_json_digest,
         )
-        from .store import CampaignStore
+        from .store import CampaignStore, RequestConflict
         from .supervisor import DeterministicSupervisor, SupervisorDecision
     globals().update(locals())
     _ENGINE_LOADED = True
@@ -425,6 +430,164 @@ def command_run(args: argparse.Namespace) -> dict[str, Any]:
         }
 
 
+PORTFOLIO_SCHEMA = "ccos-local-portfolio-v1"
+
+
+def _portfolio_manifest(raw: Mapping[str, Any]) -> dict[str, Any]:
+    if set(raw) != {"schema", "portfolio_id", "campaigns"} or raw["schema"] != PORTFOLIO_SCHEMA:
+        raise ValueError("invalid local portfolio manifest")
+    identifier = raw["portfolio_id"]
+    campaigns = raw["campaigns"]
+    if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,119}", identifier):
+        raise ValueError("portfolio_id must be a bounded lowercase identifier")
+    if not isinstance(campaigns, list) or not 2 <= len(campaigns) <= 32:
+        raise ValueError("a local portfolio must contain between 2 and 32 campaigns")
+    seen: set[str] = set()
+    for campaign in campaigns:
+        if not isinstance(campaign, dict) or set(campaign) != {"campaign_id", "specification_digest"}:
+            raise ValueError("portfolio member must name an exact campaign and specification digest")
+        campaign_id = campaign["campaign_id"]
+        digest = campaign["specification_digest"]
+        if (
+            not isinstance(campaign_id, str) or not campaign_id or campaign_id in seen
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+        ):
+            raise ValueError("portfolio campaign IDs must be unique and digests must be exact")
+        seen.add(campaign_id)
+    return dict(raw)
+
+
+def _portfolio_snapshots(store, manifest, *, verify_sources: bool):
+    snapshots = []
+    roots: set[Path] = set()
+    for member in manifest["campaigns"]:
+        snapshot = store.get_snapshot(member["campaign_id"])
+        spec = snapshot.spec
+        if spec.specification_digest != member["specification_digest"]:
+            raise ValueError(f"portfolio member digest differs: {spec.campaign_id}")
+        if spec.mode.value != "AUTOMATED" or not spec.publication_authority.get("local_only"):
+            raise ValueError(f"portfolio member must be an automated local-only campaign: {spec.campaign_id}")
+        root = Path(spec.worktree).resolve(strict=verify_sources)
+        if root in roots:
+            raise ValueError("portfolio members must have separate worktrees")
+        for prior in snapshots:
+            if normalize_remote_url(spec.repository_remote) != normalize_remote_url(prior.spec.repository_remote):
+                raise ValueError("portfolio members must share one repository")
+            if scopes_overlap(spec.allowed_paths, prior.spec.allowed_paths):
+                raise ValueError("portfolio members have overlapping write scopes")
+        if verify_sources:
+            _verify_campaign_runtime(spec)
+            resolve_repository(
+                git_root=spec.git_root, worktree=spec.worktree,
+                expected_remote=spec.repository_remote, expected_branch=spec.branch,
+                expected_base_sha=spec.base_sha, mode=spec.mode.value,
+            )
+            verify_acceptance_sources(spec.to_dict())
+        roots.add(root)
+        snapshots.append(snapshot)
+    return snapshots
+
+
+def command_prepare_portfolio(args: argparse.Namespace) -> dict[str, Any]:
+    manifest = _portfolio_manifest(_json_object(args.manifest, "portfolio manifest"))
+    with _store(args) as store:
+        snapshots = _portfolio_snapshots(store, manifest, verify_sources=True)
+        if any(snapshot.state is not CampaignState.DRAFT for snapshot in snapshots):
+            raise ValueError("prepare a new portfolio from admitted draft campaigns")
+    digest = canonical_json_digest(manifest)
+    return {"ok": True, "portfolio_id": manifest["portfolio_id"],
+            "portfolio_digest": digest, "campaigns": manifest["campaigns"]}
+
+
+def _verify_portfolio_digest(args: argparse.Namespace) -> dict[str, Any]:
+    manifest = _portfolio_manifest(_json_object(args.manifest, "portfolio manifest"))
+    if canonical_json_digest(manifest) != args.portfolio_digest:
+        raise ValueError("approval digest differs from the exact portfolio manifest")
+    return manifest
+
+
+def command_approve_portfolio(args: argparse.Namespace) -> dict[str, Any]:
+    manifest = _verify_portfolio_digest(args)
+    with _store(args) as store:
+        approval = _portfolio_approval(store, manifest, args.portfolio_digest)
+        if approval is None:
+            snapshots = _portfolio_snapshots(store, manifest, verify_sources=True)
+            approvals = [
+                Event(
+                    event_id=f"portfolio-member:{args.portfolio_digest}:{snapshot.spec.campaign_id}",
+                    campaign_id=snapshot.spec.campaign_id, event_type=EventType.APPROVE,
+                    expected_revision=snapshot.revision, authority_epoch=snapshot.authority_epoch,
+                    cancellation_epoch=snapshot.cancellation_epoch,
+                    payload={"specification_digest": snapshot.spec.specification_digest},
+                )
+                for snapshot in snapshots
+            ]
+            approval = store.approve_portfolio(args.portfolio_digest, manifest, approvals)
+    command = ["python", "-B", str(Path(__file__).resolve()), "--json", "run-portfolio",
+               "--manifest", str(Path(args.manifest).resolve()), "--portfolio-digest", args.portfolio_digest]
+    return {"ok": True, "state": "APPROVED", "portfolio_digest": args.portfolio_digest,
+            "portfolio_id": manifest["portfolio_id"], "revisions": approval["revisions"],
+            "public_command": command}
+
+
+def _portfolio_approval(store, manifest, digest):
+    approval = store.get_runtime_operation(f"portfolio-approval:{digest}")
+    if approval is None:
+        return None
+    record = approval.get("result") or {}
+    if (approval["kind"] != "PORTFOLIO_APPROVAL" or approval["payload_digest"] != digest
+            or record.get("manifest") != manifest):
+        raise ValueError("recorded portfolio approval does not match the exact manifest")
+    return record
+
+
+def command_run_portfolio(args: argparse.Namespace) -> dict[str, Any]:
+    manifest = _verify_portfolio_digest(args)
+    if not 1 <= args.max_actions <= 1000 or not 0 < args.worker_timeout <= 3600:
+        raise ValueError("portfolio run bounds are invalid")
+    with _store(args) as store:
+        if _portfolio_approval(store, manifest, args.portfolio_digest) is None:
+            raise ValueError("no exact portfolio approval exists")
+        snapshots = _portfolio_snapshots(store, manifest, verify_sources=False)
+        members = [snapshot.spec.campaign_id for snapshot in snapshots]
+    results: list[dict[str, Any]] = []
+    for campaign_id in members:
+        with _store(args) as store:
+            snapshot = store.get_snapshot(campaign_id)
+            state = snapshot.state
+            if state is not CampaignState.APPROVED:
+                results.append({"campaign_id": campaign_id, "state": state.value,
+                                "dispatched": False})
+                continue
+            try:
+                store.record_runtime_operation(
+                    request_id=f"portfolio-run:{args.portfolio_digest}:{campaign_id}",
+                    campaign_id=campaign_id, kind="PORTFOLIO_RUN_RESERVATION",
+                    payload={"portfolio_digest": args.portfolio_digest,
+                             "specification_digest": snapshot.spec.specification_digest},
+                    result={"reserved": True}, revision=snapshot.revision, require_new=True,
+                )
+            except RequestConflict:
+                results.append({"campaign_id": campaign_id, "state": state.value,
+                                "dispatched": False, "code": "PORTFOLIO_RUN_ALREADY_RESERVED"})
+                continue
+        try:
+            result = command_run(argparse.Namespace(
+                campaign_id=campaign_id, event_file=None, once=False,
+                max_actions=args.max_actions, worker_timeout=args.worker_timeout,
+                no_external_effects=True,
+            ))
+        except Exception as exc:
+            with _store(args) as store:
+                state = store.get_snapshot(campaign_id).state
+            result = {"campaign_id": campaign_id, "state": state.value,
+                      "code": type(exc).__name__, "message": str(exc)}
+        results.append({**result, "dispatched": True})
+    return {"ok": all(item["state"] == CampaignState.COMPLETED.value for item in results),
+            "portfolio_id": manifest["portfolio_id"], "portfolio_digest": args.portfolio_digest,
+            "campaigns": results}
+
+
 def _status_summary(snapshot) -> dict[str, Any]:
     status = {
         "DRAFT": "Awaiting approval", "APPROVED": "Ready to continue",
@@ -432,6 +595,8 @@ def _status_summary(snapshot) -> dict[str, Any]:
         "WAITING_HUMAN": "Decision required", "COMPLETED": "Completed authorized delivery",
         "FAILED": "Stopped with work remaining", "CANCELLED": "Cancelled",
     }[snapshot.state.value]
+    if snapshot.state is CampaignState.COMPLETED and snapshot.spec.publication_authority.get("local_only"):
+        status = "Completed local validation and review"
     if snapshot.state is CampaignState.RUNNING and snapshot.active_node_id:
         node = snapshot.node(snapshot.active_node_id)
         if node.state.value == "FINDINGS_FROZEN" and any(item.blocking for item in node.findings):
@@ -451,6 +616,34 @@ def _status_summary(snapshot) -> dict[str, Any]:
             "reason": snapshot.failure_reason,
             "completed_changes": sum(node.state.value == "DONE" for node in snapshot.nodes),
             "total_changes": len(snapshot.nodes)}
+
+
+def command_review_existing(args: argparse.Namespace) -> dict[str, Any]:
+    if not 0 < args.worker_timeout <= 900:
+        raise ValueError("review-only worker timeout must be between zero and 900 seconds")
+    with _store(args) as store:
+        spec = store.get_snapshot(args.campaign_id).spec
+        installed = _runtime_pin(_installed_root())
+        original = {
+            "source_commit": spec.installed_source_commit,
+            "bundle_digest": spec.installed_bundle_digest,
+            "install_transaction": spec.install_transaction,
+            "protocol_version": spec.protocol_version,
+            "schema_compatibility": spec.schema_compatibility,
+            "host_capability_probe_version": spec.host_capability_probe_version,
+        }
+        if any(original[key] != installed[key] for key in (
+            "protocol_version", "schema_compatibility", "host_capability_probe_version",
+        )):
+            raise ValueError("review recovery runtime is incompatible with the original campaign")
+        if not any(all(item.get(key) == value for key, value in original.items())
+                   for item in store.list_runtime_installations()):
+            raise ValueError("original campaign runtime has no recorded installation")
+        return DeterministicSupervisor(store).review_existing_candidate(
+            args.campaign_id, args.node_id,
+            specification_digest=args.specification_digest, candidate_head=args.candidate_head,
+            recovery_runtime=installed, timeout=args.worker_timeout,
+        )
 
 
 def command_status(args: argparse.Namespace) -> dict[str, Any]:
@@ -575,28 +768,15 @@ def command_doctor(args: argparse.Namespace) -> dict[str, Any]:
         )
         installations = store.list_runtime_installations()
     host_probe: Mapping[str, Any] | None = None
+    policy_path = getattr(args, "model_policy", None)
+    if policy_path and not args.live_host_probe:
+        raise ValueError("doctor --model-policy requires --live-host-probe")
     if args.live_host_probe:
-        host_probe = probe_native_host_capability(cwd=args.probe_root or installed)
+        probe_options = {"model_policy": _json_object(policy_path, "model policy")} if policy_path else {}
+        host_probe = probe_native_host_capability(cwd=args.probe_root or installed, **probe_options)
         if host_probe.get("probe_version") != pin["host_capability_probe_version"]:
             raise ValueError("live host capability probe version differs from runtime pin")
     retirement = _old_engine_retirement(installed)
-    router = _layout().codex_home / "capability-routing"
-    router_prerequisite: dict[str, Any] = {
-        "available": False, "required_for": "routed skill entry",
-        "path": str(router), "route_admission": "not_checked",
-    }
-    try:
-        pointer = _json_object(router / "current-generation.json", "canonical router pointer")
-        manifest = (router / pointer["manifest_path"]).resolve(strict=True)
-        if not manifest.is_relative_to(router.resolve(strict=True)):
-            raise ValueError("canonical router pointer escapes its root")
-        if hashlib.sha256(manifest.read_bytes()).hexdigest() != pointer["manifest_sha256"]:
-            raise ValueError("canonical router manifest hash differs from its pointer")
-        if not (_layout().codex_home / "hooks" / "capability_index_cli.py").is_file():
-            raise ValueError("canonical router CLI is unavailable")
-        router_prerequisite.update(available=True, generation_id=pointer["generation_id"])
-    except (KeyError, ValueError, OSError) as exc:
-        router_prerequisite["reason"] = str(exc)
     return {
         "ok": True,
         "state_db": str(_state_path()),
@@ -610,8 +790,16 @@ def command_doctor(args: argparse.Namespace) -> dict[str, Any]:
             "live": False,
         },
         "retirement": retirement,
-        "entry_prerequisites": {"canonical_router": router_prerequisite},
+        "entry_prerequisites": {"native_skill_discovery": {"owner": "codex", "status": "not_checked"}},
     }
+
+
+def command_models(args: argparse.Namespace) -> dict[str, Any]:
+    if args.verify_bindings and not args.policy:
+        raise ValueError("models --verify-bindings requires --policy")
+    return inspect_model_policy(cwd=args.repository_root,
+        policy=_json_object(args.policy, "model policy") if args.policy else None,
+        verify_bindings=args.verify_bindings)
 
 
 def command_legacy_inspect(args: argparse.Namespace) -> dict[str, Any]:
@@ -679,6 +867,30 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--no-external-effects", action="store_true")
     run.set_defaults(handler=command_run)
 
+    portfolio_prepare = sub.add_parser("prepare-portfolio", help="verify a finite group of admitted local drafts")
+    portfolio_prepare.add_argument("--manifest", required=True)
+    portfolio_prepare.set_defaults(handler=command_prepare_portfolio)
+
+    portfolio_approve = sub.add_parser("approve-portfolio", help="approve all exact local members in one transaction")
+    portfolio_approve.add_argument("--manifest", required=True)
+    portfolio_approve.add_argument("--portfolio-digest", required=True)
+    portfolio_approve.set_defaults(handler=command_approve_portfolio)
+
+    portfolio_run = sub.add_parser("run-portfolio", help="execute separately scoped approved local campaigns")
+    portfolio_run.add_argument("--manifest", required=True)
+    portfolio_run.add_argument("--portfolio-digest", required=True)
+    portfolio_run.add_argument("--max-actions", type=int, default=100)
+    portfolio_run.add_argument("--worker-timeout", type=float, default=3600)
+    portfolio_run.set_defaults(handler=command_run_portfolio)
+
+    review = sub.add_parser("review-existing", help="review one already validated commit from a failed campaign")
+    review.add_argument("--campaign-id", required=True)
+    review.add_argument("--node-id", required=True)
+    review.add_argument("--specification-digest", required=True)
+    review.add_argument("--candidate-head", required=True)
+    review.add_argument("--worker-timeout", type=float, default=600)
+    review.set_defaults(handler=command_review_existing)
+
     status = sub.add_parser("status")
     status.add_argument("--campaign-id")
     status.add_argument("--repository-root")
@@ -697,7 +909,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--recover", action="store_true")
     doctor.add_argument("--live-host-probe", action="store_true")
     doctor.add_argument("--probe-root")
+    doctor.add_argument("--model-policy", help="model policy for disposable live host-probe actors")
     doctor.set_defaults(handler=command_doctor)
+
+    models = sub.add_parser("models", help="inspect native model support without starting a campaign or turn")
+    models.add_argument("--repository-root", required=True)
+    models.add_argument("--policy", help="JSON object containing roles and optional reviewers")
+    models.add_argument("--verify-bindings", action="store_true", help="verify idle native thread model/effort readback")
+    models.set_defaults(handler=command_models)
 
     legacy = sub.add_parser("legacy")
     legacy_sub = legacy.add_subparsers(dest="legacy_command", required=True)
@@ -766,6 +985,8 @@ def main(
     try:
         result = args.handler(args)
         _emit(result, json_output=bool(args.json))
+        if args.command in {"run", "run-portfolio", "review-existing"} and not result.get("ok"):
+            return EXIT_FAILED
         return 0
     except PermissionError as exc:
         _emit(

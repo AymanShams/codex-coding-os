@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from contextlib import closing
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 import json
@@ -16,6 +18,8 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from scripts.agent.campaign_engine import supervisor as supervisor_module
+from scripts.agent.campaign_engine.admission import AdmissionError, SourceDriftError
 from scripts.agent.campaign_engine.ed25519 import verify as verify_ed25519
 from scripts.agent.campaign_engine.effects import ExternalEffectDriver
 from scripts.agent.campaign_engine.evidence import (
@@ -25,6 +29,7 @@ from scripts.agent.campaign_engine.evidence import (
 )
 from scripts.agent.campaign_engine.host import (
     FakeHost,
+    _structured_result,
     HostProtocolError,
     LateResultError,
 )
@@ -632,6 +637,58 @@ class SupervisorFixture(unittest.TestCase):
 
 
 class CampaignSupervisorLifecycleTests(SupervisorFixture):
+    def test_local_campaign_finishes_after_attested_review_without_outbox(self) -> None:
+        raw = self.make_spec("local", mode="AUTOMATED").to_dict()
+        raw.pop("specification_digest")
+        raw["publication_authority"].update(local_only=True, allowed_effects=[], required_effects=[])
+        spec = CampaignSpec.from_dict(raw)
+        self.create_approved(spec)
+        host = FakeHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        engine.step("local")
+        engine.step("local")
+        implementer = engine.step("local").details["lease_id"]
+        host.write_file(implementer, "src/app.txt", b"candidate\n")
+        git(self.repo, "add", "src/app.txt")
+        git(self.repo, "commit", "-q", "-m", "local candidate")
+        host.set_result(implementer, {"status": "completed", "action_count": 1})
+        engine.complete_worker(implementer)
+        self.assertEqual(engine.step("local").action, "CANDIDATE_FROZEN")
+        self.assertEqual(self.store.get_snapshot("local").state, CampaignState.RUNNING)
+        receipts, findings = self.collect_passing_review(engine, host, spec, campaign_id="local")
+        engine.freeze_review("local", "node-1", receipts=receipts, findings=findings)
+        self.assertEqual(engine.step("local").action, "LOCAL_NODE_COMPLETED")
+        result = self.store.get_snapshot("local")
+        self.assertEqual(result.state, CampaignState.COMPLETED)
+        self.assertEqual(result.node("node-1").completed_publication_effects, ())
+        self.assertFalse(self.store.list_outbox(campaign_id="local"))
+
+    def test_approved_model_policy_reaches_actor_lease_and_native_binding(self) -> None:
+        raw = self.make_spec("models", mode="AUTOMATED").to_dict()
+        raw.pop("specification_digest")
+        raw["model_policy"] = {
+            "roles": {"IMPLEMENTER": {"model": "gpt-6.1-terra", "reasoning_effort": "high"}},
+            "reviewers": {"reviewer-a": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"}},
+        }
+        self.create_approved(CampaignSpec.from_dict(raw))
+        native = FakeHost()
+        supervisor = DeterministicSupervisor(self.store, host=native, now=lambda: NOW)
+        self.assertEqual(supervisor.step("models").action, "CAMPAIGN_STARTED")
+        supervisor.step("models")
+        dispatched = supervisor.step("models")
+        self.assertEqual(dispatched.action, "IMPLEMENTER_DISPATCHED")
+        lease = native.bindings[dispatched.details["lease_id"]].lease
+        self.assertEqual((lease.model, lease.reasoning_effort), ("gpt-6.1-terra", "high"))
+        # Use the same approved policy when a reviewer or closure reviewer is issued.
+        snapshot = self.store.get_snapshot("models")
+        actor = self.store.get_actor(lease.actor_id)
+        stored_lease = self.store.get_lease(lease.lease_id)
+        self.assertEqual(actor.native_identity["model"], "gpt-6.1-terra")
+        self.assertEqual(actor.native_identity["reasoning_effort"], "high")
+        for role in (ActorRole.REVIEWER, ActorRole.CLOSURE_REVIEWER):
+            reviewer = supervisor._host_lease(snapshot, "node-1", role, actor, stored_lease, reviewer_id="reviewer-a")
+            self.assertEqual((reviewer.model, reviewer.reasoning_effort), ("gpt-6-astra", "xhigh"))
+
     def test_two_disjoint_nodes_validate_from_immutable_node_start_and_publish(self) -> None:
         (self.repo / "docs").mkdir()
         (self.repo / "docs" / "guide.txt").write_text("base guide\n", encoding="utf-8")
@@ -1039,6 +1096,17 @@ class CampaignSupervisorLifecycleTests(SupervisorFixture):
 
     def test_one_repair_revalidates_and_binds_closure_to_repaired_head(self) -> None:
         spec = self.make_spec("campaign", mode="MANUAL")
+        self.run_repair_and_closure(spec)
+
+    def test_approved_local_repair_uses_the_same_fenced_closure_without_human_wait(self) -> None:
+        raw = self.make_spec("campaign", mode="AUTOMATED").to_dict()
+        raw.pop("specification_digest")
+        raw["objective_kind"] = "PRODUCT_CODE"
+        raw["nodes"][0].update(require_commit=True, allow_automatic_repair=True)
+        raw["publication_authority"].update(local_only=True, allowed_effects=[], required_effects=[])
+        self.run_repair_and_closure(CampaignSpec.from_dict(raw))
+
+    def run_repair_and_closure(self, spec: CampaignSpec) -> None:
         self.create_approved(spec)
         host = FakeHost()
         supervisor = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
@@ -1094,20 +1162,25 @@ class CampaignSupervisorLifecycleTests(SupervisorFixture):
         frozen = supervisor.freeze_review(
             "campaign", "node-1", receipts=receipts, findings=findings
         )
-        self.assertEqual(frozen.wait_event, "repair_authorized")
         self.assertEqual(frozen.details["blocking_finding_ids"], ["F-1"])
-        repair_receipt = self.authorization_receipt(
-            self.store.get_snapshot("campaign"),
-            "node-1",
-            "repair_authorized",
-            "repair-auth-campaign",
-        )
-        self.assertEqual(
-            supervisor.authorize_repair(
-                "campaign", "node-1", authorization_receipt=repair_receipt
-            ).action,
-            "REPAIR_AUTHORIZED",
-        )
+        automatic = spec.nodes[0].allow_automatic_repair
+        if automatic:
+            self.assertIsNone(frozen.wait_event)
+            self.assertEqual(supervisor.step("campaign").action, "AUTOMATIC_REPAIR_AUTHORIZED")
+        else:
+            self.assertEqual(frozen.wait_event, "repair_authorized")
+            repair_receipt = self.authorization_receipt(
+                self.store.get_snapshot("campaign"),
+                "node-1",
+                "repair_authorized",
+                "repair-auth-campaign",
+            )
+            self.assertEqual(
+                supervisor.authorize_repair(
+                    "campaign", "node-1", authorization_receipt=repair_receipt
+                ).action,
+                "REPAIR_AUTHORIZED",
+            )
 
         repair = supervisor.step("campaign")
         self.assertEqual(repair.action, "REPAIRER_DISPATCHED")
@@ -1165,10 +1238,148 @@ class CampaignSupervisorLifecycleTests(SupervisorFixture):
             self.store.get_snapshot("campaign").node("node-1").candidate_head,
             repaired_head,
         )
-        waiting = supervisor.step("campaign")
-        self.assertEqual(waiting.action, "YIELD")
-        self.assertEqual(waiting.wait_event, "publication_authorized")
-        self.assertEqual(self.store.get_snapshot("campaign").budget_receipts, ())
+        final = supervisor.step("campaign")
+        if automatic:
+            snapshot = self.store.get_snapshot("campaign")
+            self.assertEqual(snapshot.state, CampaignState.COMPLETED)
+            self.assertEqual(snapshot.node("node-1").repair_attempts, 1)
+        else:
+            self.assertEqual(final.action, "YIELD")
+            self.assertEqual(final.wait_event, "publication_authorized")
+            self.assertEqual(self.store.get_snapshot("campaign").budget_receipts, ())
+
+
+class ExistingCandidateReviewTests(SupervisorFixture):
+    def prepare_failed_review(self):
+        raw = self.make_spec("recovery", mode="AUTOMATED").to_dict()
+        raw.pop("specification_digest")
+        raw["required_review_cohort"] = ["reviewer-a"]
+        raw["nodes"][0]["acceptance_scenarios"] = [{
+            "scenario_id": "bounded-result", "expectation": "the source remains exact",
+            "validation_command_id": "unit",
+            "sources": [{
+                "path": "README.md", "requirement_id": "fixture-source",
+                "sha256": hashlib.sha256(b"contract").hexdigest(),
+            }],
+        }]
+        (self.repo / "README.md").write_bytes(b"contract")
+        git(self.repo, "add", "README.md")
+        git(self.repo, "commit", "-q", "-m", "add contract")
+        raw["base_sha"] = git(self.repo, "rev-parse", "HEAD")
+        spec = CampaignSpec.from_dict(raw)
+        self.create_approved(spec)
+        host = FakeHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        engine.step("recovery")
+        engine.step("recovery")
+        implementer = engine.step("recovery").details["lease_id"]
+        host.write_file(implementer, "src/app.txt", b"candidate\n")
+        git(self.repo, "add", "src/app.txt")
+        git(self.repo, "commit", "-q", "-m", "candidate")
+        host.set_result(implementer, {"status": "completed", "action_count": 1})
+        engine.complete_worker(implementer)
+        self.assertEqual(engine.step("recovery").action, "CANDIDATE_FROZEN")
+        review = engine.step("recovery")
+        lease_id = review.details["leases"][0]
+        payload = _structured_result([], {"status": "failed", "error": {
+            "message": "workspace routing discovery timed out",
+        }})
+        host.set_result(lease_id, payload)
+        with self.assertRaisesRegex(SupervisorError, "workspace routing discovery timed out"):
+            engine.collect_review_cohort([lease_id])
+        failed = self.store.get_snapshot("recovery")
+        self.assertEqual(failed.state, CampaignState.FAILED)
+        self.assertIn("workspace routing discovery timed out", failed.node("node-1").failure_reason)
+        failure = self.store.get_evidence(supervisor_module._stable_id("receipt", lease_id))
+        self.assertEqual(failure.kind, EvidenceKind.GIT)
+        self.assertEqual(failure.payload["result_payload"]["native_error"],
+                         "workspace routing discovery timed out")
+        self.assertEqual([], self.store.list_active_leases("recovery"))
+        return failed
+
+    def test_review_preserves_failure_and_validations_and_only_starts_one_reader(self):
+        failed = self.prepare_failed_review()
+        node = failed.node("node-1")
+        class PassingHost(FakeHost):
+            def start_actor_turn(self, lease_id, prompt):
+                binding = super().start_actor_turn(lease_id, prompt)
+                self.set_result(lease_id, {
+                    "reviewer_id": "reviewer-a", "candidate_head": node.candidate_head,
+                    "candidate_tree": node.candidate_tree, "findings": [], "verdict": "PASS",
+                })
+                return binding
+
+        host = PassingHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        inputs = dict(specification_digest=failed.spec.specification_digest,
+                      candidate_head=node.candidate_head, recovery_runtime={"test": True}, timeout=20)
+        with patch.object(supervisor_module, "execute_trusted_command", side_effect=AssertionError("reran validation")):
+            result = engine.review_existing_candidate("recovery", "node-1", **inputs)
+            self.assertEqual(result["verdict"], "PASS", result)
+            self.assertEqual(result, engine.review_existing_candidate("recovery", "node-1", **inputs))
+        self.assertEqual(len(host.bindings), 1)
+        lease = next(iter(host.bindings.values())).lease
+        self.assertEqual((lease.role, lease.allowed_paths), ("REVIEWER", ()))
+        self.assertEqual(self.store.get_snapshot("recovery"), failed)
+        self.assertEqual([], self.store.list_active_leases("recovery"))
+        self.assertEqual([], self.store.list_outbox(campaign_id="recovery"))
+        self.assertEqual(len(result["validation_evidence_ids"]), 1)
+        self.assertEqual(self.store.get_evidence(result["review_evidence_id"]).kind, EvidenceKind.REVIEW)
+
+    def test_attested_block_is_reverified_without_another_turn(self):
+        failed = self.prepare_failed_review()
+        node = failed.node("node-1")
+
+        class BlockingHost(FakeHost):
+            def start_actor_turn(self, lease_id, prompt):
+                binding = super().start_actor_turn(lease_id, prompt)
+                self.set_result(lease_id, {
+                    "reviewer_id": "reviewer-a", "candidate_head": node.candidate_head,
+                    "candidate_tree": node.candidate_tree, "verdict": "BLOCK",
+                    "findings": [{
+                        "finding_id": "independent-db-check", "title": "Database check omitted a row",
+                        "blocking": True, "details": {
+                            "invariant": "The original assessment evidence must be complete.",
+                            "evidence": ["readback.sql:20", "assessment.sql:10"],
+                        },
+                    }],
+                })
+                return binding
+
+        host = BlockingHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        inputs = dict(specification_digest=failed.spec.specification_digest,
+                      candidate_head=node.candidate_head, recovery_runtime={"test": 1}, timeout=20)
+        with patch.object(engine, "_verify_review_receipts", side_effect=SupervisorError("old verifier rejected citations")):
+            rejected = engine.review_existing_candidate("recovery", "node-1", **inputs)
+        self.assertFalse(rejected["ok"])
+        self.assertIn("old verifier", rejected["error"])
+        inputs["recovery_runtime"] = {"test": 2}
+        result = engine.review_existing_candidate("recovery", "node-1", **inputs)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["verdict"], "BLOCK")
+        self.assertEqual(result["findings"][0]["finding_id"], "independent-db-check")
+        self.assertEqual(result["recovery_runtime"], {"test": 1})
+        self.assertEqual(result["receipt_verification_runtime"], {"test": 2})
+        self.assertEqual(result, engine.review_existing_candidate("recovery", "node-1", **inputs))
+        self.assertEqual(len(host.turns), 1)
+        self.assertEqual(self.store.get_snapshot("recovery"), failed)
+        self.assertFalse(self.store.list_outbox(campaign_id="recovery"))
+
+    def test_review_refuses_wrong_digest_and_dirty_candidate_before_dispatch(self):
+        failed = self.prepare_failed_review()
+        host = FakeHost()
+        engine = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        inputs = dict(candidate_head=failed.node("node-1").candidate_head,
+                      recovery_runtime={"test": True}, timeout=20)
+        with self.assertRaisesRegex(SupervisorError, "frozen specification"):
+            engine.review_existing_candidate("recovery", "node-1",
+                                             specification_digest="0" * 64, **inputs)
+        (self.repo / "README.md").write_bytes(b"changed")
+        with self.assertRaisesRegex(AdmissionError, "exactly clean"):
+            engine.review_existing_candidate("recovery", "node-1",
+                                             specification_digest=failed.spec.specification_digest, **inputs)
+        self.assertFalse(host.bindings)
 
 
 class CampaignSupervisorControlTests(SupervisorFixture):
@@ -1179,6 +1390,8 @@ class CampaignSupervisorControlTests(SupervisorFixture):
                 prompt = DeterministicSupervisor._worker_prompt(
                     snapshot, "node-1", role, "reviewer-a"
                 )
+                self.assertIn(repr({"node_start_head": self.base_sha})[1:-1], prompt)
+                self.assertIn("Pass node_start_head as the base to campaign_git_diff", prompt)
                 for field in ("finding_id", "title", "blocking", "details"):
                     self.assertIn(field, prompt)
                 self.assertNotIn(
@@ -2197,6 +2410,162 @@ class CampaignSupervisorControlTests(SupervisorFixture):
             ],
             1,
         )
+
+
+class CommitRequiredNoOpTests(SupervisorFixture):
+    def prepare_commit_node(self, *, require_commit=True, retry=1, budget_overrides=None):
+        raw = self.make_spec("campaign", mode="AUTOMATED", budget_overrides=budget_overrides).to_dict()
+        raw.pop("specification_digest")
+        raw["objective_kind"] = "PRODUCT_CODE"
+        raw["nodes"][0].update(require_commit=require_commit, no_op_retry_limit=retry)
+        self.create_approved(CampaignSpec.from_dict(raw))
+        host = FakeHost()
+        supervisor = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        lease = self.dispatch_implementer(supervisor)
+        return supervisor, host, lease
+
+    def test_one_attested_no_action_retry_uses_new_lease_and_preserves_attempts(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        first = supervisor.complete_worker(lease)
+        snapshot = self.store.get_snapshot("campaign")
+        self.assertEqual(snapshot.node("node-1").state, NodeState.ADMITTED)
+        self.assertEqual(snapshot.node("node-1").implementation_attempts, 1)
+        self.assertEqual(snapshot.node("node-1").no_op_retries, 1)
+        self.assertEqual(snapshot.node("node-1").start_head, self.base_sha)
+        self.assertEqual(self.store.list_active_leases("campaign"), [])
+        self.assertEqual(supervisor.complete_worker(lease).receipt_digest, first.receipt_digest)
+        replacement = supervisor.step("campaign")
+        self.assertEqual(replacement.action, "IMPLEMENTER_DISPATCHED")
+        next_lease = replacement.details["lease_id"]
+        self.assertNotEqual(next_lease, lease)
+        (self.repo / "src" / "app.txt").write_text("committed product\n", encoding="utf-8")
+        git(self.repo, "add", "src/app.txt")
+        git(self.repo, "commit", "-q", "-m", "product candidate")
+        host.set_result(next_lease, {"status": "completed", "action_count": 2})
+        supervisor.complete_worker(next_lease)
+        snapshot = self.store.get_snapshot("campaign")
+        self.assertEqual(snapshot.node("node-1").state, NodeState.VALIDATING)
+        self.assertEqual(snapshot.node("node-1").implementation_attempts, 2)
+        spent = {item.token: item.consumed for item in snapshot.budgets}
+        self.assertEqual(spent[BudgetToken.NO_OP_ATTEMPT], 1)
+        self.assertEqual(spent[BudgetToken.CHILD_CREATION], 2)
+        self.assertEqual(spent[BudgetToken.CHILD_START], 2)
+        self.assertEqual(spent[BudgetToken.VALIDATION_EXECUTION], 0)
+
+    def test_second_no_op_fails_before_validation_without_third_dispatch(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        supervisor.complete_worker(lease)
+        next_lease = supervisor.step("campaign").details["lease_id"]
+        supervisor.complete_worker(next_lease)
+        snapshot = self.store.get_snapshot("campaign")
+        self.assertEqual(snapshot.state, CampaignState.FAILED)
+        self.assertIn("no committed candidate diff", snapshot.failure_reason)
+        self.assertEqual(snapshot.node("node-1").implementation_attempts, 2)
+        self.assertEqual(snapshot.node("node-1").no_op_retries, 1)
+        self.assertEqual(supervisor.step("campaign").action, "TERMINAL")
+        self.assertEqual(next(x.consumed for x in snapshot.budgets
+                              if x.token is BudgetToken.VALIDATION_EXECUTION), 0)
+
+    def test_required_commit_without_retry_fails_before_missing_test_execution(self):
+        supervisor, host, lease = self.prepare_commit_node(retry=0)
+        supervisor.complete_worker(lease)
+        self.assertEqual(self.store.get_snapshot("campaign").state, CampaignState.FAILED)
+        self.assertEqual(supervisor.step("campaign").action, "TERMINAL")
+
+    def test_default_preserves_legacy_completed_turn_transition(self):
+        supervisor, host, lease = self.prepare_commit_node(require_commit=False, retry=0)
+        supervisor.complete_worker(lease)
+        self.assertEqual(self.store.get_snapshot("campaign").node("node-1").state, NodeState.VALIDATING)
+
+    def test_no_retry_after_any_native_action(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        host.set_result(lease, {"status": "completed", "action_count": 1})
+        supervisor.complete_worker(lease)
+        self.assertEqual(self.store.get_snapshot("campaign").state, CampaignState.FAILED)
+        self.assertEqual(len(host.bindings), 1)
+
+    def test_attested_read_only_actions_retry_from_the_same_clean_start(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        collect = host.collect_terminal_receipt
+        host.set_result(lease, {"status": "completed", "action_count": 31})
+
+        def attested_reads(*args, **kwargs):
+            receipt = replace(collect(*args, **kwargs), non_read_action_count=0)
+            payload = receipt.to_dict()
+            payload.pop("receipt_digest")
+            return replace(receipt, receipt_digest=canonical_json_digest(payload))
+
+        with patch.object(host, "collect_terminal_receipt", side_effect=attested_reads):
+            completed = supervisor.complete_worker(lease)
+        self.assertEqual(completed.action_count, 31)
+        self.assertEqual(completed.non_read_action_count, 0)
+        snapshot = self.store.get_snapshot("campaign")
+        self.assertEqual(snapshot.node("node-1").state, NodeState.ADMITTED)
+        self.assertEqual(snapshot.node("node-1").no_op_retries, 1)
+        self.assertEqual(snapshot.node("node-1").start_head, self.base_sha)
+        self.assertEqual(supervisor.step("campaign").action, "IMPLEMENTER_DISPATCHED")
+
+    def test_dirty_no_op_does_not_retry_or_discard_bytes(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        pending = self.repo / "src" / "pending.txt"
+        pending.write_text("preserve me", encoding="utf-8")
+        supervisor.complete_worker(lease)
+        self.assertEqual(self.store.get_snapshot("campaign").state, CampaignState.FAILED)
+        self.assertEqual(pending.read_text(), "preserve me")
+        self.assertEqual(len(host.bindings), 1)
+
+    def test_empty_commit_is_not_an_unchanged_start_retry(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        git(self.repo, "commit", "--allow-empty", "-q", "-m", "empty")
+        supervisor.complete_worker(lease)
+        self.assertEqual(self.store.get_snapshot("campaign").state, CampaignState.FAILED)
+        self.assertEqual(len(host.bindings), 1)
+
+    def test_no_retry_without_existing_no_op_budget(self):
+        supervisor, host, lease = self.prepare_commit_node(budget_overrides={BudgetToken.NO_OP_ATTEMPT: 0})
+        supervisor.complete_worker(lease)
+        self.assertEqual(self.store.get_snapshot("campaign").state, CampaignState.FAILED)
+        self.assertEqual(len(host.bindings), 1)
+
+    def test_retry_rechecks_clean_start_before_dispatch(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        supervisor.complete_worker(lease)
+        (self.repo / "src" / "pending.txt").write_text("late bytes", encoding="utf-8")
+        with self.assertRaises(AdmissionError):
+            supervisor.step("campaign")
+        self.assertEqual(self.store.get_snapshot("campaign").state, CampaignState.FAILED)
+        self.assertEqual(len(host.bindings), 1)
+
+    def test_changed_sources_do_not_authorize_a_no_op_retry(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        with patch.object(supervisor, "_verify_sources", side_effect=SourceDriftError("source changed")):
+            supervisor.complete_worker(lease)
+        snapshot = self.store.get_snapshot("campaign")
+        self.assertEqual(snapshot.state, CampaignState.FAILED)
+        self.assertIn("source changed", snapshot.failure_reason)
+        self.assertEqual(snapshot.node("node-1").no_op_retries, 0)
+
+    def test_expired_deadline_is_preserved_without_retry(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        supervisor.now = lambda: datetime(2026, 8, 7, tzinfo=timezone.utc)
+        supervisor.complete_worker(lease)
+        snapshot = self.store.get_snapshot("campaign")
+        self.assertEqual(snapshot.state, CampaignState.FAILED)
+        self.assertEqual(snapshot.node("node-1").no_op_retries, 0)
+        self.assertIn("deadline", snapshot.failure_reason)
+
+    def test_restart_uses_attested_no_op_guard_instead_of_validating_missing_candidate(self):
+        supervisor, host, lease = self.prepare_commit_node()
+        receipt = host.collect_terminal_receipt(lease, current_epochs=self.store.current_epochs)
+        supervisor._attest_native_terminal(receipt, completed=True)
+        restarted = DeterministicSupervisor(self.store, host=host, now=lambda: NOW)
+        result = restarted.recover()
+        self.assertIn(lease, result["reattached_terminal_leases"])
+        snapshot = self.store.get_snapshot("campaign")
+        self.assertEqual(snapshot.node("node-1").state, NodeState.ADMITTED)
+        self.assertEqual(snapshot.node("node-1").no_op_retries, 1)
+        self.assertEqual(self.store.list_active_leases("campaign"), [])
+        self.assertEqual(restarted.step("campaign").action, "IMPLEMENTER_DISPATCHED")
 
 
 if __name__ == "__main__":

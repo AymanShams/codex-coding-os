@@ -78,6 +78,7 @@ CODEX_MANAGED_PLUGIN_SKILL_DIRECTORY_KEYS = frozenset(
     name.casefold() for name in CODEX_MANAGED_PLUGIN_SKILL_DIRECTORIES
 )
 ROUTER_AUTHORITY_OWNED_SKILL_DIRECTORIES = frozenset({"catalogue-router"})
+PRESERVABLE_SKILL_DIRECTORIES = frozenset({"codex-design-artifacts", "doc"})
 MANIFEST_VERSION = 3
 JOURNAL_VERSION = 1
 PHASES = (
@@ -213,6 +214,7 @@ class InstallOptions:
     legacy_overlap_migration: bool = False
     archive_mode: bool = False
     dry_run: bool = False
+    preserve_skills: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1743,8 +1745,23 @@ def _validate_unowned_collisions(
     support_root: Path,
     new_skill_names: Sequence[str],
     previous: dict[str, Any] | None,
+    preserved: frozenset[str] = frozenset(),
+    incoming_skill_root: Path | None = None,
 ) -> list[dict[str, Any]]:
-    previous_records = _previous_skill_records(previous, skills_root)
+    previous_records = [record for record in _previous_skill_records(previous, skills_root)
+                        if record["name"] not in preserved]
+    if previous is not None and previous.get("manifest_version") == 3:
+        for record in previous_records:
+            live_hash = _tree_hash(Path(record["path"]))
+            if live_hash != record.get("sha256"):
+                incoming_hash = (
+                    _tree_hash(incoming_skill_root / record["name"])
+                    if incoming_skill_root is not None and record["name"] in new_skill_names
+                    else None
+                )
+                if live_hash is None or live_hash != incoming_hash:
+                    raise OwnershipError(f"managed skill changed since install; refusing replacement: {record['name']}")
+            record["validated_live_sha256"] = live_hash
     owned = {str(record["name"]).casefold(): Path(str(record["path"])).resolve(strict=False) for record in previous_records}
     if skills_root.exists():
         for child in skills_root.iterdir():
@@ -1753,12 +1770,27 @@ def _validate_unowned_collisions(
             if _is_link_or_reparse(child):
                 raise OwnershipError(f"SkillsRoot contains a link or reparse point: {child}")
             key = child.name.casefold()
+            if key in preserved:
+                continue
             if key in {name.casefold() for name in new_skill_names} or key in owned:
                 if key not in owned or child.resolve(strict=False) != owned[key]:
                     raise OwnershipError(f"refusing unowned case-insensitive skill collision: {child}")
     if support_root.exists() and previous is None:
         raise OwnershipError("refusing to replace an unowned existing support root")
     return previous_records
+
+
+def _preserved_skills(previous: dict[str, Any] | None, requested: Sequence[str] = ()) -> frozenset[str]:
+    records = (previous or {}).get("preserved_paths", {}).get("skills", {})
+    if not isinstance(records, dict) or any(
+        not isinstance(record, dict) or record.get("managed") is not False
+        for record in records.values()
+    ):
+        raise OwnershipError("preserved skill ownership record is malformed")
+    names = frozenset((*records, *requested))
+    if not names.issubset(PRESERVABLE_SKILL_DIRECTORIES):
+        raise OwnershipError("only codex-design-artifacts and doc support external skill ownership")
+    return names
 
 
 def _validate_legacy_v2_skill_descendants(
@@ -2469,6 +2501,7 @@ def _verify_split_payload_layout(
     support_paths = [str(item["path"]) for item in entries if not str(item.get("path", "")).startswith(skill_prefix)]
     if layout["skill_entry_paths"] != skill_paths or layout["support_entry_paths"] != support_paths:
         raise OwnershipError("installed split payload inventory differs from the verified bundle")
+    preserved = _preserved_skills(install_manifest)
     for entry in entries:
         relative = _normalize_relative(str(entry.get("path", "")))
         if relative.startswith(skill_prefix):
@@ -2476,7 +2509,8 @@ def _verify_split_payload_layout(
             owner = PurePosixPath(projected).parts[0].casefold()
             if owner in ROUTER_AUTHORITY_OWNED_SKILL_DIRECTORIES:
                 continue
-            target = skills_root.joinpath(*PurePosixPath(projected).parts)
+            target = (support_root.joinpath(*PurePosixPath(relative).parts)
+                      if owner in preserved else skills_root.joinpath(*PurePosixPath(projected).parts))
         else:
             target = support_root.joinpath(*PurePosixPath(relative).parts)
         if (
@@ -2558,16 +2592,25 @@ def _stage_bundle(
     skill_stage_root.mkdir(parents=True, exist_ok=False)
     support_stage.mkdir(parents=True, exist_ok=False)
     managed_skills: list[dict[str, Any]] = []
+    preserved = _preserved_skills(previous, options.preserve_skills)
+    preserved_records: dict[str, Any] = {}
     skill_prefix = _normalize_relative(str(installation["managed_skill_root"])) + "/"
     for skill in bundle.pack["bundled_skills"]:
         name = str(skill["name"])
         skill_source = managed_skill_source / name
-        staged = skill_stage_root / name
+        staged = (support_stage / str(installation["managed_skill_root"]) / name
+                  if name in preserved else skill_stage_root / name)
         _copy_path(skill_source, staged)
         source_hash = _tree_hash(skill_source)
         staged_hash = _tree_hash(staged)
         if source_hash != staged_hash:
             raise TransactionError(f"staged skill hash mismatch: {name}")
+        if name in preserved:
+            live = skills_root / name
+            preserved_records[name] = {"path": str(live), "managed": False,
+                                       "sha256": _tree_hash(live),
+                                       "package_copy": f"{skill_prefix}{name}"}
+            continue
         managed_skills.append(
             {
                 "name": name,
@@ -2757,6 +2800,7 @@ def _stage_bundle(
             "default_rules": rules_target,
         },
         "preserved_paths": {
+            "skills": preserved_records,
             "config_toml": {
                 "path": str(codex_home / "config.toml"),
                 "managed": False,
@@ -2832,6 +2876,7 @@ def _stage_bundle(
         "staged_agents": staged_agents,
         "staged_rules": staged_rules,
         "managed_skills": managed_skills,
+        "preserved_skills": preserved,
         "support_payload_sha256": support_payload_sha,
         "support_tree_sha256": support_tree_sha,
         "install_manifest": install_manifest,
@@ -2854,6 +2899,8 @@ def _is_idempotent(
     if previous is None or previous.get("manifest_version") != 3:
         return False
     if previous.get("legacy_overlap_migration") != staged.get("legacy_overlap_migration"):
+        return False
+    if _preserved_skills(previous) != staged["preserved_skills"]:
         return False
     package = previous.get("package")
     prior_source = previous.get("source")
@@ -2959,10 +3006,18 @@ def _prepare_install_targets(
     codex_rollback = transaction_workspaces["codex_home"] / "rollback" / "codex-home"
     new_names = {record["name"] for record in staged["managed_skills"]}
     old_names = {str(record["name"]) for record in previous_records}
+    for record in previous_records:
+        if "validated_live_sha256" in record and _tree_hash(Path(record["path"])) != record["validated_live_sha256"]:
+            raise RecoveryError(f"managed skill drifted after preflight: {record['name']}")
     targets: list[dict[str, Any]] = []
     for name in sorted(new_names | old_names, key=lambda value: value.casefold()):
+        if name in staged["preserved_skills"]:
+            continue
         staged_path = staged["skill_stage_root"] / name if name in new_names else None
-        targets.append(_make_target(f"skill:{name}", skills_root / name, staged_path, skill_rollback / name))
+        target = _make_target(f"skill:{name}", skills_root / name, staged_path, skill_rollback / name)
+        if staged_path is not None and target["prior_sha256"] == target["new_sha256"]:
+            continue
+        targets.append(target)
     targets.append(
         _make_target(
             "support",
@@ -2973,14 +3028,14 @@ def _prepare_install_targets(
     )
     previous_hook = _previous_campaign_hook(previous, codex_home)
     if staged["hook_stage"] is not None or previous_hook is not None:
-        targets.append(
-            _make_target(
-                "campaign_hook",
-                codex_home / "hooks" / "campaign-engine",
-                staged["hook_stage"],
-                codex_rollback / "hooks" / "campaign-engine",
-            )
+        hook = _make_target(
+            "campaign_hook",
+            codex_home / "hooks" / "campaign-engine",
+            staged["hook_stage"],
+            codex_rollback / "hooks" / "campaign-engine",
         )
+        if hook["prior_sha256"] != hook["new_sha256"]:
+            targets.append(hook)
     live_hooks_config = _hooks_configuration_path(codex_home)
     hooks_record = staged["hooks_config_target"]
     expected_present = hooks_record["transaction_prior_state"] == "present"
@@ -2990,14 +3045,12 @@ def _prepare_install_targets(
         != hooks_record["transaction_prior_sha256"]
     ):
         raise RecoveryError("hooks.json drifted after migration staging")
-    targets.append(
-        _make_target(
-            "hooks_configuration",
-            live_hooks_config,
-            staged["staged_hooks_config"],
-            codex_rollback / "hooks.json",
-        )
+    hooks = _make_target(
+        "hooks_configuration", live_hooks_config,
+        staged["staged_hooks_config"], codex_rollback / "hooks.json",
     )
+    if hooks["prior_sha256"] != hooks["new_sha256"]:
+        targets.append(hooks)
     if staged["staged_agents"] is not None:
         targets.append(
             _make_target(
@@ -3565,6 +3618,8 @@ def _install_preflight(
         codex_home / "coding-os",
         names,
         previous,
+        _preserved_skills(previous, options.preserve_skills),
+        _safe_repo_path(source_root, str(pack["installation"]["managed_skill_root"])),
     )
     _validate_legacy_v2_skill_descendants(previous, previous_records, source_root, pack)
     _preflight_campaign_hook(pack, previous, source_root, codex_home)
@@ -3602,6 +3657,7 @@ def _dry_run_install(options: InstallOptions, source_root: Path, skills_root: Pa
         "policy_authority_source": authority.get("source"),
         "skills_root": str(skills_root),
         "support_root": str(codex_home / "coding-os"),
+        "preserved_skills": sorted(_preserved_skills(previous, options.preserve_skills)),
     }
 
 
@@ -4197,6 +4253,8 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--legacy-overlap-migration", action="store_true")
     install_parser.add_argument("--archive-mode", action="store_true")
     install_parser.add_argument("--dry-run", action="store_true")
+    install_parser.add_argument("--preserve-skill", action="append", default=[],
+                                choices=sorted(PRESERVABLE_SKILL_DIRECTORIES))
 
     uninstall_parser = commands.add_parser("uninstall", help="Transactionally remove recorded managed targets.")
     uninstall_parser.add_argument("--skills-root", required=True)
@@ -4245,6 +4303,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 legacy_overlap_migration=args.legacy_overlap_migration,
                 archive_mode=args.archive_mode,
                 dry_run=args.dry_run,
+                preserve_skills=tuple(args.preserve_skill),
             )
         )
     if args.command == "uninstall":

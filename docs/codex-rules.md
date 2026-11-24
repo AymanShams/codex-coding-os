@@ -10,8 +10,11 @@ This pack includes an optional rules template at:
 
 ### User-level managed rules
 
-Install the universal campaign rules through the transactional installer. It
-replaces only the marked Coding OS block and preserves unrelated rules bytes:
+Install the managed universal policy through the transactional installer. Its
+rules block adds no command prompts. The campaign engine authorizes automated
+external effects, while manual GitHub and Git commands follow the active
+session permissions. The installer replaces only the marked Coding OS block
+and preserves unrelated rules bytes:
 
 ```powershell
 $SourceCommit = git rev-parse HEAD

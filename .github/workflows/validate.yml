@@ -227,18 +227,12 @@ jobs:
           path: ${{ runner.temp }}/validation-boundary-diagnostics/
           if-no-files-found: warn
           retention-days: 14
-      - name: Install pinned capability-router test dependency
-        run: python -m pip install -r capability-routing/requirements-test.txt
       - name: Test transactional install contract
         run: python -B tests/test_install_transaction.py
-      - name: Test canonical router and security capability contracts
+      - name: Check retired router exclusion and plugin boundaries
         run: >-
           python -B -m unittest
-          tests.test_repository_capability_router
-          tests.test_capability_manifest_recovery
-          tests.test_capability_manifest_builder
           tests.test_catalogue_router_wrapper
-          tests.test_security_capability_routing
           tests.test_local_security_skill_parity
           tests.test_plugin_manifest_boundaries
           -v

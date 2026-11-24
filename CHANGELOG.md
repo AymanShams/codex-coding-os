@@ -4,6 +4,31 @@ All notable package changes are recorded here. The authoritative package release
 
 ## [Unreleased]
 
+- Support digest-bound native actor models and reasoning efforts by campaign role
+  and named reviewer, with live capability checks and exact idle-thread readback.
+- Add read-only model inspection and policy-aware disposable host probes without
+  changing existing campaign defaults or shared Codex configuration.
+
+## [1.3.2] - 2026-09-20
+
+- Resolve the current Codex executable on PATH before private Windows helper
+  copies that can remain after an app update.
+- Isolate campaign connections using the effective project configuration and
+  verify that every connection is disabled before binding a native worker.
+- Allow shared configuration metadata owned by other tools while retaining
+  the campaign's explicit read-only scope and mediated tool controls.
+
+## [1.3.1] - 2026-09-20
+
+- Preserve explicitly selected external ownership of the optional design and
+  document skills during installation, upgrade, and removal. Retain and verify
+  their stock package files inside the support payload.
+- Reject replacement of modified managed skills before an upgrade writes files.
+- Limit the documentation workflow to requested documentation work and clarify
+  that authorized manual delivery does not require an automated campaign.
+- Support both native Windows helper package layouts and Windows paths in the
+  opt-in acceptance fixture, while retaining existing campaign history.
+
 ## [1.3.0] - 2026-09-19
 
 ### Added

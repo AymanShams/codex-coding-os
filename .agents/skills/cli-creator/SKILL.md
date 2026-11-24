@@ -91,6 +91,10 @@ Use screenshots to infer workflow, UI vocabulary, fields, and confirmation point
 4. Implement `doctor`, discovery, resolve, read commands, one narrow draft or dry-run write path if requested, and the raw escape hatch.
 5. Install the CLI on PATH so `tool-name ...` works outside the source folder.
 6. Smoke test from another repo or `/tmp`, not only with `cargo run` or package-manager wrappers. Run `command -v <tool-name>`, `<tool-name> --help`, and `<tool-name> --json doctor`.
+   Exercise the installed executable with one controlled invalid input, such as
+   a malformed local argument that fails before a network request. Capture
+   its exit status and output. Verify a nonzero status and the documented
+   error format and output stream for the selected mode.
 7. Run format, typecheck/build, unit tests for request builders, pagination/request-body builders, no-auth `doctor`, help output, and at least one fixture, dry-run, or live read-only API call.
 
 If a live write is needed for confidence, ask first and make it reversible or draft-only.

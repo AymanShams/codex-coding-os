@@ -9,6 +9,8 @@ tags: javascript, cache, memoization, performance
 
 Use a module-level Map to cache function results when the same function is called repeatedly with the same inputs during render.
 
+The Map example assumes a bounded set of inputs. If distinct inputs can grow without limit, cap stored entries with eviction or use a shorter-lived cache. Include every input that affects the result in the key, including user/account context when relevant. Clear or refresh entries after relevant state changes, and recompute on a miss. Module-level caches are instance-local and non-durable.
+
 **Incorrect (redundant computation):**
 
 ```typescript
@@ -56,6 +58,8 @@ function ProjectList({ projects }: { projects: Project[] }) {
 ```
 
 **Simpler pattern for single-value functions:**
+
+For this browser-only example, call `onAuthChange()` whenever login, logout, or account switching changes the state being cached.
 
 ```typescript
 let isLoggedInCache: boolean | null = null

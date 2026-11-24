@@ -42,13 +42,12 @@ only when an approved requirement or technical contract has changed.
 Report only progress that the evidence establishes. A failed test alone proves
 neither that implementation is complete nor that delivery occurred.
 
-Use the installed `catalogue-router` for non-trivial manual work. Repository
-`AGENTS.md` owns routing and authority boundaries. Skill selection grants no
-additional action authority.
-Check `doctor` entry prerequisites before promising routed execution. A missing
-canonical router is an operating dependency. Do not activate the repository's
-reference router. Declare required host tools in the proposed nodes so unavailable
-browser or other capabilities are rejected before admission.
+Use Codex native skill discovery for manual work. Repository `AGENTS.md` owns
+authority boundaries. Skill selection grants no additional action authority.
+Check `doctor` entry prerequisites before promising campaign execution. The
+repository's historical router is not an operating dependency. Declare
+required host tools in proposed campaign nodes so unavailable capabilities
+are rejected before admission.
 
 Use the installed CLI's `--help` and the command in the engine receipt. Command
 contracts belong to `scripts/agent/campaign_engine/cli.py`.

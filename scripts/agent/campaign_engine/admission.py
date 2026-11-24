@@ -22,6 +22,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
+from .runtime_bootstrap import preserved_skill_names, RuntimeBootstrapError
+
 
 RUNTIME_PROTOCOL_VERSION = "ccos-campaign-v1"
 SCHEMA_COMPATIBILITY = "campaign-store-v1"
@@ -527,14 +529,21 @@ def verify_installed_runtime(
         raise RuntimePinError(
             "install manifest skills_root differs from the admitted skills root"
         )
+    try:
+        preserved = preserved_skill_names(manifest)
+    except RuntimeBootstrapError as exc:
+        raise RuntimePinError(str(exc)) from exc
     for entry in entries:
         relative = str(entry["path"])
-        path = _installed_path(relative, support_root=support_root, skills_root=skills_root)
+        parts = PurePosixPath(relative).parts
+        stored_copy = len(parts) >= 4 and parts[:2] == (".agents", "skills") and parts[2] in preserved
+        path = (support_root.joinpath(*parts) if stored_copy
+                else _installed_path(relative, support_root=support_root, skills_root=skills_root))
         try:
             resolved_path = path.resolve(strict=True)
             expected_parent = (
                 skills_root
-                if PurePosixPath(relative).parts[:2] == (".agents", "skills")
+                if PurePosixPath(relative).parts[:2] == (".agents", "skills") and not stored_copy
                 else support_root
             )
             resolved_path.relative_to(expected_parent)
@@ -650,8 +659,10 @@ def admit_campaign_spec(
 ) -> dict[str, Any]:
     """Verify the exact repository and installed runtime fields of one spec."""
 
-    # This is the actual mediated host surface, not a second capability catalogue.
+    from .evidence import EvidenceError, validate_environment_allowlist
     from .host import _dynamic_tool_specs
+
+    # This is the actual mediated host surface, not a second capability catalogue.
     available_tools = {item["name"] for item in _dynamic_tool_specs(True)}
     for node in spec.get("nodes", ()):
         missing = sorted(set(node.get("required_tools", ())) - available_tools)
@@ -722,6 +733,10 @@ def admit_campaign_spec(
                 "validation command identifiers must be unique and nonempty"
             )
         command_ids.add(command_id)
+        try:
+            validate_environment_allowlist(raw_command.get("environment_allowlist", ()))
+        except EvidenceError as exc:
+            raise AdmissionError(f"validation command {command_id}: {exc}") from exc
         working = Path(
             str(raw_command.get("working_directory", ""))
         ).expanduser().resolve(strict=True)
@@ -823,6 +838,18 @@ def admit_campaign_spec(
         "public_key_sha256": _sha256_bytes(authorization_public_key),
     }
     acceptance_sources = verify_acceptance_sources(spec)
+    model_evidence: dict[str, Any] = {}
+    if "model_policy" in spec:
+        from .model import validate_model_policy
+        from .host import inspect_model_policy
+        policy = validate_model_policy(spec["model_policy"], spec.get("required_review_cohort", ()))
+        if policy:
+            inspected = inspect_model_policy(cwd=exact_worktree, policy=policy)
+            chosen = {entry["model"] for group in policy.values() for entry in group.values()}
+            model_evidence["model_selection"] = {
+                "model_policy": policy,
+                "available_models": [row for row in inspected["available_models"] if row["model"] in chosen],
+            }
     return {
         "protocol_version": RUNTIME_PROTOCOL_VERSION,
         "repository": repo_evidence.to_dict(),
@@ -831,6 +858,7 @@ def admit_campaign_spec(
         "validation_commands": admitted_commands,
         "human_authorization_verifier": authorization_verifier,
         "acceptance_sources": acceptance_sources,
+        **model_evidence,
         "admission_sha256": _sha256_bytes(
             _canonical_json(
                 {
@@ -840,6 +868,7 @@ def admit_campaign_spec(
                     "validation_commands": admitted_commands,
                     "human_authorization_verifier": authorization_verifier,
                     "acceptance_sources": acceptance_sources,
+                    **model_evidence,
                 }
             )
         ),

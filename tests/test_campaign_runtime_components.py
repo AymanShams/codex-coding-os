@@ -220,8 +220,14 @@ class _FakeTransport:
         self.calls.append((method, params))
         if method == "initialize":
             return {"userAgent": "fake"}
+        if method == "config/read":
+            return {"config": {"mcp_servers": {"inherited.server": {"enabled": True}}}}
+        if method == "mcpServerStatus/list":
+            return {"data": [], "nextCursor": None}
         if method == "thread/start":
             return {
+                "model": params["model"],
+                "reasoningEffort": params["config"]["model_reasoning_effort"],
                 "thread": {
                     "id": "native-thread-1",
                     "cwd": params["cwd"],
@@ -295,8 +301,12 @@ class _ProbeTransport(_FakeTransport):
         self.calls.append((method, params))
         if method == "initialize":
             return {"userAgent": "deterministic-probe-transport"}
+        if method in {"config/read", "mcpServerStatus/list"}:
+            return super().request(method, params, timeout)
         if method == "thread/start":
             return {
+                "model": params["model"],
+                "reasoningEffort": params["config"]["model_reasoning_effort"],
                 "thread": {
                     "id": self.thread_id,
                     "cwd": params["cwd"],
@@ -429,6 +439,44 @@ class _ProbeTransportFactory:
 
 
 class HostTests(unittest.TestCase):
+    def test_turn_result_uses_completions_from_only_the_assigned_thread_and_turn(self):
+        transport = host.AppServerTransport.__new__(host.AppServerTransport)
+        def event(thread, turn, text):
+            return {"method": "item/completed", "params": {
+                "threadId": thread, "turnId": turn,
+                "item": {"type": "agentMessage", "text": text},
+            }}
+        transport.events = [
+            event("assigned", "turn", '{"verdict":"PASS"}'),
+            event("assigned", "other-turn", '{"verdict":"BLOCK"}'),
+            event("other-thread", "turn", '{"verdict":"BLOCK"}'),
+            {"method": "turn/completed", "params": {
+                "threadId": "assigned", "turn": {"id": "turn", "status": "completed", "items": []},
+            }},
+        ]
+        native = transport.wait_turn("assigned", "turn")
+        self.assertEqual(host._structured_result(native["items"], native), {"verdict": "PASS"})
+        self.assertEqual(host._structured_result([{
+            "type": "dynamicToolCall", "output": '{"verdict":"PASS"}',
+        }], native)["structured"], False)
+
+
+    @unittest.skipUnless(os.name == "nt", "Windows helper fallback ordering")
+    def test_current_path_host_precedes_stale_private_windows_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            profile = Path(raw)
+            stale = profile / ".codex/.sandbox-bin/codex.exe"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"old helper")
+            current = profile / "current-codex.exe"
+            current.write_bytes(b"current app")
+            with patch.dict(os.environ, {"USERPROFILE": str(profile), "CODEX_CAMPAIGN_HOST_EXECUTABLE": ""}), \
+                 patch.object(host.shutil, "which", return_value=str(current)):
+                self.assertEqual(host._resolve_codex_executable("codex"), current.resolve())
+            with patch.dict(os.environ, {"USERPROFILE": str(profile), "CODEX_CAMPAIGN_HOST_EXECUTABLE": ""}), \
+                 patch.object(host.shutil, "which", return_value=None):
+                self.assertEqual(host._resolve_codex_executable("codex"), stale.resolve())
+
     def test_native_transport_enables_required_helper_without_other_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             transport = host.AppServerTransport(sys.executable, cwd=raw)
@@ -441,9 +489,47 @@ class HostTests(unittest.TestCase):
                      "in_app_browser", "computer_use", "image_generation", "goals", "memories", "hooks"):
             with self.subTest(feature=name):
                 self.assertFalse(features[name])
-        self.assertIn("--strict-config", transport.command)
-        self.assertIn("mcp_servers={}", transport.command)
+        self.assertNotIn("--strict-config", transport.command)
+        self.assertNotIn("mcp_servers={}", transport.command)
         self.assertIn('web_search="disabled"', transport.command)
+
+    def test_native_actor_disables_effective_connections_before_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            head = make_repo(root)
+            transport = _FakeTransport()
+            native = host.NativeCodexHost(transport_factory=lambda *a, **k: transport)
+            bound = []
+            native.create_idle_actor(self.lease(root, "REVIEWER", candidate_head=head),
+                                     bind_authority=lambda *a: bound.append(a))
+            params = next(p for m, p in transport.calls if m == "thread/start")
+            self.assertEqual(params["config"]["mcp_servers"], {"inherited.server": {"enabled": False}})
+            self.assertTrue(bound)
+            self.assertNotIn("turn/start", [m for m, _ in transport.calls])
+            native.close()
+
+    def test_native_actor_rejects_unisolated_or_incomplete_connections(self) -> None:
+        disabled = {"runtimeStatus": "disabled", "tools": {}, "resources": [], "resourceTemplates": []}
+        cases = [None, {"data": [], "nextCursor": "more"}]
+        for changes in ({"runtimeStatus": "ready"}, {"runtimeStatus": "failed"},
+                        {"tools": {"write": {}}}, {"resources": [{}]}, {"resourceTemplates": [{}]}):
+            cases.append({"data": [{**disabled, **changes}], "nextCursor": None})
+        for inventory in cases:
+            with self.subTest(inventory=inventory), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw) / "repo"
+                head = make_repo(root)
+                transport = _FakeTransport()
+                original_request = transport.request
+                transport.request = lambda method, params=None, timeout=None: (
+                    inventory or {} if method == "mcpServerStatus/list" else original_request(method, params, timeout))
+                native = host.NativeCodexHost(transport_factory=lambda *a, **k: transport)
+                bound = []
+                with self.assertRaisesRegex(host.HostAuthorityError, "connection"):
+                    native.create_idle_actor(self.lease(root, "REVIEWER", candidate_head=head),
+                                             bind_authority=lambda *a: bound.append(a))
+                self.assertFalse(bound)
+                self.assertTrue(transport.closed)
+                self.assertNotIn("turn/start", [m for m, _ in transport.calls])
 
     def test_native_protocol_denies_approval_unknown_tools_and_foreign_threads(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -1264,6 +1350,84 @@ class HostTests(unittest.TestCase):
                         "fencing_epoch": 9,
                     },
                 )
+
+
+class TerminalReceiptActionTests(unittest.TestCase):
+    def native_receipt(self, items):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            head = make_repo(root)
+            transport = _FakeTransport()
+            transport.wait_turn = lambda *_args, **_kwargs: {
+                "id": "turn-1", "status": "completed", "items": items,
+            }
+            native = host.NativeCodexHost(transport_factory=lambda *a, **k: transport)
+            lease = HostTests.lease(self, root, candidate_head=head)
+            try:
+                native.create_idle_actor(lease, bind_authority=lambda *_: None,
+                                         authorize_action=lambda *_: {"authorized": True})
+                native.start_actor_turn(lease.lease_id, "inspect")
+                return native.collect_terminal_receipt(lease.lease_id, current_epochs=lambda *_: {
+                    "authority_epoch": 3, "cancellation_epoch": 0, "fencing_epoch": 9,
+                })
+            finally:
+                native.close()
+
+    def test_known_mediated_reads_including_failed_reads_have_zero_non_read_actions(self):
+        reads = ["campaign_list_files", "campaign_read_file", "campaign_search",
+                 "campaign_git_status", "campaign_git_diff"]
+        items = [{"type": "dynamicToolCall", "tool": tool, "status": status}
+                 for tool in reads for status in ("completed", "failed")]
+        receipt = self.native_receipt(items)
+        self.assertEqual(receipt.action_count, 10)
+        self.assertEqual(receipt.non_read_action_count, 0)
+        signed = receipt.to_dict()
+        digest = signed.pop("receipt_digest")
+        self.assertEqual(host._digest(signed), digest)
+        signed.pop("non_read_action_count")
+        self.assertNotEqual(host._digest(signed), digest)
+
+    def test_unknown_failed_and_generic_tools_remain_non_read_actions(self):
+        items = [
+            {"type": "commandExecution", "command": "git status", "status": "failed"},
+            {"type": "fileChange", "status": "failed"},
+            {"type": "mcpToolCall", "tool": "campaign_read_file", "status": "failed"},
+            {"type": "dynamicToolCall", "tool": "campaign_apply_patch", "status": "failed"},
+            {"type": "dynamicToolCall", "tool": "campaign_commit", "status": "completed"},
+            {"type": "dynamicToolCall", "tool": "unknown", "status": "failed"},
+            {"type": "dynamicToolCall", "tool": "campaign_read_file.extra"},
+            {"type": "dynamicToolCall", "name": "campaign_read_file"},
+            {"type": "dynamicToolCall", "tool": {"name": "campaign_read_file"}},
+            {"type": "agentMessage", "text": '{"non_read_action_count":0}'},
+            {"type": "dynamicToolCall", "tool": "campaign_read_file", "status": "failed"},
+        ]
+        receipt = self.native_receipt(items)
+        self.assertEqual(receipt.action_count, 10)
+        self.assertEqual(receipt.non_read_action_count, 9)
+
+    def test_scripted_host_does_not_attest_a_worker_claim_and_legacy_digest_is_stable(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            fake = host.FakeHost()
+            lease = HostTests.lease(self, root)
+            fake.create_idle_actor(lease, bind_authority=lambda *_: None,
+                                   authorize_action=lambda *_: {"authorized": True})
+            fake.start_actor_turn(lease.lease_id, "inspect")
+            fake.set_result(lease.lease_id, {"status": "completed", "action_count": 3,
+                                           "non_read_action_count": 0})
+            receipt = fake.collect_terminal_receipt(lease.lease_id, current_epochs=lambda *_: {
+                "authority_epoch": 3, "cancellation_epoch": 0, "fencing_epoch": 9,
+            })
+            self.assertIsNone(receipt.non_read_action_count)
+            legacy = receipt.to_dict()
+            self.assertNotIn("non_read_action_count", legacy)
+            self.assertEqual(host.TerminalReceipt(**legacy).to_dict(), legacy)
+            body = dict(legacy)
+            digest = body.pop("receipt_digest")
+            self.assertEqual(host._digest(body), digest)
+            for invalid in (-1, 4, False, "0"):
+                with self.subTest(invalid=invalid), self.assertRaises(host.HostProtocolError):
+                    host.TerminalReceipt(**legacy, non_read_action_count=invalid)
 
 
 class EvidenceTests(unittest.TestCase):
