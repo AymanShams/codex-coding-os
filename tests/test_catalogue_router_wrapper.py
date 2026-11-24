@@ -1,185 +1,54 @@
-#!/usr/bin/env python3
-"""Contract tests for the public Catalogue Router skill and CLI wrapper."""
+"""Ensure the retired catalogue router cannot return through the install bundle."""
 
-from __future__ import annotations
-
+import hashlib
 import json
-import os
-import shutil
-import subprocess
-import tempfile
-import unittest
 from pathlib import Path
+import unittest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SKILL_ROOT = REPO_ROOT / ".agents" / "skills" / "catalogue-router"
-SKILL_PATH = SKILL_ROOT / "SKILL.md"
-WRAPPER_PATH = SKILL_ROOT / "scripts" / "query-catalogue.ps1"
 
 
 class CatalogueRouterWrapperTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory(prefix="ccos-catalogue-wrapper-")
-        self.root = Path(self.temp.name)
-        self.codex_home = self.root / "codex-home"
-        self.hooks_dir = self.codex_home / "hooks"
-        self.hooks_dir.mkdir(parents=True)
-        self.workspace = self.root / "sample-workspace"
-        self.workspace.mkdir()
-        self.task_input_path = self.root / "task-input.json"
-        self.task_input_path.write_text(
-            json.dumps(
-                {
-                    "instruction": "Route this synthetic bounded task.",
-                    "execution_request_id": "synthetic-wrapper-request",
-                    "execution_disposition": {
-                        "mode": "codex_only",
-                        "eligible_worker_families": [],
-                    },
-                }
-            ),
-            encoding="utf-8",
+    def test_reference_provenance_preserves_retired_and_current_paths(self) -> None:
+        provenance = json.loads(
+            (REPO_ROOT / "capability-routing" / "provenance.json").read_text(encoding="utf-8")
         )
-        self.fake_cli = self.hooks_dir / "capability_index_cli.py"
-        self.fake_cli.write_text(
-            "import json, sys\nprint(json.dumps({'argv': sys.argv[1:]}))\n",
-            encoding="utf-8",
-        )
-        self.shell = shutil.which("pwsh") or shutil.which("powershell")
-
-    def tearDown(self) -> None:
-        self.temp.cleanup()
-
-    def _run_wrapper(self, *arguments: str) -> subprocess.CompletedProcess[str]:
-        if self.shell is None:
-            self.skipTest("PowerShell is not available")
-        env = os.environ.copy()
-        env.update(
-            {
-                "CODEX_HOME": str(self.codex_home),
-                "PYTHONDONTWRITEBYTECODE": "1",
-            }
-        )
-        return subprocess.run(
-            [
-                self.shell,
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-File",
-                str(WRAPPER_PATH),
-                *arguments,
-            ],
-            text=True,
-            capture_output=True,
-            env=env,
-            check=False,
-        )
-
-    def test_skill_declares_single_canonical_authority_and_fail_closed_contract(
-        self,
-    ) -> None:
-        skill = SKILL_PATH.read_text(encoding="utf-8")
-        for required in (
-            "active-capabilities.json",
-            "routing-policy.yaml",
-            "route-decisions.sqlite3",
-            "task_input_sha256",
-            "execution_disposition",
-            "requires_live_dependencies",
-            "retired non-live",
-            "historical discovery evidence only",
-        ):
-            self.assertIn(required, skill)
-
-        wrapper = WRAPPER_PATH.read_text(encoding="utf-8")
-        for required in (
-            "TaskInputPath",
-            "CODEX_HOME",
-            "capability_index_cli.py",
-            "--task-input-json",
-            "ExecutionDisposition",
-            "EligibleWorkerFamily",
-            "BacklogOnly",
-        ):
-            self.assertIn(required, wrapper)
-        self.assertNotIn(
-            "Select-String -LiteralPath $Catalogue -Pattern $Query", wrapper
-        )
-
-    def test_wrapper_forwards_complete_task_gate_input_to_canonical_cli(self) -> None:
-        completed = self._run_wrapper(
-            "-Query",
-            "synthetic wrapper routing",
-            "-TaskInputPath",
-            str(self.task_input_path),
-            "-Json",
-            "-ProjectId",
-            "sample_project",
-            "-Cwd",
-            str(self.workspace),
-            "-TaskType",
-            "review",
-            "-Complexity",
-            "high",
-            "-SourceNeed",
-            "index",
-            "-SourceScope",
-            "sample_project",
-            "-ClassificationFlag",
-            "synthetic_review",
-            "-ExecutionDisposition",
-            "codex_only",
-            "-ExactEvidence",
-            "-MemoryMode",
-            "none",
-            "-PersistenceIntent",
-            "none",
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        forwarded = json.loads(completed.stdout)["argv"]
-        expected_pairs = {
-            "--query": "synthetic wrapper routing",
-            "--task-input-json": str(self.task_input_path),
-            "--project-id": "sample_project",
-            "--cwd": str(self.workspace),
-            "--task-type": "review",
-            "--complexity": "high",
-            "--source-need": "index",
-            "--source-scope": "sample_project",
-            "--classification-flag": "synthetic_review",
-            "--execution-disposition": "codex_only",
-            "--memory-mode": "none",
-            "--persistence-intent": "none",
+        repository_hashes = provenance["repository_port_sha256"]
+        retired = {
+            ".agents/skills/catalogue-router/SKILL.md",
+            ".agents/skills/catalogue-router/scripts/query-catalogue.ps1",
         }
-        for option, value in expected_pairs.items():
-            position = forwarded.index(option)
-            self.assertEqual(forwarded[position + 1], value)
-        self.assertIn("--json", forwarded)
-        self.assertIn("--exact-evidence", forwarded)
+        historical_wrapper_test = "tests/test_catalogue_router_wrapper.py"
+        historical_wrapper_hash = "94570606f1432cc23c5a90a3b74650113951e80d710301a01f103c9fa24216db"
+        self.assertTrue(retired <= repository_hashes.keys())
+        self.assertIn(historical_wrapper_test, repository_hashes)
+        self.assertGreater(len(repository_hashes), len(retired) + 1)
+        for relative, expected in repository_hashes.items():
+            with self.subTest(path=relative):
+                if relative in retired:
+                    self.assertFalse((REPO_ROOT / relative).exists())
+                    self.assertRegex(expected, r"^[0-9a-f]{64}$")
+                elif relative == historical_wrapper_test:
+                    self.assertEqual(expected, historical_wrapper_hash)
+                    self.assertTrue((REPO_ROOT / relative).is_file())
+                else:
+                    path = (REPO_ROOT / relative).resolve(strict=True)
+                    self.assertTrue(path.is_relative_to(REPO_ROOT))
+                    self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
 
-    def test_wrapper_rejects_legacy_text_with_complete_task_input(self) -> None:
-        completed = self._run_wrapper(
-            "-Query",
-            "synthetic wrapper routing",
-            "-TaskInputPath",
-            str(self.task_input_path),
-            "-TaskText",
-            "legacy task text",
-        )
-        self.assertEqual(completed.returncode, 2)
-        self.assertIn("cannot be combined", completed.stderr)
+    def test_retired_skill_and_wrapper_are_absent(self) -> None:
+        self.assertFalse((REPO_ROOT / ".agents" / "skills" / "catalogue-router").exists())
 
-    def test_backlog_only_reads_router_owned_evidence_without_calling_cli(self) -> None:
-        completed = self._run_wrapper(
-            "-Query",
-            "Full external broad skill packs",
-            "-BacklogOnly",
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("Full external broad skill packs", completed.stdout)
-        self.assertNotIn('"argv"', completed.stdout)
+    def test_retired_skill_is_not_in_pack_or_install_bundle(self) -> None:
+        pack = json.loads((REPO_ROOT / "pack.manifest.json").read_text(encoding="utf-8"))
+        bundle = json.loads((REPO_ROOT / "install-bundle.manifest.json").read_text(encoding="utf-8"))
+        self.assertNotIn("catalogue-router", {item["name"] for item in pack["bundled_skills"]})
+        prefix = ".agents/skills/catalogue-router"
+        for entry in bundle["entries"]:
+            path = entry["path"].replace("\\", "/")
+            with self.subTest(path=path):
+                self.assertFalse(path == prefix or path.startswith(prefix + "/"))
 
 
 if __name__ == "__main__":
